@@ -4847,7 +4847,7 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 	switch p.String() {
 	case "$(env PATH)": return
 	}
-	if rxIgnoredChecks.MatchString(tx.String()) { return }
+	if tx != nil && rxIgnoredChecks.MatchString(tx.String()) { return }
 
 	source := try[string](ctx,source{})
 	src := strings.Split(source, ":")
@@ -4995,314 +4995,1902 @@ func check_string(ctx Context, v any) func(*Value, *string) {
 }
 
 var checkpoints_cmp = map[string]string{
-	`{=def --target} {=def -D} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def --target} {=def -I} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def --target} {=def -f.c++} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def --target} {=def -v.objc} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) -v.objc⇒-v -v -v -v -v -v
-	`{=def --target} {=def arflags} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def --target} {=def configure.builtins} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) configure.builtins=<nil>
-	`{=def --target} {=def configure.lib*} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) configure.lib*={}
-	`{=def --target} {=def configure.symbs} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) configure.symbs=<nil>
-	`{=def --target} {=def configure.vendor} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) configure.vendor='ExtBit LLC'
-	`{=def --target} {=def darwin~configure.features} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) darwin~configure.features=<nil>
-	`{=def --target} {=self app} []`:`smaller`, //cmp: --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) {=self app}
-	`{=def -D} {=def -f.c++} []`:`smaller`, //cmp: -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def -O.cl} {=def --target} []`:`greater`, //cmp: -O.cl⇒2 2 2 2 2 2 --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple)
-	`{=def -O.cl} {=def -D} []`:`greater`, //cmp: -O.cl⇒2 2 2 2 2 2 -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def -O.cl} {=def -I} []`:`greater`, //cmp: -O.cl⇒2 2 2 2 2 2 -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -O.cl} {=def -f.c++} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def -O.cl} {=def -v.objc++} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 -v.objc++⇒-v -v -v -v -v -v
-	`{=def -O.cl} {=def -v.objc} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 -v.objc⇒-v -v -v -v -v -v
-	`{=def -O.cl} {=def arflags} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def -O.cl} {=def configure.builtins} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 configure.builtins=<nil>
-	`{=def -O.cl} {=def configure.lib*} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 configure.lib*={}
-	`{=def -O.cl} {=def configure.symbs} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 configure.symbs=<nil>
-	`{=def -O.cl} {=def configure.vendor} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 configure.vendor='ExtBit LLC'
-	`{=def -O.cl} {=def darwin~configure.features} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 darwin~configure.features=<nil>
-	`{=def -O.cl} {=self app} []`:`smaller`, //cmp: -O.cl⇒2 2 2 2 2 2 {=self app}
-	`{=def -f.c++} {=def -I} []`:`greater`, //cmp: -f.c++⇒autolink autolink autolink autolink autolink autolink -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -no} {=def --target} []`:`greater`, //cmp: -no⇒stdinc++ --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple)
-	`{=def -no} {=def -D} []`:`greater`, //cmp: -no⇒stdinc++ -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def -no} {=def -I} []`:`greater`, //cmp: -no⇒stdinc++ -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -no} {=def -O.cl} []`:`greater`, //cmp: -no⇒stdinc++ -O.cl⇒2 2 2 2 2 2
-	`{=def -no} {=def -f.c++} []`:`greater`, //cmp: -no⇒stdinc++ -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def -no} {=def -v.objc++} []`:`smaller`, //cmp: -no⇒stdinc++ -v.objc++⇒-v -v -v -v -v -v
-	`{=def -no} {=def -v.objc} []`:`smaller`, //cmp: -no⇒stdinc++ -v.objc⇒-v -v -v -v -v -v
-	`{=def -no} {=def arflags} []`:`smaller`, //cmp: -no⇒stdinc++ arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def -no} {=def configure.builtins} []`:`smaller`, //cmp: -no⇒stdinc++ configure.builtins=<nil>
-	`{=def -no} {=def configure.lib*} []`:`smaller`, //cmp: -no⇒stdinc++ configure.lib*={}
-	`{=def -no} {=def configure.symbs} []`:`smaller`, //cmp: -no⇒stdinc++ configure.symbs=<nil>
-	`{=def -no} {=def configure.vendor} []`:`smaller`, //cmp: -no⇒stdinc++ configure.vendor='ExtBit LLC'
-	`{=def -no} {=def darwin~configure.features} []`:`smaller`, //cmp: -no⇒stdinc++ darwin~configure.features=<nil>
-	`{=def -no} {=def darwin~configure.structs} []`:`smaller`, //cmp: -no⇒stdinc++ darwin~configure.structs=<nil>
-	`{=def -no} {=self app} []`:`smaller`, //cmp: -no⇒stdinc++ {=self app}
-	`{=def -v.objc++} {=def --target} []`:`greater`, //cmp: -v.objc++⇒-v -v -v -v -v -v --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple)
-	`{=def -v.objc++} {=def -D} []`:`greater`, //cmp: -v.objc++⇒-v -v -v -v -v -v -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def -v.objc++} {=def -I} []`:`greater`, //cmp: -v.objc++⇒-v -v -v -v -v -v -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -v.objc++} {=def -f.c++} []`:`greater`, //cmp: -v.objc++⇒-v -v -v -v -v -v -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def -v.objc++} {=def -v.objc} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v -v.objc⇒-v -v -v -v -v -v
-	`{=def -v.objc++} {=def arflags} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def -v.objc++} {=def configure.builtins} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v configure.builtins=<nil>
-	`{=def -v.objc++} {=def configure.lib*} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v configure.lib*={}
-	`{=def -v.objc++} {=def configure.symbs} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v configure.symbs=<nil>
-	`{=def -v.objc++} {=def configure.vendor} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v configure.vendor='ExtBit LLC'
-	`{=def -v.objc++} {=def darwin~configure.features} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v darwin~configure.features=<nil>
-	`{=def -v.objc++} {=self app} []`:`smaller`, //cmp: -v.objc++⇒-v -v -v -v -v -v {=self app}
-	`{=def -v.objc} {=def -D} []`:`greater`, //cmp: -v.objc⇒-v -v -v -v -v -v -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def -v.objc} {=def -I} []`:`greater`, //cmp: -v.objc⇒-v -v -v -v -v -v -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -v.objc} {=def -f.c++} []`:`greater`, //cmp: -v.objc⇒-v -v -v -v -v -v -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def -v.objc} {=def arflags} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def -v.objc} {=def configure.builtins} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v configure.builtins=<nil>
-	`{=def -v.objc} {=def configure.lib*} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v configure.lib*={}
-	`{=def -v.objc} {=def configure.symbs} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v configure.symbs=<nil>
-	`{=def -v.objc} {=def configure.vendor} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v configure.vendor='ExtBit LLC'
-	`{=def -v.objc} {=def darwin~configure.features} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v darwin~configure.features=<nil>
-	`{=def -v.objc} {=self app} []`:`smaller`, //cmp: -v.objc⇒-v -v -v -v -v -v {=self app}
-	`{=def PACKAGE_NAME} {=def -L} []`:`greater`, //cmp: PACKAGE_NAME⇒'app' -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def PACKAGE_NAME} {=self app} []`:`smaller`, //cmp: PACKAGE_NAME⇒'app' {=self app}
-	`{=def arflags} {=def -D} []`:`greater`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def arflags} {=def -I} []`:`greater`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def arflags} {=def -f.c++} []`:`greater`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def arflags} {=def configure.builtins} []`:`smaller`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) configure.builtins=<nil>
-	`{=def arflags} {=def configure.lib*} []`:`smaller`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) configure.lib*={}
-	`{=def arflags} {=def configure.symbs} []`:`smaller`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) configure.symbs=<nil>
-	`{=def arflags} {=def configure.vendor} []`:`smaller`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) configure.vendor='ExtBit LLC'
-	`{=def arflags} {=def darwin~configure.features} []`:`smaller`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) darwin~configure.features=<nil>
-	`{=def arflags} {=self app} []`:`smaller`, //cmp: arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) {=self app}
-	`{=def configure.aligns} {=def --target} []`:`greater`, //cmp: configure.aligns=<nil> --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple)
-	`{=def configure.aligns} {=def -I} []`:`greater`, //cmp: configure.aligns=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.aligns} {=def -O.cl} []`:`greater`, //cmp: configure.aligns=<nil> -O.cl⇒2 2 2 2 2 2
-	`{=def configure.aligns} {=def -f.c++} []`:`greater`, //cmp: configure.aligns=<nil> -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.aligns} {=def -no} []`:`greater`, //cmp: configure.aligns=<nil> -no⇒stdinc++
-	`{=def configure.aligns} {=def -v.objc++} []`:`greater`, //cmp: configure.aligns=<nil> -v.objc++⇒-v -v -v -v -v -v
-	`{=def configure.aligns} {=def -v.objc} []`:`greater`, //cmp: configure.aligns=<nil> -v.objc⇒-v -v -v -v -v -v
-	`{=def configure.aligns} {=def arflags} []`:`greater`, //cmp: configure.aligns=<nil> arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def configure.aligns} {=def configure.builtins} []`:`smaller`, //cmp: configure.aligns=<nil> configure.builtins=<nil>
-	`{=def configure.aligns} {=def configure.lib*} []`:`smaller`, //cmp: configure.aligns=<nil> configure.lib*={}
-	`{=def configure.aligns} {=def configure.symbs} []`:`smaller`, //cmp: configure.aligns=<nil> configure.symbs=<nil>
-	`{=def configure.aligns} {=def configure.vendor} []`:`smaller`, //cmp: configure.aligns=<nil> configure.vendor='ExtBit LLC'
-	`{=def configure.aligns} {=def darwin~configure.features} []`:`smaller`, //cmp: configure.aligns=<nil> darwin~configure.features=<nil>
-	`{=def configure.aligns} {=def darwin~configure.structs} []`:`smaller`, //cmp: configure.aligns=<nil> darwin~configure.structs=<nil>
-	`{=def configure.aligns} {=self app} []`:`smaller`, //cmp: configure.aligns=<nil> {=self app}
-	`{=def configure.builtins} {=def -I} []`:`greater`, //cmp: configure.builtins=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.builtins} {=def -f.c++} []`:`greater`, //cmp: configure.builtins=<nil> -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.builtins} {=def configure.lib*} []`:`smaller`, //cmp: configure.builtins=<nil> configure.lib*={}
-	`{=def configure.builtins} {=def configure.symbs} []`:`smaller`, //cmp: configure.builtins=<nil> configure.symbs=<nil>
-	`{=def configure.builtins} {=self app} []`:`smaller`, //cmp: configure.builtins=<nil> {=self app}
-	`{=def configure.lib*} {=def -f.c++} []`:`greater`, //cmp: configure.lib*={} -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.lib*} {=self app} []`:`smaller`, //cmp: configure.lib*={} {=self app}
-	`{=def configure.symbs} {=def -D} []`:`greater`, //cmp: configure.symbs=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.symbs} {=def -I} []`:`greater`, //cmp: configure.symbs=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.symbs} {=def -f.c++} []`:`greater`, //cmp: configure.symbs=<nil> -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.symbs} {=def configure.lib*} []`:`greater`, //cmp: configure.symbs=<nil> configure.lib*={}
-	`{=def configure.symbs} {=self app} []`:`smaller`, //cmp: configure.symbs=<nil> {=self app}
-	`{=def configure.types} {=def --target} []`:`greater`, //cmp: configure.types=<nil> --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple)
-	`{=def configure.types} {=def -D} []`:`greater`, //cmp: configure.types=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.types} {=def -I} []`:`greater`, //cmp: configure.types=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.types} {=def -O.cl} []`:`greater`, //cmp: configure.types=<nil> -O.cl⇒2 2 2 2 2 2
-	`{=def configure.types} {=def -f.c++} []`:`greater`, //cmp: configure.types=<nil> -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.types} {=def -no} []`:`greater`, //cmp: configure.types=<nil> -no⇒stdinc++
-	`{=def configure.types} {=def -v.objc++} []`:`greater`, //cmp: configure.types=<nil> -v.objc++⇒-v -v -v -v -v -v
-	`{=def configure.types} {=def -v.objc} []`:`greater`, //cmp: configure.types=<nil> -v.objc⇒-v -v -v -v -v -v
-	`{=def configure.types} {=def arflags} []`:`greater`, //cmp: configure.types=<nil> arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def configure.types} {=def configure.aligns} []`:`greater`, //cmp: configure.types=<nil> configure.aligns=<nil>
-	`{=def configure.types} {=def configure.builtins} []`:`greater`, //cmp: configure.types=<nil> configure.builtins=<nil>
-	`{=def configure.types} {=def configure.lib*} []`:`greater`, //cmp: configure.types=<nil> configure.lib*={}
-	`{=def configure.types} {=def configure.symbs} []`:`greater`, //cmp: configure.types=<nil> configure.symbs=<nil>
-	`{=def configure.types} {=def configure.vendor} []`:`smaller`, //cmp: configure.types=<nil> configure.vendor='ExtBit LLC'
-	`{=def configure.types} {=def darwin~configure.features} []`:`smaller`, //cmp: configure.types=<nil> darwin~configure.features=<nil>
-	`{=def configure.types} {=def darwin~configure.structs} []`:`smaller`, //cmp: configure.types=<nil> darwin~configure.structs=<nil>
-	`{=def configure.types} {=self app} []`:`smaller`, //cmp: configure.types=<nil> {=self app}
-	`{=def configure.vendor} {=def -D} []`:`greater`, //cmp: configure.vendor='ExtBit LLC' -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.vendor} {=def -I} []`:`greater`, //cmp: configure.vendor='ExtBit LLC' -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.vendor} {=def -f.c++} []`:`greater`, //cmp: configure.vendor='ExtBit LLC' -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.vendor} {=def configure.builtins} []`:`greater`, //cmp: configure.vendor='ExtBit LLC' configure.builtins=<nil>
-	`{=def configure.vendor} {=def configure.lib*} []`:`greater`, //cmp: configure.vendor='ExtBit LLC' configure.lib*={}
-	`{=def configure.vendor} {=def configure.symbs} []`:`greater`, //cmp: configure.vendor='ExtBit LLC' configure.symbs=<nil>
-	`{=def configure.vendor} {=def darwin~configure.features} []`:`smaller`, //cmp: configure.vendor='ExtBit LLC' darwin~configure.features=<nil>
-	`{=def configure.vendor} {=self app} []`:`smaller`, //cmp: configure.vendor='ExtBit LLC' {=self app}
-	`{=def darwin~configure.features} {=def -D} []`:`greater`, //cmp: darwin~configure.features=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def darwin~configure.features} {=def -I} []`:`greater`, //cmp: darwin~configure.features=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def darwin~configure.features} {=def -f.c++} []`:`greater`, //cmp: darwin~configure.features=<nil> -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def darwin~configure.features} {=def configure.builtins} []`:`greater`, //cmp: darwin~configure.features=<nil> configure.builtins=<nil>
-	`{=def darwin~configure.features} {=def configure.lib*} []`:`greater`, //cmp: darwin~configure.features=<nil> configure.lib*={}
-	`{=def darwin~configure.features} {=def configure.symbs} []`:`greater`, //cmp: darwin~configure.features=<nil> configure.symbs=<nil>
-	`{=def darwin~configure.features} {=self app} []`:`smaller`, //cmp: darwin~configure.features=<nil> {=self app}
-	`{=def darwin~configure.structs} {=def --target} []`:`greater`, //cmp: darwin~configure.structs=<nil> --target⇒&(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple) &(target.triple)
-	`{=def darwin~configure.structs} {=def -D} []`:`greater`, //cmp: darwin~configure.structs=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def darwin~configure.structs} {=def -I} []`:`greater`, //cmp: darwin~configure.structs=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def darwin~configure.structs} {=def -O.cl} []`:`greater`, //cmp: darwin~configure.structs=<nil> -O.cl⇒2 2 2 2 2 2
-	`{=def darwin~configure.structs} {=def -f.c++} []`:`greater`, //cmp: darwin~configure.structs=<nil> -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=def darwin~configure.structs} {=def -v.objc++} []`:`greater`, //cmp: darwin~configure.structs=<nil> -v.objc++⇒-v -v -v -v -v -v
-	`{=def darwin~configure.structs} {=def -v.objc} []`:`greater`, //cmp: darwin~configure.structs=<nil> -v.objc⇒-v -v -v -v -v -v
-	`{=def darwin~configure.structs} {=def arflags} []`:`greater`, //cmp: darwin~configure.structs=<nil> arflags⇒crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags) crs $(.flag $1,arflags)
-	`{=def darwin~configure.structs} {=def configure.builtins} []`:`greater`, //cmp: darwin~configure.structs=<nil> configure.builtins=<nil>
-	`{=def darwin~configure.structs} {=def configure.lib*} []`:`greater`, //cmp: darwin~configure.structs=<nil> configure.lib*={}
-	`{=def darwin~configure.structs} {=def configure.symbs} []`:`greater`, //cmp: darwin~configure.structs=<nil> configure.symbs=<nil>
-	`{=def darwin~configure.structs} {=def configure.vendor} []`:`greater`, //cmp: darwin~configure.structs=<nil> configure.vendor='ExtBit LLC'
-	`{=def darwin~configure.structs} {=def darwin~configure.features} []`:`greater`, //cmp: darwin~configure.structs=<nil> darwin~configure.features=<nil>
-	`{=def darwin~configure.structs} {=self app} []`:`smaller`, //cmp: darwin~configure.structs=<nil> {=self app}
-	`{=def ldflags.program} {=def -L} []`:`greater`, //cmp: ldflags.program⇒&(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def ldflags.program} {=def PACKAGE_NAME} []`:`greater`, //cmp: ldflags.program⇒&(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) PACKAGE_NAME⇒'app'
-	`{=def ldflags.program} {=self app} []`:`smaller`, //cmp: ldflags.program⇒&(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) &(&(target.os)~ldflags.program) {=self app}
-	`{=delegate {=def --target}} {=delegate {=def -D}} []`:`smaller`, //cmp: $(--target) $(-D)
-	`{=delegate {=def --target}} {=delegate {=def -I}} []`:`smaller`, //cmp: $(--target) $(-I)
-	`{=delegate {=def --target}} {=delegate {=def -f.c++}} []`:`smaller`, //cmp: $(--target) $(-f.c++)
-	`{=delegate {=def --target}} {=delegate {=def -v.objc}} []`:`smaller`, //cmp: $(--target) $(-v.objc)
-	`{=delegate {=def --target}} {=delegate {=def arflags}} []`:`smaller`, //cmp: $(--target) $(arflags)
-	`{=delegate {=def --target}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(--target) $(configure.builtins)
-	`{=delegate {=def --target}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(--target) $(configure.lib*)
-	`{=delegate {=def --target}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(--target) $(configure.symbs)
-	`{=delegate {=def --target}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(--target) $(configure.vendor)
-	`{=delegate {=def --target}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(--target) $(darwin~configure.features)
-	`{=delegate {=def --target}} {=delegate {=self app}} []`:`smaller`, //cmp: $(--target) $({=self app})
-	`{=delegate {=def -D}} {=delegate {=def -f.c++}} []`:`smaller`, //cmp: $(-D) $(-f.c++)
-	`{=delegate {=def -O.cl}} {=delegate {=def --target}} []`:`greater`, //cmp: $(-O.cl) $(--target)
-	`{=delegate {=def -O.cl}} {=delegate {=def -D}} []`:`greater`, //cmp: $(-O.cl) $(-D)
-	`{=delegate {=def -O.cl}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-O.cl) $(-I)
-	`{=delegate {=def -O.cl}} {=delegate {=def -f.c++}} []`:`smaller`, //cmp: $(-O.cl) $(-f.c++)
-	`{=delegate {=def -O.cl}} {=delegate {=def -v.objc++}} []`:`smaller`, //cmp: $(-O.cl) $(-v.objc++)
-	`{=delegate {=def -O.cl}} {=delegate {=def -v.objc}} []`:`smaller`, //cmp: $(-O.cl) $(-v.objc)
-	`{=delegate {=def -O.cl}} {=delegate {=def arflags}} []`:`smaller`, //cmp: $(-O.cl) $(arflags)
-	`{=delegate {=def -O.cl}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(-O.cl) $(configure.builtins)
-	`{=delegate {=def -O.cl}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(-O.cl) $(configure.lib*)
-	`{=delegate {=def -O.cl}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(-O.cl) $(configure.symbs)
-	`{=delegate {=def -O.cl}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(-O.cl) $(configure.vendor)
-	`{=delegate {=def -O.cl}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-O.cl) $(darwin~configure.features)
-	`{=delegate {=def -O.cl}} {=delegate {=self app}} []`:`smaller`, //cmp: $(-O.cl) $({=self app})
-	`{=delegate {=def -f.c++}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-f.c++) $(-I)
-	`{=delegate {=def -no}} {=delegate {=def --target}} []`:`greater`, //cmp: $(-no) $(--target)
-	`{=delegate {=def -no}} {=delegate {=def -D}} []`:`greater`, //cmp: $(-no) $(-D)
-	`{=delegate {=def -no}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-no) $(-I)
-	`{=delegate {=def -no}} {=delegate {=def -O.cl}} []`:`greater`, //cmp: $(-no) $(-O.cl)
-	`{=delegate {=def -no}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(-no) $(-f.c++)
-	`{=delegate {=def -no}} {=delegate {=def -v.objc++}} []`:`smaller`, //cmp: $(-no) $(-v.objc++)
-	`{=delegate {=def -no}} {=delegate {=def -v.objc}} []`:`smaller`, //cmp: $(-no) $(-v.objc)
-	`{=delegate {=def -no}} {=delegate {=def arflags}} []`:`smaller`, //cmp: $(-no) $(arflags)
-	`{=delegate {=def -no}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(-no) $(configure.builtins)
-	`{=delegate {=def -no}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(-no) $(configure.lib*)
-	`{=delegate {=def -no}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(-no) $(configure.symbs)
-	`{=delegate {=def -no}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(-no) $(configure.vendor)
-	`{=delegate {=def -no}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-no) $(darwin~configure.features)
-	`{=delegate {=def -no}} {=delegate {=def darwin~configure.structs}} []`:`smaller`, //cmp: $(-no) $(darwin~configure.structs)
-	`{=delegate {=def -no}} {=delegate {=self app}} []`:`smaller`, //cmp: $(-no) $({=self app})
-	`{=delegate {=def -v.objc++}} {=delegate {=def --target}} []`:`greater`, //cmp: $(-v.objc++) $(--target)
-	`{=delegate {=def -v.objc++}} {=delegate {=def -D}} []`:`greater`, //cmp: $(-v.objc++) $(-D)
-	`{=delegate {=def -v.objc++}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-v.objc++) $(-I)
-	`{=delegate {=def -v.objc++}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(-v.objc++) $(-f.c++)
-	`{=delegate {=def -v.objc++}} {=delegate {=def -v.objc}} []`:`smaller`, //cmp: $(-v.objc++) $(-v.objc)
-	`{=delegate {=def -v.objc++}} {=delegate {=def arflags}} []`:`smaller`, //cmp: $(-v.objc++) $(arflags)
-	`{=delegate {=def -v.objc++}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(-v.objc++) $(configure.builtins)
-	`{=delegate {=def -v.objc++}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(-v.objc++) $(configure.lib*)
-	`{=delegate {=def -v.objc++}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(-v.objc++) $(configure.symbs)
-	`{=delegate {=def -v.objc++}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(-v.objc++) $(configure.vendor)
-	`{=delegate {=def -v.objc++}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-v.objc++) $(darwin~configure.features)
-	`{=delegate {=def -v.objc++}} {=delegate {=self app}} []`:`smaller`, //cmp: $(-v.objc++) $({=self app})
-	`{=delegate {=def -v.objc}} {=delegate {=def -D}} []`:`greater`, //cmp: $(-v.objc) $(-D)
-	`{=delegate {=def -v.objc}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-v.objc) $(-I)
-	`{=delegate {=def -v.objc}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(-v.objc) $(-f.c++)
-	`{=delegate {=def -v.objc}} {=delegate {=def arflags}} []`:`smaller`, //cmp: $(-v.objc) $(arflags)
-	`{=delegate {=def -v.objc}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(-v.objc) $(configure.builtins)
-	`{=delegate {=def -v.objc}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(-v.objc) $(configure.lib*)
-	`{=delegate {=def -v.objc}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(-v.objc) $(configure.symbs)
-	`{=delegate {=def -v.objc}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(-v.objc) $(configure.vendor)
-	`{=delegate {=def -v.objc}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-v.objc) $(darwin~configure.features)
-	`{=delegate {=def -v.objc}} {=delegate {=self app}} []`:`smaller`, //cmp: $(-v.objc) $({=self app})
-	`{=delegate {=def PACKAGE_NAME}} {=delegate {=def -L}} []`:`greater`, //cmp: $(PACKAGE_NAME) $(-L)
-	`{=delegate {=def PACKAGE_NAME}} {=delegate {=self app}} []`:`smaller`, //cmp: $(PACKAGE_NAME) $({=self app})
-	`{=delegate {=def arflags}} {=delegate {=def -D}} []`:`greater`, //cmp: $(arflags) $(-D)
-	`{=delegate {=def arflags}} {=delegate {=def -I}} []`:`greater`, //cmp: $(arflags) $(-I)
-	`{=delegate {=def arflags}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(arflags) $(-f.c++)
-	`{=delegate {=def arflags}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(arflags) $(configure.builtins)
-	`{=delegate {=def arflags}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(arflags) $(configure.lib*)
-	`{=delegate {=def arflags}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(arflags) $(configure.symbs)
-	`{=delegate {=def arflags}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(arflags) $(configure.vendor)
-	`{=delegate {=def arflags}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(arflags) $(darwin~configure.features)
-	`{=delegate {=def arflags}} {=delegate {=self app}} []`:`smaller`, //cmp: $(arflags) $({=self app})
-	`{=delegate {=def configure.aligns}} {=delegate {=def --target}} []`:`greater`, //cmp: $(configure.aligns) $(--target)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.aligns) $(-I)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -O.cl}} []`:`greater`, //cmp: $(configure.aligns) $(-O.cl)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(configure.aligns) $(-f.c++)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -no}} []`:`greater`, //cmp: $(configure.aligns) $(-no)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -v.objc++}} []`:`greater`, //cmp: $(configure.aligns) $(-v.objc++)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -v.objc}} []`:`greater`, //cmp: $(configure.aligns) $(-v.objc)
-	`{=delegate {=def configure.aligns}} {=delegate {=def arflags}} []`:`greater`, //cmp: $(configure.aligns) $(arflags)
-	`{=delegate {=def configure.aligns}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(configure.aligns) $(configure.builtins)
-	`{=delegate {=def configure.aligns}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(configure.aligns) $(configure.lib*)
-	`{=delegate {=def configure.aligns}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(configure.aligns) $(configure.symbs)
-	`{=delegate {=def configure.aligns}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(configure.aligns) $(configure.vendor)
-	`{=delegate {=def configure.aligns}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(configure.aligns) $(darwin~configure.features)
-	`{=delegate {=def configure.aligns}} {=delegate {=def darwin~configure.structs}} []`:`smaller`, //cmp: $(configure.aligns) $(darwin~configure.structs)
-	`{=delegate {=def configure.aligns}} {=delegate {=self app}} []`:`smaller`, //cmp: $(configure.aligns) $({=self app})
-	`{=delegate {=def configure.builtins}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.builtins) $(-I)
-	`{=delegate {=def configure.builtins}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(configure.builtins) $(-f.c++)
-	`{=delegate {=def configure.builtins}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(configure.builtins) $(configure.lib*)
-	`{=delegate {=def configure.builtins}} {=delegate {=def configure.symbs}} []`:`smaller`, //cmp: $(configure.builtins) $(configure.symbs)
-	`{=delegate {=def configure.builtins}} {=delegate {=self app}} []`:`smaller`, //cmp: $(configure.builtins) $({=self app})
-	`{=delegate {=def configure.lib*}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(configure.lib*) $(-f.c++)
-	`{=delegate {=def configure.lib*}} {=delegate {=self app}} []`:`smaller`, //cmp: $(configure.lib*) $({=self app})
-	`{=delegate {=def configure.symbs}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.symbs) $(-D)
-	`{=delegate {=def configure.symbs}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.symbs) $(-I)
-	`{=delegate {=def configure.symbs}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(configure.symbs) $(-f.c++)
-	`{=delegate {=def configure.symbs}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(configure.symbs) $(configure.lib*)
-	`{=delegate {=def configure.symbs}} {=delegate {=self app}} []`:`smaller`, //cmp: $(configure.symbs) $({=self app})
-	`{=delegate {=def configure.types}} {=delegate {=def --target}} []`:`greater`, //cmp: $(configure.types) $(--target)
-	`{=delegate {=def configure.types}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.types) $(-D)
-	`{=delegate {=def configure.types}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.types) $(-I)
-	`{=delegate {=def configure.types}} {=delegate {=def -O.cl}} []`:`greater`, //cmp: $(configure.types) $(-O.cl)
-	`{=delegate {=def configure.types}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(configure.types) $(-f.c++)
-	`{=delegate {=def configure.types}} {=delegate {=def -no}} []`:`greater`, //cmp: $(configure.types) $(-no)
-	`{=delegate {=def configure.types}} {=delegate {=def -v.objc++}} []`:`greater`, //cmp: $(configure.types) $(-v.objc++)
-	`{=delegate {=def configure.types}} {=delegate {=def -v.objc}} []`:`greater`, //cmp: $(configure.types) $(-v.objc)
-	`{=delegate {=def configure.types}} {=delegate {=def arflags}} []`:`greater`, //cmp: $(configure.types) $(arflags)
-	`{=delegate {=def configure.types}} {=delegate {=def configure.aligns}} []`:`greater`, //cmp: $(configure.types) $(configure.aligns)
-	`{=delegate {=def configure.types}} {=delegate {=def configure.builtins}} []`:`greater`, //cmp: $(configure.types) $(configure.builtins)
-	`{=delegate {=def configure.types}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(configure.types) $(configure.lib*)
-	`{=delegate {=def configure.types}} {=delegate {=def configure.symbs}} []`:`greater`, //cmp: $(configure.types) $(configure.symbs)
-	`{=delegate {=def configure.types}} {=delegate {=def configure.vendor}} []`:`smaller`, //cmp: $(configure.types) $(configure.vendor)
-	`{=delegate {=def configure.types}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(configure.types) $(darwin~configure.features)
-	`{=delegate {=def configure.types}} {=delegate {=def darwin~configure.structs}} []`:`smaller`, //cmp: $(configure.types) $(darwin~configure.structs)
-	`{=delegate {=def configure.types}} {=delegate {=self app}} []`:`smaller`, //cmp: $(configure.types) $({=self app})
-	`{=delegate {=def configure.vendor}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.vendor) $(-D)
-	`{=delegate {=def configure.vendor}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.vendor) $(-I)
-	`{=delegate {=def configure.vendor}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(configure.vendor) $(-f.c++)
-	`{=delegate {=def configure.vendor}} {=delegate {=def configure.builtins}} []`:`greater`, //cmp: $(configure.vendor) $(configure.builtins)
-	`{=delegate {=def configure.vendor}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(configure.vendor) $(configure.lib*)
-	`{=delegate {=def configure.vendor}} {=delegate {=def configure.symbs}} []`:`greater`, //cmp: $(configure.vendor) $(configure.symbs)
-	`{=delegate {=def configure.vendor}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(configure.vendor) $(darwin~configure.features)
-	`{=delegate {=def configure.vendor}} {=delegate {=self app}} []`:`smaller`, //cmp: $(configure.vendor) $({=self app})
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def -D}} []`:`greater`, //cmp: $(darwin~configure.features) $(-D)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def -I}} []`:`greater`, //cmp: $(darwin~configure.features) $(-I)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(darwin~configure.features) $(-f.c++)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def configure.builtins}} []`:`greater`, //cmp: $(darwin~configure.features) $(configure.builtins)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(darwin~configure.features) $(configure.lib*)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def configure.symbs}} []`:`greater`, //cmp: $(darwin~configure.features) $(configure.symbs)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=self app}} []`:`smaller`, //cmp: $(darwin~configure.features) $({=self app})
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def --target}} []`:`greater`, //cmp: $(darwin~configure.structs) $(--target)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def -D}} []`:`greater`, //cmp: $(darwin~configure.structs) $(-D)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def -I}} []`:`greater`, //cmp: $(darwin~configure.structs) $(-I)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def -O.cl}} []`:`greater`, //cmp: $(darwin~configure.structs) $(-O.cl)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $(darwin~configure.structs) $(-f.c++)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def -v.objc++}} []`:`greater`, //cmp: $(darwin~configure.structs) $(-v.objc++)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def -v.objc}} []`:`greater`, //cmp: $(darwin~configure.structs) $(-v.objc)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def arflags}} []`:`greater`, //cmp: $(darwin~configure.structs) $(arflags)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def configure.builtins}} []`:`greater`, //cmp: $(darwin~configure.structs) $(configure.builtins)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(darwin~configure.structs) $(configure.lib*)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def configure.symbs}} []`:`greater`, //cmp: $(darwin~configure.structs) $(configure.symbs)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def configure.vendor}} []`:`greater`, //cmp: $(darwin~configure.structs) $(configure.vendor)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=def darwin~configure.features}} []`:`greater`, //cmp: $(darwin~configure.structs) $(darwin~configure.features)
-	`{=delegate {=def darwin~configure.structs}} {=delegate {=self app}} []`:`smaller`, //cmp: $(darwin~configure.structs) $({=self app})
-	`{=delegate {=def ldflags.program}} {=delegate {=def -L}} []`:`greater`, //cmp: $(ldflags.program) $(-L)
-	`{=delegate {=def ldflags.program}} {=delegate {=def PACKAGE_NAME}} []`:`greater`, //cmp: $(ldflags.program) $(PACKAGE_NAME)
-	`{=delegate {=def ldflags.program}} {=delegate {=self app}} []`:`smaller`, //cmp: $(ldflags.program) $({=self app})
-	`{=delegate {=self app}} {=delegate {=def -D}} []`:`greater`, //cmp: $({=self app}) $(-D)
-	`{=delegate {=self app}} {=delegate {=def -I}} []`:`greater`, //cmp: $({=self app}) $(-I)
-	`{=delegate {=self app}} {=delegate {=def -L}} []`:`greater`, //cmp: $({=self app}) $(-L)
-	`{=delegate {=self app}} {=delegate {=def -f.c++}} []`:`greater`, //cmp: $({=self app}) $(-f.c++)
+	`[{=punct <} {=raw stdlib.h} {=punct >}] [{=delegate {=qualword {=compound {=delegate {=def target.os}} {=punct ~} {=word configure} {=}} {= {= {=word heads}}}}}] []`:`greater`, //cmp
+
+	`{=def -L} {=def -cxx-isystem} []`:`smaller`, //cmp
+	`{=def -L} {=def -l} []`:`smaller`, //cmp
+	`{=def -L} {=def -no.ld} []`:`smaller`, //cmp
+	`{=def -L} {=def -no} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_BUGREPORT} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_NAME} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def -L} {=def PACKAGE} []`:`smaller`, //cmp
+	`{=def -L} {=def VERSION} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.*} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.features} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.files} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.package} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.types} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def -L} {=def configure.version} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def -L} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def -L} {=project app.base} []`:`smaller`, //cmp
+	`{=def -L} {=project configure} []`:`smaller`, //cmp
+	`{=def -L} {=self app} []`:`smaller`, //cmp
+	`{=def -L} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def -L} []`:`greater`, //cmp
+	`{=def -cxx-isystem} {=def -l} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def -no.ld} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def -no} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_BUGREPORT} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_NAME} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def PACKAGE} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def VERSION} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.*} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.features} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.files} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.package} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.types} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def configure.version} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=project app.base} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=project configure} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=self app} []`:`smaller`, //cmp
+	`{=def -cxx-isystem} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def -l} {=def -L} []`:`greater`, //cmp
+	`{=def -l} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def -l} {=def -no.ld} []`:`smaller`, //cmp
+	`{=def -l} {=def -no} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_BUGREPORT} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_NAME} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def -l} {=def PACKAGE} []`:`smaller`, //cmp
+	`{=def -l} {=def VERSION} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.*} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.features} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.files} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.package} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.types} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def -l} {=def configure.version} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def -l} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def -l} {=project app.base} []`:`smaller`, //cmp
+	`{=def -l} {=project configure} []`:`smaller`, //cmp
+	`{=def -l} {=self app} []`:`smaller`, //cmp
+	`{=def -l} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def -L} []`:`greater`, //cmp
+	`{=def -no.ld} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def -no.ld} {=def -l} []`:`greater`, //cmp
+	`{=def -no.ld} {=def -no} []`:`rprefix`, //cmp
+	`{=def -no.ld} {=def PACKAGE_BUGREPORT} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE_NAME} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def PACKAGE} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def VERSION} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.*} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.features} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.files} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.package} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.types} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def configure.version} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def -no.ld} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def -no.ld} {=project app.base} []`:`smaller`, //cmp
+	`{=def -no.ld} {=project configure} []`:`smaller`, //cmp
+	`{=def -no.ld} {=self app} []`:`smaller`, //cmp
+	`{=def -no.ld} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def -no} {=def -L} []`:`greater`, //cmp
+	`{=def -no} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def -no} {=def -l} []`:`greater`, //cmp
+	`{=def -no} {=def -no.ld} []`:`lprefix`, //cmp
+	`{=def -no} {=def PACKAGE_BUGREPORT} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE_NAME} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def -no} {=def PACKAGE} []`:`smaller`, //cmp
+	`{=def -no} {=def VERSION} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.*} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.features} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.files} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.package} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.types} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def -no} {=def configure.version} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def -no} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def -no} {=project app.base} []`:`smaller`, //cmp
+	`{=def -no} {=project configure} []`:`smaller`, //cmp
+	`{=def -no} {=self app} []`:`smaller`, //cmp
+	`{=def -no} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_NAME} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_BUGREPORT} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_NAME} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_NAME} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_NAME} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_NAME} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE_STRING} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_NAME} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_NAME} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE_TARNAME} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_STRING} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_STRING} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE_URL} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_TARNAME} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_TARNAME} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_URL} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_URL} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE_VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_VENDOR} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_VENDOR} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def PACKAGE_VERSION} {=def PACKAGE} []`:`rprefix`, //cmp
+	`{=def PACKAGE_VERSION} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE_VERSION} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def -L} []`:`greater`, //cmp
+	`{=def PACKAGE} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def PACKAGE} {=def -l} []`:`greater`, //cmp
+	`{=def PACKAGE} {=def -no.ld} []`:`greater`, //cmp
+	`{=def PACKAGE} {=def -no} []`:`greater`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_BUGREPORT} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_NAME} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_STRING} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_TARNAME} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_URL} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_VENDOR} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def PACKAGE_VERSION} []`:`lprefix`, //cmp
+	`{=def PACKAGE} {=def VERSION} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.*} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.package} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def configure.version} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=project app.base} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=project configure} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=self app} []`:`smaller`, //cmp
+	`{=def PACKAGE} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def VERSION} {=def -L} []`:`greater`, //cmp
+	`{=def VERSION} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def VERSION} {=def -l} []`:`greater`, //cmp
+	`{=def VERSION} {=def -no.ld} []`:`greater`, //cmp
+	`{=def VERSION} {=def -no} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def VERSION} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def VERSION} {=def configure.*} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.features} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.files} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.package} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.types} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def VERSION} {=def configure.version} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def VERSION} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def VERSION} {=project app.base} []`:`smaller`, //cmp
+	`{=def VERSION} {=project configure} []`:`smaller`, //cmp
+	`{=def VERSION} {=self app} []`:`smaller`, //cmp
+	`{=def VERSION} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.*} {=def -L} []`:`greater`, //cmp
+	`{=def configure.*} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.*} {=def -l} []`:`greater`, //cmp
+	`{=def configure.*} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.*} {=def -no} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.*} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.*} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.*} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.features} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.files} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.*} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.*} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.*} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.*} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.*} {=self app} []`:`greater`, //cmp
+	`{=def configure.*} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def -L} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def -l} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def -no} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.aligns} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.features} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.files} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.aligns} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.aligns} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.aligns} {=self app} []`:`greater`, //cmp
+	`{=def configure.aligns} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def -L} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def -l} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def -no} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.builtins} {=def configure.features} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.files} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.builtins} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.builtins} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.builtins} {=self app} []`:`greater`, //cmp
+	`{=def configure.builtins} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.features} {=def -L} []`:`greater`, //cmp
+	`{=def configure.features} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.features} {=def -l} []`:`greater`, //cmp
+	`{=def configure.features} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.features} {=def -no} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.features} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.features} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.features} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.features} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.features} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.features} {=def configure.files} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.features} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.features} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.features} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.features} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.features} {=self app} []`:`greater`, //cmp
+	`{=def configure.features} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.files} {=def -L} []`:`greater`, //cmp
+	`{=def configure.files} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.files} {=def -l} []`:`greater`, //cmp
+	`{=def configure.files} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.files} {=def -no} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.files} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.files} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.files} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.files} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.files} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.files} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.files} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.files} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.files} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.files} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.files} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.files} {=self app} []`:`greater`, //cmp
+	`{=def configure.files} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.funcs.stdlib.h} {=qualword {=compound {=delegate {=def target.os}} {=punct ~} {=word configure} {=}} {= {= {=word funcs}}}} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def -L} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def -l} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def -no} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.funcs} {=def configure.heads} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.funcs} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.funcs} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.funcs} {=self app} []`:`greater`, //cmp
+	`{=def configure.funcs} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def -L} []`:`greater`, //cmp
+	`{=def configure.heads} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.heads} {=def -l} []`:`greater`, //cmp
+	`{=def configure.heads} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.heads} {=def -no} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.heads} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.heads} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.heads} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.heads} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.heads} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.heads} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.heads} {=self app} []`:`greater`, //cmp
+	`{=def configure.heads} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def -L} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def -l} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def -no} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.include.func.exit} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.include.func.exit} {=self app} []`:`greater`, //cmp
+	`{=def configure.include.func.exit} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def -L} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def -l} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def -no} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def configure.package} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.lib*} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.lib*} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.lib*} {=self app} []`:`greater`, //cmp
+	`{=def configure.lib*} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.package} {=def -L} []`:`greater`, //cmp
+	`{=def configure.package} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.package} {=def -l} []`:`greater`, //cmp
+	`{=def configure.package} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.package} {=def -no} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.package} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.package} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.package} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.package} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.package} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.package} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.package} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.package} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.package} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.package} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.package} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.package} {=self app} []`:`greater`, //cmp
+	`{=def configure.package} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def -L} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def -l} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def -no} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.package} []`:`greater`, //cmp
+	`{=def configure.sizes} {=def configure.structs} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.sizes} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.sizes} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.sizes} {=self app} []`:`greater`, //cmp
+	`{=def configure.sizes} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def -L} []`:`greater`, //cmp
+	`{=def configure.structs} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.structs} {=def -l} []`:`greater`, //cmp
+	`{=def configure.structs} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.structs} {=def -no} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.structs} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.structs} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.package} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def configure.structs} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.structs} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.structs} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.structs} {=self app} []`:`greater`, //cmp
+	`{=def configure.structs} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def -L} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def -l} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def -no} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.package} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.structs} []`:`greater`, //cmp
+	`{=def configure.symbs} {=def configure.types} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.symbs} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.symbs} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.symbs} {=self app} []`:`greater`, //cmp
+	`{=def configure.symbs} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.types} {=def -L} []`:`greater`, //cmp
+	`{=def configure.types} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.types} {=def -l} []`:`greater`, //cmp
+	`{=def configure.types} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.types} {=def -no} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.types} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.types} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.package} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.structs} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def configure.types} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=def configure.types} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.types} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.types} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.types} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.types} {=self app} []`:`greater`, //cmp
+	`{=def configure.types} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def -L} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def -l} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def -no} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.package} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.structs} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.types} []`:`greater`, //cmp
+	`{=def configure.vendor} {=def configure.version} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.vendor} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.vendor} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.vendor} {=self app} []`:`greater`, //cmp
+	`{=def configure.vendor} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def configure.version} {=def -L} []`:`greater`, //cmp
+	`{=def configure.version} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def configure.version} {=def -l} []`:`greater`, //cmp
+	`{=def configure.version} {=def -no.ld} []`:`greater`, //cmp
+	`{=def configure.version} {=def -no} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def configure.version} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def configure.version} {=def VERSION} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.*} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.features} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.files} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.heads} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.package} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.structs} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.types} []`:`greater`, //cmp
+	`{=def configure.version} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def configure.version} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def configure.version} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def configure.version} {=project app.base} []`:`greater`, //cmp
+	`{=def configure.version} {=project configure} []`:`rprefix`, //cmp
+	`{=def configure.version} {=self app} []`:`greater`, //cmp
+	`{=def configure.version} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.aligns} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.aligns} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.builtins} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.builtins} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.features} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.features} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.files} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.files} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.funcs} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.funcs} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.funcs} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.funcs} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.heads} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.heads} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.heads} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.heads} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.sizes} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.sizes} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.sizes} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.sizes} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.structs} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=def darwin~configure.structs} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.structs} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.structs} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.symbs} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=def darwin~configure.symbs} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.symbs} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=def darwin~configure.types} {=def -L} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def -l} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def -no.ld} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def -no} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def PACKAGE} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def VERSION} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.*} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.lib*} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.package} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.types} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.vendor} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def configure.version} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.funcs} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.heads} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.sizes} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.structs} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=def darwin~configure.symbs} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=project app.base} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=project configure} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=self app} []`:`greater`, //cmp
+	`{=def darwin~configure.types} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=project app.base} {=def -L} []`:`greater`, //cmp
+	`{=project app.base} {=def -O.cl} []`:`greater`, //cmp: {=project app.base} -O.cl⇒2 2 2 2 2 2
+	`{=project app.base} {=def -O.cuda} []`:`greater`, //cmp: {=project app.base} -O.cuda⇒2 2 2 2 2 2
+	`{=project app.base} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=project app.base} {=def -f} []`:`greater`, //cmp: {=project app.base} -f⇒PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) strict-aliasing unwind-tables visibility-inlines-hidden visibility-inlines-hidden
+	`{=project app.base} {=def -l} []`:`greater`, //cmp
+	`{=project app.base} {=def -no.ld} []`:`greater`, //cmp
+	`{=project app.base} {=def -no} []`:`greater`, //cmp: {=project app.base} -no⇒stdinc++ stdinc++
+	`{=project app.base} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=project app.base} {=def PACKAGE_NAME} []`:`greater`, //cmp: {=project app.base} PACKAGE_NAME⇒'app'
+	`{=project app.base} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=project app.base} {=def PACKAGE_TARNAME} []`:`greater`, //cmp: {=project app.base} PACKAGE_TARNAME⇒'app'-0.0.1
+	`{=project app.base} {=def PACKAGE_URL} []`:`greater`, //cmp: {=project app.base} PACKAGE_URL⇒https://extbit.dev/package/extbit.app/0.0.1
+	`{=project app.base} {=def PACKAGE_VENDOR} []`:`greater`, //cmp: {=project app.base} PACKAGE_VENDOR⇒'ExtBit LLC'
+	`{=project app.base} {=def PACKAGE_VERSION} []`:`greater`, //cmp: {=project app.base} PACKAGE_VERSION⇒0.0.1
+	`{=project app.base} {=def PACKAGE} []`:`greater`, //cmp
+	`{=project app.base} {=def VERSION} []`:`greater`, //cmp
+	`{=project app.base} {=def configure.*} []`:`smaller`, //cmp: {=project app.base} configure.*::=features builtins funcs files heads types symbs structs sizes aligns
+	`{=project app.base} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=project app.base} {=def configure.builtins} []`:`smaller`, //cmp: {=project app.base} configure.builtins=<nil>
+	`{=project app.base} {=def configure.features} []`:`smaller`, //cmp: {=project app.base} configure.features=<nil>
+	`{=project app.base} {=def configure.files} []`:`smaller`, //cmp: {=project app.base} configure.files=<nil>
+	`{=project app.base} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=project app.base} {=def configure.heads} []`:`smaller`, //cmp: {=project app.base} configure.heads=<stdlib.h>
+	`{=project app.base} {=def configure.include.func.exit} []`:`smaller`, //cmp: {=project app.base} configure.include.func.exit=<stdlib.h>
+	`{=project app.base} {=def configure.lib*} []`:`smaller`, //cmp: {=project app.base} configure.lib*={}
+	`{=project app.base} {=def configure.package} []`:`smaller`, //cmp
+	`{=project app.base} {=def configure.sizes} []`:`smaller`, //cmp: {=project app.base} configure.sizes=<nil>
+	`{=project app.base} {=def configure.structs} []`:`smaller`, //cmp: {=project app.base} configure.structs=<nil>
+	`{=project app.base} {=def configure.symbs} []`:`smaller`, //cmp: {=project app.base} configure.symbs=<nil>
+	`{=project app.base} {=def configure.types} []`:`smaller`, //cmp
+	`{=project app.base} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=project app.base} {=def configure.version} []`:`smaller`, //cmp: {=project app.base} configure.version::=0.0.1
+	`{=project app.base} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=project app.base} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=project app.base} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=project app.base} {=def darwin~configure.files} []`:`smaller`, //cmp: {=project app.base} darwin~configure.files=<nil>
+	`{=project app.base} {=def darwin~configure.funcs} []`:`smaller`, //cmp: {=project app.base} darwin~configure.funcs=<nil>
+	`{=project app.base} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=project app.base} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=project app.base} {=def darwin~configure.structs} []`:`smaller`, //cmp: {=project app.base} darwin~configure.structs=<nil>
+	`{=project app.base} {=def darwin~configure.symbs} []`:`smaller`, //cmp: {=project app.base} darwin~configure.symbs=<nil>
+	`{=project app.base} {=def darwin~configure.types} []`:`smaller`, //cmp: {=project app.base} darwin~configure.types=<nil>
+	`{=project app.base} {=def loadlibs} []`:`smaller`, //cmp: {=project app.base} loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
+	`{=project app.base} {=project configure} []`:`smaller`, //cmp
+	`{=project app.base} {=self app} []`:`rprefix`, //cmp
+	`{=project app.base} {=uselist lib.c++} []`:`smaller`, //cmp: {=project app.base} lib.c++
+	`{=project configure} {=def -L} []`:`greater`, //cmp: {=project configure} -L⇒/Volumes/workout/arm64&(target.sub)-apple-Darwin25.5.0-macho/bootstrap/lib/arm64&(target.sub)-apple-Darwin25.5.0-macho /Volumes/workout/arm64&(target.sub)-apple-Darwin25.5.0-macho/bootstrap/lib/arm64&(target.sub)-apple-Darwin25.5.0-macho /Volumes/workout/arm64&(target.sub)-apple-Darwin25.5.0-macho/bootstrap/lib/arm64&(target.sub)-apple-Darwin25.5.0-macho
+	`{=project configure} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=project configure} {=def -l} []`:`greater`, //cmp
+	`{=project configure} {=def -no.ld} []`:`greater`, //cmp
+	`{=project configure} {=def -no} []`:`greater`, //cmp: {=project configure} -no⇒stdinc++ stdinc++
+	`{=project configure} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=project configure} {=def PACKAGE_NAME} []`:`greater`, //cmp: {=project configure} PACKAGE_NAME⇒'app'
+	`{=project configure} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=project configure} {=def PACKAGE_TARNAME} []`:`greater`, //cmp: {=project configure} PACKAGE_TARNAME⇒'app'-0.0.1
+	`{=project configure} {=def PACKAGE_URL} []`:`greater`, //cmp: {=project configure} PACKAGE_URL⇒https://extbit.dev/package/extbit.app/0.0.1
+	`{=project configure} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=project configure} {=def PACKAGE} []`:`greater`, //cmp
+	`{=project configure} {=def VERSION} []`:`greater`, //cmp: {=project configure} VERSION⇒0.0.1
+	`{=project configure} {=def configure.*} []`:`lprefix`, //cmp
+	`{=project configure} {=def configure.aligns} []`:`lprefix`, //cmp
+	`{=project configure} {=def configure.builtins} []`:`lprefix`, //cmp: {=project configure} configure.builtins=<nil>
+	`{=project configure} {=def configure.features} []`:`lprefix`, //cmp: {=project configure} configure.features=<nil>
+	`{=project configure} {=def configure.files} []`:`lprefix`, //cmp: {=project configure} configure.files=<nil>
+	`{=project configure} {=def configure.funcs} []`:`lprefix`, //cmp
+	`{=project configure} {=def configure.heads} []`:`lprefix`, //cmp
+	`{=project configure} {=def configure.include.func.exit} []`:`lprefix`, //cmp
+	`{=project configure} {=def configure.lib*} []`:`lprefix`, //cmp: {=project configure} configure.lib*={}
+	`{=project configure} {=def configure.sizes} []`:`lprefix`, //cmp: {=project configure} configure.sizes=<nil>
+	`{=project configure} {=def configure.structs} []`:`lprefix`, //cmp: {=project configure} configure.structs=<nil>
+	`{=project configure} {=def configure.symbs} []`:`lprefix`, //cmp: {=project configure} configure.symbs=<nil>
+	`{=project configure} {=def configure.types} []`:`lprefix`, //cmp
+	`{=project configure} {=def configure.vendor} []`:`lprefix`, //cmp: {=project configure} configure.vendor='ExtBit LLC'
+	`{=project configure} {=def configure.version} []`:`lprefix`, //cmp: {=project configure} configure.version::=0.0.1
+	`{=project configure} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=project configure} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=project configure} {=def darwin~configure.funcs} []`:`smaller`, //cmp: {=project configure} darwin~configure.funcs=<nil>
+	`{=project configure} {=def darwin~configure.sizes} []`:`smaller`, //cmp: {=project configure} darwin~configure.sizes=<nil>
+	`{=project configure} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=project configure} {=def darwin~configure.symbs} []`:`smaller`, //cmp: {=project configure} darwin~configure.symbs=<nil>
+	`{=project configure} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=project configure} {=self app} []`:`greater`, //cmp
+	`{=project configure} {=uselist lib.c++} []`:`smaller`, //cmp: {=project configure} lib.c++
 	`{=self app} {=def -D} []`:`greater`, //cmp: {=self app} -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
 	`{=self app} {=def -I} []`:`greater`, //cmp: {=self app} -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
 	`{=self app} {=def -L} []`:`greater`, //cmp: {=self app} -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
+	`{=self app} {=def -cxx-isystem} []`:`greater`, //cmp
 	`{=self app} {=def -f.c++} []`:`greater`, //cmp: {=self app} -f.c++⇒autolink autolink autolink autolink autolink autolink
+	`{=self app} {=def -l} []`:`greater`, //cmp
+	`{=self app} {=def -no.ld} []`:`greater`, //cmp
+	`{=self app} {=def -no} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=self app} {=def PACKAGE} []`:`greater`, //cmp
+	`{=self app} {=def VERSION} []`:`greater`, //cmp
+	`{=self app} {=def configure.*} []`:`smaller`, //cmp
+	`{=self app} {=def configure.aligns} []`:`smaller`, //cmp
+	`{=self app} {=def configure.builtins} []`:`smaller`, //cmp
+	`{=self app} {=def configure.features} []`:`smaller`, //cmp
+	`{=self app} {=def configure.files} []`:`smaller`, //cmp
+	`{=self app} {=def configure.funcs} []`:`smaller`, //cmp
+	`{=self app} {=def configure.heads} []`:`smaller`, //cmp
+	`{=self app} {=def configure.include.func.exit} []`:`smaller`, //cmp
+	`{=self app} {=def configure.lib*} []`:`smaller`, //cmp
+	`{=self app} {=def configure.package} []`:`smaller`, //cmp
+	`{=self app} {=def configure.sizes} []`:`smaller`, //cmp
+	`{=self app} {=def configure.structs} []`:`smaller`, //cmp
+	`{=self app} {=def configure.symbs} []`:`smaller`, //cmp
+	`{=self app} {=def configure.types} []`:`smaller`, //cmp
+	`{=self app} {=def configure.vendor} []`:`smaller`, //cmp
+	`{=self app} {=def configure.version} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.builtins} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.features} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.files} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.funcs} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.heads} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.sizes} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.structs} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.symbs} []`:`smaller`, //cmp
+	`{=self app} {=def darwin~configure.types} []`:`smaller`, //cmp
+	`{=self app} {=project app.base} []`:`lprefix`, //cmp
+	`{=self app} {=project configure} []`:`smaller`, //cmp
+	`{=self app} {=uselist lib.c++} []`:`smaller`, //cmp
+	`{=uselist lib.c++} {=def -L} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def -cxx-isystem} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def -l} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def -no.ld} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def -no} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_BUGREPORT} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_NAME} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_STRING} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_TARNAME} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_URL} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_VENDOR} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def PACKAGE} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def VERSION} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.*} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.aligns} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.builtins} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.features} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.files} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.funcs} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.heads} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.include.func.exit} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.lib*} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.package} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.sizes} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.structs} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.symbs} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.types} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.vendor} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def configure.version} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.aligns} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.builtins} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.features} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.files} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.funcs} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.heads} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.sizes} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.structs} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.symbs} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=def darwin~configure.types} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=project app.base} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=project configure} []`:`greater`, //cmp
+	`{=uselist lib.c++} {=self app} []`:`greater`, //cmp
+	`{=def configure.lib*} {=def darwin~configure.aligns} []`:`smaller`, //cmp
+	`{=def configure.structs} {=def PACKAGE_VERSION} []`:`greater`, //cmp
+	`{=def -no.ld} {=def darwin~configure.aligns} []`:`smaller`, //cmp
 	
 	`[{= {= {= {= {=punct PROOT}}}}} {= {= {= {= {=raw Volumes}}}}} {= {= {= {= {=raw workspace}}}}} {= {= {=word external}}} {= {= {=compound {=word llvm} {=flag {=word project}}}}} {= {=word libcxx}} {=word src}] {= {= {= {=path {= {= {= {= {= {=punct PROOT}}}}}} {= {= {= {= {= {=raw Volumes}}}}}} {= {= {= {= {= {=raw workspace}}}}}} {= {= {= {=word external}}}} {= {= {= {=compound {=word llvm} {=flag {=word project}}}}}} {= {= {=word libcxx}}} {=word src}}}}} []`:`equal`, //cmp: [ Volumes workspace external llvm-project libcxx src] /Volumes/workspace/external/llvm-project/libcxx/src
 	`[{= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}] {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} []`:`equal`, //cmp: [Darwin 25.5.0] Darwin25.5.0
@@ -5663,529 +7251,6 @@ var checkpoints_cmp = map[string]string{
 	`{=compound {=word z} {=punct .} {=word h}} {= {=compound {=word z} {=punct .} {=word h}}} []`:`equal`, //cmp: z.h z.h
 	`{=decimal 0} {=decimal 0} []`:`equal`, //cmp: 0 0
 	`{=decimal 1} {=decimal 1} []`:`equal`, //cmp: 1 1
-	`{=def -D.cuda} {=def -I.objc++} []`:`smaller`, //cmp: -D.cuda⇒<nil> -I.objc++⇒<nil>
-	`{=def -D.cuda} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -D.cuda⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -D.cuda} {=def darwin~-no.swift} []`:`smaller`, //cmp: -D.cuda⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -D} {=def -I} []`:`smaller`, //cmp: -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -D} {=def -L} []`:`smaller`, //cmp: -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def -D} {=def -O.objc} []`:`smaller`, //cmp: -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI -O.objc⇒2 2 2 2 2 2
-	`{=def -I.objc++} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -I.objc++⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -I.objc++} {=def darwin~-no.swift} []`:`smaller`, //cmp: -I.objc++⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -O.c++} {=def -D} []`:`greater`, //cmp: -O.c++⇒2 2 2 2 2 2 -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def -O.c++} {=def -I} []`:`greater`, //cmp: -O.c++⇒2 2 2 2 2 2 -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -O.c++} {=def -O.objc} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 -O.objc⇒2 2 2 2 2 2
-	`{=def -O.c++} {=def -v.cl} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 -v.cl⇒-v -v -v -v -v -v
-	`{=def -O.c++} {=def clflags} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 clflags⇒$(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl)
-	`{=def -O.c++} {=def configure.*} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 configure.*::=features builtins funcs files heads types symbs structs sizes aligns
-	`{=def -O.c++} {=def configure.lib*} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 configure.lib*={}
-	`{=def -O.c++} {=def darwin~configure.funcs} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 darwin~configure.funcs=<nil>
-	`{=def -O.c++} {=def loadlibes} []`:`smaller`, //cmp: -O.c++⇒2 2 2 2 2 2 loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes)
-	`{=def -O.c} {=def ocflags} []`:`smaller`, //cmp: -O.c⇒2 2 2 2 2 2 ocflags⇒-ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc)
-	`{=def -O.objc} {=def -I} []`:`greater`, //cmp: -O.objc⇒2 2 2 2 2 2 -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def -O.objc} {=def -O.c++} []`:`greater`, //cmp: -O.objc⇒2 2 2 2 2 2 -O.c++⇒2 2 2 2 2 2
-	`{=def -O.objc} {=def -v.cl} []`:`smaller`, //cmp: -O.objc⇒2 2 2 2 2 2 -v.cl⇒-v -v -v -v -v -v
-	`{=def -O.objc} {=def clflags} []`:`smaller`, //cmp: -O.objc⇒2 2 2 2 2 2 clflags⇒$(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl)
-	`{=def -W.c} {=def -Werror} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=def -W.c} {=def -f.c} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration -f.c⇒autolink autolink autolink autolink autolink autolink
-	`{=def -W.c} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration PACKAGE_VENDOR⇒'ExtBit LLC'
-	`{=def -W.c} {=def cflags} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def -W.c} {=def configure.package} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration configure.package::=extbit.app
-	`{=def -W.c} {=def darwin~configure.features} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration darwin~configure.features=<nil>
-	`{=def -W.c} {=def darwin~configure.files} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration darwin~configure.files=<nil>
-	`{=def -W.c} {=def darwin~configure.heads} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration darwin~configure.heads=<nil>
-	`{=def -W.c} {=def loadlibs} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=def -W.c} {=project app.base} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration {=project app.base}
-	`{=def -W.c} {=project configure} []`:`smaller`, //cmp: -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration {=project configure}
-	`{=def -Werror} {=def -isystem} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time -isystem⇒&(outinc) &(outinc) &(outinc) &(outinc) &(outinc) &(outinc)
-	`{=def -Werror} {=def cflags} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def -Werror} {=def configure.package} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time configure.package::=extbit.app
-	`{=def -Werror} {=def darwin~configure.features} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time darwin~configure.features=<nil>
-	`{=def -Werror} {=def darwin~configure.heads} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time darwin~configure.heads=<nil>
-	`{=def -Werror} {=def loadlibs} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=def -Werror} {=project app.base} []`:`smaller`, //cmp: -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time {=project app.base}
-	`{=def -Wl.cl} {=def -I.objc++} []`:`greater`, //cmp: -Wl.cl⇒<nil> -I.objc++⇒<nil>
-	`{=def -Wl.cl} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -Wl.cl⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -Wl.cl} {=def darwin~-no.swift} []`:`smaller`, //cmp: -Wl.cl⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -W} {=def -O.c} []`:`greater`, //cmp: -W⇒attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) none'for bare -W flag' all cast-qual char-subscripts conversion covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra implicit-fallthrough mismatched-tags missing-braces missing-field-initializers newline-eof no-error no-gcc-compat no-gnu-include-next no-long-long no-noexcept-type no-sign-conversion no-unused-parameter non-virtual-dtor shadow shorten-64-to-32 sign-compare strict-aliasing=2 strict-overflow=4 string-conversion unused-function unused-parameter unused-variable write-strings all covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra extra-semi implicit-fallthrough missing-field-initializers no-gnu-include-next no-gcc-compat no-sign-conversion no-covered-switch-default no-error no-long-long no-noexcept-type no-unused-parameter no-user-defined-literals non-virtual-dtor string-conversion write-strings cast-qual -O.c⇒2 2 2 2 2 2
-	`{=def -W} {=def -v.c++} []`:`smaller`, //cmp: -W⇒attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) none'for bare -W flag' all cast-qual char-subscripts conversion covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra implicit-fallthrough mismatched-tags missing-braces missing-field-initializers newline-eof no-error no-gcc-compat no-gnu-include-next no-long-long no-noexcept-type no-sign-conversion no-unused-parameter non-virtual-dtor shadow shorten-64-to-32 sign-compare strict-aliasing=2 strict-overflow=4 string-conversion unused-function unused-parameter unused-variable write-strings all covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra extra-semi implicit-fallthrough missing-field-initializers no-gnu-include-next no-gcc-compat no-sign-conversion no-covered-switch-default no-error no-long-long no-noexcept-type no-unused-parameter no-user-defined-literals non-virtual-dtor string-conversion write-strings cast-qual -v.c++⇒-v -v -v -v -v -v
-	`{=def -W} {=def -v.cl} []`:`smaller`, //cmp: -W⇒attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) none'for bare -W flag' all cast-qual char-subscripts conversion covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra implicit-fallthrough mismatched-tags missing-braces missing-field-initializers newline-eof no-error no-gcc-compat no-gnu-include-next no-long-long no-noexcept-type no-sign-conversion no-unused-parameter non-virtual-dtor shadow shorten-64-to-32 sign-compare strict-aliasing=2 strict-overflow=4 string-conversion unused-function unused-parameter unused-variable write-strings all covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra extra-semi implicit-fallthrough missing-field-initializers no-gnu-include-next no-gcc-compat no-sign-conversion no-covered-switch-default no-error no-long-long no-noexcept-type no-unused-parameter no-user-defined-literals non-virtual-dtor string-conversion write-strings cast-qual -v.cl⇒-v -v -v -v -v -v
-	`{=def -W} {=def clflags} []`:`smaller`, //cmp: -W⇒attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) none'for bare -W flag' all cast-qual char-subscripts conversion covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra implicit-fallthrough mismatched-tags missing-braces missing-field-initializers newline-eof no-error no-gcc-compat no-gnu-include-next no-long-long no-noexcept-type no-sign-conversion no-unused-parameter non-virtual-dtor shadow shorten-64-to-32 sign-compare strict-aliasing=2 strict-overflow=4 string-conversion unused-function unused-parameter unused-variable write-strings all covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra extra-semi implicit-fallthrough missing-field-initializers no-gnu-include-next no-gcc-compat no-sign-conversion no-covered-switch-default no-error no-long-long no-noexcept-type no-unused-parameter no-user-defined-literals non-virtual-dtor string-conversion write-strings cast-qual clflags⇒$(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl)
-	`{=def -W} {=def ocflags} []`:`smaller`, //cmp: -W⇒attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) none'for bare -W flag' all cast-qual char-subscripts conversion covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra implicit-fallthrough mismatched-tags missing-braces missing-field-initializers newline-eof no-error no-gcc-compat no-gnu-include-next no-long-long no-noexcept-type no-sign-conversion no-unused-parameter non-virtual-dtor shadow shorten-64-to-32 sign-compare strict-aliasing=2 strict-overflow=4 string-conversion unused-function unused-parameter unused-variable write-strings all covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra extra-semi implicit-fallthrough missing-field-initializers no-gnu-include-next no-gcc-compat no-sign-conversion no-covered-switch-default no-error no-long-long no-noexcept-type no-unused-parameter no-user-defined-literals non-virtual-dtor string-conversion write-strings cast-qual ocflags⇒-ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc)
-	`{=def -W} {=project app.base} []`:`smaller`, //cmp: -W⇒attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) attributes implicit-fallthrough $(foreach(-unique) &(-Werror) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),error=$_) $(foreach(-unique) &(-Wno-error) &(&(target.os)~-Wno-error) $(foreach $1,&(-Wno-error.$_) &(&(target.os)~-Wno-error.$_)),no-error=$_) none'for bare -W flag' all cast-qual char-subscripts conversion covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra implicit-fallthrough mismatched-tags missing-braces missing-field-initializers newline-eof no-error no-gcc-compat no-gnu-include-next no-long-long no-noexcept-type no-sign-conversion no-unused-parameter non-virtual-dtor shadow shorten-64-to-32 sign-compare strict-aliasing=2 strict-overflow=4 string-conversion unused-function unused-parameter unused-variable write-strings all covered-switch-default delete-non-virtual-dtor error=date-time error=return-type error=unguarded-availability-new extra extra-semi implicit-fallthrough missing-field-initializers no-gnu-include-next no-gcc-compat no-sign-conversion no-covered-switch-default no-error no-long-long no-noexcept-type no-unused-parameter no-user-defined-literals non-virtual-dtor string-conversion write-strings cast-qual {=project app.base}
-	`{=def -cxx-isystem.cuda} {=def -I.objc++} []`:`greater`, //cmp: -cxx-isystem.cuda⇒<nil> -I.objc++⇒<nil>
-	`{=def -cxx-isystem.cuda} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -cxx-isystem.cuda⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -cxx-isystem.cuda} {=def darwin~-no.swift} []`:`smaller`, //cmp: -cxx-isystem.cuda⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -f.c} {=def -Werror} []`:`greater`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=def -f.c} {=def PACKAGE_VENDOR} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink PACKAGE_VENDOR⇒'ExtBit LLC'
-	`{=def -f.c} {=def cflags} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def -f.c} {=def configure.package} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink configure.package::=extbit.app
-	`{=def -f.c} {=def darwin~configure.features} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink darwin~configure.features=<nil>
-	`{=def -f.c} {=def darwin~configure.files} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink darwin~configure.files=<nil>
-	`{=def -f.c} {=def darwin~configure.heads} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink darwin~configure.heads=<nil>
-	`{=def -f.c} {=def loadlibs} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=def -f.c} {=project app.base} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink {=project app.base}
-	`{=def -f.c} {=project configure} []`:`smaller`, //cmp: -f.c⇒autolink autolink autolink autolink autolink autolink {=project configure}
-	`{=def -f.swift} {=def -I.objc++} []`:`greater`, //cmp: -f.swift⇒<nil> -I.objc++⇒<nil>
-	`{=def -f.swift} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -f.swift⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -f.swift} {=def darwin~-no.swift} []`:`smaller`, //cmp: -f.swift⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -f} {=def -I.objc++} []`:`greater`, //cmp: -f⇒PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) strict-aliasing unwind-tables visibility-inlines-hidden visibility-inlines-hidden -I.objc++⇒<nil>
-	`{=def -f} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -f⇒PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) strict-aliasing unwind-tables visibility-inlines-hidden visibility-inlines-hidden darwin~-Wl.c++⇒<nil>
-	`{=def -f} {=def darwin~-no.swift} []`:`smaller`, //cmp: -f⇒PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) strict-aliasing unwind-tables visibility-inlines-hidden visibility-inlines-hidden darwin~-no.swift⇒<nil>
-	`{=def -iframework.swift} {=def -I.objc++} []`:`greater`, //cmp: -iframework.swift⇒<nil> -I.objc++⇒<nil>
-	`{=def -iframework.swift} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -iframework.swift⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -iframework.swift} {=def darwin~-no.swift} []`:`smaller`, //cmp: -iframework.swift⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -isysroot.swift} {=def -I.objc++} []`:`greater`, //cmp: -isysroot.swift⇒<nil> -I.objc++⇒<nil>
-	`{=def -isysroot.swift} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -isysroot.swift⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -isysroot.swift} {=def darwin~-no.swift} []`:`smaller`, //cmp: -isysroot.swift⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def -v.c++} {=def -v.cl} []`:`smaller`, //cmp: -v.c++⇒-v -v -v -v -v -v -v.cl⇒-v -v -v -v -v -v
-	`{=def -v.c++} {=def clflags} []`:`smaller`, //cmp: -v.c++⇒-v -v -v -v -v -v clflags⇒$(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl)
-	`{=def -v.cl} {=def clflags} []`:`smaller`, //cmp: -v.cl⇒-v -v -v -v -v -v clflags⇒$(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl) $(.flags $1,cl)
-	`{=def -v} {=def -I.objc++} []`:`greater`, //cmp: -v⇒<nil> -I.objc++⇒<nil>
-	`{=def -v} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: -v⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def -v} {=def darwin~-no.swift} []`:`smaller`, //cmp: -v⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def PACKAGE_VENDOR} {=def -Werror} []`:`greater`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=def PACKAGE_VENDOR} {=def cflags} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def PACKAGE_VENDOR} {=def configure.package} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' configure.package::=extbit.app
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.features} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' darwin~configure.features=<nil>
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.files} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' darwin~configure.files=<nil>
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.heads} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' darwin~configure.heads=<nil>
-	`{=def PACKAGE_VENDOR} {=def loadlibs} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=def PACKAGE_VENDOR} {=project app.base} []`:`smaller`, //cmp: PACKAGE_VENDOR⇒'ExtBit LLC' {=project app.base}
-	`{=def PACKAGE} {=def -D} []`:`greater`, //cmp: PACKAGE⇒extbit.app -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def PACKAGE} {=def -L} []`:`greater`, //cmp: PACKAGE⇒extbit.app -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def PACKAGE} {=def configure.structs} []`:`smaller`, //cmp: PACKAGE⇒extbit.app configure.structs=<nil>
-	`{=def PACKAGE} {=def darwin~configure.symbs} []`:`smaller`, //cmp: PACKAGE⇒extbit.app darwin~configure.symbs=<nil>
-	`{=def VERSION} {=def -D} []`:`greater`, //cmp: VERSION⇒0.0.1 -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def VERSION} {=def -L} []`:`greater`, //cmp: VERSION⇒0.0.1 -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def VERSION} {=def PACKAGE} []`:`greater`, //cmp: VERSION⇒0.0.1 PACKAGE⇒extbit.app
-	`{=def VERSION} {=def configure.aligns} []`:`smaller`, //cmp: VERSION⇒0.0.1 configure.aligns=<nil>
-	`{=def VERSION} {=def configure.builtins} []`:`smaller`, //cmp: VERSION⇒0.0.1 configure.builtins=<nil>
-	`{=def VERSION} {=def configure.structs} []`:`smaller`, //cmp: VERSION⇒0.0.1 configure.structs=<nil>
-	`{=def VERSION} {=def darwin~configure.builtins} []`:`smaller`, //cmp: VERSION⇒0.0.1 darwin~configure.builtins=<nil>
-	`{=def VERSION} {=def darwin~configure.symbs} []`:`smaller`, //cmp: VERSION⇒0.0.1 darwin~configure.symbs=<nil>
-	`{=def VERSION} {=def ldflags.shared} []`:`smaller`, //cmp: VERSION⇒0.0.1 ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++
-	`{=def configure.*} {=def -D} []`:`greater`, //cmp: configure.*::=features builtins funcs files heads types symbs structs sizes aligns -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.*} {=def -I} []`:`greater`, //cmp: configure.*::=features builtins funcs files heads types symbs structs sizes aligns -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.*} {=def -O.objc} []`:`greater`, //cmp: configure.*::=features builtins funcs files heads types symbs structs sizes aligns -O.objc⇒2 2 2 2 2 2
-	`{=def configure.*} {=def configure.lib*} []`:`smaller`, //cmp: configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.lib*={}
-	`{=def configure.*} {=def darwin~configure.funcs} []`:`smaller`, //cmp: configure.*::=features builtins funcs files heads types symbs structs sizes aligns darwin~configure.funcs=<nil>
-	`{=def configure.aligns} {=def -D} []`:`greater`, //cmp: configure.aligns=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.aligns} {=def -L} []`:`greater`, //cmp: configure.aligns=<nil> -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def configure.aligns} {=def -Werror} []`:`greater`, //cmp: configure.aligns=<nil> -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=def configure.aligns} {=def -isystem} []`:`greater`, //cmp: configure.aligns=<nil> -isystem⇒&(outinc) &(outinc) &(outinc) &(outinc) &(outinc) &(outinc)
-	`{=def configure.aligns} {=def PACKAGE} []`:`greater`, //cmp: configure.aligns=<nil> PACKAGE⇒extbit.app
-	`{=def configure.aligns} {=def configure.structs} []`:`smaller`, //cmp: configure.aligns=<nil> configure.structs=<nil>
-	`{=def configure.aligns} {=def darwin~configure.symbs} []`:`smaller`, //cmp: configure.aligns=<nil> darwin~configure.symbs=<nil>
-	`{=def configure.aligns} {=def ldflags.shared} []`:`smaller`, //cmp: configure.aligns=<nil> ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++
-	`{=def configure.builtins} {=def -D} []`:`greater`, //cmp: configure.builtins=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.builtins} {=def -L} []`:`greater`, //cmp: configure.builtins=<nil> -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def configure.builtins} {=def PACKAGE} []`:`greater`, //cmp: configure.builtins=<nil> PACKAGE⇒extbit.app
-	`{=def configure.builtins} {=def configure.aligns} []`:`greater`, //cmp: configure.builtins=<nil> configure.aligns=<nil>
-	`{=def configure.builtins} {=def configure.structs} []`:`smaller`, //cmp: configure.builtins=<nil> configure.structs=<nil>
-	`{=def configure.builtins} {=def darwin~configure.symbs} []`:`smaller`, //cmp: configure.builtins=<nil> darwin~configure.symbs=<nil>
-	`{=def configure.builtins} {=def ldflags.shared} []`:`smaller`, //cmp: configure.builtins=<nil> ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++
-	`{=def configure.files} {=def -D} []`:`greater`, //cmp: configure.files=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.files} {=def -I} []`:`greater`, //cmp: configure.files=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.files} {=def -O.c++} []`:`greater`, //cmp: configure.files=<nil> -O.c++⇒2 2 2 2 2 2
-	`{=def configure.files} {=def -O.objc} []`:`greater`, //cmp: configure.files=<nil> -O.objc⇒2 2 2 2 2 2
-	`{=def configure.files} {=def configure.*} []`:`greater`, //cmp: configure.files=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns
-	`{=def configure.files} {=def configure.lib*} []`:`smaller`, //cmp: configure.files=<nil> configure.lib*={}
-	`{=def configure.files} {=def configure.sizes} []`:`smaller`, //cmp: configure.files=<nil> configure.sizes=<nil>
-	`{=def configure.files} {=def darwin~configure.funcs} []`:`smaller`, //cmp: configure.files=<nil> darwin~configure.funcs=<nil>
-	`{=def configure.files} {=def darwin~configure.symbs} []`:`smaller`, //cmp: configure.files=<nil> darwin~configure.symbs=<nil>
-	`{=def configure.files} {=def loadlibes} []`:`smaller`, //cmp: configure.files=<nil> loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes)
-	`{=def configure.include.func.exit} {=def -I.objc++} []`:`greater`, //cmp: configure.include.func.exit=<stdlib.h> -I.objc++⇒<nil>
-	`{=def configure.include.func.exit} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: configure.include.func.exit=<stdlib.h> darwin~-Wl.c++⇒<nil>
-	`{=def configure.include.func.exit} {=def darwin~-no.swift} []`:`smaller`, //cmp: configure.include.func.exit=<stdlib.h> darwin~-no.swift⇒<nil>
-	`{=def configure.lib*} {=def -D} []`:`greater`, //cmp: configure.lib*={} -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.lib*} {=def -I} []`:`greater`, //cmp: configure.lib*={} -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.lib*} {=def -O.objc} []`:`greater`, //cmp: configure.lib*={} -O.objc⇒2 2 2 2 2 2
-	`{=def configure.package} {=def cflags} []`:`greater`, //cmp: configure.package::=extbit.app cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def configure.package} {=def darwin~configure.features} []`:`smaller`, //cmp: configure.package::=extbit.app darwin~configure.features=<nil>
-	`{=def configure.package} {=def darwin~configure.heads} []`:`smaller`, //cmp: configure.package::=extbit.app darwin~configure.heads=<nil>
-	`{=def configure.package} {=project app.base} []`:`greater`, //cmp: configure.package::=extbit.app {=project app.base}
-	`{=def configure.sizes} {=def -D} []`:`greater`, //cmp: configure.sizes=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.sizes} {=def -I} []`:`greater`, //cmp: configure.sizes=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def configure.sizes} {=def -O.c++} []`:`greater`, //cmp: configure.sizes=<nil> -O.c++⇒2 2 2 2 2 2
-	`{=def configure.sizes} {=def -O.objc} []`:`greater`, //cmp: configure.sizes=<nil> -O.objc⇒2 2 2 2 2 2
-	`{=def configure.sizes} {=def configure.*} []`:`greater`, //cmp: configure.sizes=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns
-	`{=def configure.sizes} {=def configure.lib*} []`:`greater`, //cmp: configure.sizes=<nil> configure.lib*={}
-	`{=def configure.sizes} {=def darwin~configure.funcs} []`:`smaller`, //cmp: configure.sizes=<nil> darwin~configure.funcs=<nil>
-	`{=def configure.sizes} {=def loadlibes} []`:`smaller`, //cmp: configure.sizes=<nil> loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes)
-	`{=def configure.structs} {=def -D} []`:`greater`, //cmp: configure.structs=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def configure.structs} {=def -L} []`:`greater`, //cmp: configure.structs=<nil> -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def configure.symbs} {=def -W.c} []`:`greater`, //cmp: configure.symbs=<nil> -W.c⇒error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration error=implicit-function-declaration
-	`{=def configure.symbs} {=def -Werror} []`:`greater`, //cmp: configure.symbs=<nil> -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=def configure.symbs} {=def -f.c} []`:`greater`, //cmp: configure.symbs=<nil> -f.c⇒autolink autolink autolink autolink autolink autolink
-	`{=def configure.symbs} {=def PACKAGE_VENDOR} []`:`greater`, //cmp: configure.symbs=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'
-	`{=def configure.symbs} {=def cflags} []`:`greater`, //cmp: configure.symbs=<nil> cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def configure.symbs} {=def configure.package} []`:`greater`, //cmp: configure.symbs=<nil> configure.package::=extbit.app
-	`{=def configure.symbs} {=def darwin~configure.features} []`:`smaller`, //cmp: configure.symbs=<nil> darwin~configure.features=<nil>
-	`{=def configure.symbs} {=def darwin~configure.files} []`:`smaller`, //cmp: configure.symbs=<nil> darwin~configure.files=<nil>
-	`{=def configure.symbs} {=def darwin~configure.heads} []`:`smaller`, //cmp: configure.symbs=<nil> darwin~configure.heads=<nil>
-	`{=def configure.symbs} {=def loadlibs} []`:`smaller`, //cmp: configure.symbs=<nil> loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=def configure.symbs} {=project app.base} []`:`greater`, //cmp: configure.symbs=<nil> {=project app.base}
-	`{=def configure.symbs} {=project configure} []`:`rprefix`, //cmp: configure.symbs=<nil> {=project configure}
-	`{=def darwin~--sysroot.c++} {=def -I.objc++} []`:`greater`, //cmp: darwin~--sysroot.c++⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~--sysroot.c++} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: darwin~--sysroot.c++⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~--sysroot.c++} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~--sysroot.c++⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~--sysroot.cuda} {=def -I.objc++} []`:`greater`, //cmp: darwin~--sysroot.cuda⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~--sysroot.cuda} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: darwin~--sysroot.cuda⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~--sysroot.cuda} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~--sysroot.cuda⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-D.c} {=def -I.objc++} []`:`greater`, //cmp: darwin~-D.c⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-D.c} {=def darwin~-Wl.c++} []`:`smaller`, //cmp: darwin~-D.c⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-D.c} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-D.c⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-Wl.c++} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-Wl.c++⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-cxx-isystem.c} {=def -I.objc++} []`:`greater`, //cmp: darwin~-cxx-isystem.c⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-cxx-isystem.c} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-cxx-isystem.c⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-cxx-isystem.c} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-cxx-isystem.c⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-diagnostics.cuda} {=def -I.objc++} []`:`greater`, //cmp: darwin~-diagnostics.cuda⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-diagnostics.cuda} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-diagnostics.cuda⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-diagnostics.cuda} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-diagnostics.cuda⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-f.objc++} {=def -I.objc++} []`:`greater`, //cmp: darwin~-f.objc++⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-f.objc++} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-f.objc++⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-f.objc++} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-f.objc++⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-iframework.cuda} {=def -I.objc++} []`:`greater`, //cmp: darwin~-iframework.cuda⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-iframework.cuda} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-iframework.cuda⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-iframework.cuda} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-iframework.cuda⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-iframeworkwithsysroot.objc} {=def -I.objc++} []`:`greater`, //cmp: darwin~-iframeworkwithsysroot.objc⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-iframeworkwithsysroot.objc} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-iframeworkwithsysroot.objc⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-iframeworkwithsysroot.objc} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-iframeworkwithsysroot.objc⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-isystem.objc} {=def -I.objc++} []`:`greater`, //cmp: darwin~-isystem.objc⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-isystem.objc} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-isystem.objc⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-isystem.objc} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-isystem.objc⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-no.ld.objc++} {=def -I.objc++} []`:`greater`, //cmp: darwin~-no.ld.objc++⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-no.ld.objc++} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-no.ld.objc++⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-no.ld.objc++} {=def darwin~-no.swift} []`:`smaller`, //cmp: darwin~-no.ld.objc++⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~-v.objc++} {=def -I.objc++} []`:`greater`, //cmp: darwin~-v.objc++⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~-v.objc++} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~-v.objc++⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~-v.objc++} {=def darwin~-no.swift} []`:`greater`, //cmp: darwin~-v.objc++⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~configure.aligns} {=def -I.objc++} []`:`greater`, //cmp: darwin~configure.aligns=<nil> -I.objc++⇒<nil>
-	`{=def darwin~configure.aligns} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~configure.aligns=<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~configure.aligns} {=def darwin~-no.swift} []`:`greater`, //cmp: darwin~configure.aligns=<nil> darwin~-no.swift⇒<nil>
-	`{=def darwin~configure.builtins} {=def -D} []`:`greater`, //cmp: darwin~configure.builtins=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def darwin~configure.builtins} {=def -L} []`:`greater`, //cmp: darwin~configure.builtins=<nil> -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def darwin~configure.builtins} {=def PACKAGE} []`:`greater`, //cmp: darwin~configure.builtins=<nil> PACKAGE⇒extbit.app
-	`{=def darwin~configure.builtins} {=def configure.aligns} []`:`greater`, //cmp: darwin~configure.builtins=<nil> configure.aligns=<nil>
-	`{=def darwin~configure.builtins} {=def configure.builtins} []`:`greater`, //cmp: darwin~configure.builtins=<nil> configure.builtins=<nil>
-	`{=def darwin~configure.builtins} {=def configure.structs} []`:`greater`, //cmp: darwin~configure.builtins=<nil> configure.structs=<nil>
-	`{=def darwin~configure.builtins} {=def darwin~configure.symbs} []`:`smaller`, //cmp: darwin~configure.builtins=<nil> darwin~configure.symbs=<nil>
-	`{=def darwin~configure.builtins} {=def ldflags.shared} []`:`smaller`, //cmp: darwin~configure.builtins=<nil> ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++
-	`{=def darwin~configure.features} {=def cflags} []`:`greater`, //cmp: darwin~configure.features=<nil> cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def darwin~configure.features} {=def darwin~configure.heads} []`:`smaller`, //cmp: darwin~configure.features=<nil> darwin~configure.heads=<nil>
-	`{=def darwin~configure.features} {=project app.base} []`:`greater`, //cmp: darwin~configure.features=<nil> {=project app.base}
-	`{=def darwin~configure.files} {=def -Werror} []`:`greater`, //cmp: darwin~configure.files=<nil> -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=def darwin~configure.files} {=def cflags} []`:`greater`, //cmp: darwin~configure.files=<nil> cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def darwin~configure.files} {=def configure.package} []`:`greater`, //cmp: darwin~configure.files=<nil> configure.package::=extbit.app
-	`{=def darwin~configure.files} {=def darwin~configure.features} []`:`greater`, //cmp: darwin~configure.files=<nil> darwin~configure.features=<nil>
-	`{=def darwin~configure.files} {=def darwin~configure.heads} []`:`smaller`, //cmp: darwin~configure.files=<nil> darwin~configure.heads=<nil>
-	`{=def darwin~configure.files} {=def loadlibs} []`:`smaller`, //cmp: darwin~configure.files=<nil> loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=def darwin~configure.files} {=project app.base} []`:`greater`, //cmp: darwin~configure.files=<nil> {=project app.base}
-	`{=def darwin~configure.funcs} {=def -D} []`:`greater`, //cmp: darwin~configure.funcs=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def darwin~configure.funcs} {=def -I} []`:`greater`, //cmp: darwin~configure.funcs=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def darwin~configure.funcs} {=def -O.objc} []`:`greater`, //cmp: darwin~configure.funcs=<nil> -O.objc⇒2 2 2 2 2 2
-	`{=def darwin~configure.funcs} {=def configure.lib*} []`:`greater`, //cmp: darwin~configure.funcs=<nil> configure.lib*={}
-	`{=def darwin~configure.heads} {=def cflags} []`:`greater`, //cmp: darwin~configure.heads=<nil> cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def darwin~configure.heads} {=project app.base} []`:`greater`, //cmp: darwin~configure.heads=<nil> {=project app.base}
-	`{=def darwin~configure.symbs} {=def -D} []`:`greater`, //cmp: darwin~configure.symbs=<nil> -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def darwin~configure.symbs} {=def -I} []`:`greater`, //cmp: darwin~configure.symbs=<nil> -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def darwin~configure.symbs} {=def -L} []`:`greater`, //cmp: darwin~configure.symbs=<nil> -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def darwin~configure.symbs} {=def -O.c++} []`:`greater`, //cmp: darwin~configure.symbs=<nil> -O.c++⇒2 2 2 2 2 2
-	`{=def darwin~configure.symbs} {=def -O.objc} []`:`greater`, //cmp: darwin~configure.symbs=<nil> -O.objc⇒2 2 2 2 2 2
-	`{=def darwin~configure.symbs} {=def configure.*} []`:`greater`, //cmp: darwin~configure.symbs=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns
-	`{=def darwin~configure.symbs} {=def configure.lib*} []`:`greater`, //cmp: darwin~configure.symbs=<nil> configure.lib*={}
-	`{=def darwin~configure.symbs} {=def configure.sizes} []`:`greater`, //cmp: darwin~configure.symbs=<nil> configure.sizes=<nil>
-	`{=def darwin~configure.symbs} {=def configure.structs} []`:`greater`, //cmp: darwin~configure.symbs=<nil> configure.structs=<nil>
-	`{=def darwin~configure.symbs} {=def darwin~configure.funcs} []`:`greater`, //cmp: darwin~configure.symbs=<nil> darwin~configure.funcs=<nil>
-	`{=def darwin~configure.symbs} {=def loadlibes} []`:`smaller`, //cmp: darwin~configure.symbs=<nil> loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes)
-	`{=def darwin~ldflags} {=def -I.objc++} []`:`greater`, //cmp: darwin~ldflags⇒<nil> -I.objc++⇒<nil>
-	`{=def darwin~ldflags} {=def darwin~-Wl.c++} []`:`greater`, //cmp: darwin~ldflags⇒<nil> darwin~-Wl.c++⇒<nil>
-	`{=def darwin~ldflags} {=def darwin~-no.swift} []`:`greater`, //cmp: darwin~ldflags⇒<nil> darwin~-no.swift⇒<nil>
-	`{=def ldflags.shared} {=def -D} []`:`greater`, //cmp: ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++ -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def ldflags.shared} {=def -L} []`:`greater`, //cmp: ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++ -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=def ldflags.shared} {=def PACKAGE} []`:`greater`, //cmp: ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++ PACKAGE⇒extbit.app
-	`{=def ldflags.shared} {=def configure.structs} []`:`greater`, //cmp: ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++ configure.structs=<nil>
-	`{=def ldflags.shared} {=def darwin~configure.symbs} []`:`greater`, //cmp: ldflags.shared⇒&(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared &(&(target.os)~ldflags.shared) -shared -nostdlib++ darwin~configure.symbs=<nil>
-	`{=def loadlibes} {=def -D} []`:`greater`, //cmp: loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=def loadlibes} {=def -I} []`:`greater`, //cmp: loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=def loadlibes} {=def -O.objc} []`:`greater`, //cmp: loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) -O.objc⇒2 2 2 2 2 2
-	`{=def loadlibes} {=def configure.*} []`:`greater`, //cmp: loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) configure.*::=features builtins funcs files heads types symbs structs sizes aligns
-	`{=def loadlibes} {=def configure.lib*} []`:`greater`, //cmp: loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) configure.lib*={}
-	`{=def loadlibes} {=def darwin~configure.funcs} []`:`greater`, //cmp: loadlibes⇒$(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) $(.flag $1,loadlibes) darwin~configure.funcs=<nil>
-	`{=def loadlibs} {=def cflags} []`:`greater`, //cmp: loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=def loadlibs} {=def configure.package} []`:`greater`, //cmp: loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) configure.package::=extbit.app
-	`{=def loadlibs} {=def darwin~configure.features} []`:`greater`, //cmp: loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) darwin~configure.features=<nil>
-	`{=def loadlibs} {=def darwin~configure.heads} []`:`greater`, //cmp: loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) darwin~configure.heads=<nil>
-	`{=def loadlibs} {=project app.base} []`:`greater`, //cmp: loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) {=project app.base}
-	`{=delegate {=def -D.cuda}} {=delegate {=def -I.objc++}} []`:`smaller`, //cmp: $(-D.cuda) $(-I.objc++)
-	`{=delegate {=def -D.cuda}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-D.cuda) $(darwin~-Wl.c++)
-	`{=delegate {=def -D.cuda}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-D.cuda) $(darwin~-no.swift)
-	`{=delegate {=def -D}} {=delegate {=def -I}} []`:`smaller`, //cmp: $(-D) $(-I)
-	`{=delegate {=def -D}} {=delegate {=def -L}} []`:`smaller`, //cmp: $(-D) $(-L)
-	`{=delegate {=def -D}} {=delegate {=def -O.objc}} []`:`smaller`, //cmp: $(-D) $(-O.objc)
-	`{=delegate {=def -I.objc++}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-I.objc++) $(darwin~-Wl.c++)
-	`{=delegate {=def -I.objc++}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-I.objc++) $(darwin~-no.swift)
-	`{=delegate {=def -O.c++}} {=delegate {=def -D}} []`:`greater`, //cmp: $(-O.c++) $(-D)
-	`{=delegate {=def -O.c++}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-O.c++) $(-I)
-	`{=delegate {=def -O.c++}} {=delegate {=def -O.objc}} []`:`smaller`, //cmp: $(-O.c++) $(-O.objc)
-	`{=delegate {=def -O.c++}} {=delegate {=def -v.cl}} []`:`smaller`, //cmp: $(-O.c++) $(-v.cl)
-	`{=delegate {=def -O.c++}} {=delegate {=def clflags}} []`:`smaller`, //cmp: $(-O.c++) $(clflags)
-	`{=delegate {=def -O.c++}} {=delegate {=def configure.*}} []`:`smaller`, //cmp: $(-O.c++) $(configure.*)
-	`{=delegate {=def -O.c++}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(-O.c++) $(configure.lib*)
-	`{=delegate {=def -O.c++}} {=delegate {=def darwin~configure.funcs}} []`:`smaller`, //cmp: $(-O.c++) $(darwin~configure.funcs)
-	`{=delegate {=def -O.c++}} {=delegate {=def loadlibes}} []`:`smaller`, //cmp: $(-O.c++) $(loadlibes)
-	`{=delegate {=def -O.c}} {=delegate {=def ocflags}} []`:`smaller`, //cmp: $(-O.c) $(ocflags)
-	`{=delegate {=def -O.objc}} {=delegate {=def -I}} []`:`greater`, //cmp: $(-O.objc) $(-I)
-	`{=delegate {=def -O.objc}} {=delegate {=def -O.c++}} []`:`greater`, //cmp: $(-O.objc) $(-O.c++)
-	`{=delegate {=def -O.objc}} {=delegate {=def -v.cl}} []`:`smaller`, //cmp: $(-O.objc) $(-v.cl)
-	`{=delegate {=def -O.objc}} {=delegate {=def clflags}} []`:`smaller`, //cmp: $(-O.objc) $(clflags)
-	`{=delegate {=def -W.c}} {=delegate {=def -Werror}} []`:`smaller`, //cmp: $(-W.c) $(-Werror)
-	`{=delegate {=def -W.c}} {=delegate {=def -f.c}} []`:`smaller`, //cmp: $(-W.c) $(-f.c)
-	`{=delegate {=def -W.c}} {=delegate {=def PACKAGE_VENDOR}} []`:`smaller`, //cmp: $(-W.c) $(PACKAGE_VENDOR)
-	`{=delegate {=def -W.c}} {=delegate {=def cflags}} []`:`smaller`, //cmp: $(-W.c) $(cflags)
-	`{=delegate {=def -W.c}} {=delegate {=def configure.package}} []`:`smaller`, //cmp: $(-W.c) $(configure.package)
-	`{=delegate {=def -W.c}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-W.c) $(darwin~configure.features)
-	`{=delegate {=def -W.c}} {=delegate {=def darwin~configure.files}} []`:`smaller`, //cmp: $(-W.c) $(darwin~configure.files)
-	`{=delegate {=def -W.c}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(-W.c) $(darwin~configure.heads)
-	`{=delegate {=def -W.c}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $(-W.c) $(loadlibs)
-	`{=delegate {=def -W.c}} {=delegate {=project app.base}} []`:`smaller`, //cmp: $(-W.c) $({=project app.base})
-	`{=delegate {=def -W.c}} {=delegate {=project configure}} []`:`smaller`, //cmp: $(-W.c) $({=project configure})
-	`{=delegate {=def -Werror}} {=delegate {=def -isystem}} []`:`smaller`, //cmp: $(-Werror) $(-isystem)
-	`{=delegate {=def -Werror}} {=delegate {=def cflags}} []`:`smaller`, //cmp: $(-Werror) $(cflags)
-	`{=delegate {=def -Werror}} {=delegate {=def configure.package}} []`:`smaller`, //cmp: $(-Werror) $(configure.package)
-	`{=delegate {=def -Werror}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-Werror) $(darwin~configure.features)
-	`{=delegate {=def -Werror}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(-Werror) $(darwin~configure.heads)
-	`{=delegate {=def -Werror}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $(-Werror) $(loadlibs)
-	`{=delegate {=def -Werror}} {=delegate {=project app.base}} []`:`smaller`, //cmp: $(-Werror) $({=project app.base})
-	`{=delegate {=def -Wl.cl}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-Wl.cl) $(-I.objc++)
-	`{=delegate {=def -Wl.cl}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-Wl.cl) $(darwin~-Wl.c++)
-	`{=delegate {=def -Wl.cl}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-Wl.cl) $(darwin~-no.swift)
-	`{=delegate {=def -W}} {=delegate {=def -O.c}} []`:`greater`, //cmp: $(-W) $(-O.c)
-	`{=delegate {=def -W}} {=delegate {=def -v.c++}} []`:`smaller`, //cmp: $(-W) $(-v.c++)
-	`{=delegate {=def -W}} {=delegate {=def -v.cl}} []`:`smaller`, //cmp: $(-W) $(-v.cl)
-	`{=delegate {=def -W}} {=delegate {=def clflags}} []`:`smaller`, //cmp: $(-W) $(clflags)
-	`{=delegate {=def -W}} {=delegate {=def ocflags}} []`:`smaller`, //cmp: $(-W) $(ocflags)
-	`{=delegate {=def -W}} {=delegate {=project app.base}} []`:`smaller`, //cmp: $(-W) $({=project app.base})
-	`{=delegate {=def -cxx-isystem.cuda}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-cxx-isystem.cuda) $(-I.objc++)
-	`{=delegate {=def -cxx-isystem.cuda}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-cxx-isystem.cuda) $(darwin~-Wl.c++)
-	`{=delegate {=def -cxx-isystem.cuda}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-cxx-isystem.cuda) $(darwin~-no.swift)
-	`{=delegate {=def -f.c}} {=delegate {=def -Werror}} []`:`greater`, //cmp: $(-f.c) $(-Werror)
-	`{=delegate {=def -f.c}} {=delegate {=def PACKAGE_VENDOR}} []`:`smaller`, //cmp: $(-f.c) $(PACKAGE_VENDOR)
-	`{=delegate {=def -f.c}} {=delegate {=def cflags}} []`:`smaller`, //cmp: $(-f.c) $(cflags)
-	`{=delegate {=def -f.c}} {=delegate {=def configure.package}} []`:`smaller`, //cmp: $(-f.c) $(configure.package)
-	`{=delegate {=def -f.c}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(-f.c) $(darwin~configure.features)
-	`{=delegate {=def -f.c}} {=delegate {=def darwin~configure.files}} []`:`smaller`, //cmp: $(-f.c) $(darwin~configure.files)
-	`{=delegate {=def -f.c}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(-f.c) $(darwin~configure.heads)
-	`{=delegate {=def -f.c}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $(-f.c) $(loadlibs)
-	`{=delegate {=def -f.c}} {=delegate {=project app.base}} []`:`smaller`, //cmp: $(-f.c) $({=project app.base})
-	`{=delegate {=def -f.c}} {=delegate {=project configure}} []`:`smaller`, //cmp: $(-f.c) $({=project configure})
-	`{=delegate {=def -f.swift}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-f.swift) $(-I.objc++)
-	`{=delegate {=def -f.swift}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-f.swift) $(darwin~-Wl.c++)
-	`{=delegate {=def -f.swift}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-f.swift) $(darwin~-no.swift)
-	`{=delegate {=def -f}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-f) $(-I.objc++)
-	`{=delegate {=def -f}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-f) $(darwin~-Wl.c++)
-	`{=delegate {=def -f}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-f) $(darwin~-no.swift)
-	`{=delegate {=def -iframework.swift}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-iframework.swift) $(-I.objc++)
-	`{=delegate {=def -iframework.swift}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-iframework.swift) $(darwin~-Wl.c++)
-	`{=delegate {=def -iframework.swift}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-iframework.swift) $(darwin~-no.swift)
-	`{=delegate {=def -isysroot.swift}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-isysroot.swift) $(-I.objc++)
-	`{=delegate {=def -isysroot.swift}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-isysroot.swift) $(darwin~-Wl.c++)
-	`{=delegate {=def -isysroot.swift}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-isysroot.swift) $(darwin~-no.swift)
-	`{=delegate {=def -v.c++}} {=delegate {=def -v.cl}} []`:`smaller`, //cmp: $(-v.c++) $(-v.cl)
-	`{=delegate {=def -v.c++}} {=delegate {=def clflags}} []`:`smaller`, //cmp: $(-v.c++) $(clflags)
-	`{=delegate {=def -v.cl}} {=delegate {=def clflags}} []`:`smaller`, //cmp: $(-v.cl) $(clflags)
-	`{=delegate {=def -v}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(-v) $(-I.objc++)
-	`{=delegate {=def -v}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(-v) $(darwin~-Wl.c++)
-	`{=delegate {=def -v}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(-v) $(darwin~-no.swift)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def -Werror}} []`:`greater`, //cmp: $(PACKAGE_VENDOR) $(-Werror)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def cflags}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $(cflags)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def configure.package}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $(configure.package)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $(darwin~configure.features)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def darwin~configure.files}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $(darwin~configure.files)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $(darwin~configure.heads)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $(loadlibs)
-	`{=delegate {=def PACKAGE_VENDOR}} {=delegate {=project app.base}} []`:`smaller`, //cmp: $(PACKAGE_VENDOR) $({=project app.base})
-	`{=delegate {=def PACKAGE}} {=delegate {=def -D}} []`:`greater`, //cmp: $(PACKAGE) $(-D)
-	`{=delegate {=def PACKAGE}} {=delegate {=def -L}} []`:`greater`, //cmp: $(PACKAGE) $(-L)
-	`{=delegate {=def PACKAGE}} {=delegate {=def configure.structs}} []`:`smaller`, //cmp: $(PACKAGE) $(configure.structs)
-	`{=delegate {=def PACKAGE}} {=delegate {=def darwin~configure.symbs}} []`:`smaller`, //cmp: $(PACKAGE) $(darwin~configure.symbs)
-	`{=delegate {=def VERSION}} {=delegate {=def -D}} []`:`greater`, //cmp: $(VERSION) $(-D)
-	`{=delegate {=def VERSION}} {=delegate {=def -L}} []`:`greater`, //cmp: $(VERSION) $(-L)
-	`{=delegate {=def VERSION}} {=delegate {=def PACKAGE}} []`:`greater`, //cmp: $(VERSION) $(PACKAGE)
-	`{=delegate {=def VERSION}} {=delegate {=def configure.aligns}} []`:`smaller`, //cmp: $(VERSION) $(configure.aligns)
-	`{=delegate {=def VERSION}} {=delegate {=def configure.builtins}} []`:`smaller`, //cmp: $(VERSION) $(configure.builtins)
-	`{=delegate {=def VERSION}} {=delegate {=def configure.structs}} []`:`smaller`, //cmp: $(VERSION) $(configure.structs)
-	`{=delegate {=def VERSION}} {=delegate {=def darwin~configure.builtins}} []`:`smaller`, //cmp: $(VERSION) $(darwin~configure.builtins)
-	`{=delegate {=def VERSION}} {=delegate {=def darwin~configure.symbs}} []`:`smaller`, //cmp: $(VERSION) $(darwin~configure.symbs)
-	`{=delegate {=def VERSION}} {=delegate {=def ldflags.shared}} []`:`smaller`, //cmp: $(VERSION) $(ldflags.shared)
-	`{=delegate {=def configure.*}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.*) $(-D)
-	`{=delegate {=def configure.*}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.*) $(-I)
-	`{=delegate {=def configure.*}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(configure.*) $(-O.objc)
-	`{=delegate {=def configure.*}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(configure.*) $(configure.lib*)
-	`{=delegate {=def configure.*}} {=delegate {=def darwin~configure.funcs}} []`:`smaller`, //cmp: $(configure.*) $(darwin~configure.funcs)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.aligns) $(-D)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -L}} []`:`greater`, //cmp: $(configure.aligns) $(-L)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -Werror}} []`:`greater`, //cmp: $(configure.aligns) $(-Werror)
-	`{=delegate {=def configure.aligns}} {=delegate {=def -isystem}} []`:`greater`, //cmp: $(configure.aligns) $(-isystem)
-	`{=delegate {=def configure.aligns}} {=delegate {=def PACKAGE}} []`:`greater`, //cmp: $(configure.aligns) $(PACKAGE)
-	`{=delegate {=def configure.aligns}} {=delegate {=def configure.structs}} []`:`smaller`, //cmp: $(configure.aligns) $(configure.structs)
-	`{=delegate {=def configure.aligns}} {=delegate {=def darwin~configure.symbs}} []`:`smaller`, //cmp: $(configure.aligns) $(darwin~configure.symbs)
-	`{=delegate {=def configure.aligns}} {=delegate {=def ldflags.shared}} []`:`smaller`, //cmp: $(configure.aligns) $(ldflags.shared)
-	`{=delegate {=def configure.builtins}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.builtins) $(-D)
-	`{=delegate {=def configure.builtins}} {=delegate {=def -L}} []`:`greater`, //cmp: $(configure.builtins) $(-L)
-	`{=delegate {=def configure.builtins}} {=delegate {=def PACKAGE}} []`:`greater`, //cmp: $(configure.builtins) $(PACKAGE)
-	`{=delegate {=def configure.builtins}} {=delegate {=def configure.aligns}} []`:`greater`, //cmp: $(configure.builtins) $(configure.aligns)
-	`{=delegate {=def configure.builtins}} {=delegate {=def configure.structs}} []`:`smaller`, //cmp: $(configure.builtins) $(configure.structs)
-	`{=delegate {=def configure.builtins}} {=delegate {=def darwin~configure.symbs}} []`:`smaller`, //cmp: $(configure.builtins) $(darwin~configure.symbs)
-	`{=delegate {=def configure.builtins}} {=delegate {=def ldflags.shared}} []`:`smaller`, //cmp: $(configure.builtins) $(ldflags.shared)
-	`{=delegate {=def configure.files}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.files) $(-D)
-	`{=delegate {=def configure.files}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.files) $(-I)
-	`{=delegate {=def configure.files}} {=delegate {=def -O.c++}} []`:`greater`, //cmp: $(configure.files) $(-O.c++)
-	`{=delegate {=def configure.files}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(configure.files) $(-O.objc)
-	`{=delegate {=def configure.files}} {=delegate {=def configure.*}} []`:`greater`, //cmp: $(configure.files) $(configure.*)
-	`{=delegate {=def configure.files}} {=delegate {=def configure.lib*}} []`:`smaller`, //cmp: $(configure.files) $(configure.lib*)
-	`{=delegate {=def configure.files}} {=delegate {=def configure.sizes}} []`:`smaller`, //cmp: $(configure.files) $(configure.sizes)
-	`{=delegate {=def configure.files}} {=delegate {=def darwin~configure.funcs}} []`:`smaller`, //cmp: $(configure.files) $(darwin~configure.funcs)
-	`{=delegate {=def configure.files}} {=delegate {=def darwin~configure.symbs}} []`:`smaller`, //cmp: $(configure.files) $(darwin~configure.symbs)
-	`{=delegate {=def configure.files}} {=delegate {=def loadlibes}} []`:`smaller`, //cmp: $(configure.files) $(loadlibes)
-	`{=delegate {=def configure.include.func.exit}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(configure.include.func.exit) $(-I.objc++)
-	`{=delegate {=def configure.include.func.exit}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(configure.include.func.exit) $(darwin~-Wl.c++)
-	`{=delegate {=def configure.include.func.exit}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(configure.include.func.exit) $(darwin~-no.swift)
-	`{=delegate {=def configure.lib*}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.lib*) $(-D)
-	`{=delegate {=def configure.lib*}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.lib*) $(-I)
-	`{=delegate {=def configure.lib*}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(configure.lib*) $(-O.objc)
-	`{=delegate {=def configure.package}} {=delegate {=def cflags}} []`:`greater`, //cmp: $(configure.package) $(cflags)
-	`{=delegate {=def configure.package}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(configure.package) $(darwin~configure.features)
-	`{=delegate {=def configure.package}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(configure.package) $(darwin~configure.heads)
-	`{=delegate {=def configure.package}} {=delegate {=project app.base}} []`:`greater`, //cmp: $(configure.package) $({=project app.base})
-	`{=delegate {=def configure.sizes}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.sizes) $(-D)
-	`{=delegate {=def configure.sizes}} {=delegate {=def -I}} []`:`greater`, //cmp: $(configure.sizes) $(-I)
-	`{=delegate {=def configure.sizes}} {=delegate {=def -O.c++}} []`:`greater`, //cmp: $(configure.sizes) $(-O.c++)
-	`{=delegate {=def configure.sizes}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(configure.sizes) $(-O.objc)
-	`{=delegate {=def configure.sizes}} {=delegate {=def configure.*}} []`:`greater`, //cmp: $(configure.sizes) $(configure.*)
-	`{=delegate {=def configure.sizes}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(configure.sizes) $(configure.lib*)
-	`{=delegate {=def configure.sizes}} {=delegate {=def darwin~configure.funcs}} []`:`smaller`, //cmp: $(configure.sizes) $(darwin~configure.funcs)
-	`{=delegate {=def configure.sizes}} {=delegate {=def loadlibes}} []`:`smaller`, //cmp: $(configure.sizes) $(loadlibes)
-	`{=delegate {=def configure.structs}} {=delegate {=def -D}} []`:`greater`, //cmp: $(configure.structs) $(-D)
-	`{=delegate {=def configure.structs}} {=delegate {=def -L}} []`:`greater`, //cmp: $(configure.structs) $(-L)
-	`{=delegate {=def configure.symbs}} {=delegate {=def -W.c}} []`:`greater`, //cmp: $(configure.symbs) $(-W.c)
-	`{=delegate {=def configure.symbs}} {=delegate {=def -Werror}} []`:`greater`, //cmp: $(configure.symbs) $(-Werror)
-	`{=delegate {=def configure.symbs}} {=delegate {=def -f.c}} []`:`greater`, //cmp: $(configure.symbs) $(-f.c)
-	`{=delegate {=def configure.symbs}} {=delegate {=def PACKAGE_VENDOR}} []`:`greater`, //cmp: $(configure.symbs) $(PACKAGE_VENDOR)
-	`{=delegate {=def configure.symbs}} {=delegate {=def cflags}} []`:`greater`, //cmp: $(configure.symbs) $(cflags)
-	`{=delegate {=def configure.symbs}} {=delegate {=def configure.package}} []`:`greater`, //cmp: $(configure.symbs) $(configure.package)
-	`{=delegate {=def configure.symbs}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $(configure.symbs) $(darwin~configure.features)
-	`{=delegate {=def configure.symbs}} {=delegate {=def darwin~configure.files}} []`:`smaller`, //cmp: $(configure.symbs) $(darwin~configure.files)
-	`{=delegate {=def configure.symbs}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(configure.symbs) $(darwin~configure.heads)
-	`{=delegate {=def configure.symbs}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $(configure.symbs) $(loadlibs)
-	`{=delegate {=def configure.symbs}} {=delegate {=project app.base}} []`:`greater`, //cmp: $(configure.symbs) $({=project app.base})
-	`{=delegate {=def configure.symbs}} {=delegate {=project configure}} []`:`rprefix`, //cmp: $(configure.symbs) $({=project configure})
-	`{=delegate {=def darwin~--sysroot.c++}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~--sysroot.c++) $(-I.objc++)
-	`{=delegate {=def darwin~--sysroot.c++}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(darwin~--sysroot.c++) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~--sysroot.c++}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~--sysroot.c++) $(darwin~-no.swift)
-	`{=delegate {=def darwin~--sysroot.cuda}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~--sysroot.cuda) $(-I.objc++)
-	`{=delegate {=def darwin~--sysroot.cuda}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(darwin~--sysroot.cuda) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~--sysroot.cuda}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~--sysroot.cuda) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-D.c}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-D.c) $(-I.objc++)
-	`{=delegate {=def darwin~-D.c}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $(darwin~-D.c) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-D.c}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-D.c) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-Wl.c++}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-Wl.c++) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-cxx-isystem.c}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-cxx-isystem.c) $(-I.objc++)
-	`{=delegate {=def darwin~-cxx-isystem.c}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-cxx-isystem.c) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-cxx-isystem.c}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-cxx-isystem.c) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-diagnostics.cuda}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-diagnostics.cuda) $(-I.objc++)
-	`{=delegate {=def darwin~-diagnostics.cuda}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-diagnostics.cuda) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-diagnostics.cuda}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-diagnostics.cuda) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-f.objc++}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-f.objc++) $(-I.objc++)
-	`{=delegate {=def darwin~-f.objc++}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-f.objc++) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-f.objc++}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-f.objc++) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-iframework.cuda}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-iframework.cuda) $(-I.objc++)
-	`{=delegate {=def darwin~-iframework.cuda}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-iframework.cuda) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-iframework.cuda}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-iframework.cuda) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-iframeworkwithsysroot.objc}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-iframeworkwithsysroot.objc) $(-I.objc++)
-	`{=delegate {=def darwin~-iframeworkwithsysroot.objc}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-iframeworkwithsysroot.objc) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-iframeworkwithsysroot.objc}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-iframeworkwithsysroot.objc) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-isystem.objc}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-isystem.objc) $(-I.objc++)
-	`{=delegate {=def darwin~-isystem.objc}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-isystem.objc) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-isystem.objc}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-isystem.objc) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-no.ld.objc++}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-no.ld.objc++) $(-I.objc++)
-	`{=delegate {=def darwin~-no.ld.objc++}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-no.ld.objc++) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-no.ld.objc++}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $(darwin~-no.ld.objc++) $(darwin~-no.swift)
-	`{=delegate {=def darwin~-v.objc++}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~-v.objc++) $(-I.objc++)
-	`{=delegate {=def darwin~-v.objc++}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~-v.objc++) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~-v.objc++}} {=delegate {=def darwin~-no.swift}} []`:`greater`, //cmp: $(darwin~-v.objc++) $(darwin~-no.swift)
-	`{=delegate {=def darwin~configure.aligns}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~configure.aligns) $(-I.objc++)
-	`{=delegate {=def darwin~configure.aligns}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~configure.aligns) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~configure.aligns}} {=delegate {=def darwin~-no.swift}} []`:`greater`, //cmp: $(darwin~configure.aligns) $(darwin~-no.swift)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def -D}} []`:`greater`, //cmp: $(darwin~configure.builtins) $(-D)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def -L}} []`:`greater`, //cmp: $(darwin~configure.builtins) $(-L)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def PACKAGE}} []`:`greater`, //cmp: $(darwin~configure.builtins) $(PACKAGE)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def configure.aligns}} []`:`greater`, //cmp: $(darwin~configure.builtins) $(configure.aligns)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def configure.builtins}} []`:`greater`, //cmp: $(darwin~configure.builtins) $(configure.builtins)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def configure.structs}} []`:`greater`, //cmp: $(darwin~configure.builtins) $(configure.structs)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def darwin~configure.symbs}} []`:`smaller`, //cmp: $(darwin~configure.builtins) $(darwin~configure.symbs)
-	`{=delegate {=def darwin~configure.builtins}} {=delegate {=def ldflags.shared}} []`:`smaller`, //cmp: $(darwin~configure.builtins) $(ldflags.shared)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def cflags}} []`:`greater`, //cmp: $(darwin~configure.features) $(cflags)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(darwin~configure.features) $(darwin~configure.heads)
-	`{=delegate {=def darwin~configure.features}} {=delegate {=project app.base}} []`:`greater`, //cmp: $(darwin~configure.features) $({=project app.base})
-	`{=delegate {=def darwin~configure.files}} {=delegate {=def -Werror}} []`:`greater`, //cmp: $(darwin~configure.files) $(-Werror)
-	`{=delegate {=def darwin~configure.files}} {=delegate {=def cflags}} []`:`greater`, //cmp: $(darwin~configure.files) $(cflags)
-	`{=delegate {=def darwin~configure.files}} {=delegate {=def configure.package}} []`:`greater`, //cmp: $(darwin~configure.files) $(configure.package)
-	`{=delegate {=def darwin~configure.files}} {=delegate {=def darwin~configure.features}} []`:`greater`, //cmp: $(darwin~configure.files) $(darwin~configure.features)
-	`{=delegate {=def darwin~configure.files}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $(darwin~configure.files) $(darwin~configure.heads)
-	`{=delegate {=def darwin~configure.files}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $(darwin~configure.files) $(loadlibs)
-	`{=delegate {=def darwin~configure.files}} {=delegate {=project app.base}} []`:`greater`, //cmp: $(darwin~configure.files) $({=project app.base})
-	`{=delegate {=def darwin~configure.funcs}} {=delegate {=def -D}} []`:`greater`, //cmp: $(darwin~configure.funcs) $(-D)
-	`{=delegate {=def darwin~configure.funcs}} {=delegate {=def -I}} []`:`greater`, //cmp: $(darwin~configure.funcs) $(-I)
-	`{=delegate {=def darwin~configure.funcs}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(darwin~configure.funcs) $(-O.objc)
-	`{=delegate {=def darwin~configure.funcs}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(darwin~configure.funcs) $(configure.lib*)
-	`{=delegate {=def darwin~configure.heads}} {=delegate {=def cflags}} []`:`greater`, //cmp: $(darwin~configure.heads) $(cflags)
-	`{=delegate {=def darwin~configure.heads}} {=delegate {=project app.base}} []`:`greater`, //cmp: $(darwin~configure.heads) $({=project app.base})
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def -D}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(-D)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def -I}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(-I)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def -L}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(-L)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def -O.c++}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(-O.c++)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(-O.objc)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def configure.*}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(configure.*)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(configure.lib*)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def configure.sizes}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(configure.sizes)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def configure.structs}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(configure.structs)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def darwin~configure.funcs}} []`:`greater`, //cmp: $(darwin~configure.symbs) $(darwin~configure.funcs)
-	`{=delegate {=def darwin~configure.symbs}} {=delegate {=def loadlibes}} []`:`smaller`, //cmp: $(darwin~configure.symbs) $(loadlibes)
-	`{=delegate {=def darwin~ldflags}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $(darwin~ldflags) $(-I.objc++)
-	`{=delegate {=def darwin~ldflags}} {=delegate {=def darwin~-Wl.c++}} []`:`greater`, //cmp: $(darwin~ldflags) $(darwin~-Wl.c++)
-	`{=delegate {=def darwin~ldflags}} {=delegate {=def darwin~-no.swift}} []`:`greater`, //cmp: $(darwin~ldflags) $(darwin~-no.swift)
-	`{=delegate {=def ldflags.shared}} {=delegate {=def -D}} []`:`greater`, //cmp: $(ldflags.shared) $(-D)
-	`{=delegate {=def ldflags.shared}} {=delegate {=def -L}} []`:`greater`, //cmp: $(ldflags.shared) $(-L)
-	`{=delegate {=def ldflags.shared}} {=delegate {=def PACKAGE}} []`:`greater`, //cmp: $(ldflags.shared) $(PACKAGE)
-	`{=delegate {=def ldflags.shared}} {=delegate {=def configure.structs}} []`:`greater`, //cmp: $(ldflags.shared) $(configure.structs)
-	`{=delegate {=def ldflags.shared}} {=delegate {=def darwin~configure.symbs}} []`:`greater`, //cmp: $(ldflags.shared) $(darwin~configure.symbs)
-	`{=delegate {=def loadlibes}} {=delegate {=def -D}} []`:`greater`, //cmp: $(loadlibes) $(-D)
-	`{=delegate {=def loadlibes}} {=delegate {=def -I}} []`:`greater`, //cmp: $(loadlibes) $(-I)
-	`{=delegate {=def loadlibes}} {=delegate {=def -O.objc}} []`:`greater`, //cmp: $(loadlibes) $(-O.objc)
-	`{=delegate {=def loadlibes}} {=delegate {=def configure.*}} []`:`greater`, //cmp: $(loadlibes) $(configure.*)
-	`{=delegate {=def loadlibes}} {=delegate {=def configure.lib*}} []`:`greater`, //cmp: $(loadlibes) $(configure.lib*)
-	`{=delegate {=def loadlibes}} {=delegate {=def darwin~configure.funcs}} []`:`greater`, //cmp: $(loadlibes) $(darwin~configure.funcs)
-	`{=delegate {=def loadlibs}} {=delegate {=def cflags}} []`:`greater`, //cmp: $(loadlibs) $(cflags)
-	`{=delegate {=def loadlibs}} {=delegate {=def configure.package}} []`:`greater`, //cmp: $(loadlibs) $(configure.package)
-	`{=delegate {=def loadlibs}} {=delegate {=def darwin~configure.features}} []`:`greater`, //cmp: $(loadlibs) $(darwin~configure.features)
-	`{=delegate {=def loadlibs}} {=delegate {=def darwin~configure.heads}} []`:`greater`, //cmp: $(loadlibs) $(darwin~configure.heads)
-	`{=delegate {=def loadlibs}} {=delegate {=project app.base}} []`:`greater`, //cmp: $(loadlibs) $({=project app.base})
-	`{=delegate {=project app.base}} {=delegate {=def -O.c}} []`:`greater`, //cmp: $({=project app.base}) $(-O.c)
-	`{=delegate {=project app.base}} {=delegate {=def cflags}} []`:`smaller`, //cmp: $({=project app.base}) $(cflags)
-	`{=delegate {=project app.base}} {=delegate {=def ocflags}} []`:`smaller`, //cmp: $({=project app.base}) $(ocflags)
-	`{=delegate {=project configure}} {=delegate {=def -I.objc++}} []`:`greater`, //cmp: $({=project configure}) $(-I.objc++)
-	`{=delegate {=project configure}} {=delegate {=def -Werror}} []`:`greater`, //cmp: $({=project configure}) $(-Werror)
-	`{=delegate {=project configure}} {=delegate {=def PACKAGE_VENDOR}} []`:`greater`, //cmp: $({=project configure}) $(PACKAGE_VENDOR)
-	`{=delegate {=project configure}} {=delegate {=def cflags}} []`:`greater`, //cmp: $({=project configure}) $(cflags)
-	`{=delegate {=project configure}} {=delegate {=def configure.package}} []`:`lprefix`, //cmp: $({=project configure}) $(configure.package)
-	`{=delegate {=project configure}} {=delegate {=def darwin~-Wl.c++}} []`:`smaller`, //cmp: $({=project configure}) $(darwin~-Wl.c++)
-	`{=delegate {=project configure}} {=delegate {=def darwin~-no.swift}} []`:`smaller`, //cmp: $({=project configure}) $(darwin~-no.swift)
-	`{=delegate {=project configure}} {=delegate {=def darwin~configure.features}} []`:`smaller`, //cmp: $({=project configure}) $(darwin~configure.features)
-	`{=delegate {=project configure}} {=delegate {=def darwin~configure.files}} []`:`smaller`, //cmp: $({=project configure}) $(darwin~configure.files)
-	`{=delegate {=project configure}} {=delegate {=def darwin~configure.heads}} []`:`smaller`, //cmp: $({=project configure}) $(darwin~configure.heads)
-	`{=delegate {=project configure}} {=delegate {=def loadlibs}} []`:`smaller`, //cmp: $({=project configure}) $(loadlibs)
-	`{=delegate {=project configure}} {=delegate {=project app.base}} []`:`greater`, //cmp: $({=project configure}) $({=project app.base})
 	`{=file foo.txt} {=fullname {=file foo.txt}} []`:`equal`, //cmp: {=file foo.txt} {=file foo.txt}
 	`{=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}} {=string -x-y-z.o} []`:`equal`,
 	`{=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {= {= {=raw -x-y-z}}} []`:`equal`,
@@ -6573,6 +7638,17 @@ func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 		t := rxLC.ReplaceAllString(sf("%v", *_res), "=")
 
 		if v := checkpoints_cmp[k]; v == "" {
+			if d, ok := l.(*def); ok && strings.Contains(d.name, "use.") { return }
+			if d, ok := r.(*def); ok && strings.Contains(d.name, "use.") { return }
+			if d, ok := l.(*delegate); ok {
+				if d, ok := unbox(d.x).(*def); ok && strings.Contains(d.name, "use.") { return }
+				return
+			}
+			if d, ok := r.(*delegate); ok {
+				if d, ok := unbox(d.x).(*def); ok && strings.Contains(d.name, "use.") { return }
+				return
+			}
+
 			if p := _project(ctx); p != nil { switch {
 			case strings.HasSuffix(p.spec, ".smart/modules/lib/unwind"): return
 			case strings.HasSuffix(p.spec, ".smart/modules/lib/c++abi"): return
@@ -6580,14 +7656,15 @@ func check_cmp(ctx Context, l, r any, syn []bool) func(*cmpres) {
 			case strings.HasSuffix(p.spec, ".smart/modules/lib/c++"): return
 			}}
 			
-			if true { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r); flush(ctx) } else
+			if false { prompt(ctx, "	`%v`:`%v`, //cmp\n", k, t); flush(ctx) } else
+			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r); flush(ctx) } else
 			{ debug(pc(pc(ctx,r),l),
 				_f("`%v`:`%v`,", k, t),
 				_f("%s, %v", ts(l, ctx), l),
 				_f("%s, %v", ts(r, ctx), r),
 				callstack{stop:"smart.runcase"}, trace{}) }
 		} else if v != t {
-			if false { prompt(ctx, "`%v`:`%v`, // %v %v\n", k, t, l, r); flush(ctx) } else
+			if false { prompt(ctx, "	`%v`:`%v`, // %v %v\n", k, t, l, r); flush(ctx) } else
 			{ debug(pc(pc(ctx,r),l),
 				_f("`%s`", k),
 				_f("got: %s  <- cmp(%v, %v)", t, l, r),
@@ -8272,6 +9349,8 @@ var checkpoints_matchGlobComp = func(m map[string]any) map[string]any {
 	}
 	return m
 }(map[string]any{
+	"[<%>] [STDLIB_H] false":"false [] [STDLIB_H] [] 0 0 ILLEGAL",
+	"[<%.H>] [<STDLIB.H>] false":"true [<STDLIB.H>] [] [STDLIB] 1 1 ILLEGAL",
 	"[%.c++] [foo.c++] false":"true [foo.c++] [] [foo] 1 1 ILLEGAL",
 	"[%.c++] [foo.c] false":"false [] [foo.c] [] 0 0 **",
 	"[%.c++] [x.c++] false":"true [x.c++] [] [x] 1 1 ILLEGAL",
@@ -10874,6 +11953,7 @@ var checkpoints_uncache = map[string]string{
 	`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} /Volumes/workspace/.smart/modules/app/.autoload.declared`:`[]`,
 	`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} /Volumes/workspace/.smart/modules/app/.configure`:`[]`,
 	`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} /Volumes/workspace/.smart/modules/configure/.base/.template`:`[]`,
+	`{.:{configure:{**:{*:{.:{x:{0:.configure/**.x},o:{0:.configure/**.o},c:{0:.configure/**.c},c++:{0:.configure/**.c++},log:{0:.configure/**.log}}}}}}} *.c`:`[]`,
 	`{.:{configure:{**:{*:{.:{x:{0:.configure/**.x},o:{0:.configure/**.o},c:{0:.configure/**.c},c++:{0:.configure/**.c++},log:{0:.configure/**.log}}}}}}} /Volumes/workspace/.smart/modules/app/.autoload.declared`:`[]`,
 	`{.:{configure:{**:{*:{.:{x:{0:.configure/**.x},o:{0:.configure/**.o},c:{0:.configure/**.c},c++:{0:.configure/**.c++},log:{0:.configure/**.log}}}}}}} /Volumes/workspace/.smart/modules/app/.configure`:`[]`,
 	`{.:{configure:{**:{*:{.:{x:{0:.configure/**.x},o:{0:.configure/**.o},c:{0:.configure/**.c},c++:{0:.configure/**.c++},log:{0:.configure/**.log}}}}}}} /Volumes/workspace/.smart/modules/configure/.base/.template`:`[]`,

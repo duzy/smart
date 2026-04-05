@@ -1,0 +1,30717 @@
+//
+//  Copyright (C) 2012-2026, Duzy Chan <code@extbit.io>, all rights reserverd.
+//  Use of this source code is governed by a BSD-style license that can be
+//  found in the LICENSE file.
+//
+
+package smart
+
+import (
+    "bufio"
+    "sync"
+    "os/exec"
+	"bytes"
+	"context"
+	"encoding/base64"
+	enc_bin "encoding/binary"
+    enc_json "encoding/json"
+    enc_xml "encoding/xml"
+    // enc_csv "encoding/csv"
+    // enc_yaml "encoding/yaml"
+	gt "go/token"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"hash/fnv" // "hash/maphash"
+    "hash/crc64"
+	"io/fs"
+	"math"
+	neturl "net/url"
+	"path/filepath"
+    "plugin"
+	"reflect"
+	"regexp"
+	"runtime"
+    "runtime/pprof"
+	rt_debug "runtime/debug"
+	"strconv"
+	"strings"
+	"sort"
+	"slices"
+    "sync/atomic"
+    "syscall"
+	"time"
+	"unsafe"
+	"unicode"
+	"unicode/utf8"
+	"os"
+	"io"
+	"io/ioutil"
+	"net/http"
+)
+
+type hashbytes [sha256.Size]byte
+
+const escapedChars = "\"\r\n"
+
+const (
+    recursiveTraversalClosurePre = false
+    recursiveTraversalClosurePost = false
+    recursiveTraversalClosure = true
+)
+
+const (
+    enable_assertions   = true
+    enable_grep_bench   = true
+    traverseDetectLoops = true // turn on/off traverse loop detection
+)
+
+type cmpres int
+const (
+	cmpLprefix cmpres = -2 // L is smaller then R, and L is the prefix of R
+	cmpSmaller cmpres = -1 // L is smaller then R
+	cmpEqual   cmpres =  0 // L is equal to R
+	cmpGreater cmpres =  1 // L is greater than R
+	cmpRprefix cmpres =  2 // L is greater than R, and R is the prefix of L
+)
+func (n cmpres) String() string {
+    switch n {
+    case cmpLprefix: return "lprefix"
+    case cmpSmaller: return "smaller"
+    case cmpEqual:   return "equal"
+    case cmpGreater: return "greater"
+    case cmpRprefix: return "rprefix"
+    }
+    return "unknown"
+}
+
+type existence int
+const (
+    existenceMatterless existence = 1<<iota
+    existenceConfirmed
+    existenceNegated
+)
+func (n existence) String() (s string) {
+    switch n {
+    case existenceMatterless: s = "matterless"
+    case existenceConfirmed:  s = "confirmed"
+    case existenceNegated:    s = "negated"
+    }
+    return
+}
+
+type Kind uint64
+const (
+    KindUnclassified Kind = 0
+    KindUndef Kind = 1<<(iota-1)
+    KindDelegate
+    KindClosure
+    KindArgumented
+    KindReturner
+    KindNone
+    KindNull
+    KindEscaped
+    KindBoolean
+    KindFlag
+    KindAny
+    KindArray
+    KindGroup
+    KindList
+    KindPlainLine
+    KindPlain
+
+    KindInteger
+    KindBinary
+    KindOctal
+    KindDecimal
+    KindHexadecimal
+
+    KindFloat
+    KindRaw
+    KindStrLit
+    KindStrVal // aka intermediate strlit
+    KindWord
+    KindBarefile
+    KindStrcomp
+    KindDateTime
+    KindDate
+    KindTime
+
+    KindConjunction
+    KindDisjunction
+    KindPair
+    KindPath
+    KindPunct
+    KindQuote
+    KindUrl
+    KindCompound
+    KindGlobPat
+    KindRecipe
+
+    KindObject
+    KindKnownObject
+    KindUndetermined
+    KindSkipped
+    KindSelf
+    KindProject
+    KindBuiltin
+    KindAuto
+    KindDef
+    KindRule
+    KindStemmedRule
+
+    KindModifier
+    KindModification
+
+    KindValues
+    KindUse
+
+    KindNumber = KindBoolean|KindInteger|KindFloat
+    // TODO: KindObject = ...
+)
+
+func sortstrs(s []string) []string { sort.Strings(s) ; return s }
+func sf(f string, i ...any) string { return fmt.Sprintf(f, i...) }
+func ssf(ss []string, a ...any) (res []string) {
+    for _, s := range ss {
+		if strings.Contains(s, "%") { s = fmt.Sprintf(s, a...) }
+		res = append(res, s)
+	}
+    return
+}
+
+type origin_def struct{ name string }
+type get_origin struct{}
+type ex_def_0   struct{}
+type ex_def_1   struct{}
+type ex_def_2   struct{}
+type ex_def_3   struct{}
+type ex_closure struct{}
+
+// Original initiation of def values.
+type original struct{ Context ; o origin }
+func (c original) inner() Context { return c.Context }
+func (c original) cast(t reflect.Type) Context { return icast(c, t) }
+func (c original) do(ctx Context, op any) any {
+    switch t := op.(type) {
+    case get_origin  : return c.o
+    case     origin  : return c.o&t != 0
+    // case ex_????  : return c.o&(defExpand1|defExpand2|defExpand3) != 0
+    case ex_closure  : return c.o&(           defExpand2|defExpand3) != 0
+    case ex_def_0    : return c.o&(defExpand0) != 0
+    case ex_def_1    : return c.o&(defExpand1) != 0
+    case ex_def_2    : return c.o&(defExpand2) != 0
+    case ex_def_3    : return c.o&(defExpand3) != 0
+    }
+    return c.Context.do(ctx, op)
+}
+
+// Optimize value for final strings
+type final struct{ Context }
+func (c final) inner() Context { return c.Context }
+func (c final) cast(t reflect.Type) Context { return icast(c, t) }
+func (c final) do(ctx Context, op any) any {
+    switch op.(type) {
+    case ex_closure: return true
+    case final: return c
+    }
+    return c.Context.do(ctx, op)
+}
+func _final(ctx Context) Context {
+    c, y := do(ctx, final{}).(final)
+    if !y { c.Context = ctx }
+    return c
+}
+
+type ex_path_str struct{}
+type expandPathStr struct{ Context }
+func (c expandPathStr) cast(t reflect.Type) Context { return icast(c, t) }
+func (c expandPathStr) inner() Context { return c.Context }
+func (c expandPathStr) do(ctx Context, op any) any {
+    switch op.(type) {
+    case ex_path_str: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
+type reversal struct{ Context }
+func (c reversal) cast(t reflect.Type) Context { return icast(c, t) }
+func (c reversal) inner() Context { return c.Context }
+func (c reversal) do(ctx Context, op any) any {
+    switch t := op.(type) {
+    case property:
+        if t&propReversal != 0 { return true }
+    }
+    return c.Context.do(ctx, op)
+}
+
+type negate struct{ Context ; property }
+func (c negate) cast(t reflect.Type) Context { return icast(c, t) }
+func (c negate) inner() Context { return c.Context }
+func (c negate) do(ctx Context, op any) (_ any) {
+    if x, y := op.(property); y && x&c.property != 0 { return }
+    return c.Context.do(ctx, op)
+}
+
+// A comment node represents a single #-style comment.
+type comment struct{
+    pos Pos // position of "#" starting the comment
+    string // comment text (excluding '\n')
+}
+func (c *comment) String() string { return "{"+c.string+"}" }
+func (c *comment) Pos() Pos { return c.pos }
+
+// A commentgroup represents a sequence of comments
+// with no other tokens and no empty lines between.
+type commentgroup struct{ comments []*comment }
+func (g *commentgroup) Pos() Pos { return g.comments[0].pos }
+
+type statinfo struct{
+    file *file
+    next *statinfo
+}
+func (si *statinfo) mod() (res time.Time) {
+    for p := si; p != nil; p = p.next {
+        if p.file != nil && p.file.info != nil {
+            if t := p.file.info.ModTime(); t.After(res) { res = t }
+        }
+    }
+    return
+}
+func (si *statinfo) exists() (res existence) {
+    res = existenceMatterless
+    for p := si; p != nil; p = p.next {
+        if p.file != nil { // matterless is nil file
+            if p.file.exists() {
+                res = existenceConfirmed
+            } else {
+                res = existenceNegated
+                break
+            }
+        }
+    }
+    return
+}
+
+var traveTargetNotDefinedFile = fmt.Errorf("target not defined as file")
+
+// TODO: use chained-context instead of 'term' for closure-scopes
+type term struct{ Context ; *scope }
+func (c *term) cast(t reflect.Type) Context { return icast(c,t) }
+func (c *term) inner() Context { return c.Context }
+func (c *term) ts(string) (s string) {
+	if c.scope != nil {
+		if x, y := c.Context.(*abs_ctx); false && y {
+			if s := bases(2, x.abs, "testdata", true); s == c.comment {
+				return "{=term "+s+" "+ts(x.Context)+"}"
+			}
+		}
+		return "{=term "+c.comment+" "+ts(c.Context)+"}"
+	} else {
+		return ts(c.Context)
+	}
+}
+func (c *term) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case get_scope: return c.scope
+	case get_closure_scopes:
+		var res []*scope
+		if c.scope != nil { res = append(res, c.scope) }
+		if cc := c.Context; cc != nil {
+			if x, y := do(cc, t).([]*scope); y && x != nil { res = append(res, x...) }
+		}
+		return res
+	}
+	return c.Context.do(ctx, op)
+}
+
+func closure_scopes(ctx Context) (s []*scope) {
+	s, _ = do(ctx, get_closure_scopes{}).([]*scope)
+	return
+}
+
+func closure_projects(ctx Context) (res []*project) {
+	var m = map[*project]struct{}{}
+	for _, s := range closure_scopes(ctx) {
+		// NOTE: the globe scope has nil project; closure_scopes already
+		//       puts the derived polymorphic context at Index 0.
+		if s.project != nil {
+			if _, ok := m[s.project]; !ok {
+				for _, p := range s.project.family() { m[p] = struct{}{} }
+				res = append(res, s.project)
+			}
+		}
+	}
+	return
+}
+
+func closure_resolve(ctx Context, name string) object {
+	for _, s := range closure_scopes(ctx) {
+		var p = s.project
+		if p == nil || s != p.scope {
+			if _, o := s.find(name); !isNull(o) {
+				if a, ok := o.(*auto); ok { if d := auto_find(ctx, a.name); d != nil { return d } }
+				return o
+			}
+		}
+		if p != nil { if o := p.resolve(ctx, name); !isNull(o) { return o } }
+	}
+	return nil
+}
+
+func closure_entries(ctx Context, name any) []entry {
+	for _, p := range closure_projects(ctx) {
+		if t := p._entries(ctx, name, false); t != nil { return t }
+	}
+	return nil
+}
+
+func closure_entry(ctx Context, name any, _ ...bool) entry {
+	for _, p := range closure_projects(ctx) {
+		if t := p._entries(ctx, name, false); t != nil { return t[0] }
+	}
+	return nil
+}
+
+func closure_with(ctx Context, a ...any) Context {
+	for _, i := range a {
+		switch t := i.(type) {
+		case *project: ctx = &term{ctx, t.scope}
+		case   *scope: ctx = &term{ctx, t}
+		case []*scope: for _, s := range t {  ctx = &term{ctx, s}  }
+		case interface{ declscope() *scope }: ctx = &term{ctx, t.declscope()}
+		}
+	}
+	return ctx
+}
+
+func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {
+    if !isNull(entry) { ent = __string(ctx, entry) }
+    if val := auto_get(ctx, "@"); val == nil || isTrivial(val) {
+        str = ent // ...
+    } else if tar = __string(ctx, val); ent != tar {
+        str = fmt.Sprintf("%s(%s)", ent, tar)
+    } else {
+        str = ent
+    }
+    return
+}
+
+func exists(ctx Context, v Value) bool {
+    // FIXME: returns true if existenceMatterless ??
+    return v != nil && statFile(ctx, v).exists() == existenceConfirmed
+}
+
+func getHashDir(ctx Context, k []byte) string {
+    var dir string
+    if program := _program(ctx); program != nil {
+        dir = program.project.tmpPath
+    } else if project := _project(ctx); project != nil {
+        dir = project.tmpPath
+    } else if scope := _scope(ctx); scope != nil && scope.project != nil {
+        dir = scope.project.tmpPath
+    }
+    var h = fmt.Sprintf("%x", k[:2]) // HEX of the first two bytes
+    return filepath.Join(dir, ".hash", h[0:1], h[1:2], h[2:3], h[3:])
+}
+
+func (p *execution) getRecipesHash(ctx Context, target Value, values ...Value) (k, v hashbytes, err error) {
+    var key = sha256.New()
+    var val = sha256.New()
+
+    fmt.Fprintf(key, "%s", __string(ctx, target))
+
+    if p.prog != nil && p.prog.project != nil {
+        fmt.Fprintf(key, "%s", p.prog.project.absPath)
+    }
+
+    for _, value := range values {
+        fmt.Fprintf(val, "%v", value)
+    }
+
+    copy(k[:], key.Sum(nil))
+    copy(v[:], val.Sum(nil))
+    return
+}
+
+func (p *execution) updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
+    if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
+        debug(ctx, "hashing recipes failed: %v", err, trace{})
+    }
+
+    var dir = getHashDir(ctx, k[:])
+    var name = filepath.Join(dir, fmt.Sprintf("%x", k))
+    if f, e := os.Open(name); e == nil {
+        defer f.Close()
+
+        var h []byte
+        if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+            err = e; return
+        } else if n == 1 && bytes.Equal(v[:], h) {
+            return
+        }
+    }
+
+    if err = os.MkdirAll(dir, 0700); err != nil {
+        return
+    } else if f, e := os.Create(name); e == nil {
+        defer f.Close()
+        _, err = fmt.Fprintf(f, "%x", v)
+    } else {
+        err = e
+    }
+    return
+}
+
+func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
+    var k, v hashbytes
+    if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
+        debug(ctx, "compute recipes hash failed: %v", err, trace{})
+        return
+    }
+
+    var dir = getHashDir(ctx, k[:])
+    var name = filepath.Join(dir, fmt.Sprintf("%x", k))
+    if f, e := os.Open(name); e == nil {
+        defer f.Close()
+
+        var h []byte
+        if n, e := fmt.Fscanf(f, "%x", &h); e != nil {
+            err = e
+        } else if n == 1 {
+            outdated = !bytes.Equal(v[:], h)
+        }
+    }
+    return
+}
+
+type waitopts struct{
+    ReportUpdates      bool
+    ExecResults        bool
+    StampCurrentTarget bool
+}
+func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_result) {
+    var calleeErrs []error
+    if p := _execution(ctx) ; p != nil {
+        if false { p.WaitGroup.Wait() } // FIXME: deadlock
+
+        p.calleeErrsM.Lock()
+        calleeErrs = p.calleeErrs; p.calleeErrs = nil
+        p.calleeErrsM.Unlock()
+    }
+
+    if target = auto_target_value(ctx); target == nil {
+        debug(ctx, "target is nil", trace{})
+    }
+
+    if isTrivial(target) {
+        debug(ctx, "trivial target : %s", ts(target), trace{})
+    }
+
+    if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
+        var numRealErrs = 0
+        for _, err := range calleeErrs {
+            debug(ctx, "%v: %v", target, err, trace{})
+            numRealErrs += 1
+        }
+        if numRealErrs == 0 { return } // simply return if no real errors
+
+        var ctxPos, targetPos = _pos(ctx), target.Pos()
+        var v = target
+        if l, ok := v.(*list); ok && l.len() == 1 { v = l.elems[0] }
+        if targetPos.IsValid() && targetPos != ctxPos {
+            if f, y := to_file(v); y && f != nil && f.filemap != nil {
+                debug(ctx,
+					_f("waiting for '%v'", target),
+					_f("via pattern '%v' (of %v)", v, f.filemap.project),
+					trace{})
+            } else {
+                debug(ctx,
+					_f("waiting for '%v'", target),
+					trace{})
+            }
+        }
+        if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
+            debug(ctx, "waiting for def '%v': %v", def.name, def.value, trace{})
+        }
+        return
+    }
+
+    if opts.ExecResults {
+        // Waiting for command (shell/python/etc.) exec result
+        if val := auto_get(ctx, "-"); val != nil {
+            var ok bool
+            if execRes, ok = val.(*exec_result); ok {
+                //execRes.wg.Wait()
+            }
+        }
+    }
+
+    if opts.StampCurrentTarget {
+        if fs = stampFile(ctx, target); fs != nil {
+            if false { reportFileUpdates(ctx, fs) }
+        }
+    }
+    return
+}
+
+func as_file(ctx Context, val Value, projs ...*project) (res *file) {
+    var v = scalarize(expand(ctx, val))
+    if x, y := v.(fullname); y { v = x.Value }
+    switch t := v.(type) {
+    case  fullfile: return t.file
+    case *barefile: return t.file
+    case *file: return t
+    case *rule: return as_file(ctx, t.target, projs...)
+    case *def : if t.value != nil { return as_file(ctx, t.value, projs...) }
+    case *list: if a := t.elems; len(a) == 1 { return as_file(ctx, a[0], projs...) }
+    case *word, *qualword, *compound, *path:
+        if projs == nil {
+            if p := _project(ctx); p != nil { projs = append(projs, p) }
+        }
+        for _, p := range projs {
+            if f := p.file(ctx, t); f != nil { return f }
+        }
+    default: // *strlit, *strval, *strcomp:
+        // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
+        // debug(pc(ctx,a), "cannot convert to file: %v", ts(a.Value), trace{})
+    }
+    return
+}
+func as_fullname_file(ctx Context, val Value, projs ...*project) (f *file, s string, y bool) {
+    if f = as_file(ctx, val, projs...); f != nil {
+        s = f.fullname()
+		y = filepath.IsAbs(s)
+    }
+    return
+}
+func as_fullname_string(ctx Context, val Value, projs ...*project) (s string, y bool) {
+    if _, s, y = as_fullname_file(ctx, val, projs...); !y { s = __string(ctx, val) }
+    return
+}
+func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
+	if f := as_file(ctx, val, projs...); f != nil {
+		res.Value = f
+	} else {
+		debug(pc(ctx,val), "nil file : %v : %v → %v", val, ts(val), expand(ctx,val),
+			callstack{num:10}, trace{})
+    }
+    return
+}
+
+func splitpath(ctx Context, a any) (ss []string) {
+	switch t := a.(type) {
+	case []any   : for _, t := range t { ss = append(ss, splitpath(ctx, t)...) }
+	case []string: for _, t := range t { ss = append(ss, strings.Split(t, pathSep)...) }
+	case   string: ss = strings.Split(t, pathSep)
+	case    Value: ss = strings.Split(__string(ctx, t), pathSep)
+	case      nil: break
+	default: debug(ctx, "err splitpath: %v %s", a, ts(a), callstack{num:10}, trace{})
+	}
+	return
+}
+
+// joinpath is different from filepath.Join, which trims and discards empty segments
+func joinpath(segs ...string) string { return strings.Join(segs, pathSep) }
+func joinp(ctx Context, a any) string { s, _ := _joinpath(ctx, a); return s }
+func _joinpath(ctx Context, a any) (s string, ss []string) {
+	ss = splitpath(ctx, a)
+	s = strings.Join(ss, pathSep)
+	return
+}
+
+func joinraws(sep string, vals ...*raw) string {
+    var strs []string
+    for _, v := range vals { strs = append(strs, v.String()) }
+    return strings.Join(strs, sep)
+}
+
+func posstr(s string) string {
+    s = bases(3, s, true)
+    for _, x := range []string{"/testdata/","/smart/"} {
+        if i := strings.Index(s, x); i > 0 { s = "…/"+s[i+len(x):]; break }
+    }
+    return s
+}
+
+type posctx struct{ Context ; pos any }
+func (p *posctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *posctx) inner() Context { return p.Context }
+func (p *posctx) ts(string) string {
+	var pos Position
+	
+	// Dynamically resolve Pos -> Position for tracing
+	switch t := p.pos.(type) {
+	case Position:
+		pos = t
+	case Pos:
+		if t.IsValid() {
+			if u := _universe(p.Context); u != nil && u.fset != nil {
+				pos = u.fset.Position(t)
+			}
+		}
+	case positioner:
+		if x := t.Pos(); x.IsValid() {
+			if u := _universe(p.Context); u != nil && u.fset != nil {
+				pos = u.fset.Position(x)
+			}
+		}
+	}
+
+	if pos.valid() {
+		var s = posstr(pos.Filename)
+		if pos.Column == 0 { return fmt.Sprintf("{%s:%d %s}", s, pos.Line, ts(p.Context)) }
+		return fmt.Sprintf("{%s:%d:%d %s}", s, pos.Line, pos.Column, ts(p.Context))
+	}
+	return fmt.Sprintf("{%v %s}", p.pos, ts(p.Context))
+}
+
+func (p *posctx) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case get_position:
+		if p.pos != nil {
+			switch t := p.pos.(type) {
+			case Pos:        if t.IsValid() { return t }
+			case Position:   if t.valid()   { return t }
+			case positioner: if x := t.Pos(); x.IsValid() { return x }
+			}
+		}
+	}
+	if p.Context == nil { return nil } // CRITICAL FIX: Prevent nil pointer dereference
+	return p.Context.do(ctx, op)
+}
+
+func pc(ctx Context, a any, n ...int) Context {
+	var p any
+	if a != nil {
+		switch t := a.(type) {
+		case []byte: a = string(t)
+		case  *file: a = t.fullname()
+		}
+		switch t := a.(type) {
+		case *loc: return &posctx{pc(ctx,t.Value), t.pos}
+		case *xloc: return &posctx{pc(ctx,t.Value), t.pos} // CRITICAL FIX: Extract fat Position
+		case  *scanner   : p = t.pos(n...)
+		case  *parser    : p = t.pos
+		case   Pos       : if t.IsValid() { p = t }
+		case   Position  : if t.valid()   { p = t }
+		case   positioner: if x := t.Pos(); x.IsValid() { p = x }
+		case []positioner:
+			for _, v := range t {
+				if x := v.Pos(); x.IsValid() { // FIX: Use IsValid() for compact Pos
+					p = x
+					break
+				}
+			}
+		case []Value:
+			for _, v := range t {
+				if x := v.Pos(); x.IsValid() { // FIX: Use IsValid() for compact Pos
+					p = x
+					break
+				}
+			}
+		case string:
+			var pos Position
+			pos.Filename = t
+			if 0 == len(n) { pos.Line   = 1 }
+			if 0 <  len(n) { pos.Line   = n[0] }
+			if 1 <  len(n) { pos.Column = n[1] }
+			p = pos
+		}
+	}
+	if p != nil { ctx = &posctx{ctx,p} }
+	return ctx
+}
+
+type chksrc string
+type source struct{}
+type srcfun struct{}
+type srcpos struct{}
+type srcctx struct{ posctx ; f *runtime.Func ; a any }
+func (p *srcctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *srcctx) inner() Context { return &p.posctx }
+func (p *srcctx) f_name() string {
+    return strings.TrimPrefix(strings.TrimPrefix(p.f.Name(),"extbit.io/"),"smart.")
+}
+func (p *srcctx) do(ctx Context, op any) any {
+    switch t := op.(type) {
+    case get_position: return nil
+    case srcpos: return p.pos
+    case srcfun: return p.f
+    case source: return srctag(p.posctx.do(ctx, get_position{}).(Position))
+    case origin_def:
+        if x, y := p.a.(*def); y {
+            if t.name == "" || t.name == x.name { return x }
+        }
+    }
+    return p.posctx.do(ctx, op)
+}
+
+func src(ctx Context, a any) Context {
+	if pc, file, line, ok := runtime.Caller(1); ok {
+		var p = Position{} ; p.Filename, p.Line = file, line
+		// if a == nil && loader_pos.Line == 0 && loader_pos.Filename == "" {
+		// 	loader_pos, loader_src = p, srctag(p)
+		// }
+		return &srcctx{posctx{ctx,p}, runtime.FuncForPC(pc), a}
+	}
+	return ctx
+}
+
+func srctag(p Position) string {
+    if s := filepath.Base(p.Filename); p.Column == 0 {
+        return fmt.Sprintf("%s:%d", s, p.Line)
+    } else {
+        return fmt.Sprintf("%s:%d:%d", s, p.Line, p.Column)
+    }
+}
+
+type positioner interface{ Pos() Pos }
+type identer    interface{ ident(Context) string }
+
+type set_opt_ident  struct{}
+type closure_ident  struct{}
+type delegate_ident struct{}
+type ident_ctx struct{ Context ; nil int }
+func (c *ident_ctx) inner() Context { return c.Context }
+func (c *ident_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case delegate_ident: c.nil = 1; return
+    case  closure_ident: c.nil = 2; return
+    case  set_opt_ident: c.nil = 3; return
+    case opt_ident: if c.nil > 0 { return true }
+    case ident_ctx: switch t.Context { case nil, c, c.Context: return c }
+    }
+    return c.Context.do(ctx, op)
+}
+func identity(ctx Context) (*ident_ctx, Context) {
+    x, _ := do(ctx, ident_ctx{}).(*ident_ctx)
+    return x, ctx
+}
+func identity_ctx(ctx Context) (ic *ident_ctx, rc Context) {
+    if ic, rc = identity(ctx); ic == nil {
+        ic = &ident_ctx{ctx, 0}
+        rc = ic
+    }
+    return
+}
+func ident0(ctx Context, x Value) string {
+	switch t := x.(type) {
+	case *loc:
+		return ident(ctx, t.Value)
+	case *xloc:
+		return ident(ctx, t.Value)
+	case *closure:
+		return ident_opt(ctx, "&", x, closure_ident{})
+	case *delegate:
+		return ident_opt(ctx, "$", x, delegate_ident{})
+	case *file:
+		return t.filestub.name
+	case *project:
+		return t.name
+	case *uselist:
+		return t.name
+	case *def:
+		return t.name
+	case *defcaps:
+		return ident(ctx, t.Value) // The main captured value (e.g., $0)
+	case *word:
+		return t.s
+	case *raw:
+		return t.s
+	case *strlit:
+		return `'` + t.s + `'`
+	case *punct:
+		return t.token.String()
+	case *globmeta:
+		return t.token.String()
+	case *valbase, *null, *none, nil:
+		return ""
+	case *answer, *boolean, *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globrange:
+		return t.String()
+	case *arrow:
+		return ident(ctx, t.o) + t.t.String() + ident(ctx, t.s)
+	case *rule:
+		return ident(ctx, t.target)
+	case *compound:
+		var b strings.Builder
+		for _, elem := range t.elems {
+			if lst, ok := elem.(*list); ok && lst.len() > 0 {
+				b.WriteString("⌜")
+				b.WriteString(ident(ctx, elem))
+				b.WriteString("⌟")
+			} else {
+				b.WriteString(ident(ctx, elem))
+			}
+		}
+		return b.String()
+	case *qualword:
+		var b strings.Builder
+		for i, elem := range t.elems { if i > 0 { b.WriteByte('.') }
+			if lst, ok := elem.(*list); ok && lst.len() > 0 {
+				b.WriteString("⌜")
+				b.WriteString(ident(ctx, elem))
+				b.WriteString("⌟")
+			} else {
+				b.WriteString(ident(ctx, elem))
+			}
+		}
+		return b.String()
+	case *globpat:
+		var b strings.Builder
+		for _, elem := range t.elems {
+			b.WriteString(ident(ctx, elem))
+		}
+		return b.String()
+	case *strcomp:
+		var b strings.Builder
+		b.WriteByte('"')
+		for _, elem := range t.elems {
+			b.WriteString(ident(ctx, elem))
+		}
+		b.WriteByte('"')
+		return b.String()
+	case *list:
+		var b strings.Builder
+		for i, elem := range t.elems {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(ident(ctx, elem))
+		}
+		return b.String()
+	case *group:
+		var b strings.Builder
+		b.WriteByte('(')
+		for i, elem := range t.elems {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(ident(ctx, elem))
+		}
+		b.WriteByte(')')
+		return b.String()
+	case *pair:
+		var b strings.Builder
+		if t.key != nil {
+			b.WriteString(ident(ctx, t.key))
+		}
+		b.WriteByte('=')
+		if t.val != nil {
+			b.WriteString(ident(ctx, t.val))
+		}
+		return b.String()
+	case *undetermined:
+		return __string(ctx, t.identifier)
+	case *disjunction:
+		return "{" + ident(ctx, t.val) + "}"
+	case self:
+		return ".self"
+	case flag:
+		return "-" + ident(ctx, t.Value)
+	case negative:
+		return "!" + ident(ctx, t.Value)
+	case identer:
+		return t.ident(ctx)
+	case *url:
+		var b strings.Builder
+		b.WriteString(ident(ctx, t.Scheme))
+		b.WriteByte(':')
+		if t.Host != nil {
+			b.WriteString("//")
+			if t.Username != nil {
+				b.WriteString(ident(ctx, t.Username))
+				b.WriteByte('@')
+			}
+			b.WriteString(ident(ctx, t.Host))
+			if t.Port != nil {
+				b.WriteByte(':')
+				b.WriteString(ident(ctx, t.Port))
+			}
+		}
+		if t.Path != nil {
+			b.WriteString(ident(ctx, t.Path))
+		}
+		if len(t.Query) > 0 {
+			b.WriteByte('?')
+			b.WriteString(ident(ctx, t.Query[0]))
+			for _, q := range t.Query[1:] {
+				b.WriteByte('&')
+				b.WriteString(ident(ctx, q))
+			}
+		}
+		if t.Fragment != nil {
+			b.WriteByte('#')
+			b.WriteString(ident(ctx, t.Fragment))
+		}
+		return b.String()
+	default:
+		debug(pc(ctx, x), "no ident for %s", x, callstack{num:24}, trace{})
+		return ""
+	}
+}
+func ident(ctx Context, x Value) string {
+	var ic *ident_ctx
+	if c, ok := ctx.(*ident_ctx); ok {
+		ic = c
+	}
+
+	switch t := x.(type) {
+	case *loc:
+		return ident(ctx, t.Value)
+	case *xloc:
+		return ident(ctx, t.Value)
+	case *closure:
+		s := ident_opt(ctx, "&", x, closure_ident{})
+		if s == "" && ic != nil { ic.nil++ }
+		return s
+	case *delegate:
+		s := ident_opt(ctx, "$", x, delegate_ident{})
+		if s == "" && ic != nil { ic.nil++ }
+		return s
+	case *file:
+		return t.filestub.name
+	case *path:
+		var b strings.Builder
+		for i, elem := range t.elems {
+			s := ident(ctx, elem)
+			if i > 0 && s != "" && !strings.HasSuffix(b.String(), pathSep) {
+				b.WriteString(pathSep)
+			}
+			b.WriteString(s)
+		}
+		return b.String()
+	case *project:
+		return t.name
+	case *uselist:
+		return t.name
+	case *def:
+		return t.name
+	case *defcaps:
+		return ident(ctx, t.Value) // The main captured value (e.g., $0)
+	case *word:
+		return t.s
+	case *raw:
+		return t.s
+	case *strlit:
+		return `'` + t.s + `'`
+	case *punct:
+		return t.token.String()
+	case *globmeta:
+		return t.token.String()
+	case *valbase, *null, *none, *regexpat, nil: // CRITICAL FIX: Added *regexpat
+		return ""
+	case *answer, *boolean, *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globrange:
+		return t.String()
+	case *arrow:
+		return ident(ctx, t.o) + t.t.String() + ident(ctx, t.s)
+	case *rule:
+		return ident(ctx, t.target)
+	case *compound:
+		var b strings.Builder
+		for _, elem := range t.elems {
+			if lst, ok := elem.(*list); ok && lst.len() > 0 {
+				b.WriteString("⌜")
+				b.WriteString(ident(ctx, elem))
+				b.WriteString("⌟")
+			} else {
+				b.WriteString(ident(ctx, elem))
+			}
+		}
+		return b.String()
+	case *qualword:
+		var b strings.Builder
+		for i, elem := range t.elems {
+			if i > 0 {
+				b.WriteByte('.')
+			}
+			if lst, ok := elem.(*list); ok && lst.len() > 0 {
+				b.WriteString("⌜")
+				b.WriteString(ident(ctx, elem))
+				b.WriteString("⌟")
+			} else {
+				b.WriteString(ident(ctx, elem))
+			}
+		}
+		return b.String()
+	case *globpat:
+		var b strings.Builder
+		for _, elem := range t.elems {
+			if lst, ok := elem.(*list); ok && lst.len() > 0 {
+				b.WriteString("⌜")
+				b.WriteString(ident(ctx, elem))
+				b.WriteString("⌟")
+			} else {
+				b.WriteString(ident(ctx, elem))
+			}
+		}
+		return b.String()
+	case *strcomp:
+		var b strings.Builder
+		b.WriteByte('"')
+		for _, elem := range t.elems {
+			if lst, ok := elem.(*list); ok && lst.len() > 0 {
+				b.WriteString("⌜")
+				b.WriteString(ident(ctx, elem))
+				b.WriteString("⌟")
+			} else {
+				b.WriteString(ident(ctx, elem))
+			}
+		}
+		b.WriteByte('"')
+		return b.String()
+	case *list:
+		var b strings.Builder
+		for i, elem := range t.elems {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(ident(ctx, elem))
+		}
+		return b.String()
+	case *group:
+		var b strings.Builder
+		b.WriteByte('(')
+		for i, elem := range t.elems {
+			if i > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteString(ident(ctx, elem))
+		}
+		b.WriteByte(')')
+		return b.String()
+	case *pair:
+		var b strings.Builder
+		if t.key != nil {
+			b.WriteString(ident(ctx, t.key))
+		}
+		b.WriteByte('=')
+		if t.val != nil {
+			b.WriteString(ident(ctx, t.val))
+		}
+		return b.String()
+	case *undetermined:
+		return __string(ctx, t.identifier)
+	case *disjunction:
+		return "{" + ident(ctx, t.val) + "}"
+	case self:
+		return ".self"
+	case flag:
+		return "-" + ident(ctx, t.Value)
+	case negative:
+		return "!" + ident(ctx, t.Value)
+	case identer:
+		return t.ident(ctx)
+	case *url:
+		var b strings.Builder
+		b.WriteString(ident(ctx, t.Scheme))
+		b.WriteByte(':')
+		if t.Host != nil {
+			b.WriteString("//")
+			if t.Username != nil {
+				b.WriteString(ident(ctx, t.Username))
+				b.WriteByte('@')
+			}
+			b.WriteString(ident(ctx, t.Host))
+			if t.Port != nil {
+				b.WriteByte(':')
+				b.WriteString(ident(ctx, t.Port))
+			}
+		}
+		if t.Path != nil {
+			b.WriteString(ident(ctx, t.Path))
+		}
+		if len(t.Query) > 0 {
+			b.WriteByte('?')
+			b.WriteString(ident(ctx, t.Query[0]))
+			for _, q := range t.Query[1:] {
+				b.WriteByte('&')
+				b.WriteString(ident(ctx, q))
+			}
+		}
+		if t.Fragment != nil {
+			b.WriteByte('#')
+			b.WriteString(ident(ctx, t.Fragment))
+		}
+		return b.String()
+	default:
+		if ic != nil {
+			ic.nil++
+		} else {
+			debug(pc(ctx, x), "no ident for %T: %v", x, x, callstack{num: 24}, trace{})
+		}
+		return ""
+	}
+}
+func ident_any(ctx Context, x any) string {
+	switch t := x.(type) {
+	case  Value: return ident(ctx, t)
+	case string: return t
+	}
+	return ""
+}
+
+func ident_opt(ctx Context, pre string, x Value, op any) (_ string) {
+    if truly(ctx, ex_closure{}) {
+        var ic *ident_ctx
+        // CRITICAL FIX: Use identity_ctx to safely initialize the context if it is nil!
+        if ic, ctx = identity_ctx(ctx); ic.nil == 0 {
+            if v := expand(ctx,x); ic.nil == 0 {
+                do(ctx, set_opt_ident{})
+                return ident(ctx, v)
+            }
+        }
+    }
+    if op != nil { do(ctx, op) }
+    return x.(interface{ id(Context,string) string }).id(ctx, pre)
+}
+
+func fnv1(ctx Context, t any, a ...any) (_ uint64) {
+	var h = fnv.New64()
+	var o = enc_bin.LittleEndian
+	if t != nil {
+		var b []byte
+		switch x := t.(type) {
+		case interface{ kind() Kind }:
+			b = make([]byte, 8)
+			o.PutUint64(b, uint64(x.kind()))
+		case Kind:
+			b = make([]byte, 8)
+			o.PutUint64(b, uint64(x))
+		default:
+			b = []byte(typeof(x))
+		}
+		h.Write(b)
+	}
+	for _, v := range a {
+		var b []byte
+		switch t := v.(type) {
+		case Kind:
+			b = o.AppendUint64(b, uint64(t))
+		case token:
+			b = o.AppendUint64(b, uint64(t))
+		case int64:
+			b = o.AppendUint64(b, uint64(t))
+		case uint64:
+			b = o.AppendUint64(b, uint64(t))
+		case string:
+			b = []byte(t)
+		case []string:
+			for _, s := range t { b = append(b, []byte(s)...) }
+		case Value:
+			if t != nil {
+				if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
+					b = o.AppendUint64(b, uint64(__int(ctx, t)))
+				} else {
+					b = []byte(__string(ctx, t))
+				}
+			}
+		case []Value:
+			for _, t := range t {
+				if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
+					b = o.AppendUint64(b, uint64(__int(ctx, t)))
+				} else {
+					b = []byte(__string(ctx, t))
+				}
+			}
+		default:
+			debug(ctx, "fnv1: unsupported type : %s", ts(v), trace{})
+		}
+		h.Write(b)
+	}
+	return h.Sum64()
+}
+
+func hash(ctx Context, x Value) (u uint64) {
+	switch p := x.(type) {
+	case *loc: return hash(ctx, p.Value)
+	case *xloc: return hash(ctx, p.Value)
+	case *returner: return fnv1(ctx, p, p.vals)
+	case *argumented: return fnv1(ctx, p, p.Value, p.args)
+	case *list: return fnv1(ctx, p, p.any()...)
+	case *quote: return fnv1(ctx, p, p.any()...)
+	case *strcomp: return fnv1(ctx, p, p.any()...)
+	case *compound: return fnv1(ctx, p, p.any()...)
+	case *qualword:
+		var a []any
+		for _, v := range unpack(p) { a = append(a, v) }
+		return fnv1(ctx, p, a...)
+	case *group: return fnv1(ctx, p, p.any()...)
+	case *path: return fnv1(ctx, p, p.any()...)
+	case *pair: return fnv1(ctx, p, p.key, p.val)
+	case *escaped: return fnv1(ctx, p, p.s)
+	case *disjunction: return fnv1(ctx, p.kind(), p.val)
+	case *barefile: return fnv1(ctx, p.kind(), p.Value)
+	case *globrange: return fnv1(ctx, p.kind(), p.Value)
+	case *globmeta: return fnv1(ctx, p.kind(), p.token.String())
+	case *project: return fnv1(ctx, p, p.name)
+	case *auto: return fnv1(ctx, p, p.name)
+	case *builtin: return fnv1(ctx, p, p.name)
+	case *def: return fnv1(ctx, p, p.name, p.value)
+	case *rule: return fnv1(ctx, p, p.target)
+	case *file: return fnv1(ctx, p, p.fullname())
+	case *modification: return fnv1(ctx, p, p.list)
+	case *modifier: return fnv1(ctx, p, p.any()...)
+	case *plain: return fnv1(ctx, p, p.any()...)
+	case *plainline: return fnv1(ctx, p, p.any()...)
+	case *globpat: return fnv1(ctx, p, p.any()...)
+	case *percpat: return fnv1(ctx, p, p.Prefix, p.Suffix)
+	case *regexpat: return fnv1(ctx, p, p.Regexp.String())
+	case *exec_result: return fnv1(ctx, p, p.values)
+	case *arrow: return fnv1(ctx, p, p.t, p.o, p.s)
+	case *closure: return fnv1(ctx, p, p.l, p.x, p.o, p.a)
+	case *delegate: return fnv1(ctx, p, p.l, p.x, p.o, p.a)
+	case *use: return fnv1(ctx, p, p.project)
+	case *uselist: return fnv1(ctx, p, p.list)
+	case *undetermined: return fnv1(ctx, p, p.token, p.identifier, p.value)
+	case flag: return fnv1(ctx, p, p.Value.kind(), p.Value)
+	case fullname: return fnv1(ctx, p, p.Value)
+	case negative: return fnv1(ctx, p, p.Value)
+	case conjunction: return fnv1(ctx, p.kind(), p.sep, p.list)
+	}
+	return fnv1(ctx, x.kind(), x)
+}
+
+type opt_ident struct{}
+type opt_ident_ctx struct{ Context }
+func (c *opt_ident_ctx) inner() Context { return c.Context }
+func (c *opt_ident_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case opt_ident_ctx: return c
+	case opt_ident: return true
+    }
+    return c.Context.do(ctx, op)
+}
+func optional_ident(ctx Context) Context {
+    if do(ctx, opt_ident_ctx{}) == nil { ctx = &opt_ident_ctx{ctx} }
+    return ctx
+}
+func optional(v Value) (_ bool) {
+    switch t := v.(type) {
+    case *loc: return optional(t.Value)
+    case *xloc: return optional(t.Value)
+    case *arrow: return optional(t.o) || optional(t.s)
+    case *list: for _, e := range t.elems { if optional(e) { return true } }
+    case *compound: for _, e := range t.elems { if optional(e) { return true } }
+	case *globpat:
+		if i := t.len()-1; 0 < i {
+			if x, y := t.elems[i].(*globmeta); y {
+				return x.token == QUE
+			}
+		}
+    }
+    return
+}
+
+type Value interface{
+    positioner // The position where the value appears (or NoPos).
+    kind() Kind
+    String() string
+}
+
+func typeof(arg any) (s string) {
+    defer func() { if s == "" { panic(fmt.Sprintf("empty typeof: %T", arg)) } } ()
+
+    if arg == nil { return "nil" }
+
+    switch t := reflect.TypeOf(arg) ; t.Kind() {
+    case reflect.Array: return "[]"+t.Elem().Name()
+    case reflect.Slice: return "[]"+t.Elem().Name()
+    case reflect.Ptr  : return      t.Elem().Name()
+    default:            return      t.Name()
+    }
+}
+
+func is(v Value, a any) bool {
+    switch t := a.(type) {
+    case Kind:         return v.kind()&t != 0
+    case reflect.Type: return reflect.TypeOf(v) == t
+    }
+    return reflect.TypeOf(v) == reflect.TypeOf(a)
+}
+
+func unloc(a Value) Value {
+	switch a := a.(type) {
+	case *loc: return unloc(a.Value)
+	case *xloc: return unloc(a.Value)
+	default: return a
+	}
+}
+
+var implicitDot = &punct{valbase{}, DOT}
+
+func unpack(v Value) []Value {
+	switch t := v.(type) {
+	case *loc: return unpack(t.Value)
+	case *xloc: return unpack(t.Value)
+	case *compound: return t.elems
+	case *globpat: return t.elems
+	case *qualword:
+		if len(t.elems) == 0 { return nil }
+		// Pre-allocate the exact slice capacity to avoid append() resizing!
+		res := make([]Value, 0, len(t.elems)*2-1)
+		for i, e := range t.elems {
+			if i > 0 {
+				res = append(res, implicitDot) // Zero heap allocation!
+			}
+			// CRITICAL FIX: Drop empty placeholders so .deps unpacks 
+			// structurally into [punct(.), word(deps)] instead of [valbase, punct(.), word(deps)]
+			if !isEmpty(e) {
+				res = append(res, e)
+			}
+		}
+		return res
+	}
+	return []Value{v}
+}
+
+func unbox(a any) any {
+    switch t := a.(type) {
+    case self: return t.project
+	case fullname: return unbox(t.Value)
+    case *loc: return unbox(t.Value)
+    case *xloc: return unbox(t.Value)
+    case *list: if len(t.elems) == 1 { return unbox(t.elems[0]) }
+    case flag: return flag{unbox(t.Value).(Value)}
+		// case *pair: return &pair{unbox(t.key).(Value), unbox(t.val).(Value)}
+    }
+    return a
+}
+
+// underlay convert 'a' into native value underneath (aka bool, int, etc.).
+func underlay(a any, b int) (any, int) {
+	if a == nil { return "", 0 } // Safely handle nil interfaces
+    switch t := a.(type) {
+	case *valbase, *null, *none, *undef: return "", 0 // Unbox empty AST nodes to ""
+    case *loc: return underlay(t.Value, b)
+    case *xloc: return underlay(t.Value, b)
+	case fullname: return underlay(t.Value, b)
+    case self: return t.project, 0
+	case *globmeta: return t.token, 0
+	case *punct: if t.token == PROOT || t.token == PTAIL { return "", 0 } else { return t.token, 0 }
+	case *answer: return t.bool, 0
+	case *option: return t.bool, 0
+	case *prediction: return t.bool, 0
+	case *boolean: return t.bool, 0
+    case *word: return t.s, 0
+    case *raw: return t.s, 0
+	case *strlit: return t.s, 0          // ADDED: instantly maps to primitive string
+	case *file: return t.filestub.name, 0 // ADDED: prevents deep file stringification
+	case *project: return t.name, 0      // ADDED
+    case *binary: return t.int64, 2
+    case *octal: return t.int64, 8
+    case *decimal: return t.int64, 10
+    case *hexadecimal: return t.int64, 16
+    case *float: return t.float64, 0
+    case *datetime: return t.t, 0
+    case *Date: return t.t, 1
+    case *Time: return t.t, 2
+	case []string:
+		var res []any
+		for _, s := range t { res = append(res, s) }
+		return res, 0
+	case []Value:
+		var res []any
+		for _, v := range t { res = append(res, v) }
+		return res, 0
+    }
+    return a, b
+}
+
+func _underlay(a any) any { a, _ = underlay(a, 0); return a }
+
+// globRank returns the specificity rank of a wildcard token/string.
+// ? < * < *? ≈ **
+func globRank(v any) int {
+	switch t := v.(type) {
+	case token:
+		switch t {
+		case QUE : return 1 // ?
+		case SAST: return 2 // *
+		case ASTQ: return 3 // *?
+		case DAST: return 3 // **
+		}
+	case string:
+		switch t {
+		case  "?": return 1
+		case  "*": return 2
+		case "*?": return 3
+		case "**": return 3
+		}
+	}
+	return 0
+}
+
+// cmpValues is for slices.SortFunc(vals, cmp_values)
+func cmpValues(ctx Context, a, b Value) int {
+	if t := cmp(ctx, a, b); t == cmpEqual { return 0 } else { return int(t) }
+}
+
+func cmp_rank(rx, ry int) cmpres {
+	if 0 < rx && 0 < ry {
+		if rx < ry { return cmpSmaller }
+		if rx > ry { return cmpGreater }
+		return cmpEqual
+	} else if 0 < rx {
+		return cmpGreater
+	} else if 0 < ry {
+		return cmpSmaller
+	}
+	return cmpEqual // Indicates no rank disparity, proceed to normal cmp
+}
+
+func cmp(ctx Context, l, r any, syntactic ...bool) (res cmpres) {
+	if checkpoints { defer check_cmp(ctx, l, r, syntactic)(&res) }
+
+	// 1. Unbox/Underlay: convert wrappers (*word, *boolean) to primitives (string, bool)
+	var lv, lb = underlay(l, 0)
+	var rv, rb = underlay(r, 0)
+
+	// 2. Structural & Recursive Comparison
+	switch x := lv.(type) {
+	case []any:
+		return cmp_slice(ctx, x, rv)
+
+	case *qualword: // CRITICAL FIX: Unpack dots for structural alignment!
+		switch y := rv.(type) {
+		case *qualword:
+			return cmp_slice(ctx, x.any(), y.any()) 
+		case slicer:
+			return cmp_slice(ctx, _underlay(unpack(x)).([]any), _underlay(y.slice()).([]any))
+		}
+		return cmp(ctx, _underlay(unpack(x)), r)
+
+	case slicer: // *list, *compound, *path, *globpat, etc.
+		return cmp(ctx, _underlay(x.slice()), r)
+
+	case token:
+		switch y := rv.(type) {
+		case token:
+			return cmp_rank(globRank(x), globRank(y))
+		case string:
+			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
+				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
+			}
+			return cmp_string(x.String(), y)
+		case flag:
+			if x == MINUS && isEmpty(y.Value) { return cmpEqual }
+		case slicer:
+			return cmp(ctx, []any{x}, y)
+		}
+
+	case string:
+		switch y := rv.(type) {
+		case string:
+			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
+				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
+			}
+			return cmp_string(x, y)
+		case token:
+			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
+				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
+			}
+			return cmp_string(x, y.String())
+		case int64:   if i, e := strconv.ParseInt(x, lb, 64); e == nil { return cmp_int(i, y) }
+		case float64: if f, e := strconv.ParseFloat(x, 64); e == nil { return cmp_float(f, y) }
+		case slicer:  return cmp(ctx, []any{x}, y)
+		}
+
+	case int64:
+		switch y := rv.(type) {
+		case int64:   return cmp_int(x, y)
+		case float64: return cmp_float(float64(x), y)
+		case string:  if i, e := strconv.ParseInt(y, rb, 64); e == nil { return cmp_int(x, i) }
+		case slicer:  return cmp(ctx, []any{x}, y)
+		}
+
+	case float64:
+		switch y := rv.(type) {
+		case float64: return cmp_float(x, y)
+		case int64:   return cmp_float(x, float64(y))
+		case string:  if f, e := strconv.ParseFloat(y, 64); e == nil { return cmp_float(x, f) }
+		case slicer:  return cmp(ctx, []any{x}, y)
+		}
+
+	case time.Time:
+		switch y := rv.(type) {
+		case time.Time: return cmp_time(x, y)
+		case string:
+			switch lb {
+			case 0: if t, e := parseDateTime(y); e == nil { return cmp_time(x, t) }
+			case 1: if t, e := parseDate(y); e == nil { return cmp_time(x, t) }
+			case 2: if t, e := parseTime(y); e == nil { return cmp_time(x, t) }
+			}
+		case slicer: return cmp(ctx, []any{x}, y)
+		}
+
+	case flag:
+		switch y := rv.(type) {
+		case flag: return cmp(ctx, x.Value, y.Value)
+		case token:
+			if y == MINUS && isEmpty(x.Value) { return cmpEqual }
+		case slicer: 
+			if res := cmp_slice(ctx, _underlay(y.slice()).([]any), x); res != cmpEqual {
+				return -res 
+			}
+			return cmpEqual
+		}
+
+	case *arrow:
+		if y, ok := rv.(*arrow); ok {
+			if x.t != y.t {
+				if x.t < y.t { return cmpSmaller } else { return cmpGreater }
+			}
+			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
+			return cmp(ctx, x.s, y.s)
+		}
+
+	case *closure:
+		if y, ok := rv.(*closure); ok {
+			if t := cmp(ctx, x.x, y.x); t != cmpEqual { return t }
+			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
+			return cmp(ctx, x.a, y.a)
+		}
+
+	case *delegate:
+		if y, ok := rv.(*delegate); ok {
+			if t := cmp(ctx, x.x, y.x); t != cmpEqual { return t }
+			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
+			return cmp(ctx, x.a, y.a)
+		}
+
+	case *def:
+		if y, ok := rv.(*def); ok && x.name == y.name {
+			return cmp(ctx, x.value, y.value)
+		}
+
+	case *file:
+		if y, ok := rv.(*file); ok {
+			if x.filestub == y.filestub { return cmpEqual }
+			return cmp_string(x.filestub.name, y.filestub.name)
+		}
+	case *use:
+		if y, ok := rv.(*use); ok {
+			// Super fast O(1) pointer comparison
+			if x.project == y.project {
+				return cmpEqual
+			}
+			return cmp_string(x.project.name, y.project.name)
+		}
+	case *uselist:
+		if y, ok := rv.(*uselist); ok {
+			// Fast string and pointer comparison
+			if x.name == y.name && x.owner_ == y.owner_ {
+				return cmpEqual
+			}
+			if x.owner_ != y.owner_ {
+				return cmp_string(x.owner_.name, y.owner_.name)
+			}
+			return cmp_string(x.name, y.name)
+		}
+	}
+
+	// 3. Universal Fallback: Safe Identifier Extraction
+	// STRICTLY decoupled from .String() to prevent panics on corrupt/uninitialized AST nodes!
+	var sx, sy string
+	
+	if s, ok := lv.(string); ok {
+		sx = s
+	} else if v, ok := lv.(Value); ok {
+		sx = ident(ctx, v) // Safely extract string from AST node
+	} else {
+		sx = fmt.Sprintf("%v", lv) // Safe fallback for raw non-AST primitives
+	}
+
+	if s, ok := rv.(string); ok {
+		sy = s
+	} else if v, ok := rv.(Value); ok {
+		sy = ident(ctx, v) // Safely extract string from AST node
+	} else {
+		sy = fmt.Sprintf("%v", rv) // Safe fallback for raw non-AST primitives
+	}
+
+	if sx != sy {
+		return cmp_string(sx, sy)
+	}
+
+	// Tie-breaker 1: If both evaluate to the same string (e.g. they both evaluate to ""), 
+	// order them safely by their concrete type name so Maps/BTrees remain deterministic.
+	tx, ty := fmt.Sprintf("%s", typeof(lv)), fmt.Sprintf("%s", typeof(rv))
+	if tx != ty {
+		return cmp_string(tx, ty)
+	}
+
+	// Tie-breaker 2: Identical types with identical identifiers that fell through the switch.
+	return cmpEqual
+}
+
+// cmp_slice handles comparison for []any, including logic for compound vs flag.
+func cmp_slice(ctx Context, x []any, rv any) cmpres {
+	switch y := rv.(type) {
+	case []any:
+		var i int
+		for ; i < len(x) && i < len(y); i++ {
+			if res := cmp(ctx, x[i], y[i]); res != cmpEqual {
+				// FIX: If either element is a wildcard, return the comparison result immediately.
+				if globRank(_underlay(x[i])) > 0 || globRank(_underlay(y[i])) > 0 {
+					return res
+				}
+
+				// STRICTLY decouple from __string to prevent AST expansion hell!
+				// Attempt fragmentation ONLY if both items can be safely converted to static strings.
+				sx, okx := staticStr(x[i])
+				sy, oky := staticStr(y[i])
+
+				// If both are safe, trivial strings, try fragmentation
+				if okx && oky {
+					if sx == sy { continue } 
+					
+					if len(sx) < len(sy) && strings.HasPrefix(sy, sx) {
+						restX := x[i+1:]
+						restY := append([]any{sy[len(sx):]}, y[i+1:]...)
+						return cmp(ctx, restX, restY)
+					}
+					if len(sy) < len(sx) && strings.HasPrefix(sx, sy) {
+						restX := append([]any{sx[len(sy):]}, x[i+1:]...)
+						restY := y[i+1:]
+						return cmp(ctx, restX, restY)
+					}
+				}
+				return res
+			}
+		}
+		if i == len(x) && i < len(y) { return cmpSmaller }
+		if i < len(x) && i == len(y) { return cmpGreater }
+		return cmpEqual
+
+	case *qualword: // CRITICAL FIX: Unpack dots for right-hand alignment!
+		return cmp_slice(ctx, x, _underlay(unpack(y)).([]any))
+
+	case slicer:
+		return cmp_slice(ctx, x, _underlay(y.slice()).([]any))
+
+	case flag:
+		// Logic to match split flags: e.g. [- I foo] vs -Ifoo
+		var a, b cmpres
+		for i := 0; i < len(x); i++ {
+			if isEmpty(x[i]) {
+				continue
+			} else if a == 0 && b == 0 {
+				switch a = cmp(ctx, x[i], MINUS); a {
+				case cmpEqual:   // Matched first part "-"
+				case cmpLprefix: // Partial match
+				default: return cmp(ctx, x, []any{rv}) // Fallback
+				}
+			} else if a == cmpEqual && b == 0 {
+				// Matched "-", now match value "Ifoo" or "I" then "foo"
+				if b = cmp(ctx, x[i], y.Value); b != cmpEqual { return b }
+			} else {
+				// We have more elements but already matched the flag -> x is Greater
+				return cmpGreater 
+			}
+		}
+		if a == cmpEqual && b == cmpEqual { return cmpEqual }
+		// Fallthrough to standard comparison if split logic didn't conclusively return
+		return cmp(ctx, x, []any{rv})
+
+	default:
+		// Treat scalar as single-element list (e.g. [foo] vs foo)
+		return cmp(ctx, x, []any{rv})
+	}
+}
+
+func cmp_string(l, r string) cmpres {
+	switch {
+	case l < r: if strings.HasPrefix(r, l) { return cmpLprefix } else { return cmpSmaller }
+	case l > r: if strings.HasPrefix(l, r) { return cmpRprefix } else { return cmpGreater }
+	}
+    return cmpEqual
+}
+func cmp_int(l, r int64) cmpres {
+    switch {
+    case l < r: return cmpSmaller
+    case l > r: return cmpGreater
+    }
+	return cmpEqual
+}
+func cmp_float(l, r float64) cmpres {
+    switch {
+    case l < r: return cmpSmaller
+    case l > r: return cmpGreater
+    }
+	return cmpEqual
+}
+func cmp_time(l, r time.Time) cmpres {
+    switch {
+    case l.Before(r): return cmpSmaller
+    case l.After(r) : return cmpGreater
+    }
+	return cmpEqual // l.Equal(r)
+}
+
+func eq(x Context, a, b any) bool { return cmp(x, a, b) == cmpEqual }
+func equal(x Context, a, b any, yes ...bool) (res bool) {
+	if false && checkpoints {
+		if s, t := sf("%v",a), sf("%v",b); (!res && s == t) || res && s != t {
+			defer debug(pc(x,a), "%v: equal(%v, %v)", res, s, t, callstack{num:6})
+		}
+	}
+	if __t(yes...) {
+		return __string(x, a) == __string(x, b)
+	} else {
+		return cmp(x, a, b) == cmpEqual
+	}
+}
+
+func diff(ctx Context, a, b []Value) bool {
+    if len(a) == len(b) {
+        for i, v := range a { if !equal(ctx, v, b[i]) { return true } }
+        return false
+    } else {
+        return true
+    }
+}
+
+func isTrivial(v any) (_ bool) {
+	switch t := v.(type) {
+	case *valbase, *none, *null, *undef, nil: return true
+	case *def: return isTrivial(t.value)
+	case *loc: return isTrivial(t.Value)
+	case *xloc: return isTrivial(t.Value)
+	case *list: return isTrivial(t.elems)
+	case *compound: return isTrivial(t.elems)
+	case *qualword: return isTrivial(t.elems)
+	case fullname: return isTrivial(t.Value)
+	case *word: return t.s == ""
+	case *raw: return t.s == ""
+	case *pair: return isTrivial(t.key) && isTrivial(t.val) // CRITICAL FIX
+	case []Value:
+		for _, v := range t { if !isTrivial(v) { return } }
+		return true
+	}
+	return
+}
+func isEmpty(v any) (_ bool) {
+	switch t := v.(type) {
+	case *valbase, *none, *null, *undef, nil: return true
+	case *valcache: return len(t.a) == 0 && len(t.o) == 0 && len(t.v) == 0
+	case *def: return isEmpty(t.value)
+	case *loc: return isEmpty(t.Value)
+	case *xloc: return isEmpty(t.Value)
+	case *list: return isEmpty(t.elems)
+	case *compound: return isEmpty(t.elems)
+	case *qualword: return isEmpty(t.elems)
+	case *strcomp: return isEmpty(t.elems)
+	case *strval: return len(t.v) == 0
+	case *strlit: return t.s == ""
+	case *word: return t.s == ""
+	case *raw: return t.s == ""
+	case *pair: return isEmpty(t.key) && isEmpty(t.val) // CRITICAL FIX
+	case []Value:
+		for _, v := range t { if !isEmpty(v) { return } }
+		return true
+	}
+	return
+}
+func isUndef(v any) (_ bool) {
+    switch t := v.(type) {
+    case *undef: return true
+	case *loc: return isUndef(t.Value)
+	case *xloc: return isUndef(t.Value)
+    case *def: return t.value != nil && isUndef(t.value)
+    }
+    return
+}
+func isNone(v any) (_ bool) {
+	switch t := v.(type) {
+	case *none: return true
+	case *loc: return isNone(t.Value)
+	case *xloc: return isNone(t.Value)
+	case *list: return t.len() == 0 || (t.len() == 1 && isNone(t.elems[0]))
+	case *pair: return isNone(t.key) && isNone(t.val) // CRITICAL FIX
+	case *qualword: 
+		for _, e := range t.elems { if !isNone(e) { return false } }
+		return true
+	}
+	return
+}
+func isNull(v any) (_ bool) {
+	switch t := v.(type) {
+	case *null, nil: return true
+	case *loc: return isNull(t.Value)
+	case *xloc: return isNull(t.Value)
+	case *list: return t.len() == 1 && isNull(t.elems[0])
+	case *pair: return isNull(t.key) && isNull(t.val) // CRITICAL FIX
+	case *qualword: 
+		for _, e := range t.elems { if !isNull(e) { return false } }
+		return true
+	}
+	return
+}
+
+func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
+	defer check_prefix(ctx, "p", x, y, &res)
+
+	y = unbox(y).(Value)
+
+	switch tx := x.(type) {
+	case *loc:
+		return &loc{prefix(ctx, tx.Value, y), tx.pos}
+	case *xloc:
+		return &xloc{prefix(ctx, tx.Value, y), tx.pos}
+	case flag:
+		switch tx.Value.(type) {
+		case *valbase, *null, *none, nil: return flag{y}
+		}
+		switch ty := y.(type) {
+		case *pair: return &pair{flag{prefix(ctx, tx.Value, ty.key)}, ty.val}
+		default: return flag{prefix(ctx, tx.Value, y)}
+		}
+	case *pair:
+		switch tx.val.(type) {
+		case *valbase, *null, *none, nil: return &pair{tx.key, y}
+		default: return &pair{tx.key, prefix(ctx, tx.val, y)}
+		}
+	case *path:
+		return &path{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
+	case *globpat:
+		switch ty := y.(type) {
+		case *compound: return &globpat{elements{append(tx.elems, ty.elems...)}}
+		case *globpat: return &globpat{elements{append(tx.elems, ty.elems...)}}
+		default: return &globpat{elements{append(tx.elems, y)}}
+		}
+	case *percpat: 
+		// CRITICAL FIX: Left-hand Smart Fusion
+		return &percpat{tx.valbase, tx.Prefix, prefix(ctx, tx.Suffix, y)}
+	case *compound:
+		switch ty := y.(type) {
+		case *path: return &path{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
+		case *compound: return &compound{elements{append(tx.elems, ty.elems...)}}
+		case *globpat: return &globpat{elements{append(tx.elems, ty.elems...)}}
+		case *qualword: // CRITICAL FIX: Compound + qualword fusion!
+			if len(ty.elems) == 0 { return tx }
+			return &qualword{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
+		}
+		if i := len(tx.elems)-1; 0 <= i {
+			switch t := tx.elems[i].(type) {
+			case flag:
+				if v := prefix(ctx, t, y); 0 == i { return v } else {
+					return &compound{elements{append(dup(tx.elems[:i]), v)}}
+				}
+			}
+		}
+		return &compound{elements{append(dup(tx.elems), y)}}
+	case *qualword: // CRITICAL FIX: Left-hand qualword fusion!
+		if len(tx.elems) == 0 { return y }
+		switch ty := y.(type) {
+		case *qualword: // qualword + qualword
+			if len(ty.elems) == 0 { return tx }
+			return &qualword{elements{append(append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], ty.elems[0])), ty.elems[1:]...)}}
+		case *punct: 
+			// CRITICAL FIX: Do not let the qualword "swallow" the punctuation (e.g., .H + >)
+			return &compound{elements{[]Value{tx, ty}}}
+		default: // qualword + scalar
+			return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
+		}
+	}
+
+	switch ty := y.(type) {
+	case *pair:
+		switch ty.key.(type) {
+		case *valbase, *null, *none, nil: return &pair{x, ty.val}
+		default: return &pair{prefix(ctx, x, ty.key), ty.val}
+		}
+	case *globpat:
+		switch x.(type) {
+		case *valbase, *null, *none, nil: return &globpat{elements{dup(ty.elems)}}
+		default: return &globpat{elements{append([]Value{x}, ty.elems...)}}
+		}
+	case *percpat:
+		switch tx := x.(type) {
+		case nil: return &percpat{valbase{}, ty.Prefix, ty.Suffix}
+		case *valbase: return &percpat{*tx, ty.Prefix, ty.Suffix}
+		case *null, *none: return &percpat{valbase{x.Pos()}, ty.Prefix, ty.Suffix}
+		default: 
+			// CRITICAL FIX: Right-hand Smart Fusion
+			return &percpat{valbase{x.Pos()}, prefix(ctx, x, ty.Prefix), ty.Suffix}
+		}
+	case *qualword: // CRITICAL FIX: Right-hand qualword fusion!
+		if len(ty.elems) == 0 { return x }
+		return &qualword{elements{append([]Value{prefix(ctx, x, ty.elems[0])}, ty.elems[1:]...)}}
+	case *compound:
+		switch ty.elems[0].(type) {
+		case *pair: debug(ctx, "%v", ty.elems, trace{})
+		case *valbase, *null, *none, nil: return &compound{elements{dup(ty.elems)}}
+		default: return &compound{elements{append([]Value{x}, ty.elems...)}}
+		}
+	}
+
+	return &compound{elements{[]Value{x, y}}}
+}
+
+func has_prefix(str string, prefixs ...string) (res bool) {
+    for _, s := range prefixs { if res = strings.HasPrefix(str, s); res { break }}
+    return
+}
+
+func has_suffix(str string, suffixs ...string) (res bool) {
+    for _, s := range suffixs { if res = strings.HasSuffix(str, s); res { break }}
+    return
+}
+
+func isAny(str string, ss ...string) bool {
+    for _, s := range ss { if str == s { return true } }
+    return false
+}
+
+type valvec []Value
+func (vals valvec) has(val Value) (res bool) {
+    for _, v := range vals { if res = v == val; res { break } }
+    return
+}
+func (vals valvec) has2(ctx Context, val Value) (res bool) {
+    for _, v := range vals { if res = equal(ctx, v, val); res { break } }
+    return
+}
+func (vals *valvec) add(val Value) (res *valvec) {
+    if val != nil && !vals.has(val) { *vals = append(*vals, val) }
+    return vals
+}
+func (vals *valvec) add2(ctx Context, val Value) (res *valvec) {
+    if val != nil && !vals.has2(ctx, val) { *vals = append(*vals, val) }
+    return vals
+}
+
+type valbase struct{ pos Pos }
+func (_ *valbase) kind() Kind { return KindUnclassified }
+func (_ *valbase) String() (_ string) { return }
+func (p *valbase) Pos() Pos { return p.pos }
+
+type loc struct{ Value ; pos Pos }
+func (p *loc) Pos() Pos { return p.pos }
+func (l *loc) String() string {
+	if l == nil || l.Value == nil {
+		return ""
+	}
+	return l.Value.String()
+}
+
+// xloc is a synthetic wrapper for values generated from external runtime 
+// files (like grep) that do not exist in the compiler's FileSet.
+type xloc struct { Value ; pos Position }
+func (p *xloc) Pos() Pos { return 0 } 
+func (p *xloc) Position() Position { return p.pos }
+func (l *xloc) String() string {
+	if l == nil || l.Value == nil {
+		return ""
+	}
+	return l.Value.String()
+}
+
+func _loc(v Value, p Pos) Value {
+	if t := v.Pos(); t == p {
+		return v
+	} else {
+		return &loc{v, p}
+	}
+}
+
+type returner struct{ valbase ; vals []Value }
+func (p *returner) kind() Kind { return KindReturner }
+
+type undef struct{ Value }
+func (_ undef) kind() Kind { return KindUndef }
+func (p undef) String() string { return "{=undef "+p.Value.String()+"}" }
+
+type null struct{ valbase }
+func (_ *null) kind() Kind { return KindNull }
+func (_ *null) String() string { return "{}" }
+
+type none struct{ valbase }
+func (_ *none) kind() Kind { return KindNone }
+func (p *none) String() (_ string) { return }
+
+type argumented_ctx struct{ Context ; val Value; args []Value }
+func (ac *argumented_ctx) cast(t reflect.Type) Context { return icast(ac,t) }
+func (ac *argumented_ctx) inner() Context { return ac.Context }
+func (ac *argumented_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case get_args: return ac.args
+    case init_args:
+        t.args(ctx, ac.args)
+        return
+    }
+    return ac.Context.do(ctx, op)
+}
+
+type argumented struct{ Value ; args []Value }
+func (_ *argumented) kind() Kind { return KindArgumented }
+func (p *argumented) String() (s string) {
+    for i, a := range p.args {
+        if i > 0 { s += "," }
+        s += a.String()
+    }
+    s = fmt.Sprintf("%s(%s)", p.Value.String(), s)
+    return
+}
+func (p *argumented) ctx(ctx Context) *argumented_ctx {
+    //!< IMPORTANT! - Don't merge-expand arguments here!
+    //!< Arguments should be passed to program.execute as it is.
+    var args []Value
+    var proj = _project(ctx)
+
+    // NOTE: expand here to avoid args being expanded in the wrong context
+    for _, a := range p.args {
+        // TODO: deal with pattern args using expandPatterned instead of stenciling:
+        if a = expand(_final(ctx),a); patterned(ctx,a) {
+            if stems := _stems(ctx); len(stems) > 0 {
+                var stemVals []Value
+                for _, s := range stems {
+                    stemVals = append(stemVals, s)
+                }
+                if v, rest := stencil(ctx, a, stemVals); len(rest) > 0 {
+                    debug(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems, trace{})
+                } else if f := as_file(ctx, a, proj); f != nil {
+                    a = f
+                } else {
+                    a = v
+                }
+            }
+        }
+        args = append(args, a)
+    }
+    return &argumented_ctx{ctx, p.Value, args}
+}
+
+type negative struct{ Value }
+func (p negative) String() string { return `!`+p.Value.String() }
+
+type escaped struct{ valbase; s string }
+func (_ *escaped) kind() Kind { return KindEscaped }
+func (p *escaped) String() string { return "\\" + p.s }
+
+type boolean struct{ valbase; bool }
+func (_ *boolean) kind() Kind { return KindBoolean }
+func (p *boolean) String() string { if p.bool { return "{=true}" } else { return "{=false}" } }
+
+type answer struct{ boolean }
+func (p *answer) String() string { if p.bool { return "{=yes}" } else { return "{=no}" } }
+
+type option struct{ boolean }
+func (p *option) String() string { if p.bool { return "{=on}" } else { return "{=off}" } }
+
+type prediction struct{ boolean ; s string }
+
+func toBool(v Value, t bool) Value {
+	if l, ok := v.(*loc); ok {
+		return &loc{toBool(l.Value, t), l.pos}
+	}
+	return _boolean(v.Pos(), t)
+}
+
+func boolVal(v Value) (res, y bool) {
+    switch t := v.(type) {
+    case     *answer: res, y = t.bool, true
+    case    *boolean: res, y = t.bool, true
+    case     *option: res, y = t.bool, true
+    case *prediction: res, y = t.bool, true
+    }
+    return
+}
+
+func makePrediction(pos Pos, val bool, s string) *prediction {
+    return &prediction{boolean{valbase{pos}, val}, s}
+}
+
+type integer struct{ valbase; int64 }
+func (_ *integer) kind() Kind { return KindInteger }
+
+type binary struct{ integer }
+func (p *binary) kind() Kind { return p.integer.kind()|KindBinary }
+func (p *binary) String() string { return "0b"+strconv.FormatInt(int64(p.int64),2) }
+
+type octal struct{ integer }
+func (p *octal) kind() Kind { return p.integer.kind()|KindOctal }
+func (p *octal) String() string { return "0"+strconv.FormatInt(int64(p.int64),8) }
+
+type decimal struct{ integer }
+func (p *decimal) kind() Kind { return p.integer.kind()|KindDecimal }
+func (p *decimal) String() string { return strconv.FormatInt(int64(p.int64),10) }
+
+type hexadecimal struct{ integer }
+func (p *hexadecimal) kind() Kind { return p.integer.kind()|KindHexadecimal }
+func (p *hexadecimal) String() string { return "0x"+strconv.FormatInt(int64(p.int64),16) }
+
+const epsilon = 1e-15 /* 1e-16 */
+
+type float struct{ valbase; float64 } // IEEE-754 64-bit binary floating-point
+func (p *float) kind() Kind { return KindFloat }
+func (p *float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
+
+type datetime struct{ valbase ; t time.Time }
+func (_ *datetime) kind() Kind { return KindDateTime }
+func (p *datetime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
+
+type Date struct{ datetime }
+func (p *Date) kind() Kind { return KindDate }
+func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
+
+type Time struct{ datetime }
+func (p *Time) kind() Kind { return KindTime }
+func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
+
+// ie. https://en.wikipedia.org/wiki/URL
+// ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
+//                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
+//                     └<userinfo>─(@)┘      └(:)─<port>┘
+type url struct{
+    Scheme Value
+    Username Value
+    Password Value
+    Host Value
+    Port Value
+    Path Value
+    Query []Value
+    Fragment Value
+}
+func (_ *url) kind() Kind { return KindUrl }
+func (p *url) Pos() Pos { return p.Scheme.Pos() }
+func (p *url) String() (s string) {
+    s = p.Scheme.String() + ":"
+    if p.Host != nil {
+        s += "//"
+        if p.Username != nil {
+            s += p.Username.String() + "@"
+        }
+        s += p.Host.String()
+        if p.Port != nil {
+            s += ":" + p.Port.String()
+        }
+    }
+    if p.Path != nil {
+        s += p.Path.String()
+    }
+    if p.Query != nil {
+        s += "?"
+        for i, q := range p.Query {
+            if 0 < i { s += "&" }
+            s += q.String()
+        }
+    }
+    if p.Fragment != nil {
+        s += "#" + p.Fragment.String()
+    }
+    return
+}
+func (p *url) Validate() (res *neturl.URL) {
+    panic(fmt.Sprintf("validate %s", p))
+    return
+}
+
+type raw struct{ valbase; s string }
+func (_ *raw) kind() Kind { return KindRaw }
+func (p *raw) String() string { return /* "{=raw "+p.s+"}" */p.s }
+func (p *raw) trim(pre string) {
+    p.s = strings.TrimSpace(strings.TrimPrefix(p.s, pre))
+    return
+}
+
+type strlit struct{ valbase; s string }
+func (_ *strlit) kind() Kind { return KindStrLit }
+func (p *strlit) String() string { return `'`+p.s+`'` }
+
+type strval struct{ valbase; v []Value }
+func (_ *strval) kind() Kind { return KindStrVal }
+func (p *strval) String() (s string) {
+    for _, v := range p.v {
+        if s != "" { s += " " }
+        s += v.String()
+    }
+    s = `{=str `+s+`}`
+    return
+}
+
+func isTrueString(s string) (t bool) {
+    switch strings.ToLower(s) {
+    case "false", "no" , "off", "force_off", "0", "": t = false
+    case "true" , "yes", "on" , "force_on" , "1"    : t = true
+    default: t = true
+    }
+    return
+}
+
+type quote struct{ list }
+func (_ *quote) kind() Kind { return KindQuote }
+func (q *quote) String() (s string) { return "{=quote "+q.list.String()+"}" }
+
+// punct stands for the punctuation
+type punct struct{ valbase; token }
+func (_ *punct) kind() Kind { return KindPunct }
+func (p *punct) String() string { return p.token.String() }
+
+type bare string
+type word struct{ valbase; s string }
+func (_ *word) kind() Kind { return KindWord }
+func (p *word) String() string {
+    if strings.Contains(p.s, " ") {
+        return "{=word "+p.s+"}"
+    } else {
+        return p.s
+    }
+}
+
+// Upgraded qualword: holds a dot-separated sequence of Values
+type qualword struct{ elements }
+func (_ *qualword) kind() Kind { return KindWord } // Behaves like a word/compound
+func (p *qualword) String() string {
+	var b strings.Builder
+	for i, elem := range p.elems {
+		if i > 0 { b.WriteByte('.') }
+		if elem == nil {
+			b.WriteString("{}")
+		} else if e, ok := elem.(*list); ok {
+			switch len(e.elems) {
+			case 0: continue
+			case 1: b.WriteString(elem.String())
+			default:
+				b.WriteString("⌜")
+				b.WriteString(elem.String())
+				b.WriteString("⌟")
+			}
+		} else {
+			b.WriteString(elem.String())
+		}
+	}
+	return b.String()
+}
+
+type slicer interface{ slice(...int) []Value }
+type elements struct{ elems []Value }
+func (p *elements) len() int { return len(p.elems) }
+func (p *elements) list() *list { return &list{*p} }
+func (p *elements) path() *path { return &path{*p} }
+func (p *elements) compound() *compound { return &compound{*p} }
+func (p *elements) globpat() *globpat { return &globpat{*p} }
+func (p *elements) append(v ...Value) { p.elems = append(p.elems, v...) }
+func (p *elements) Pos() (_ Pos) {
+	for _, e := range p.elems {
+		if e != nil { if t := e.Pos(); t.IsValid() { return t } }
+	}
+	return
+}
+func (p *elements) at(n int) (v Value) {
+	if 0 <= n && n < len(p.elems) { v = p.elems[n] }
+	return
+}
+func (p *elements) any() (a []any) {
+	for _, v := range p.elems { a = append(a, v) }
+	return
+}
+func (p *elements) slice(i ...int) (_ []Value) {
+	switch len(i) {
+	case 0: return p.elems[:]
+	case 1: return p.elems[:i[0]]
+	case 2: return p.elems[i[0]:i[1]]
+	}
+	return
+}
+func (p *elements) take(n int) (v Value) {
+	if x := len(p.elems); n>=0 && n<x {
+		v = p.elems[n]
+		p.elems = append(p.elems[0:n], p.elems[n+1:]...)
+	}
+	return
+}
+func (p *elements) true(ctx Context) bool { // (or elems...)
+	for _, elem := range p.elems { if __true(ctx, elem) { return true } }
+	return false
+}
+
+type conjunction struct{ *list ; sep Value }
+func (p conjunction) kind() Kind { return KindConjunction }
+func (p conjunction) String() (s string) {
+    if p.sep != nil { s = p.sep.String() }
+    return "{{"+p.list.String()+"}"+s+"}"
+}
+
+func redis(v Value) Value { v, _ = _redis(v); return v }
+func _redis(v Value) (res Value, dis bool) {
+	if v == nil { return nil, false }
+	switch t := v.(type) {
+	case *closure, *delegate:
+		return &disjunction{valbase{v.Pos()},v}, true
+	case *loc:
+		res, dis = _redis(t.Value)
+		res = &loc{res, t.pos}
+		return
+	case *xloc:
+		res, dis = _redis(t.Value)
+		res = &xloc{res, t.pos}
+		return
+	case flag:
+		res, dis = _redis(t.Value)
+		res = flag{res}
+		return
+	case *pair:
+		var key, d1 = _redis(t.key)
+		var val, d2 = _redis(t.val)
+		res, dis = &pair{key, val}, d1 || d2
+		return
+	case *arrow:
+		var o, d1 = _redis(t.o)
+		var s, d2 = _redis(t.s)
+		res, dis = &arrow{t.valbase, t.t, o, s}, d1 || d2
+		return
+	case *percpat:
+		var p, d1 = _redis(t.Prefix)
+		var s, d2 = _redis(t.Suffix)
+		res, dis = &percpat{t.valbase, p, s}, d1 || d2
+		return
+	case *compound:
+		res = &compound{elements{_redis_elems(t.elems, &dis)}}
+		return
+	case *path:
+		res = &path{elements{_redis_elems(t.elems, &dis)}}
+		return
+	case *list:
+		res = &list{elements{_redis_elems(t.elems, &dis)}}
+		return
+	case *globpat:
+		res = &globpat{elements{_redis_elems(t.elems, &dis)}}
+		return
+	case *strcomp:
+		res = &strcomp{elements{_redis_elems(t.elems, &dis)}}
+		return
+	}
+    return v, false
+}
+func _redis_elems(vals []Value, dis *bool) (res []Value) {
+	for _, val := range vals {
+		e, d := _redis(val); if d { *dis = true }
+		res = append(res, e)
+	}
+	return
+}
+
+type  ex_disjunction struct{}
+type     disjunction struct{ valbase ; val Value }
+func (p *disjunction) kind() Kind { return KindDisjunction/* |p.Value.kind() */ }
+func (p *disjunction) String() string { return "{"+p.val.String()+"}" }
+
+func _disjunction(v Value) (res Value) {
+    switch v.(type) {
+    case *integer, *binary, *octal, *decimal, *hexadecimal, *float, *disjunction,
+        *punct, *word, *raw, *strlit, *datetime, *file, *Date, *Time, *project, self:
+        return v
+    }
+    return &disjunction{valbase{v.Pos()},v}
+}
+
+type wants_fullfile   struct{}
+type  is_compound     struct{}
+type     comctx struct{ Context ; i int }
+func (c *comctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c *comctx) inner() Context { return c.Context }
+func (c *comctx) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case wants_fullfile: return false
+	case is_compound: return true
+	case *closure, *delegate: c.i += 1
+		if false && sf("%v",op) == "&(.test.xx)" {
+			debug(pc(ctx,op), "%v %d", op, c.i)
+		}
+	}
+	return c.Context.do(ctx, op)
+}
+
+func com(ctx *comctx, a, elems []Value) (res []Value) {
+	for i, elem := range elems {
+		switch tail := elems[i+1:]; t := elem.(type) {
+		case *disjunction:
+			for _, elem := range merge(expand(ctx, t.val)) {
+				if isTrivial(elem) { continue }
+				for _, v := range com(ctx, append(dup(a), elem), tail) {
+					res = append(res, redis(v))
+				}
+			}
+			return
+		case flag:
+			for _, v := range com(ctx, nil, []Value{t.Value}) {
+				res = append(res, com(ctx, append(a, flag{v}), tail)...)
+			}
+			return
+		case *loc:
+			for _, v := range com(ctx, nil, []Value{t.Value}) {
+				res = append(res, com(ctx, append(a, &loc{v,t.pos}), tail)...)
+			}
+			return
+		case *xloc:
+			for _, v := range com(ctx, nil, []Value{t.Value}) {
+				res = append(res, com(ctx, append(a, &xloc{v,t.pos}), tail)...)
+			}
+			return
+		case *pair:
+			var keys = com(ctx, nil, []Value{t.key})
+			var vals = com(ctx, nil, []Value{t.val})
+			for _, k := range keys {
+				for _, v := range vals {
+					res = append(res, com(ctx, append(a, &pair{k,v}), tail)...)
+				}
+			}
+			return
+		case *path:
+			var front = t.elems[:len(t.elems)-1]
+			for _, v := range com(ctx, t.elems[len(t.elems)-1:], tail) {
+				res = append(res, &path{elements{append(dup(front), v)}})
+			}
+			return
+		case *compound:
+			return com(ctx, a, append(t.elems, tail...))
+		default:
+			a = append(a, expand(ctx, elem))
+		}
+	}
+	switch len(a) {
+	case 0 : return
+	case 1 : return a
+	default: return []Value{&compound{elements{a}}}
+	}
+}
+
+func com_qualword(ctx *comctx, a, elems []Value) (res []Value) {
+	for i, elem := range elems {
+		switch tail := elems[i+1:]; t := elem.(type) {
+		case *disjunction:
+			for _, e := range merge(expand(ctx, t.val)) {
+				if isTrivial(e) { continue }
+				for _, v := range com_qualword(ctx, append(dup(a), e), tail) {
+					res = append(res, redis(v))
+				}
+			}
+			return
+		case *loc:
+			for _, v := range com_qualword(ctx, nil, []Value{t.Value}) {
+				res = append(res, com_qualword(ctx, append(dup(a), &loc{v, t.pos}), tail)...)
+			}
+			return
+		case *xloc:
+			for _, v := range com_qualword(ctx, nil, []Value{t.Value}) {
+				res = append(res, com_qualword(ctx, append(dup(a), &xloc{v, t.pos}), tail)...)
+			}
+			return
+		case *compound:
+			// CRITICAL FIX: Evaluate the compound to trigger variants or annihilation!
+			for _, v := range com(ctx, nil, t.elems) {
+				res = append(res, com_qualword(ctx, append(dup(a), v), tail)...)
+			}
+			return
+		default:
+			a = append(a, expand(ctx, elem))
+		}
+	}
+	switch len(a) {
+	case 0 : return
+	case 1 : return a
+	default: return []Value{&qualword{elements{a}}}
+	}
+}
+
+type compound struct{ elements }
+func (_ *compound) kind() Kind { return KindCompound }
+func (p *compound) String() (s string) {
+	var b strings.Builder
+	for _, elem := range p.elems {
+		if elem == nil {
+			b.WriteString("{}")
+		} else if e, ok := elem.(*list); ok {
+			switch len(e.elems) {
+			case 0: continue
+			case 1: b.WriteString(elem.String())
+			default:
+				b.WriteString("⌜")
+				b.WriteString(elem.String())
+				b.WriteString("⌟")
+			}
+		} else {
+			b.WriteString(elem.String())
+		}
+	}
+	return b.String()
+}
+func (p *compound) app(vals ...Value) {
+    for _, v := range vals {
+        if x, y := v.(*compound); y {
+            p.app(x.elems...)
+        } else {
+            p.elems = append(p.elems, v)
+        }
+    }
+}
+
+type recipe struct{ strcomp }
+func (p *recipe) kind() Kind { return KindRecipe|p.strcomp.kind() }
+func (p *recipe) String() string { return p.src() }
+
+type is_plain_only struct{}
+type plain_ctx struct { Context ; only bool }
+func (p plain_ctx) inner() Context { return p.Context }
+func (p plain_ctx) cast(t reflect.Type) Context { return icast(p, t) }
+func (p plain_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case is_plain_only: return p.only
+    }
+    return p.Context.do(ctx, op)
+}
+
+// Value returned by (plain) modifier.
+type plain struct { elements ; name string }
+func (_ *plain) kind() Kind { return KindPlain }
+func (p *plain) String() (s string) {
+    s = "{=plain"
+    if t := p.name; t != "" { s += "("+t+")" }
+    for _, v := range p.elems { s += " " + v.String() }
+    s += "}"
+    return
+}
+
+type is_plainline struct {}
+type plainline_ctx struct { Context }
+func (p plainline_ctx) inner() Context { return p.Context }
+func (p plainline_ctx) cast(t reflect.Type) Context { return icast(p, t) }
+func (p plainline_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case is_plainline: return true
+    }
+    return p.Context.do(ctx, op)
+}
+
+type plainline struct { elements }
+func (_ *plainline) kind() Kind { return KindPlainLine }
+func (p *plainline) String() (s string) {
+    s = "{=plainline"
+    if p.elems != nil {
+        s += " "
+        for _, v := range p.elems { s += v.String() }
+    }
+    s += "}"
+    return
+}
+func (p *plainline) float(ctx Context) (_ float64) {
+    if p.len() > 0 { return __float(ctx, p.elems[0]) }
+    return
+}
+func (p *plainline) int(ctx Context) (_ int64) {
+    if p.len() > 0 { return __int(ctx, p.elems[0]) }
+    return
+}
+
+type plainint struct{}
+func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
+    var res = &plain{}
+    var exe = _execution(ctx)
+    var opts struct { general_opts }
+
+    if args = parseOpts(ctx, &opts, args...) ; len(args) > 0 {
+        res.name = __string(ctx, args[0])
+        exe.language = res.name
+    }
+
+    for _, recipe := range exe.recipes {
+        res.elems = append(res.elems, expand(_final(ctx), recipe))
+    }
+
+    if false && len(res.elems) == 1 {
+        if x, y := res.elems[0].(*plainline); y {
+            res.elems = merge(x.elems...)
+        }
+    }
+
+    if checkpoints {
+        p.evaluate_check(ctx, args, exe.recipes, res)
+    }
+    return res
+}
+
+func multiline(ctx Context, recipes... Value) (res string) {
+    var (
+        x = len(recipes)-1
+        w = new(bytes.Buffer)
+    )
+    for n, recipe := range recipes {
+        if fmt.Fprint(w, __string(ctx, recipe)); n < x { fmt.Fprint(w, "\n") }
+    }
+    res = w.String()
+    return
+}
+
+type XML struct { Value }
+func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
+func (p *XML) _cmp(ctx Context, v Value) (res cmpres) {
+    if a, ok := v.(*XML); ok {
+        assert(ok, "value is not XML")
+        res = cmp(ctx, p.Value, a.Value)
+    }
+    return
+}
+
+/*
+<books number="3">
+  <book id="1">
+    <title>book one</title>
+  </book>
+  <book id="2">
+    <title>book two</title>
+  </book>
+  <book id="3"> <title>  abc  </title> </book>
+</books>
+
+Converted into:
+
+(
+    books number=3
+    (
+        book id=1
+        (title 'book one')
+    )
+    (
+        book id=2
+        (title 'book two')
+    )
+    (
+        book id=3
+        (title '  abc  ')
+    )
+)
+
+   TODO: implement the new xml format:
+
+   xml{books(number=3
+       book(id=1 title('book one'))
+       book(id=2 title('book two'))
+       book(id=3 title('   abc   '))
+   )}
+
+*/
+func DecodeXML(ctx Context, source string, ws bool) (result Value) {
+    var (
+        pos = _pos(ctx)
+        stack []*group
+        nodes []*group
+        tok enc_xml.Token
+        err error
+    )
+    xd := enc_xml.NewDecoder(strings.NewReader(source))
+    for tok, err = xd.Token(); err == nil; tok, err = xd.Token() {
+        switch elem := tok.(type) {
+        case enc_xml.ProcInst:
+            // TODO: ...
+        case enc_xml.StartElement:
+            nn := _group(pos, &word{valbase{pos},elem.Name.Local})
+            for _, a := range elem.Attr {
+                var k, v Value
+                k = &word{valbase{pos},a.Name.Local}
+                v = &strlit{valbase{pos},a.Value}
+                if s := a.Name.Space; s != "" {
+                    k = _group(pos, &strlit{valbase{pos},s}, k)
+                }
+                nn.append(makePair(k, v))
+            }
+            if x := len(stack); x > 0 {
+                stack[x-1].append(nn)
+            } else {
+                nodes = append(nodes, nn)
+            }
+            stack = append(stack, nn)
+        case enc_xml.EndElement:
+            if x := len(stack); x > 0 {
+                stack = stack[0:x-1]
+            } else {
+                // FIXME: report illegal xml
+            }
+        case enc_xml.CharData:
+            if x := len(stack); x > 0 {
+                node, s := stack[x-1], string(elem)
+                if ws {
+                    node.append(&strlit{valbase{pos},s})
+                } else {
+                    if s = strings.TrimSpace(s); s != "" {
+                        node.append(&strlit{valbase{pos},s})
+                    }
+                }
+            }
+        case enc_xml.Directive:
+            // TODO: ...
+        case enc_xml.Comment:
+            // TODO: ...
+        }
+    }
+    if x := len(nodes); x > 1 {
+        g := _group(pos)
+        for _, node := range nodes {
+            g.append(node)
+        }
+        result = g
+    } else if x == 1 {
+        result = nodes[0]
+    }
+    if err != io.EOF {
+        debug(ctx, "%v", err, trace{})
+    }
+    return
+}
+
+type xml struct { whitespace bool }
+func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
+    var source = multiline(ctx, _execution(ctx).recipes...)
+    if v := DecodeXML(ctx, source, p.whitespace); v != nil {
+        return &XML{ v }
+    } else {
+        return &XML{ _none(_pos(ctx)) }
+    }
+}
+
+type JSON struct { Value }
+func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
+func (p *JSON) _cmp(ctx Context, v Value) (res cmpres) {
+    if a, ok := v.(*JSON); ok {
+        assert(ok, "value is not JSON")
+        res = cmp(ctx, p.Value, a.Value)
+    }
+    return
+}
+
+type jsonDecodeState struct {
+    dec *enc_json.Decoder
+    stack []*group
+    nodes []*group
+}
+func (ds *jsonDecodeState) decode() {}
+
+const (
+    JsonArray  = "array"
+    JsonObject = "object"
+)
+
+/*
+   TODO: implement the new json format:
+
+   json{books(number=3
+       book(id=1 title('book one'))
+       book(id=2 title('book two'))
+       book(id=3 title('   abc   '))
+   )}
+ */
+func DecodeJSON(ctx Context, source string) (result Value) {
+    var (
+        pos Pos = _pos(ctx)
+        stack []*group
+        nodes []Value
+        node *group
+        value Value
+        t, v enc_json.Token
+        s string
+        err error
+    )
+    jd := enc_json.NewDecoder(strings.NewReader(source))
+LoopJSON:
+    for {
+        if t, err = jd.Token(); err != nil { break }
+        x := len(stack)
+        //prompt(ctx, "%T: %v\n", t, t)
+    SwitchNodeType:
+        switch node, value = nil, nil; d := t.(type) {
+        case enc_json.Delim:
+            switch d {
+            case '[':
+                nn := _group(pos, _word(pos, JsonArray))
+                if x == 0 {
+                    nodes = append(nodes, nn)
+                } else {
+                    node, value = stack[x-1], nn
+                }
+                stack = append(stack, nn) // APPEND
+                break SwitchNodeType
+            case '{':
+                nn := _group(pos, _word(pos, JsonObject))
+                if x == 0 {
+                    nodes = append(nodes, nn)
+                } else {
+                    node, value = stack[x-1], nn
+                }
+                stack = append(stack, nn) // APPEND
+                break SwitchNodeType
+            case '}':
+                if x == 0 {
+                    err = errorIllJson; break LoopJSON
+                }
+                if k := stack[x-1].at(0); k == nil {
+                    if s = __string(ctx, k); s != JsonObject {
+                        err = errorIllJson; break LoopJSON
+                    }
+                }
+                stack = stack[0:x-1] // POP
+                continue LoopJSON
+            case ']':
+                if x == 0 {
+                    err = errorIllJson; break LoopJSON
+                }
+                if k := stack[x-1].at(0); k == nil {
+                    if s = __string(ctx, k); s != JsonArray {
+                        err = errorIllJson; break LoopJSON
+                    }
+                }
+                stack = stack[0:x-1] // POP
+                continue LoopJSON
+            default:
+                err = errorIllJson; break LoopJSON
+            }
+        case string:
+            var sv = &strlit{valbase{pos},d}
+            if x == 0 {
+                nodes = append(nodes, sv)
+                break
+            }
+
+            node = stack[x-1]
+            if k := node.at(0); k != nil {
+                var kind string
+                if kind = __string(ctx, k); kind == JsonArray {
+                    node.append(sv); continue
+                } else if kind != JsonObject {
+                    err = errorIllJson; break LoopJSON
+                }
+            }
+
+            // Get value token
+            if !jd.More() {
+                err = errorIllJson; break LoopJSON
+            } else if v, err = jd.Token(); err != nil {
+                break LoopJSON
+            }
+
+            switch vd := v.(type) {
+            case enc_json.Delim:
+                var vn *group
+                switch vd {
+                case '[': vn = _group(pos, _word(pos, JsonArray))
+                case '{': vn = _group(pos, _word(pos, JsonObject))
+                default: err = errorIllJson; break LoopJSON
+                }
+                stack = append(stack, vn)
+                node.append(makePair(sv, vn))
+            case string:
+                node.append(makePair(sv, _strlit(pos, vd)))
+            case float64:
+                node.append(makePair(sv, _float(pos, vd)))
+            case nil: // null
+                node.append(makePair(sv, _word(pos, "null")))
+            default:
+                err = errorIllJson; break LoopJSON
+            }
+            //prompt(ctx, "node: %v\n", node)
+        case float64:
+            if v := Value(_float(pos, d)); x == 0 {
+                nodes = append(nodes, v)
+            } else {
+                node, value = stack[x-1], v
+            }
+        case nil: // null
+            if v := Value(_word(pos, "null")); x == 0 {
+                nodes = append(nodes, v)
+            } else {
+                node, value = stack[x-1], v
+            }
+        default:
+            err = errorIllJson; break LoopJSON
+        }
+        if node != nil && value != nil {
+            if k := node.at(0); k != nil {
+                if s = __string(ctx, k); s != JsonArray {
+                    err = errorIllJson; break LoopJSON
+                }
+            }
+            node.append(value)
+        }
+    }
+    if x := len(nodes); x == 1 {
+        result = nodes[0]
+    } else {
+        g := _group(pos)
+        for _, v := range nodes {
+            g.append(v)
+        }
+        result = g
+    }
+    if err != io.EOF {
+        debug(ctx, "%v", err, trace{})
+    }
+    return
+}
+
+type json struct {}
+func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
+    var recipes = _execution(ctx).recipes
+    var source = multiline(ctx, recipes...)
+    if v := DecodeJSON(ctx, source); v != nil {
+        return &JSON{ result }
+    } else {
+        return &JSON{ _none(recipes[0].Pos()) }
+    }
+}
+
+type YAML struct { Value }
+func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
+
+/*
+   TODO: implement the yaml format:
+
+   yaml{books(number=3
+       book(id=1 title('book one'))
+       book(id=2 title('book two'))
+       book(id=3 title('   abc   '))
+   )}
+ */
+func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
+    debug(ctx, "TODO: implement DecodeYAML", trace{})
+    return
+}
+
+type yaml struct { whitespace bool }
+func (p *yaml) evaluate(ctx Context, args ...Value) (result Value) {
+    var source = multiline(ctx, _execution(ctx).recipes...)
+    if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
+        return &YAML{ result }
+    } else {
+        return &YAML{ _none(_pos(ctx)) }
+    }
+}
+
+// barefile reduces file lookups, it works like an alias of a File.
+type barefile struct{ Value ; file *file }
+func (_ *barefile) kind() Kind { return KindBarefile }
+
+func barefilize(ctx Context, targets ...Value) []Value {
+    var project = _project(ctx)
+    for i, target := range targets {
+        if patterned(ctx,target) { continue }
+        switch t := target.(type) {
+        case *word:
+            if f := project.file(ctx, t.s); f != nil {
+                targets[i] = &barefile{ target, f }
+                f.pos = target.Pos()
+            }
+        case *compound, *path:
+            if patterned(ctx,t) /* || t.expandable(ctx) */ /* || refdef(ctx, t, DefArg) */ {//, expandDef2
+                break
+            } else if f := project.file(ctx, __string(ctx, t)); f != nil {
+                targets[i] = &barefile{ target, f }
+                f.pos = target.Pos()
+            }
+        case *argumented:
+            t.Value = barefilize(ctx, t.Value)[0]
+            t.args  = barefilize(ctx, t.args...)
+        }
+    }
+    return targets
+}
+func exp_barefilize(ctx Context, targets ...Value) (res []Value) {
+    var maps []matched_filemap
+	var proj = _project(ctx)
+    for _, target := range targets {
+        if !patterned(ctx,target) {
+            maps = append(maps, unmap_files(ctx, proj, target, nil)...)
+        }
+    }
+    for _, f := range select_files(ctx, maps) { res = append(res, f) }
+    return
+}
+
+const windowsOS = runtime.GOOS == "windows"
+var ErrBadPattern = errors.New("syntax error in pattern")
+
+type path struct{ elements }
+func (_ *path) kind() Kind { return KindPath }
+func (p *path) String() (s string) {
+    var n int
+    for i, elem := range p.elems {
+        if t := elem.String(); 0 < i {
+            s += pathSep + t
+            n += 1
+        } else if t != "" {
+            s += t
+        } else if len(p.elems) == 1 {
+            s += pathSep
+            n += 1
+        }
+    }
+
+    if n == 0 { s = "{=path "+s+"}" }
+    return
+}
+func (p *path) isAbs() bool { x, y := p.elems[0].(*punct); return y && x.token == PROOT }
+
+func _pathStr(ctx Context, str string) *path {
+    return makePath(splitPathStr(ctx, str)...)
+}
+
+func _punct(ctx Context, tok token) *punct {
+    return &punct{valbase{_pos(ctx)}, tok}
+}
+
+func to_file(v Value) (x *file, y bool) {
+    if x, y = v.(*file); !y {
+        switch t := v.(type) {
+		case     *loc: x, y = to_file(t.Value)
+		case    *xloc: x, y = to_file(t.Value)
+        case fullname: x, y = to_file(t.Value)
+        case fullfile: x, y = t.file, true
+        case *list: if t.len() == 1 { x, y = to_file(t.elems[0]) }
+        }
+    }
+    return
+}
+
+func splitFileName(ctx Context, val Value) (dir, name string) {
+    if f, _ := to_file(val); f != nil {
+        dir, name = filepath.Join(f.dir, f.sub), ident(ctx, f)
+    } else {
+        name = __string(ctx, val)
+        dir = filepath.Dir(name)
+    }
+    return
+}
+
+type fullfile_ctx struct{ Context }
+func (c fullfile_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c fullfile_ctx) inner() Context { return c.Context }
+func (c fullfile_ctx) do(ctx Context, op any) any {
+    switch op.(type) {
+    case wants_fullfile: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
+type fullfile struct{ *file }
+
+func try_fullfile(ctx Context, f *file) Value {
+    // if !truly(ctx, is_compound{}) && truly(ctx, is_exec{})
+    if truly(ctx, wants_fullfile{}) {
+        return fullfile{f}
+    }
+    return f
+}
+
+type fullname struct{ Value }
+func (o fullname) String() string {
+	if v := o.Value; v == nil {
+		panic("nil file value")
+	} else if x, y := v.(*file); y {
+		if x == nil {
+			panic("nil file")
+		} else if x.filestub == nil {
+			panic("nil file stub")
+		}
+	}
+	return o.Value.String()
+}
+
+type must_file_stamp struct{ *file }
+type must_files_stamp struct{ Context }
+func (c must_files_stamp) cast(t reflect.Type) Context { return icast(c,t) }
+func (c must_files_stamp) inner() Context { return c.Context }
+func (c must_files_stamp) do(ctx Context, op any) any {
+    switch op.(type) {
+    case must_file_stamp: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
+type file struct{
+    valbase
+    *filebase
+    *filestub
+}
+func (p *file) String() string { return "{=file "+p.filestub.name+"}" }
+func (p *file) fullname() string { return filepath.Join(p.dir, p.sub, p.filestub.name) }
+func (p *file) basename() (s string) {
+    if p.info != nil { return p.info.Name() }
+    return filepath.Base(p.filestub.name)
+}
+func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
+    if p.filemap != nil {
+        // FIXME: file should keep both 'match' and 'pre', or just remove searchInMatchedPaths
+        var f = p.filemap.stat(ctx, p.filestub.name)
+        if f != nil && f.info != nil { p.info, res = f.info, true }
+    }
+    return
+}
+func (p *file) stamp(ctx Context) (res []*file) {
+    var fn = p.fullname()
+    if fn == "" {
+        debug(ctx, "file `%s` has no fullname", p, trace{})
+    }
+
+    var e error
+
+    if p.info, e = os.Stat(fn); e != nil {
+        if truly(ctx, must_file_stamp{p}) {
+            ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
+            if _, y := e.(*fs.PathError); y {
+                debug(ctx, "no such file: %s", p.name, trace{})
+            } else {
+                debug(ctx, "%v", e, trace{})
+            }
+        }
+        return
+    } else if p.info == nil {
+        if truly(ctx, must_file_stamp{p}) {
+            ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
+            debug(ctx, "no such file: %s", p.name, trace{})
+        }
+        return
+    }
+
+    res = append(res, p)
+
+    if !is_configurecontext(ctx) {
+        p._updated = true
+        do(ctx, mark_dirty{[]Value{p}})
+    }
+    return
+}
+func (p *file) updated(ctx Context) bool { return p._updated }
+func (p *file) updatedDeps(_ Context, v ...Value) []Value {
+    if len(v) > 0 { p._updatedDeps = append(p._updatedDeps, v...) }
+    return p._updatedDeps
+}
+func (p *file) stat(ctx Context) (si *statinfo) {
+    var e error
+    if p.info != nil {
+        // good already
+    } else if p.info, e = os.Stat(p.fullname()); e == nil {
+        // good
+    } else if x, y := e.(*fs.PathError); y {
+        if false {
+            debug(ctx, "%v: %v", trimPromptString(x.Path), x.Err, trace{})
+        }
+        return
+    } else {
+        debug(ctx, "file.stat: %v", e, trace{})
+    }
+    return &statinfo{ file: p }
+}
+func (p *file) isSysFile() (res bool) {
+    if p.filemap != nil && len(p.filemap.paths) == 1 {
+        // system files defined by:
+        //     files (
+        //       (foo.xxx) ⇒ -
+        //     )
+        if f, ok := p.filemap.paths[0].(flag); ok {
+            res = isNone(f.Value) || isNull(f.Value)
+        }
+    }
+    return
+}
+func (p *file) change(dir, sub, name string) (okay bool) {
+    if fullname := filepath.Join(dir, sub, name); p.fullname() == fullname {
+        var head = &p.filebase.stub
+        for stub := p.filestub; stub != nil; stub = stub.other {
+            if stub.dir == dir && stub.sub == sub && stub.name == name {
+                p.filestub, okay = stub, true
+                return
+            }
+            if stub.other == head { break }
+        }
+        p.filestub = &filestub{ dir, sub, name, nil, head.other }
+        head.other, okay = p.filestub, true
+    }
+    return
+}
+
+type flag struct{ Value }
+func (p flag) kind() Kind { return KindFlag }
+func (p flag) Pos() (pos Pos) {
+    if p.Value != nil { pos = p.Value.Pos() /* - 1 */ }
+    return
+}
+func (p flag) String() (s string) {
+    if s = "-"; p.Value != nil { s += p.Value.String() }
+    return
+}
+func (p flag) opt(ctx Context, name string) (res string, match bool) {
+	if val := p.Value; isTrivial(val) {
+		if false { debug(ctx, "flag name is trivial", trace{}) }
+	} else if x, y := val.(flag); y {
+		res, match = x.opt(ctx, name)
+	} else if s := __string(ctx, val); s == name {
+		res, match = name, true
+	}
+	return
+}
+
+type strcomp struct{ elements } // "string compound"
+func (_ *strcomp) kind() Kind { return KindStrcomp }
+func (p *strcomp) String() (s string) { return `"` + p.src() + `"` }
+func (p *strcomp) src() (s string) {
+    for _, elem := range p.elems { s += elem.String() }
+
+    var err error
+    var buf bytes.Buffer
+    // buf.WriteString(`"`)
+    defer func() {
+        // buf.WriteString(`"`)
+        s = buf.String()
+    } ()
+
+    // Escape string chars
+    for i := strings.IndexAny(s, escapedChars); i != -1; {
+        if _, err = buf.WriteString(s[:i]); err != nil {
+            panic(err) // debug(ctx, "%v", err, trace{})
+            return
+        }
+
+        var esc string
+        switch s[i] {
+        case '"':  esc = `\"`
+        case '\r': esc = `\r`
+        case '\n': esc = `\n`
+        }
+        if _, err = buf.WriteString(esc); err != nil {
+            panic(err) // debug(ctx, "%v", err, trace{})
+            return
+        }
+
+        s = s[i+1:]
+        i = strings.IndexAny(s, escapedChars)
+    }
+    if _, err = buf.WriteString(s); err != nil {
+        panic(err)
+    }
+    return
+}
+
+type list struct{ elements }
+func (_ *list) kind() Kind { return KindList }
+func (p *list) Pos() (pos Pos) {
+    if 0 < len(p.elems) { pos = p.elems[0].Pos() }
+    return
+}
+func (p *list) String() (s string) {
+	if p == nil { return "" }
+	
+    var strs []string
+    for _, elem := range p.elems {
+        if elem != nil {
+			if s := elem.String(); s != "" {
+				strs = append(strs, s)
+			}
+		}
+    }
+    return strings.Join(strs, " ")
+}
+
+type group struct{ valbase ; elements }
+func (p *group) Pos() Pos { return p.valbase.Pos() }
+func (p *group) kind() Kind { return KindGroup }
+func (p *group) String() string {
+    var strs []string
+    for _, elem := range p.elems {
+        if elem == nil {
+            strs = append(strs, "<nil>")
+        } else {
+            strs = append(strs, elem.String())
+        }
+    }
+    return "(" + strings.Join(strs, " ") + ")"
+}
+
+func parseGroupValue(ctx Context, g *group) (result Value) {
+    if len(g.elems) == 0 {
+        return g
+    } else {
+        var w *word
+        switch kind := g.elems[0].(type) {
+        case *word: w = kind
+        case *group:
+            if len(kind.elems) > 0 {
+                var ( name = kind.elems[0]; y bool )
+                if w, y = name.(*word); !y {
+                    debug(ctx, "unsupported name type: %T %v", name, name, trace{})
+                }
+            }
+        }
+        if w != nil {
+            switch w.s {
+            case "plain", "json", "yaml", "xml":
+                result = _list(g.elems[1:]...)
+            }
+        }
+        if isNull(result) { result = g }
+    }
+    return
+}
+
+type pair struct{ key, val Value }
+func (p *pair) kind() Kind { return KindPair }
+func (p *pair) Pos() (pos Pos) {
+    if p.key != nil { return p.key.Pos() }
+    if p.val != nil { return p.val.Pos() }
+    return
+}
+func (p *pair) String() (s string) {
+    if k := p.key; k != nil { s  = k.String() }; s += "="
+    if v := p.val; v != nil { s += v.String() }
+    return
+}
+
+type skipped struct{ Value }
+func (p skipped) kind() Kind { return p.Value.kind()|KindSkipped }
+
+type _not_evoker struct{}
+
+const (
+    not_evoker int = 1<<iota
+)
+
+type expand_closure_delegate struct{ Context ; state int }
+func (c *expand_closure_delegate) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case _not_evoker: c.state = not_evoker; return
+    }
+    return c.Context.do(ctx, op)
+}
+type closure_delegate_x struct{ Context ; closure_delegate int }
+func (c *closure_delegate_x) do(ctx Context, op any) any {
+    switch op.(type) {
+    case *closure, *delegate: c.closure_delegate += 1
+    }
+    return c.Context.do(ctx, op)
+}
+type closure_t struct{}
+type closure_x struct{ closure_delegate_x }
+func (c *closure_x) do(ctx Context, op any) any {
+    switch op.(type) {
+    case closure_t: return true
+    }
+    return c.closure_delegate_x.do(ctx, op)
+}
+type delegate_t struct{}
+type delegate_x struct{ closure_delegate_x }
+func (c *delegate_x) do(ctx Context, op any) any {
+    switch op.(type) {
+    case delegate_t: return true
+    }
+    return c.closure_delegate_x.do(ctx, op)
+}
+
+type delegate struct{
+    valbase
+    l   token
+    x   Value
+    o []Value
+    a []Value
+    // TODO: patsubst Value, aka lhs%=rhs% like in $(var:lhs%=rhs%)
+}
+func (p *delegate) kind() Kind { return p.valbase.kind()|KindDelegate }
+func (p *delegate) String() string { return p.src("$") }
+func (p *delegate) src(l string) (s string) {
+    if s = p._src(); !p.l.is_closure_delegate() { s = l + s }
+    return
+}
+func (p *delegate) _src() (s string) { // source representation
+    switch x := p.x.(type) {
+    case   *def: s += x.name
+    case *arrow: s += x.String()
+    default: if x != nil { s += x.String() }
+    }
+
+    if p.o != nil { // options
+        s += "("
+        for i, v := range p.o {
+            if 0 < i { s += " " }
+            s += v.String()
+        }
+        s += ")"
+    }
+
+    for i, a := range p.a {
+        if 0 == i { s += " " } else { s += "," }
+        s += a.String()
+    }
+
+    return p.wraps(s)
+}
+func (p *delegate) id(ctx Context, s string) string {
+    s += ident(ctx, p.x)
+
+    if p.o != nil { // options
+        s += "("
+        for i, v := range p.o {
+            if 0 < i { s += " " }
+            s += ident(ctx, v)
+        }
+        s += ")"
+    }
+
+    for i, a := range p.a {
+        if 0 == i { s += " " } else { s += "," }
+        s += ident(ctx, a)
+    }
+
+    return p.wraps(s)
+}
+func (p *delegate) wraps(s string) string {
+    switch p.l {
+    case STRCOMP: return `"`+s+`"`
+    case  STRING: return `'`+s+`'`
+    case  LPAREN: return "("+s+")"
+    case  LBRACE: return "{"+s+"}"
+    case ILLEGAL: return "["+s+"]"
+    case INTEGER: return s // $1, $2, $3, ...
+    default: return p.l.String() // $@, $<, ...
+    }
+}
+func (p *delegate) resolve(ctx Context) (res []Value) {
+	for _, x := range merge(expand(ctx, p.x)) {
+		if x != nil && x.kind()&KindBuiltin == 0 {
+			switch p.l {
+			case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
+				if t := project_entry(ctx, x); t != nil { x = t }
+			default:
+				if t := project_resolve(ctx, ident(ctx, x)); t != nil { x = t }
+			}
+		}
+		res = append(res, x)
+	}
+	return
+}
+
+type closure struct{ delegate } // polymorphic
+func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
+func (p *closure) String() (s string) { return p.src("&") }
+func (p *closure) resolve(ctx Context) (res []Value) {
+	for _, x := range merge(expand(ctx, p.x)) {
+		if x != nil && x.kind()&KindBuiltin == 0 {
+			switch p.l {
+			case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
+				if t := closure_entry(ctx, x); t != nil { x = t }
+			default:
+				if t := closure_resolve(ctx, ident(ctx, x)); t != nil { x = t }
+			}
+		}
+		res = append(res, x)
+	}
+	return
+}
+
+type arrow struct{
+    valbase
+    t token
+    o Value // object or arrow
+    s Value
+}
+func (p *arrow) String() string { return p.o.String()+p.t.String()+p.s.String() }
+
+// percpat represents percent pattern expressions (e.g. '%.o')
+type percpat struct{
+    valbase
+    Prefix Value
+    Suffix Value
+}
+func (p *percpat) String() (s string) {
+    if !isNull(p.Prefix) { s += p.Prefix.String() }
+    s += `%`
+    if !isNull(p.Suffix) { s += p.Suffix.String() }
+    return
+}
+
+func indexRootTailPunct(v ...Value) int {
+	for i, v := range v {
+		p, isPunct := unloc(v).(*punct)
+		if isPunct && (p.token == PROOT || p.token == PTAIL) {
+			return i
+		}
+	}
+	return -1
+}
+
+func isMultiWildcard(v Value) bool {
+	v = unloc(v) // Safely unwrap location nodes
+
+	// Case 1: Direct meta token (e.g., sliced elements)
+	if m, ok := v.(*globmeta); ok && (m.token == DAST || m.token == ASTQ) {
+		return true
+	}
+	
+	// Case 2: Wrapped in a glob pattern
+	if gp, ok := v.(*globpat); ok && len(gp.elems) > 0 {
+		if m, ok := unloc(gp.elems[0]).(*globmeta); ok && (m.token == DAST || m.token == ASTQ) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// globpat represents glob pattern expressions (e.g. '*.o', '[a-z].o', 'a?a.o')
+// 
+// The pattern syntax is:
+//
+//	pattern:
+//		{ term }
+//	term:
+//		'*'     matches any sequence of non-Separator characters
+//		'?'     matches any single non-Separator character
+//		'[' [ '^' ] { character-range } ']'
+//		        character class (must be non-empty)
+//		c       matches character c (c != '*', '?', '\\', '[')
+//		'\\' c      matches character c
+//
+//	character-range:
+//		c       matches character c (c != '\\', '-', ']')
+//		'\\' c      matches character c
+//		lo '-' hi   matches character c for lo <= c <= hi
+type globpat struct{ elements }
+func (_ *globpat) kind() Kind { return KindGlobPat }
+func (p *globpat) String() (s string) { for _, e := range p.elems { s += e.String() }; return }
+
+type globbrace struct{ globpat } // globpat embraced in '{' and '}'
+func (p *globbrace) String() string { return "{=glob "+p.globpat.String()+"}" }
+
+// glob wildcards: ? * *? **
+type globmeta struct{ valbase ; token }
+func (p *globmeta) String() string { return p.token.String() }
+
+// `[a-b]`, `[abc]`, `[a$(var)c]`, `[a$(spaces)c]`
+type globrange struct{ Value }
+func (p *globrange) String() string { return "["+p.Value.String()+"]" }
+
+/*
+ * # Regexp Syntax (see go/src/regexp/syntax/doc.go)
+ *
+ * The regular expression syntax understood by this package when parsing with the Perl flag is as follows.
+ * Parts of the syntax can be disabled by passing alternate flags to Parse.
+ *
+ * Single characters:
+ *
+ * 	.              any character, possibly including newline (flag s=true)
+ * 	[xyz]          character class
+ * 	[^xyz]         negated character class
+ * 	\d             Perl character class
+ * 	\D             negated Perl character class
+ * 	[[:alpha:]]    ASCII character class
+ * 	[[:^alpha:]]   negated ASCII character class
+ * 	\pN            Unicode character class (one-letter name)
+ * 	\p{Greek}      Unicode character class
+ * 	\PN            negated Unicode character class (one-letter name)
+ * 	\P{Greek}      negated Unicode character class
+ *
+ * Composites:
+ *
+ * 	xy             x followed by y
+ * 	x|y            x or y (prefer x)
+ *
+ * Repetitions:
+ *
+ * 	x*             zero or more x, prefer more
+ * 	x+             one or more x, prefer more
+ * 	x?             zero or one x, prefer one
+ * 	x{n,m}         n or n+1 or ... or m x, prefer more
+ * 	x{n,}          n or more x, prefer more
+ * 	x{n}           exactly n x
+ * 	x*?            zero or more x, prefer fewer
+ * 	x+?            one or more x, prefer fewer
+ * 	x??            zero or one x, prefer zero
+ * 	x{n,m}?        n or n+1 or ... or m x, prefer fewer
+ * 	x{n,}?         n or more x, prefer fewer
+ * 	x{n}?          exactly n x
+ *
+ * Implementation restriction: The counting forms x{n,m}, x{n,}, and x{n}
+ * reject forms that create a minimum or maximum repetition count above 1000.
+ * Unlimited repetitions are not subject to this restriction.
+ *
+ * Grouping:
+ *
+ * 	(re)           numbered capturing group (submatch)
+ * 	(?P<name>re)   named & numbered capturing group (submatch)
+ * 	(?:re)         non-capturing group
+ * 	(?flags)       set flags within current group; non-capturing
+ * 	(?flags:re)    set flags during re; non-capturing
+ *
+ * 	flag syntax is xyz (set) or -xyz (clear) or xy-z (set xy, clear z). The flags are:
+ *
+ * 	i              case-insensitive (default false)
+ * 	m              multi-line mode: ^ and $ match begin/end line in addition to begin/end text (default false)
+ * 	s              let . match \n (default false)
+ * 	U              ungreedy: swap meaning of x* and x*?, x+ and x+?, etc (default false)
+ *
+ * Empty strings:
+ *
+ * 	^              at beginning of text or line (flag m=true)
+ * 	$              at end of text (like \z not \Z) or line (flag m=true)
+ * 	\A             at beginning of text
+ * 	\b             at ASCII word boundary (\w on one side and \W, \A, or \z on the other)
+ * 	\B             not at ASCII word boundary
+ * 	\z             at end of text
+ *
+ * Escape sequences:
+ *
+ * 	\a             bell (== \007)
+ * 	\f             form feed (== \014)
+ * 	\t             horizontal tab (== \011)
+ * 	\n             newline (== \012)
+ * 	\r             carriage return (== \015)
+ * 	\v             vertical tab character (== \013)
+ * 	\*             literal *, for any punctuation character *
+ * 	\123           octal character code (up to three digits)
+ * 	\x7F           hex character code (exactly two digits)
+ * 	\x{10FFFF}     hex character code
+ * 	\Q...\E        literal text ... even if ... has punctuation
+ *
+ * Character class elements:
+ *
+ * 	x              single character
+ * 	A-Z            character range (inclusive)
+ * 	\d             Perl character class
+ * 	[:foo:]        ASCII character class foo
+ * 	\p{Foo}        Unicode character class Foo
+ * 	\pF            Unicode character class F (one-letter name)
+ *
+ * Named character classes as character class elements:
+ *
+ * 	[\d]           digits (== \d)
+ * 	[^\d]          not digits (== \D)
+ * 	[\D]           not digits (== \D)
+ * 	[^\D]          not not digits (== \d)
+ * 	[[:name:]]     named ASCII class inside character class (== [:name:])
+ * 	[^[:name:]]    named ASCII class inside negated character class (== [:^name:])
+ * 	[\p{Name}]     named Unicode operator inside character class (== \p{Name})
+ * 	[^\p{Name}]    named Unicode operator inside negated character class (== \P{Name})
+ *
+ * Perl character classes (all ASCII-only):
+ *
+ * 	\d             digits (== [0-9])
+ * 	\D             not digits (== [^0-9])
+ * 	\s             whitespace (== [\t\n\f\r ])
+ * 	\S             not whitespace (== [^\t\n\f\r ])
+ * 	\w             word characters (== [0-9A-Za-z_])
+ * 	\W             not word characters (== [^0-9A-Za-z_])
+ *
+ * ASCII character classes:
+ *
+ * 	[[:alnum:]]    alphanumeric (== [0-9A-Za-z])
+ * 	[[:alpha:]]    alphabetic (== [A-Za-z])
+ * 	[[:ascii:]]    ASCII (== [\x00-\x7F])
+ * 	[[:blank:]]    blank (== [\t ])
+ * 	[[:cntrl:]]    control (== [\x00-\x1F\x7F])
+ * 	[[:digit:]]    digits (== [0-9])
+ * 	[[:graph:]]    graphical (== [!-~] == [A-Za-z0-9!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])
+ * 	[[:lower:]]    lower case (== [a-z])
+ * 	[[:print:]]    printable (== [ -~] == [ [:graph:]])
+ * 	[[:punct:]]    punctuation (== [!-/:-@[-`{-~])
+ * 	[[:space:]]    whitespace (== [\t\n\v\f\r ])
+ * 	[[:upper:]]    upper case (== [A-Z])
+ * 	[[:word:]]     word characters (== [0-9A-Za-z_])
+ * 	[[:xdigit:]]   hex digit (== [0-9A-Fa-f])
+ */
+type regexpat struct{ valbase ; *regexp.Regexp }
+func (p *regexpat) String() string {
+    var s = p.Regexp.String()
+    if x, y := strings.CutSuffix(s, "$"); y { s = x + "$$" }
+    return "{=regex "+s+"}"
+}
+
+func values(args ...any) (elems []Value) {
+	for _, a := range args {
+		if x, y := a.(Value); y {
+			elems = append(elems, x)
+		} else if v := reflect.ValueOf(a); v.Kind() == reflect.Slice {
+			for n := 0; n < v.Len(); n++ {
+				elems = append(elems, values(v.Index(n).Interface())...)
+			}
+		} else {
+			// debug(ctx, "'%v' is not value type (%T)", a, a, trace{})
+		}
+	}
+	return
+}
+
+func baremerge(args ...Value) (elems []Value) {
+    for _, arg := range args {
+        if l, o := arg.(*compound); o && l != nil {
+            elems = append(elems, baremerge(l.elems...)...)
+        } else if l, o := arg.(*list); o && len(l.elems) == 1 {
+            elems = append(elems, baremerge(l.elems...)...)
+        } else if d, o := arg.(*def); o {
+            if d.value == nil {
+                elems = append(elems, _null(d.pos))
+            } else {
+                elems = append(elems, d.value)
+            }
+        } else {
+            elems = append(elems, arg)
+        }
+    }
+    return
+}
+
+// Merge lists recursively into a single list. Previously called Join.
+func dmerge(disjunction bool, args ...Value) (elems []Value) {
+    for _, a := range args {
+        switch x := a.(type) {
+        case *loc: for _, v := range dmerge(disjunction, x.Value) { elems = append(elems, &loc{v,x.pos}) }
+        case *xloc: for _, v := range dmerge(disjunction, x.Value) { elems = append(elems, &xloc{v,x.pos}) }
+        case *list: elems = append(elems, dmerge(disjunction, x.elems...)...)
+        default:
+            if disjunction { if x, y := x.(*compound); y {
+                var saved = len(elems)
+                for i, e := range x.elems {
+                    if t := dmerge(disjunction, e); len(t) > 1 {
+                        for _, e := range t {
+                            t := append(append(x.elems[:i],e), dmerge(disjunction, x.elems[i+1:]...)...)
+                            if false { fmt.Printf("%v: %v | %v\n", e.Pos(), a, t) }
+                            elems = append(elems, &compound{elements{t}})
+                        }
+                        break
+                    }
+                }
+                if len(elems) > saved { continue }
+            }}
+            elems = append(elems, x)
+        }
+    }
+    return
+}
+
+func xmerge(c Context, v ...Value) []Value { return merge(expands(c,v...)...) }
+func merge(v ...Value) []Value { return dmerge(false, v...) }
+
+func dup(vals []Value) (res []Value) {
+    if n := len(vals); 0 < n {
+        if false {
+            res = append([]Value{}, vals...)
+        } else if false {
+            for _, v := range vals { res = append(res, v) }
+        } else {
+            res = make([]Value, n)
+            copy(res, vals)
+        }
+    }
+    return
+}
+
+func intVal(ctx Context, v Value, i int) (res int) {
+    if res = i; v != nil { res = int(__int(ctx, v)) }
+    return
+}
+
+func uintVal(ctx Context, v Value, i uint32) (res uint32) {
+    if res = i; v != nil { res = uint32(__int(ctx, v)) }
+    return
+}
+
+func filePerm(ctx Context, v Value, i uint32) (res os.FileMode) {
+    res = os.FileMode(uintVal(ctx, v, i))&os.ModePerm
+    if res == 0 { res = os.FileMode(0640) }
+    return
+}
+
+func deleteFile(ctx Context, val Value) (res []*file) {
+    switch t := val.(type) {
+    case *barefile: if t.file != nil { return deleteFile(ctx, t.file) }
+    case *rule: return deleteFile(ctx, t.target)
+    case *project: if e := t.main; e != nil { return deleteFile(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return deleteFile(ctx, e) }
+    case *uselist: for _, e := range t.list { res = append(res, deleteFile(ctx, e)...) }
+    case *list:
+        for _, e := range t.elems { res = append(res, deleteFile(ctx, e)...) }
+    case *path:
+        if si := statFile(ctx, val); si == nil || si.file == nil {
+            debug(ctx, "no path name for `%s`", val, trace{})
+        } else {
+            return deleteFile(ctx, si.file)
+        }
+    }
+    return
+}
+
+func stampFile(ctx Context, val Value) (res []*file) {
+    switch t := val.(type) {
+    case *barefile: if t.file != nil { return stampFile(ctx, t.file) }
+    case *rule: return stampFile(ctx, t.target)
+    case *project: if e := t.main; e != nil { return stampFile(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return stampFile(ctx, e) }
+    case *uselist: for _, e := range t.list { res = append(res, stampFile(ctx, e)...) }
+    case *list:
+        for _, e := range t.elems { res = append(res, stampFile(ctx, e)...) }
+    case *path:
+        if si := statFile(ctx, val); si == nil || si.file == nil {
+            debug(ctx, "no path name for `%s`", val, trace{})
+        } else {
+            return stampFile(ctx, si.file)
+        }
+    }
+    return
+}
+
+func statFile(ctx Context, val Value) (res *statinfo) {
+    switch t := val.(type) {
+    case *barefile: if t.file != nil { return statFile(ctx, t.file) }
+    case *rule: return statFile(ctx, t.target)
+    case *project: if e := t.main; e != nil { return statFile(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return statFile(ctx, e) }
+    case *uselist:
+        for _, e := range t.list {
+            if si := statFile(ctx, e); si != nil {
+                if res == nil { res = si } else { res.next = si }
+            }
+        }
+    case *list:
+        for _, e := range t.elems {
+            if si := statFile(ctx, e); si != nil {
+                if res == nil { res = si } else { res.next = si }
+            }
+        }
+    case *path:
+        var s string
+        if patterned(ctx, t) {
+            if v, rest := stencil(ctx, t, _stems(ctx)); len(rest) > 0 {
+                debug(ctx, "partial match: %v", rest)
+            } else {
+                s = __string(ctx, v)
+            }
+        } else {
+            s = __string(ctx, t)
+        }
+
+        if filepath.IsAbs(s) {
+            if f := _stat(ctx, s, stat_nonexist{true}); f != nil {
+                return &statinfo{ file: f }
+            }
+        }
+
+        if f := findfile(ctx, s); f != nil { return statFile(ctx, f) }
+    }
+    return
+}
+
+func updated(ctx Context, val Value) (res bool) {
+    switch t := val.(type) {
+    case *barefile: if t.file != nil { return updated(ctx, t.file) }
+    case *rule: if res = updated(ctx, t.target); res { do(ctx, mark_dirty{[]Value{ t.target }}) }
+    case *list: for _, e := range t.elems { if res = updated(ctx, e); res { break } }
+    case *use: if e := t.project.main; e != nil { return updated(ctx, e) }
+    case *uselist: for _, e := range t.list { res = res || updated(ctx, e) }
+    }
+    return
+}
+
+func updatedDeps(ctx Context, val Value, deps ...Value) (res []Value) {
+    switch t := val.(type) {
+    case *barefile: if t.file != nil { return updatedDeps(ctx, t.file, deps...) }
+    case *rule: return updatedDeps(ctx, t.target, deps...)
+    case *list: for _, e := range t.elems { res = append(res, updatedDeps(ctx, e, deps...)...) }
+    case *use: if e := t.project.main; e != nil { return updatedDeps(ctx, e, deps...) }
+    case *uselist: for _, e := range t.list { res = append(res, updatedDeps(ctx, e, deps...)...) }
+    }
+    return
+}
+
+func __lsa(s ...string) (a []any) { for _, s := range s { a = append(a, strings.ToLower(s)) }; return }
+func __sa(s ...string) (a []any) { for _, s := range s { a = append(a, s) }; return }
+func __t(a ...bool) (_ bool) { for _, a := range a { if a { return true } }; return }
+func _if[T any](cond bool, t, f T) T { if cond { return t } else { return f } }
+func _if_cmp[T any](c Context, r cmpres, t, f T) T { if cmp(c, t, f) == r { return t } else { return f } }
+func _unless[T any](cond bool, t, f T) T { if !cond { return t } else { return f } }
+func _truly[T any](c Context, a any, t T, f T) T { if truly(c,a) { return t } else { return f } }
+func _falsely[T any](c Context, a any, t T, f T) T { if !truly(c,a) { return t } else { return f } }
+
+type __stringing struct{}
+type __string_ctx struct{ Context }
+func (c *__string_ctx) inner() Context { return c.Context }
+func (c *__string_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case __stringing: return true
+	case __string_ctx: switch t.Context { case c, c.Context, nil: return c }
+	case ex_closure, ex_def_1, ex_def_2, ex_def_3: return true
+	}
+	return c.Context.do(ctx, op)
+}
+func __string(ctx Context, v any) (res string) {
+	var val Value
+	if checkpoints { defer check_string(ctx, v)(&val, &res) }
+	if !truly(ctx, __stringing{}) { ctx = &__string_ctx{ctx} }
+	switch t := v.(type) {
+	case string: return t
+	case rune: return string(t)
+	case token: return t.String()
+	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globmeta, *punct:
+		return t.(Value).String()
+	case *valbase, *null, *none, nil: return
+	case *answer : if t.bool { return "yes"  } else { return "no" }
+	case *option : if t.bool { return "on"   } else { return "off" }
+	case *boolean: if t.bool { return "true" } else { return "false" }
+	case *strlit: return t.s
+	case *word: return t.s
+	case *raw: return t.s
+	case *regexpat: return t.Regexp.String()
+	case *file: return t.filestub.name
+	case *filestub: return t.name
+	case *project: return t.name
+	case self: return t.name
+	case fullfile: return t.fullname()
+	case negative: return "!"+__string(ctx, t.Value)
+	case flag: return "-"+__string(ctx, t.Value)
+	case *disjunction: return __string(ctx, t.val)
+    case *undetermined: return __string(ctx, t.value)
+	case *xloc: return __string(ctx, t.Value)
+	case *loc: return __string(ctx, t.Value)
+	case *def: return __string(ctx, t.value)
+	case *auto: return __string(ctx, t.def(ctx))
+	case *rule: return __string(ctx, t.target)
+	case *quote: return strconv.Quote(__string(ctx, &t.list))
+	case *globrange: return "[" + __string(ctx, t.Value) + "]"
+	case *globbrace: for _, e := range t.elems { res += __string(ctx, e) }
+	case *globpat: for _, e := range t.elems { res += __string(ctx, e) }
+	case *percpat:
+		if t.Prefix != nil { res += __string(ctx, t.Prefix) }; res += "%"
+		if t.Suffix != nil { res += __string(ctx, t.Suffix) }
+	case *barefile:
+		if v = t.Value; t.file != nil { v = t.file }
+		return __string(ctx, v)
+	case *compound:
+		var cc = &comctx{ctx, 0}
+		for i, e := range com(cc, nil, t.elems) { // a{x y z}b → axb ayb azb
+			if checkpoints { check__string_com(ctx, t, e) }
+			if 0 < i && res != "" { res += " " }
+			if x, y := e.(*compound); y {
+				for _, e := range x.elems { res += __string(ctx, e) }	
+			} else {
+				res += __string(ctx, e)
+			}
+		}
+	case *qualword:
+		for i, e := range t.elems { if i > 0 { res += "." }
+			res += __string(ctx, e)
+		}
+	case *path:
+		for i, elem := range t.elems {
+			if v := __string(ctx, elem); 0 < i {
+				res += pathSep + v
+			} else if v != "" {
+				res += v
+			} else if len(t.elems) == 1 {
+				res += pathSep
+			}
+		}
+	case *strcomp:
+		for _, elem := range t.elems { res += __string(ctx, elem) }
+		if truly(ctx, is_defname{}) { return `"` + res + `"` }
+	case *strval:
+		for _, v := range t.v { if res != "" { res += " " }; res += __string(ctx, v) }
+		if truly(ctx, is_defname{}) { return `"` + res + `"` }
+	case *list:
+		for _, elem := range t.elems {
+			if t := __string(ctx, elem); t != "" {
+				if res != "" && !strings.HasSuffix(res, "\n") { res += " " }
+				res += t
+			}
+		}
+	case *arrow, *closure, *delegate:
+		// Check if v differs from val without triggering __string recursion
+		if val = expand(ctx, t.(Value)); val != v {
+			// Fix: avoid infinite recursion via equal -> cmp -> __string -> expand -> equal
+			// If expand returns a different object (v != val), we use it. 
+			// We DO NOT check cmp(v, val) because cmp might fall back to __string(val), causing a loop.
+			if reflect.TypeOf(val) != reflect.TypeOf(v) {
+				res = __string(ctx, val)
+			} else if cmp(ctx, val, v) != cmpEqual {
+				res = __string(ctx, val)
+			}
+		}
+	case fullname:
+		if v := t.Value; v != nil {
+			if x, y := v.(*file); y {
+				if x == nil {
+					debug(ctx, "nil file", trace{})
+				} else if x.filestub == nil {
+					debug(ctx, "nil file stub", trace{})
+				}
+				return x.fullname()
+			}
+			return __string(ctx, v)
+		}
+	case conjunction: // see also $(join ...)
+		var ( sep = __string(ctx, t.sep); ss []string )
+		for _, v := range t.elems { if s := __string(ctx, v); s != "" { ss = append(ss, s) } }
+		return strings.Join(ss, sep)
+	case *pair:
+		var ks = merge(expand(ctx, t.key))
+		var vs = merge(expand(ctx, t.val))
+		for _, k := range ks {
+			if !isNull(k) {
+				for _, v := range vs {
+					if !isNull(v) {
+						if res != "" { res += " " }
+						res += __string(ctx, k) + "=" + __string(ctx, v)
+					}
+				}
+			}
+		}
+	case *group:
+		res = "("
+		for i, elem := range t.elems { if 0 < i { res += " " }; res += __string(ctx, elem) }
+		res += ")"
+	case *argumented:
+		res = __string(ctx, t.Value) + "("
+		for i, arg := range t.args { if 0 < i { res += "," }; res += __string(ctx, arg) }
+		res += ")"
+	case *recipe:
+		for _, elem := range t.elems { res += __string(ctx, elem) }
+	case *plainline:
+		if len(t.elems) == 1 {
+			if d, y := t.elems[0].(*delegate); y {
+				if x, y := d.x.(*builtin); y && x.name == "foreach" {
+					return __string(plainline_ctx{ctx}, d)
+				}
+			}
+		}
+
+		for _, v := range t.elems { res += __string(ctx, v) }
+
+		if i := len(t.elems); 0 < i {
+			var v = t.elems[i-1]
+			if _, y := v.(*null); y { return }
+			if x, y := v.(*list); y { if i := x.len(); 0 < i { v = x.elems[i-1] } }
+			if _, y := v.(*plainline); y { return }
+		}
+
+		res += "\n"
+	case *plain:
+		var cc = plain_ctx{ctx, len(t.elems)==1}
+		for i, e := range t.elems {
+			if x, y := e.(*plainline); y {
+				res += __string(cc, x)
+			} else {
+				if 0 < i && res != "" { res += " " }
+				res += __string(cc, e)
+			}
+		}
+	case *use:
+		return fmt.Sprintf("use %s %v", t.project.name, t.params)
+	case *uselist:
+		for i, u := range t.list {
+			if 0 < i && res != "" { res += " " }
+			res += u.project.name
+		}
+		return "[" + res + "]"
+	case *modifier:
+		return __string(ctx, modify(ctx, &t.group, false))
+	case *modification:
+		for i, m := range t.list {
+			if 0 < i && res != "" { res += " " }
+			if m != nil { res += __string(ctx, modify(ctx, &m.group, false)) }
+		}
+	case *url:
+		if res = __string(ctx, t.Scheme) + ":" ; t.Host != nil && !isNone(t.Host) {
+			if res += "//" ; t.Username != nil && !isNone(t.Username) {
+				res += __string(ctx, t.Username)
+				if t.Password != nil { res += ":" + __string(ctx, t.Password) }
+				res += "@"
+			}
+			res += __string(ctx, t.Host)
+			if t.Port != nil && !isNone(t.Port) { res += ":" + __string(ctx, t.Port) }
+		}
+		if t.Path != nil && !isNone(t.Path) {
+			//if !strings.HasPrefix(res, pathSep) { res += pathSep }
+			res += __string(ctx, t.Path)
+		}
+		if t.Query != nil {
+			res += "?"
+			for i, q := range t.Query { if 0 < i { res += "&" }; res += __string(ctx, q) }
+		}
+		if t.Fragment != nil && !isNone(t.Fragment) { res += "#" + __string(ctx, t.Fragment) }
+	case *exec_result:
+		if t.Stdout.Buf != nil { return t.Stdout.Buf.String() }
+		if t.Stderr.Buf != nil { return t.Stderr.Buf.String() }
+		return strconv.Itoa(t.Status)
+	case *escaped:
+		switch t.s {
+		case "n": return "\n"
+		case "r": return "\r"
+		default:  return t.s
+		}
+	}
+	return
+}
+
+func __true(ctx Context, v Value) (res bool) {
+	switch t := v.(type) {
+	case *answer: return t.bool
+	case *option: return t.bool
+	case *boolean: return t.bool
+	case *binary: return t.int64 != 0
+	case *octal: return t.int64 != 0
+	case *decimal: return t.int64 != 0
+	case *hexadecimal: return t.int64 != 0
+	case *float: return math.Abs(t.float64)-0 > epsilon
+	case *datetime: return !t.t.IsZero()
+	case *Date: return !t.t.IsZero()
+	case *Time: return !t.t.IsZero()
+	case *compound: return t.elements.true(ctx)
+	case *qualword: return t.elements.true(ctx)
+	case *globpat: return t.elements.true(ctx)
+	case *strcomp: return t.elements.true(ctx)
+	case *strlit: return t.s != ""
+	case *raw: return t.s != ""
+	case *escaped: return t.s != ""
+	case *builtin: return t.t != nil
+	case self: return t.name != ""
+	case *project: return t.name != ""
+	case *file: return t.filestub.name != ""
+	case *xloc: return __true(ctx, t.Value)
+	case *loc: return __true(ctx, t.Value)
+	case *def: return __true(ctx, t.value)
+	case *auto: return __true(ctx, t.def(ctx))
+	case *rule: return __true(ctx, t.target)
+	case *pair: return __true(ctx, t.key) || __true(ctx, t.val)
+	case flag: return __true(ctx, t.Value)
+	case negative: return !__true(ctx, t.Value)
+	case *barefile: return __true(ctx, t.file)
+	case *url: return __true(ctx, t.Scheme) || __true(ctx, t.Host) || __true(ctx, t.Path)
+	case *exec_result: return t.Status == 0 && t.Stderr.Buf != nil && t.Stderr.Buf.Len() == 0 /* && t.Stdout.Buf.Len() > 0 */
+	case *strval: for _, v := range t.v { if __true(ctx, v) { return true } }
+	case *list: for _, v := range t.elems { if __true(ctx, v) { return true } }
+	case *path: for _, v := range t.elems { if __true(ctx, v) { return true } }
+	case *group: for _, v := range t.elems { if __true(ctx, v) { return true } }
+	case *plain: for _, v := range t.elems { if __true(ctx, v) { return true } }
+	case *plainline: for _, v := range t.elems { if __true(ctx, v) { return true } }
+	case *uselist: return 0 < len(t.list)
+	case *use: return t.project != nil
+	case *word:
+		switch t.s {
+		case "false", "False", "FALSE", "no", "No", "NO": return false
+		case "true", "True", "TRUE", "yes", "Yes", "YES": return true
+		}
+		return t.s != ""
+	case *arrow, *closure, *delegate:
+		if v = expand(ctx, t); !equal(ctx, v, t) {
+			if checkpoints {
+				if v.String() == t.String() {
+					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+				}
+			}
+			return __true(ctx, v)
+		}
+	}
+	return
+}
+
+func __int(ctx Context, v Value) (res int64) {
+	switch t := v.(type) {
+	case *answer: if t.bool { return 1 }
+	case *option: if t.bool { return 1 }
+	case *boolean: if t.bool { return 1 }
+	case *binary: return t.int64
+	case *octal: return t.int64
+	case *decimal: return t.int64
+	case *float: return int64(t.float64)
+	case *datetime: return t.t.Unix()
+	case *Date: return t.t.Unix()
+	case *Time: return t.t.Unix()
+	case *pair: return __int(ctx, t.val)
+	case *auto: return __int(ctx, t.def(ctx))
+	case *xloc: return __int(ctx, t.Value)
+	case *loc: return __int(ctx, t.Value)
+	case *def: return __int(ctx, t.value)
+	case *exec_result: return int64(t.Status)
+	case *uselist: return int64(len(t.list))
+	case *barefile: if t.file != nil && t.file.exists() { return t.file.info.Size() }
+	case *list: if t.len() > 0 { return __int(ctx, t.elems[0]) }
+	case *plain: if t.len() > 0 { return __int(ctx, t.elems[0]) }
+	case *plainline: if t.len() > 0 { return __int(ctx, t.elems[0]) }
+	case negative: if t.Value != nil && !__true(ctx, t.Value) { return 1 }
+	case flag: if t.Value != nil { return -__int(ctx, t.Value) }
+	case *raw:
+		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
+			return i
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *word:
+		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
+			return i
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *strlit:
+		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
+			return i
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *strcomp:
+		if i, e := strconv.ParseInt(__string(ctx, t), 10, 64); e == nil {
+			return i
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *strval:
+		if i, e := strconv.ParseInt(__string(ctx, t), 10, 64); e == nil {
+			return i
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *compound:
+		if n := len(t.elems); n > 0 {
+			if i, y := t.elems[0].(*decimal); y {
+				switch n {
+				case 1: res = i.int64
+				case 2:
+					if w, y := t.elems[1].(*word); y {
+						if  (w.s == "st" && i.int64%1 == 0) ||
+							(w.s == "nd" && i.int64%2 == 0) ||
+							(w.s == "rd" && i.int64%3 == 0) ||
+							(w.s == "th") { res = i.int64 }
+					}
+				}
+			}
+		}
+	case *qualword:
+		if t.len() > 0 { 
+			// Instantly returns the Major version (e.g., 1 from 1.10.1)
+			return __int(ctx, t.elems[0]) 
+		}
+	case *arrow, *closure, *delegate:
+		if v = expand(ctx, t); !equal(ctx, v, t) {
+			if checkpoints {
+				if v.String() == t.String() {
+					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+				}
+			}
+			return __int(ctx, v)
+		}
+	}
+	return
+}
+
+func __float(ctx Context, v Value) (_ float64) {
+	switch t := v.(type) {
+	case *answer: if t.bool { return 1. }
+	case *option: if t.bool { return 1. }
+	case *boolean: if t.bool { return 1. }
+	case *exec_result: return float64(t.Status)
+	case *binary: return float64(t.int64)
+	case *octal: return float64(t.int64)
+	case *decimal: return float64(t.int64)
+	case *datetime: return float64(t.t.Unix())
+	case *Date: return float64(t.t.Unix())
+	case *Time: return float64(t.t.Unix())
+	case *pair: return __float(ctx, t.val)
+	case *auto: return __float(ctx, t.def(ctx))
+	case *def: return __float(ctx, t.value)
+	case *loc: return __float(ctx, t.Value)
+	case *xloc: return __float(ctx, t.Value)
+	case *float: return t.float64
+	case *list: if t.len() > 0 { return __float(ctx, t.elems[0]) }
+	case *plain: if t.len() > 0 { return __float(ctx, t.elems[0]) }
+	case *plainline: if t.len() > 0 { return __float(ctx, t.elems[0]) }
+	case negative: if t.Value != nil && !__true(ctx, t.Value) { return 1. }
+	case flag: if t.Value != nil { return -__float(ctx, t.Value) }
+	case *qualword:
+		if n := t.len(); n == 1 {
+			return __float(ctx, t.elems[0])
+		} else if n > 1 {
+			// Combine ONLY the Major and Minor segments (e.g., "1" + "." + "10")
+			s := __string(ctx, t.elems[0]) + "." + __string(ctx, t.elems[1])
+			if f, e := strconv.ParseFloat(s, 64); e == nil {
+				return f
+			} else {
+				debug(ctx, "%v", e, trace{})
+			}
+		}
+	case *raw:
+		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
+			return f
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *word:
+		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
+			return f
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *strlit:
+		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
+			return f
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *strcomp:
+		if f, e := strconv.ParseFloat(__string(ctx, t), 64); e == nil {
+			return f
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *strval:
+		if f, e := strconv.ParseFloat(__string(ctx, t), 64); e == nil {
+			return f
+		} else {
+			debug(ctx, "%v", e, trace{})
+		}
+	case *arrow, *closure, *delegate:
+		if v = expand(ctx, t); !equal(ctx, v, t) {
+			if checkpoints {
+				if v.String() == t.String() {
+					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+				}
+			}
+			return __float(ctx, v)
+		}
+	}
+	return
+}
+
+// Bubble: Sent by an unbound *auto to request deferral
+type act_defer_macro struct{}
+
+// Bubble: Sent by a *builtin to configure argument evaluation
+type act_macro_scope struct {
+	force_collapse bool
+	skip_expansion map[int]bool // arg_index -> skip. -1 means skip ALL args.
+}
+
+// The intercepting context wrapping the delegate/closure expansion
+type collapse_ctx struct {
+	Context
+	good_to_collapse bool
+	force_collapse   bool
+	skip_expansion   map[int]bool
+	current_arg      int 
+}
+
+func (c *collapse_ctx) inner() Context { return c.Context }
+func (c *collapse_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c *collapse_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case act_defer_macro:
+		if !c.force_collapse {
+			c.good_to_collapse = false
+		}
+		return true
+
+	case act_macro_scope:
+		if t.force_collapse { c.force_collapse = true }
+		if t.skip_expansion != nil { c.skip_expansion = t.skip_expansion }
+		return true
+	}
+	return c.Context.do(ctx, op)
+}
+
+func expand(ctx Context, v Value) (res Value) {
+    switch t := v.(type) {
+	case *auto:
+		val := t.def(ctx)
+		if val == nil || isTrivial(val) {
+			// Unbound! Bubble the deferral state.
+			if truly(ctx, keep_autos{}) {
+				do(ctx, act_defer_macro{})
+			}
+			return t // Return AST node because it's unbound
+		}
+		return expand(ctx, val) // CRITICAL FIX: Expand bound values!
+
+	case *builtin:
+		// Polymorphic Configuration Bubbling
+		var scope act_macro_scope
+		switch t.name {
+		case "auto":
+			scope.force_collapse = true
+			scope.skip_expansion = map[int]bool{-1: true} // Skip ALL arguments. Let __auto handle them!
+		case "foreach", "grep":
+			scope.force_collapse = true
+			scope.skip_expansion = map[int]bool{1: true} // Skip expanding the locally-bound body argument
+		case "addprefix", "addsuffix", "join", "conjunct":
+			scope.force_collapse = true // Eagerly evaluate so unbound autos get wrapped by redis()!
+		}
+
+		do(ctx, scope) 
+		return t
+
+	case *delegate:
+		var dx = &delegate_x{closure_delegate_x{ctx, 0}}
+		var c = collapse_ctx{ Context: dx, good_to_collapse: true }
+
+		var rx = t.resolve(&c)
+		for _, xv := range rx { expand(&c, xv) } // Polymorphic Lookahead
+
+		var o []Value
+		for _, opt := range t.o {
+			c.current_arg = -1
+			o = append(o, expand(&c, opt))
+		}
+
+		var a []Value
+		for i, arg := range t.a {
+			c.current_arg = i
+			if c.skip_expansion != nil && (c.skip_expansion[i] || c.skip_expansion[-1]) {
+				a = append(a, arg)
+			} else {
+				a = append(a, expand(&c, arg))
+			}
+		}
+
+		var vals []Value
+
+		if c.force_collapse || (dx.closure_delegate == 0 && c.good_to_collapse) {
+			// Fast path: fully resolved, try to execute!
+			for _, xv := range rx {
+				cc := expand_closure_delegate{ctx, 0}
+				if rv := evoke(&cc, xv, o, a); cc.state == not_evoker {
+					// Execution failed.
+					// CRITICAL FIX: Only rebuild if the resolved target actually exists!
+					if !isNull(xv) && truly(ctx, keep_autos{}) {
+						dv := &delegate{t.valbase, t.l, xv, o, a}
+						vals = append(vals, dv)
+						do(ctx, dv)
+					} else {
+						vals = append(vals, _null(t.pos)) // Target is dead, return null.
+					}
+				} else if rv == nil {
+					// Target executed successfully but produced NO output.
+					vals = append(vals, _null(t.pos))
+				} else {
+					vals = append(vals, _loc(rv, t.pos))
+				}
+			}
+		} else {
+			// Deferred path (due to unbound arguments)
+			if !c.good_to_collapse { do(ctx, act_defer_macro{}) }
+
+			// CRITICAL FIX: Protect deferred path from ghost delegates
+			for _, xv := range rx {
+				if isNull(xv) {
+					vals = append(vals, _null(t.pos))
+				} else {
+					dv := &delegate{t.valbase, t.l, xv, o, a}
+					vals = append(vals, dv)
+					do(ctx, dv)
+				}
+			}
+		}
+		
+		if res = ease(ctx, vals); checkpoints { check(ctx, res, v, rx...) }
+		return
+
+	case *closure:
+		var cx = &closure_x{closure_delegate_x{ctx, 0}}
+		var c = collapse_ctx{ Context: cx, good_to_collapse: true }
+
+		var rx = t.resolve(&c)
+		for _, xv := range rx { expand(&c, xv) }
+
+		var o []Value
+		for _, opt := range t.o {
+			c.current_arg = -1
+			o = append(o, expand(&c, opt))
+		}
+
+		var a []Value
+		for i, arg := range t.a {
+			c.current_arg = i
+			if c.skip_expansion != nil && (c.skip_expansion[i] || c.skip_expansion[-1]) {
+				a = append(a, arg)
+			} else {
+				a = append(a, expand(&c, arg))
+			}
+		}
+
+		var vals []Value
+
+		if c.force_collapse || (cx.closure_delegate == 0 && c.good_to_collapse && truly(ctx, ex_closure{})) {
+			for _, xv := range rx {
+				var cc = expand_closure_delegate{ctx, 0}
+				if rv := evoke(&cc, xv, o, a); cc.state == not_evoker || rv == nil {
+					// CRITICAL FIX: Only rebuild if the resolved target actually exists!
+					if !isNull(xv) && truly(ctx, keep_autos{}) {
+						cv := &closure{delegate{t.valbase, t.l, xv, o, a}}
+						vals = append(vals, cv)
+						do(ctx, cv)
+					} else {
+						vals = append(vals, _null(t.pos)) // Target is dead, return null.
+					}
+				} else {
+					vals = append(vals, _loc(rv, t.pos))
+				}
+			}
+		} else {
+			if !c.good_to_collapse { do(ctx, act_defer_macro{}) }
+
+			// CRITICAL FIX: Protect deferred path from ghost closures
+			for _, xv := range rx {
+				if isNull(xv) {
+					vals = append(vals, _null(t.pos))
+				} else {
+					cv := &closure{delegate{t.valbase, t.l, xv, o, a}}
+					vals = append(vals, cv)
+					do(ctx, cv)
+				}
+			}
+		}
+		
+		if res = ease(ctx, vals); checkpoints { check(ctx, res, v, rx...) }
+		return
+
+    case *arrow:
+        var vals []Value
+        var p0 = t.Pos()
+        var os = merge(expand(ctx, t.o))
+        var ss = merge(expand(ctx, t.s))
+        for _, o := range os {
+			if !can_sel(ctx, o) {
+				var str, ok = _sel_prop(ctx, o)
+				if t.t == SELECT_PROP && !ok { str = ident(ctx, o) }
+                switch {
+                case truly(ctx, closure_t{}):
+                    switch t.t {
+                    case SELECT_PROG1, SELECT_PROG2:
+                        if v := closure_entry(ctx, o); v != nil { o = v }
+                    case SELECT_PROP:
+                        if v := closure_resolve(ctx, str); v != nil { o = v }
+                    default:
+                        debug(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
+                    }
+                case truly(ctx, delegate_t{}):
+                    switch t.t {
+                    case SELECT_PROG1, SELECT_PROG2:
+                        if v := project_entry(ctx, o); v != nil { o = v }
+                    case SELECT_PROP:
+                        if v := project_resolve(ctx, str); v != nil { o = v }
+                    default:
+                        debug(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
+                    }
+                default:
+                    debug(pc(ctx,t), "%v %v", o, ss, trace{})
+                }
+            }
+			for _, s := range ss {
+				var p = s.Pos()
+				
+				// Safely extract the raw property name and its optional modifier flag
+				var prop_str, is_opt = _sel_prop(ctx, s)
+				
+				switch res := sel(ctx, o, prop_str).(type) {
+				case nil:
+					// CRITICAL FIX: If the property is missing but marked as optional, 
+					// preserve the AST node and safely bubble the deferral!
+					if is_opt || optional(s) || optional(o) {
+						if truly(ctx, keep_autos{}) {
+							do(ctx, act_defer_macro{}) // Signal parent to defer!
+						}
+						
+						// Unwrap 'o' ONLY for AST reconstruction to prevent leaking `*def` 
+						// assignment metadata into the frozen arrow syntax.
+						var actual_o = o
+						for {
+							if l, ok := actual_o.(*loc); ok { actual_o = l.Value; continue }
+							if d, ok := actual_o.(*def); ok {
+								if d.value != nil { actual_o = d.value } else { actual_o = _null(d.Pos()) }
+								continue
+							}
+							break
+						}
+						
+						// Return the perfectly preserved arrow (e.g. {=self foo} -> xxxx?)
+						vals = append(vals, &arrow{t.valbase, t.t, actual_o, s})
+					} else {
+						vals = append(vals, _loc(_null(p), p0))
+					}
+				default:
+					vals = append(vals, _loc(_loc(res, p), p0)) // NOTE: not def.value
+				}
+			}
+        }
+        if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
+        return
+
+    case *strlit:
+		if truly(ctx, ex_path_str{}) {
+			return _pathStr(ctx, t.s)
+		} else {
+			return v
+		}
+    case *strval:
+        if truly(ctx, ex_path_str{}) {
+            return &strval{t.valbase, _pathStr(ctx, __string(ctx, t)).elems}
+        } else {
+            return &strval{t.valbase, expands(ctx, t.v...)}
+        }
+    case *strcomp:
+        if truly(ctx, ex_path_str{}) {
+            return &strcomp{elements{_pathStr(ctx, __string(ctx, t)).elems}}
+        } else {
+            return &strcomp{elements{expands(ctx, t.elems...)}}
+        }
+    case *compound:
+        var vals = com(&comctx{ctx,0}, nil, t.elems)
+        if res = ease(pc(ctx,v), vals); checkpoints && false { check(ctx, res, v) }
+        return
+	case *qualword:
+        // Expand elements, but we do NOT use com() because dots are strict boundaries,
+        // not whitespace-separated compound elements.
+        var vals = com_qualword(&comctx{ctx, 0}, nil, t.elems)
+        if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
+        return
+    case *pair:
+        var vals []Value
+        var ks = merge(expand(ctx, t.key))
+        var vs = merge(expand(ctx, t.val))
+		for _, k := range ks { for _, v := range vs { vals = append(vals, &pair{k, v}) }}
+        if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
+        return
+    case flag:
+        if t.Value == nil {
+            return t
+        } else {
+            var vals []Value
+            for _, v := range merge(expand(ctx, t.Value)) { vals = append(vals, flag{v}) }
+            if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
+            return
+        }
+    case conjunction:
+        c := conjunction{&list{elements{expands(ctx, t.list.elems...)}}, nil}
+        if c.sep != nil { c.sep = expand(ctx, t.sep) }
+        return c
+    case *disjunction:
+        var vals []Value
+        for _, v := range merge(expand(ctx, t.val)) { vals = append(vals, redis(v)) }
+        if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
+        return
+    case *barefile:
+        var f = t.file
+        if truly(ctx, wants_fullfile{}) {
+            if f == nil { f = findfile(ctx, __string(ctx, t.Value)) }
+            if f != nil { return fullfile{f} }
+        }
+        return &barefile{expand(ctx, t.Value), f}
+	case *rule:
+		if v := expand(ctx, t.target); !equal(ctx, v, t.target) { t = &rule{v, t.arged, t.program} }
+		return t
+	case *stemmed_rule:
+		if v := expand(ctx, t.rule).(*rule); v != t.rule { t = &stemmed_rule{v, t.target, t.stems} }
+		return t
+	case matched_rule: return matched_rule{expand(ctx, t.rule).(*rule), expand(ctx, t.value)}
+    case fullfile: if truly(ctx,is_compound{}) { return t.file  } else { return t }
+    case fullname:
+		if truly(ctx,is_compound{}) { return t.Value } else {
+			v := expand(ctx,t.Value)
+			// Lazily resolve the file object at execution time!
+			if !isTrivial(v) {
+				if f := as_file(ctx, v); f != nil {
+					return fullname{f}
+				}
+			}
+			return fullname{v}
+		}
+    case negative: return negative{expand(ctx, t.Value)}
+    case *loc: return &loc{expand(ctx, t.Value), t.pos}
+    case *xloc: return &xloc{expand(ctx, t.Value), t.pos}
+    case *list: return &list{elements{expands(ctx, t.elems...)}}
+    case *path: return &path{elements{expandp(ctx, t.elems...)}}
+    case *quote: return &quote{list{elements{expands(ctx, t.elems...)}}}
+    case *group: return &group{t.valbase,elements{expands(ctx, t.elems...)}}
+    case *recipe: return &recipe{strcomp{elements{expands(ctx, t.elems...)}}}
+    case *percpat: return &percpat{t.valbase, expand(ctx,t.Prefix), expand(ctx,t.Suffix)}
+    case *globpat: return &globpat{elements{expands(ctx, t.elems...)}}
+    case *globrange: return &globrange{expand(ctx, t.Value)}
+    case *argumented: return &argumented{expand(ctx, t.Value), expands(ctx, t.args...)}
+    case *url: return &url{expand(ctx, t.Scheme), expand(ctx, t.Username), expand(ctx, t.Password), expand(ctx, t.Host), expand(ctx, t.Port), expand(ctx, t.Path), expands(ctx, t.Query...), expand(ctx, t.Fragment)}
+    case *plain: return &plain{elements{expands(ctx, t.elems...)}, t.name}
+    case *plainline: return &plainline{elements{expands(ctx, t.elems...)}}
+    case *returner: return &returner{t.valbase, expands(ctx, t.vals...)}
+    case *use: return &use{t.valbase, t.project, expands(ctx, t.params...), t.opts}
+    case *uselist:
+        var us []*use
+        for _, u := range t.list {
+            u = &use{u.valbase, u.project, expands(ctx, u.params...), u.opts}
+            us = append(us, u)
+        }
+        return &uselist{t.owner_, t.name, t.scope, us}
+	case *modifier: return modify(ctx, &t.group, false)
+	case *modification:
+		var va []Value
+		for _, m := range t.list {
+			if v := expand(ctx, m); v != nil { va = append(va, v) }
+		}
+		return ease(ctx, va)
+    case *undetermined:
+		return &undetermined{t.token, expand(ctx, t.identifier), expand(ctx, t.value)}
+    case *valbase, *answer, *boolean, *binary, *def, *none, *null, *punct, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *defcaps, *project, *file, self, undef, nil:
+        if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
+        return v
+    default:
+        if checkpoints { debug(pc(ctx,v), "%v", ts(v,ctx), callstack{stop:"smart.runcase"}, trace{}) }
+        return v
+    }
+}
+
+func expands(ctx Context, v ...Value) (res []Value) {
+    for _, v := range v { res = append(res, expand(ctx, v)) }
+    return
+}
+
+func expandp(ctx Context, v ...Value) []Value {
+	return pathElems(expands(ctx, v...)...)
+}
+
+func pathElems(v ...Value) (res []Value) {
+	for _, v := range v {
+		switch t := v.(type) {
+		case *loc:
+			for _, v := range pathElems(t.Value) { res = append(res, &loc{v, t.pos}) }
+		case *xloc:
+			for _, v := range pathElems(t.Value) { res = append(res, &xloc{v, t.pos}) }
+		case *path:
+			res = append(res, pathElems(t.elems...)...)
+		default:
+			res = append(res, t)
+		}
+	}
+	return
+}
+
+func can_sel(ctx Context, v Value) (res bool) {
+    switch t := v.(type) {
+    case *loc: return can_sel(ctx, t.Value)
+    case *xloc: return can_sel(ctx, t.Value)
+    case *def, *project, self, *use, *uselist: return true
+    case *list: for _, v := range t.elems { if can_sel(ctx, v) { return true } }
+    default: if false { debug(pc(ctx,v), "%v", ts(v)) }
+    }
+    return
+}
+func _sel_prop(ctx Context, v Value) (res string, okay bool) {
+	switch t := v.(type) {
+	case *globpat:
+		if l := t.len()-1; 0 < l {
+			if m, y := t.elems[l].(*globmeta); y && m.token == QUE {
+				for _, e := range t.elems[:l] { res += __string(ctx, e) }
+				return res, true
+			}
+		}
+		return __string(ctx, t), false
+	case *globbrace: return _sel_prop(ctx, &t.globpat)
+	case *loc: return _sel_prop(ctx, t.Value)
+	case *xloc: return _sel_prop(ctx, t.Value)
+	default: return __string(ctx, t), false
+	}
+	return
+}
+func sel_prop(c Context, v Value) (s string) { s, _ = _sel_prop(c, v); return }
+func sel(ctx Context, v any, s string) (res Value) {
+	var g *globpat
+    switch t := v.(type) {
+    case *loc: return sel(ctx, t.Value, s)
+    case *xloc: return sel(ctx, t.Value, s)
+    case *def: return sel(ctx, t.value, s)
+    case *list: return sel(ctx, t.elems, s)
+    case *project: return t.resolve(ctx, s)
+    case self: return t.resolve(ctx, s)
+    case *word: return
+	case *globbrace: g = &t.globpat
+	case *globpat: g = t
+    case []Value:
+        var vals []Value
+        for _, t := range t { vals = append(vals, sel(ctx, t, s)) }
+        return ease(ctx, vals)
+    case *uselist:
+        var vals []Value
+        if m, x := name_prefix.FindStringSubmatch(s), "use."; m != nil {
+            s = m[1]+x+m[3] // prefix, name = m[1], m[3]
+        } else {
+            s = x+s
+        }
+        for _, u := range t.list {
+            if !u.opts.noVars {
+                if o := u.project.Lookup(s); o != nil {
+                    vals = append(vals, o)
+                }
+            }
+        }
+        return ease(ctx, vals)
+    default:
+        debug(pc(ctx,v), "cannot sel: %v %v", ts(t), s, trace{})
+    }
+	if g != nil {}
+    return
+}
+
+func evoke(ctx Context, x Value, o, a []Value) (res Value) {
+	switch t := x.(type) {
+	case *project, self: return x
+	case *loc: return evoke(ctx, t.Value, o, a)
+	case *xloc: return evoke(ctx, t.Value, o, a)
+	case matched_rule: return evoke(ctx, t.rule, o, a)
+
+	case *stemmed_rule:
+		r := *t.rule
+		r.target = t.target
+		return evoke(&stemmed_ctx{ctx, t}, &r, o, a)
+
+    case *auto:
+		if d := auto_find(ctx, t.name); d != nil { return evoke(ctx, d, o, a) }
+		return _null(x.Pos())
+
+	case *def:
+		if truly(ctx, evoke_detect_loop{x}) {
+			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
+			res = _null(x.Pos())
+		} else {
+			ctx := def_evoke{&evocation{automatic{Context:ctx, defs:make(def_map)}, x, o, a}}
+			if ctx.a != nil { ctx.args(ctx, expands(ctx.Context, ctx.a...)) }
+			if res = expand(ctx, t.value); t.o == defExecute && !isEmpty(res) { res = t.xexe(ctx, res) }
+		}
+		return
+
+    case *rule:
+		if truly(ctx, evoke_detect_loop{x}) {
+			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
+			res = _null(x.Pos())
+		} else {
+			res = ease(ctx, t.execute(ctx, expands(ctx, a...)...))
+		}
+		return
+
+    case *builtin:
+		if truly(ctx, evoke_detect_loop{x}) {
+			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
+			return _null(x.Pos())
+		}
+
+		ctx := &evocation{automatic{Context:ctx, defs:make(def_map)}, x, nil, a}
+		_v := reflect.New(t.t)
+
+		defer t.benchmark(ctx, time.Now(), _v)
+
+		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
+			debug(ctx, "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
+		} else if f.CanAddr() {
+			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
+			b.evocation = ctx
+		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
+			debug(ctx, "no such field: %s.evocation", _v.Elem().Type(), trace{})
+		} else if f.CanSet() {
+			f.Set(reflect.ValueOf(ctx))
+		} else if f.CanAddr() && f.Addr().CanSet() {
+			f.Addr().SetPointer(unsafe.Pointer(ctx))
+		} else {
+			debug(ctx, "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
+		}
+
+		if o != nil { ctx.o = _opts(ctx, _v, o) }
+
+		if x, y := _v.Interface().(builtin_x); y {
+			res = ease(ctx, x.x())
+		} else {
+			debug(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
+		}
+
+	case *uselist:
+		if len(t.list) == 0 {
+			return nil
+		}
+
+		var targets []Value
+		visited := make(map[*project]bool)
+
+		// Local closure to traverse the dependency DAG safely
+		var collect func(ul *uselist)
+		collect = func(ul *uselist) {
+			for _, usee := range ul.list {
+				// Break circular dependencies (A -> B -> A)
+				if visited[usee.project] {
+					continue
+				}
+				visited[usee.project] = true
+
+				if entry := usee.project.main; entry != nil {
+					targets = append(targets, entry)
+				}
+
+				// Optional: If you need to deeply resolve nested uselists instantly
+				// if sub, ok := usee.project.Lookup("uselist").(*uselist); ok {
+				// 	collect(sub)
+				// }
+			}
+		}
+
+		// Start the traversal
+		collect(t)
+
+		// Execute all collected entry points
+		if len(targets) > 0 {
+			return ease(ctx, targets)
+		}
+		return nil
+
+	case *closure, *delegate, *word, *raw, *strlit, *compound, *qualword, *globpat, *arrow, flag:
+		do(ctx, _not_evoker{})
+
+    default:
+		if x != nil && !isTrivial(x) {
+			debug(pc(ctx,x), "%s", ts(x,ctx), callstack{num:10}, trace{})
+		}
+    }
+	return
+}
+
+type executer interface { execute(Context, ...Value) []Value }
+type evaler interface { eval(Context, []Value, []Value) Value }
+type eval struct { accumulation bool ; o origin }
+func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
+    var exe = _execution(ctx)
+    if exe == nil {
+        debug(ctx, "wrong eval context: %v", ts(ctx), trace{})
+    }
+
+    var list []Value
+    var opts struct { general_opts }
+    args = parseOpts(_final(ctx), &opts, args...)
+
+    for _, recipe := range exe.recipes {
+        var vals = merge(recipe)
+
+        if n := len(vals); n < 1 {
+            if false { list = append(list, recipe) }
+            continue
+        }
+
+        var op = vals[0]
+        var ov []Value // opt-vals
+        if a, y := op.(*argumented); y { op, ov = a.Value, a.args }
+
+        switch t := op.(type) {
+        case *returner:
+            return ease(ctx, t.vals)
+
+        case evaler:
+            if v := t.eval(ctx, ov, vals[1:]); v != nil {
+                if p.accumulation {
+                    list = append(list, v)
+                } else {
+                    list = []Value{ v }
+                }
+            }
+
+        case executer:
+            if a := t.execute(ctx, vals[1:]...); a != nil {
+                if p.accumulation {
+                    list = append(list, a...)
+                } else {
+                    list = a
+                }
+            }
+
+        case *undetermined:
+            if p.accumulation {
+                list = append(list, vals...)
+            } else {
+                list = vals
+            }
+
+        default:
+            if p.o != 0 {
+                vals = expands(ctx, vals...)
+            }
+            if p.accumulation {
+                list = append(list, vals...)
+            } else {
+                list = vals
+            }
+        }
+    }
+
+    return ease(ctx, list)
+}
+
+// Note that it's is also used with Sscanf.
+const (
+    fmtExitStatus = "exit status %d"
+    maxPromptStr = 48
+    maxWorkers = 3
+    maxRetries = 1
+)
+
+type exec_opts struct {
+    general_opts
+    logname *fullname "log"
+    forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
+    forStdout Value `forstdout,for-stdout,for-out`
+    forStderr Value `forstderr,for-stderr,for-err`
+    result    Value `result,return`
+    removeOnFail bool `drop-fail,drop-failure,remove-failure,remove-on-fail`
+    zeroStatusErrors bool `zero-status-errors`
+    zeroErrs    bool `no-error,no-errors,zero-errors` // require zero error scaned from STDERR
+    report      bool `report,report-stamp,verbose-stamp`
+    silent      bool `silent,silent-errors` // silent errors
+    stdin       bool `stdin,input`
+    stdoutBuf   bool `stdout`
+    stderrBuf   bool `stderr`
+    stdoutTie   bool `tie-out,tie-stdout` // tied with log
+    stderrTie   bool `tie-err,tie-stderr` // tied with log
+    scanStdout  bool `scan-stdout,scan-out`
+    scanStderr  bool `scan-stderr,scan-err`
+    scanInfos   bool `scan-infos`
+    parallel    bool `parallel,no-order`
+    path        bool `path`
+    prompt      bool `prompt,msg`
+    promptSrc   bool `prompt-src,prompt-source,verbose-source`
+    note        bool `note`
+    cmd         string `cmd`
+    tie         string `tie` // all, both, stdout, stderr, out, err
+    _workdir    string `cd,dir,workdir,work-dir,work-directory`
+}
+
+type exitstatus struct { int }
+func (p *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, p.int) }
+
+var (
+    defaultShell = "bash"
+    udots = []byte("…")
+
+    workingMutex = new(sync.Mutex)
+    working atomic.Value // number of working executions
+
+    stdout = &std_writer{io:os.Stdout}
+    stderr = &std_writer{io:os.Stderr}
+
+    rxExitStatus        = regexp.MustCompile(`^exit status (\-?[0-9]+)$`)
+    rxFileNotFound      = regexp.MustCompile(`'(.+?)' file not found$`)
+    rxCodeLinePanic     = regexp.MustCompile(`^([^:]+?):(\d+):(\d+): *((?:fatal )?error|warning): *(.+)$`)
+    rxIgnoringDirectory = regexp.MustCompile(`^(ignoring (?:duplicate|nonexistent) directory) "(.*?)"`)
+    rxLdManyMinVersions = regexp.MustCompile(`^(?:[^:]+?: )+(passed two min versions \((.+?)\) for platform macOS\. Using (.+)\.)`)
+
+    rxArNoMembers     = regexp.MustCompile(`ar: no archive members specified`)
+    rxArNoSuchFileDir = regexp.MustCompile(`ar: (.+?): No such file or directory`)
+
+    rxShellNoSuchFileDir = regexp.MustCompile(`^bash:(?: line ([0-9]+?):)? (.+?): No such file or directory`)
+
+    rxGitNotRepo = regexp.MustCompile(`^fatal: (not a git repository): '(.+?)'`)
+
+    rxDockerCannotConnect   = regexp.MustCompile(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
+    rxDockerConNotRunning   = regexp.MustCompile(`Error response from daemon: (Container (.+?) is not running)`)
+    rxDockerNoSuchContainer = regexp.MustCompile(`Error.*: No such container: (.*)`)
+    rxDockerNetworkNotFound = regexp.MustCompile(`Error.*: (network (.*) not found)\.`)
+
+    rxIncludedFrom     = regexp.MustCompile(`In file included from (.+?):(\d+):(?:(\d+):)?`)
+    rxPyFileLineIn     = regexp.MustCompile(`^\s*File "(.+?)", line (\d+), in (.+)`)
+    rxPyFileNotFound   = regexp.MustCompile(`FileNotFoundError: \[Errno (\d+)\] No such file or directory: '(.*?)'`)
+    rxPyModuleNotFound = regexp.MustCompile(`ModuleNotFoundError: No module named '(.*?)'`)
+
+    // ld: warning: passed two min versions (15.0, 23.2) for platform macOS. Using 23.2.
+    rxNoticeLines = []*regexp.Regexp{
+        regexp.MustCompile(`ld: library '[^']+' not found`),
+    }
+
+    rxZeroStatusErrors = map[*regexp.Regexp]struct{}{
+        rxShellNoSuchFileDir:struct{}{},
+    }
+
+    matchcontexts = map[*regexp.Regexp]func(*exec_buffer, []byte, [][]byte)Context{
+        rxCodeLinePanic: func(p *exec_buffer, line []byte, sm [][]byte) Context {
+            return p.sc(sm[1], sm[2], sm[3], 0) // TODO: column(line, sm[4])
+        },
+    }
+
+    commonerrors = map[*regexp.Regexp]func(Context, []byte, [][]byte){
+        rxExitStatus: func(c Context, line []byte, sm [][]byte) {
+            if string(sm[1]) != "0" { debug(c, "%s", sm[0], trace{}) }
+        },
+        rxShellNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
+            debug(c, "no such command '%s'", sm[2], trace{})
+        },
+        regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(c Context, line []byte, sm [][]byte) {
+            debug(c, "%s: command not found", sm[2], trace{})
+        },
+        regexp.MustCompile(`the input device is not a TTY`): func(c Context, line []byte, sm [][]byte) {
+            debug(c, "%s", sm[0], trace{})
+        },
+    }
+
+    // `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
+    knownerrors = map[*regexp.Regexp]map[*regexp.Regexp]func(Context, []byte, [][]byte){
+        regexp.MustCompile(`^(?:.*/)?clang`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+            rxCodeLinePanic: func(c Context, line []byte, sm [][]byte) {
+                t := string(sm[4])
+                s := string(sm[5])
+                switch t {
+                case "warning":
+                    debug(c, "%s", s)
+                default:
+                    debug(c, "%s", s, trace{}) // "error", "fatal error"
+                }
+                if m := rxFileNotFound.FindStringSubmatch(s); m != nil {
+                    do(c, missing_file{m[1]})
+                }
+            },
+
+            rxIgnoringDirectory: func(c Context, line []byte, sm [][]byte) {
+                debug(pc(c,sm[2]), 5, "%s", sm[1])
+            },
+
+            rxLdManyMinVersions: func(c Context, line []byte, sm [][]byte) {
+                debug(c, 5, "%s", sm[1])
+            },
+
+            regexp.MustCompile(`  +"([^"]+?)", referenced from:`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            regexp.MustCompile(`undef: *(.+)`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+
+            regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(c Context, line []byte, sm [][]byte) {
+                if truly(c, is_configure{}) && string(sm[2]) == "warning" { return }
+                debug(c, "%s", sm[0])
+            },
+            regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+
+            regexp.MustCompile(`(.+?): Too many positional arguments specified!`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+        },
+        regexp.MustCompile(`^(?:.*/)?ar`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+            rxArNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "'%s' file not found", filepath.Base(string(sm[1])))
+            },
+            rxArNoMembers: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+        },
+        regexp.MustCompile(`^(?:.*?bash -c|.*?)git`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+            rxGitNotRepo: func(c Context, line []byte, sm [][]byte) {
+                debug(pc(c,sm[2]), "%s", sm[1])
+            },
+        },
+        regexp.MustCompile(`^(?:.*/)?python`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+            rxIncludedFrom: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            rxPyFileLineIn: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            rxPyFileNotFound: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            rxPyModuleNotFound: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+        },
+        regexp.MustCompile(`^(?:.*/)?docker`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+            rxDockerCannotConnect: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            rxDockerConNotRunning: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            rxDockerNoSuchContainer: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            rxDockerNetworkNotFound: func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+        },
+        regexp.MustCompile(`^(?:.*/)?protoc`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+            regexp.MustCompile(`^(.+?\.proto): File not found\.`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+            regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(c Context, line []byte, sm [][]byte) {
+                debug(c, "%s", sm[0])
+            },
+        },
+        regexp.MustCompile(`^(?:.*/)?echo`):map[*regexp.Regexp]func(Context, []byte, [][]byte){
+        },
+    }
+)
+
+func init() { working.Store(0) }
+
+func trimPromptString(str string) string { return trimPromptStringX(str, maxPromptStr) }
+func trimPromptStringX(str string, x int) (s string) {
+    var segs = strings.Split(str, pathSep)
+    if len(segs) <= 1 {
+        if n, m := len(str), maxPromptStr; n > m {
+            s = "…" + str[n-m:]
+        } else {
+            s = str
+        }
+        return
+    }
+
+    var i, n int
+    for i = len(segs)-1; i >= 0; i -= 1 {
+        n += len(segs[i]) + 1
+        if n > x {
+            var j = i - 1
+            if j < 0 { j = i }
+            segs[j] = "…"
+            s = filepath.Join(segs[j:]...)
+            return
+        }
+    }
+
+    s = str
+    return
+}
+
+type std_writer struct {
+    sync.Mutex
+    io io.Writer
+    suffixDots bool
+}
+
+func (w *std_writer) Write(p []byte) (n int, err error) {
+    w.Lock(); defer w.Unlock()
+    if w.suffixDots {
+        if !bytes.HasPrefix(p, udots) {
+            w.io.Write([]byte("\n"))
+        }
+        w.suffixDots = false
+    }
+    if n, err = w.io.Write(p); bytes.HasSuffix(p, udots) {
+        w.suffixDots = true
+    }
+    return
+}
+
+type exec_log struct {
+    sync.Mutex
+    writer *bufio.Writer
+    filename string
+    lines int
+}
+func (p *exec_log) Write(b []byte) (n int, err error) {
+    p.Lock(); defer p.Unlock()
+    p.lines += bytes.Count(b, []byte("\n"))
+    n, err = p.writer.Write(b)
+    return
+}
+func (p *exec_log) createWriter(file *os.File, dir, cmd string) {
+    p.writer = bufio.NewWriter(file)
+    fmt.Fprintf(p, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
+    fmt.Fprintf(p, "Compilation started at %v\n\n", time.Now())
+    fmt.Fprintf(p, "%s\n", cmd)
+}
+
+func is_notice_line(s string) (_ bool) {
+    for _, x := range rxNoticeLines {
+        if x.MatchString(s) { return true }
+    }
+    return
+}
+
+type exec_buffer struct {
+    *exec_ctx
+
+    Tie  io.Writer
+    Buf *bytes.Buffer
+    line bytes.Buffer // works done line by line
+    lnum int // line number
+
+    wrote uint64
+
+    forLine Value
+}
+func (p *exec_buffer) Write(b []byte) (n int, err error) {
+    var expandForLine = p.forLine != nil && !isTrivial(p.forLine)
+
+    if p.Buf != nil {
+        if n, err = p.Buf.Write(b); err != nil { return }
+    }
+    if p.log != nil {
+        if _, err = p.log.Write(b); err != nil { return }
+    }
+    if p.Tie != nil {
+        if n, err = p.Tie.Write(b); err != nil { return }
+    }
+    if err == nil && n == 0 {
+        // Returns the number of bytes to avoid "short write" errors.
+        // The real bytes written is discarded.
+        n = len(b)
+    }
+
+    p.wrote += uint64(n)
+
+    scanLine := expandForLine ||
+        (p.scanStdout && p == &p.Stdout) ||
+        (p.scanStderr && p == &p.Stderr)
+
+    if !scanLine { return }
+    if false && truly(p, is_rule{rxConfigRuleHeaders}) {
+        note(p, "%s %s", do(p, execution_lang{}), p.sh)
+    }
+
+    for slice := b[:]; len(slice) > 0; {
+        var i = bytes.Index(slice, []byte("\n"))
+        if i == -1 {
+            p.line.Write(slice)
+            slice = nil
+        } else {
+            p.lnum += 1
+            p.line.Write(slice[:i+1])
+            slice = slice[i+1:]
+
+            var line = p.line.Bytes()
+
+            if checkpoints {
+                p.check_line(string(line), p.lnum)
+            }
+
+            if expandForLine {
+                c := p.exec_ctx
+                c.line.s = string(line)
+                c.lino.int64 = int64(p.lnum)
+                v := expand(_final(p.Context), p.forLine)
+                if !isNull(v) && is_notice_line(c.line.s) {
+                    note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v))
+                }
+            }
+
+            k := func(rx *regexp.Regexp, f func(Context, []byte, [][]byte)) {
+                if sm := rx.FindSubmatch(line); sm != nil {
+                    if p.zeroStatusErrors && rxZeroStatusErrors != nil {
+                        if _, y := rxZeroStatusErrors[rx]; y {
+                            p.resetStatusZero = true
+                        }
+                    }
+                    c := Context(p)
+                    if x, y := matchcontexts[rx]; y {
+                        c = x(p, line, sm)
+                    } else {
+                        c = p.pc(0)
+                    }
+                    if !truly(c, is_configure_ignore{rx, sm}) {
+                        f(c, line, sm)
+                    }
+                }
+            }
+            for rx, f := range commonerrors { k(rx, f) }
+            for rx, f := range p.known { k(rx, f) }
+
+            p.line.Reset()
+        }
+    }
+    return
+}
+func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *project, sock string) (err error) {
+    var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
+    if err = c.Run(); err != nil {
+        if p.report {
+            debug(ctx, "dokcer daemon not running (at %s)", sock, trace{})
+        }
+    } else {
+        // TODO: start docker daemon
+    }
+    return
+}
+func (p *exec_buffer) filepath(s string) string {
+    if p._workdir != "" && !filepath.IsAbs(s) { s = filepath.Join(p._workdir, s) }
+    return s
+}
+func (p *exec_buffer) covpos(s1, s2, s3 string) (pos Position) {
+    pos.Filename  = p.filepath(s1)
+    pos.Line,   _ = strconv.Atoi(s2)
+    pos.Column, _ = strconv.Atoi(s3)
+    return
+}
+func (p *exec_buffer) lpos(column int) Position {
+    var pos Position
+    if p.log != nil {
+        pos.Filename, pos.Line, pos.Column = p.log.filename, p.lnum, column
+    }
+    return pos
+}
+func (p *exec_buffer) pc(column int) Context {
+    return pc(p, p.lpos(column))
+}
+func (p *exec_buffer) sc(b1, b2, b3 []byte, column int) Context {
+    s1, s2, s3 := string(b1), string(b2), string(b3)
+    return pc(pc(p,s1,atoi(s2),atoi(s3)), p.lpos(column))
+}
+
+type exec_result struct {
+    valbase
+    values []Value
+    Stdout exec_buffer
+    Stderr exec_buffer
+    Status int // aka. exit code
+}
+func (p *exec_result) String() string {
+    var s bytes.Buffer
+    fmt.Fprintf(&s, "{=exec {=status %d}", p.Status)
+    if p.Stdout.Buf != nil { fmt.Fprintf(&s, " {=stdout %v}", p.Stdout.Buf) }
+    if p.Stderr.Buf != nil { fmt.Fprintf(&s, " {=stderr %v}", p.Stderr.Buf) }
+    fmt.Fprintf(&s, "}")
+    return s.String()
+}
+
+type is_exec struct{}
+type exec_ctx struct {
+    Context
+
+    exec_opts
+    exec_result
+
+    line strlit
+    lino decimal
+
+    log *exec_log
+    logPos Position
+
+    target Value
+    targetName string
+
+    retried map[string]bool // work with containerToRun
+    containerToRun string   // work with retried
+    container *project
+
+    num int
+
+    sh *exec.Cmd
+    args []string
+
+    known map[*regexp.Regexp]func(Context, []byte, [][]byte)
+
+    start time.Time
+
+    resetStatusZero bool
+}
+func (p *exec_ctx) inner() Context { return p.Context }
+func (p *exec_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *exec_ctx) ts(t string) (s string) {
+    s = "{=" + t
+    if p.sh != nil {
+        s += " " + filepath.Base(p.sh.Path)
+    }
+    s += " " + ts(p.Context) + "}"
+    return
+}
+func (p *exec_ctx) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_exec: return true
+    case wants_fullfile: return p.fullname
+    }
+    return p.Context.do(ctx, op)
+}
+
+func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
+    if p.container == nil {
+        debug(p.Context, "no container", trace{})
+    } else if maxRetries < p.num {
+        fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
+        return
+    }
+
+    var (
+        name = p.containerToRun
+        sh = p.sh
+    )
+
+    fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
+    if entries := p.container._entries(p.Context, "run", false); entries != nil {
+        for _, run := range entries {
+            run.execute(p.Context, nil)
+        }
+    } else {
+        debug(p.Context, "%s⇒run undefined", p.container, trace{})
+    }
+
+    fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
+    if false {
+        fmt.Fprintf(sh.Stderr, "\n%s:\n    %v", sh.Path, strings.Join(sh.Args, "\n    "))
+        fmt.Fprintf(sh.Stderr, "\n\naka:\n    %s", sh)
+        fmt.Fprintf(sh.Stderr, "\n----\n")
+    } else {
+        fmt.Fprintf(sh.Stderr, "\n")
+    }
+
+    p.sh = exec.Command(sh.Path, sh.Args[1:]...) // must ignore Args[0]
+    p.sh.Stdout, p.sh.Stderr, p.sh.Stdin = sh.Stdout, sh.Stderr, sh.Stdin
+    p.sh.Dir, p.sh.Env = sh.Dir, sh.Env
+    if err = p.run(exe); err != nil {
+        fmt.Fprintf(sh.Stderr, "\n---- Retry failed: %s\n", err)
+    }
+    return
+}
+
+// DEPRECATED
+func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err error) {
+    var (
+        stdoutR, stdoutW = io.Pipe()
+        stderrR, stderrW = io.Pipe()
+        enviro = os.Environ()
+        cmd = exec.Command(`docker`, `ps`,
+            `--filter`, `status=running`,
+            //`--filter`, fmt.Sprintf(`ancestor=%s`, image),
+            `--filter`, fmt.Sprintf(`name=%s`, containerName),
+            `--format`, `{{.ID}}\t{{.Image}}\t{{.Names}}`,
+        )
+        foundID, foundImage string
+    )
+    cmd.Stdout, cmd.Stderr, cmd.Env = stdoutW, stderrW, enviro
+    defer stdoutW.Close()
+    defer stderrW.Close()
+
+    go func(r io.Reader) {
+        var buf = bufio.NewReader(r)
+        for {
+            s, e := buf.ReadString('\n')
+            if e != nil {
+                break
+            }
+            if fields := strings.Split(s, "\t"); len(fields) == 3 {
+                if names := strings.Split(fields[2], ","); len(names) > 0 {
+                    foundID, foundImage = fields[0], fields[1]
+                    if foundImage == "" { /* FIXME: unused */ }
+                }
+            }
+        }
+    } (stdoutR)
+
+    go func(r io.Reader) {
+        var buf = bufio.NewReader(r)
+        for {
+            s, e := buf.ReadString('\n')
+            if e != nil {
+                break
+            }
+            prompt(p.Context, "%s", s)
+        }
+    } (stderrR)
+
+    if err = cmd.Run(); err == nil && foundID == "" {
+        if entries := p.container._entries(p.Context, "run", false); entries != nil {
+            for _, run := range entries {
+                run.execute(p.Context, nil)
+            }
+        } else {
+            debug(p.Context, "%s⇒run undefined", p.container, trace{})
+        }
+    } else if err != nil {
+        debug(p.Context, "%v", err, trace{})
+    }
+    return
+}
+
+func (p *exec_ctx) skips(tag string) bool {
+    if p.retried == nil { p.retried = make(map[string]bool) }
+    var a, b = p.retried[tag]
+    return a && b
+}
+
+func (p *exec_ctx) run(exe *execution) (err error) {
+    if p.containerToRun != "" {
+        p.retried[p.containerToRun] = true // mark it to skip next time
+        err = p.runContainerAndRetry(exe)
+        p.containerToRun = ""
+        return
+    }
+
+    if checkpoints { defer p.run_check(exe) }
+
+    exe.Add(1)
+    p.num += 1
+
+    run := func(c *exec.Cmd) {
+        defer exe.Done()
+
+        err = c.Run();
+
+        if err == nil {
+            err = p.check()
+        } else if x, y := err.(*exec.ExitError); y {
+            if p.Status = x.ExitCode(); p.Status == 0 { err = p.check() } // success!
+            if p.resetStatusZero { p.Status = 0 }
+        } else {
+            debug(p.Context, "exec failed: %v", err, trace{})
+            return
+        }
+    }
+
+    if true { run(p.sh) } else { go run(p.sh) }
+    if p.note {
+        prompt(p, "%s\n", p.sh)
+        if buf := p.Stdout.Buf; buf != nil { prompt(p, "%s", buf) }
+        debug(pc(p,auto_get(p,"@")), "status=%v", p.Status)
+    }
+    return
+}
+
+func (p *exec_ctx) check() (err error) {
+    if (!p.silent || p.debug>0) && (/* len(p.scannedDiags) > 0 || */ p.Status != 0 || err != nil) {
+        if p.silent /* || p.retStatus */ {
+            err = nil
+        } else if p.Status != 0 {
+            err = &exitstatus{ p.Status } // set or convert error
+        }
+
+        var en, wn, in int
+        // for _, rec := range p.scannedDiags {
+        //     switch rec.dt {
+        //     case diagError: en += rec.num
+        //     case diagWarn:  wn += rec.num
+        //     case diagInfo:  in += rec.num
+        //     }
+        // }
+
+        var ctx = p.Context
+        if en > 0 || p.Status != 0 || err != nil {
+            prompt(ctx, "exec: failure (status=%d; err=%v); target=%s\n", p.Status, err, p.targetName)
+        } else if wn > 0 {
+            prompt(ctx, "%v: %d warnings\n", p.targetName, wn)
+        }
+
+        // for i, rec := range p.scannedDiags {
+        //     if !p.scanInfos && rec.dt == diagInfo { continue }
+        //     if !p.logPos.IsValid() { p.logPos = rec.position }
+        //     if i == 0 && !rec.position.same(&rec.position) {
+        //         diag(ctx, rec.dt, rec.msg)//
+        //     }
+        //     if rec.num > 1 {
+        //         diag(ctx, rec.dt, `%s (%d)`, rec.msg, rec.num)//
+        //     } else {
+        //         diag(ctx, rec.dt, rec.msg)//
+        //     }
+        //     if n := (en+wn+in)-(i+1); i == 8 && 0 < n {
+        //         diag(ctx, rec.dt, "%d more...", n)//
+        //         break
+        //     }
+        // }
+
+        var pos = _position(ctx)
+        if !p.logPos.IsValid() && p.log != nil {
+            p.logPos.Filename = p.log.filename
+            p.logPos.Line = p.Stderr.log.lines + 1
+        } else {
+            p.logPos = pos
+        }
+
+        var diffLogPos = !p.logPos.sameLine(&pos)
+        var str, _, _ = entryIndicator(ctx, _entry(ctx))
+        if (/* !p.retStatus && */ p.Status != 0) || en > 0 {
+            if p.removeOnFail {
+                if e := os.RemoveAll(p.targetName); e != nil {
+                    warn(ctx, "remove: %v", e)
+                }
+            }
+
+            if diffLogPos && en > 0 { debug(ctx, "%v: %d known errors", str, en) }
+            debug(p, "%v: exit status %d", str, p.Status, trace{})
+        } else if wn > 0 {
+            if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn) }
+            warn(p, "%v: exit status %d", str, p.Status)
+            warn(ctx, "%v: %d known warnings", str, wn)
+            warnstack(ctx, 3)
+        } else if in > 0 && p.scanInfos {
+            if diffLogPos { info(ctx, "%v: %d known messages", str, in) }
+            info(p, "%v: exit status %d", str, p.Status)
+            info(ctx, "%v: %d known messages", str, in)
+            infostack(ctx, 8)
+        }
+
+        // if p.retStatus {
+        //   if p.zeroErrs && en == 0 && err == nil {
+        //     p.vals = append(p.vals, _decimal(p.logPos, int64(p.Status)))
+        //   } else {
+        //     p.vals = append(p.vals, _none(p.logPos))
+        //   }
+        // } else if p.Status != 0 || err != nil {
+        //   // break
+        // }
+    }
+    return
+}
+
+func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
+    var a1 *strlit
+    var a2 *decimal
+    var ac *automatic
+    if ctx.forRecipe != nil {
+        a1, a2 = &strlit{}, &decimal{}
+        ac = &automatic{Context:ctx, defs:make(def_map)}
+        ac.args(ac.Context, []Value{a1, a2})
+    }
+
+    var pos Pos
+    var source string
+    for i, recipe := range recipes {
+        if !pos.IsValid() { pos = recipe.Pos() }
+
+        var cc Context = _final(pc(ctx, pos))
+        var s = __string(cc, recipe)
+
+        if checkpoints {
+            ctx.sources_check(cc, i, recipe, s)
+        }
+
+        if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
+            source += "\n" // an empty line
+            continue
+        } else {
+            // Escape '$$' sequences.
+            s = strings.Replace(s, "$$", "$", -1)
+
+            // Duplicate all %
+            //s = strings.Replace(s, "%", "%%", -1)
+
+            source += s
+        }
+
+        if strings.HasSuffix(source, "\\") {
+            source += "\n" // append the line feed
+            if i < len(recipes) { continue }
+        }
+
+        // Remove tabs in line breakings.
+        source = strings.Replace(source, "\\\n\t", "\\\n", -1)
+        sources = append(sources, &raw{valbase{pos}, source})
+
+        if ctx.forRecipe != nil {
+            a1.pos, a1.s     = pos, source
+            a2.pos, a2.int64 = pos, int64(len(sources)+1)
+            ac.Context = ctx
+            expand(_final(ac), ctx.forRecipe)
+        }
+
+        pos, source = 0, ""
+    }
+
+    if len(sources) == 0 && 0 < len(recipes) {
+        debug(ctx, "empty recipes: %v", recipes, trace{})
+    }
+    return
+}
+
+func (ctx *exec_ctx) exec(cmd, opt string) {
+    var exe = _execution(ctx)
+    var env, sep = exe.env(ctx)
+    var envs string
+    var logFile *os.File
+
+    for i, s := range env[sep:] {
+        if i > 0 { envs += " && " }
+        if k := strings.Index(s, "="); k > 0 {
+            envs += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
+        }
+    }
+
+    defer func() {
+        if ctx.log != nil && ctx.log.writer != nil { ctx.log.writer.Flush() }
+        if logFile != nil { logFile.Close() }
+        if false && ctx.log != nil && ctx.log.filename != "" {
+            if ctx.Stdout.wrote == 0 && ctx.Stderr.wrote == 0 {
+                os.Remove(ctx.log.filename)
+            }
+        }
+
+        ctx.Stdout.exec_ctx = nil
+        ctx.Stderr.exec_ctx = nil
+        ctx.container = nil
+        ctx.sh = nil
+
+        if !ctx.silent && !is_configurecontext(ctx) && ctx.target != nil {
+            var files = stampFile(must_files_stamp{ctx}, ctx.target)
+            if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
+        }
+
+        if !ctx.silent && ctx.prompt {
+            var ps = ctx.cmd + trimPromptString(ctx.targetName)
+            if _execution(exe.Context) == nil { ps += " …… ok" }
+            if ps != "" {
+                var s = time.Now().Sub(ctx.start).String()
+                if n := ctx.Stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
+                if n := ctx.Stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
+                if t := exe.dirt; t != "" { s += "; " + t }
+                prompt(ctx, "%s (exec %s)\n", ps, s)
+            }
+        }
+    } ()
+
+    ctx.Stdout.forLine = ctx.forStdout
+    ctx.Stderr.forLine = ctx.forStderr
+
+    if ctx.forStdout != nil || ctx.forStderr != nil {
+        ac := automatic{Context:ctx.Context, defs:make(def_map)}
+        ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
+        if x, y := ac.defs["1"]; y {
+            ac.defs["_"] = x // alias
+        } else {
+            debug(ctx, "wrong args: %v", ac.defs, trace{})
+        }
+        ctx.Context = &ac
+    }
+
+    if ctx.stdoutBuf { ctx.Stdout.Buf = new(bytes.Buffer) }
+    if ctx.stderrBuf { ctx.Stderr.Buf = new(bytes.Buffer) }
+    if ctx.stdoutTie { ctx.Stdout.Tie = stdout }
+    if ctx.stderrTie { ctx.Stderr.Tie = stderr }
+    if ctx.logname != nil {
+        ctx.log = &exec_log{ filename: __string(ctx, ctx.logname) }
+    }
+
+    var srcs = ctx.sources(exe.recipes)
+
+    if ctx.log == nil || ctx.log.filename == "" {
+        // no log required
+    } else if err := os.MkdirAll(filepath.Dir(ctx.log.filename), os.FileMode(0755)); err != nil {
+        debug(ctx, "%v", err, trace{})
+    } else if logFile, err = os.Create(ctx.log.filename); err != nil {
+        debug(ctx, "%v", err, trace{})
+    } else {
+        cmdline := joinraws("\n", srcs...)
+        ctx.log.createWriter(logFile, ctx._workdir, cmdline)
+    }
+
+    ctx.Stdout.exec_ctx = ctx
+    ctx.Stderr.exec_ctx = ctx
+    ctx.start = time.Now()
+
+    var noExec = truly(ctx, no_exec{})
+    for i, src := range srcs {
+        if src.trim("@"); src.s == "" { continue }
+        if ctx.promptSrc && !ctx.prompt {
+            s := src.s
+            s = strings.Replace(s, "\n", "\\n", -1)
+            s = strings.Replace(s, "\\\\n", "\\\n", -1)
+            prompt(ctx, "%s\n", s)
+        }
+
+        if cmd == "docker" && len(envs) > 0 { src.s = envs+" && "+src.s }
+        if noExec { continue }
+
+        ctx.known = nil
+        for rx, m := range knownerrors {
+            if rx.MatchString(src.s) { ctx.known = m }
+        }
+        if ctx.known == nil {
+            note(ctx, "unknown: %s", src)
+        }
+
+        ctx.sh = exec.Command(cmd, ctx.args...)
+        ctx.sh.Env = env
+        ctx.sh.Dir = ctx._workdir // always set command work directory
+        ctx.sh.Stdout = &ctx.Stdout
+        ctx.sh.Stderr = &ctx.Stderr
+        if ctx.stdin {
+            ctx.sh.Args = append(ctx.sh.Args, "-ti")
+            ctx.sh.Stdin = os.Stdin
+        }
+        if   opt != "" { ctx.sh.Args = append(ctx.sh.Args, opt) }
+        if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
+
+        var e = ctx.run(exe)
+        if checkpoints { ctx.exec_check(i, src, e) }
+        if e != nil || ctx.Status != 0 { break }
+    }
+}
+
+type executor struct {
+    cmd, opt string
+    contained bool
+}
+func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
+    var prog = _program(ctx)
+    if prog == nil {
+        debug(ctx, "needs program context to exec: %v", ctx, trace{})
+    }
+
+    if false && truly(ctx, is_test_univ{}) {
+        defer note(ctx, "%v %v %v", p.cmd, args, result)
+    }
+
+    var cmd = p.cmd
+    var ec = &exec_ctx{Context:ctx}
+    ec.exec_result.pos = _pos(ctx)
+    ec.scanStderr = true
+
+    args = parseOpts(ctx, &ec.exec_opts, args...)
+
+    if !ec.prompt { ec.prompt = ec.cmd != "" }
+
+    var resKind, resType string
+    var resValue Value
+    var trim = func(s string) string { return s }
+
+    if r := ec.result; r != nil {
+        for {
+            var x, y = r.(*argumented)
+            if !y { break }
+            if len(x.args) != 1 {
+                debug(pc(ctx,x), "wrong result spec: %v", x, trace{})
+            }
+
+            switch s := __string(ctx, x.Value); s {
+            case "trim": trim = strings.TrimSpace
+            default: resType = s
+            }
+
+            if l, y := x.args[0].(*list); y {
+                if l.len() != 1 {
+                    debug(pc(ctx,x), "wrong result spec: %v", x, trace{})
+                }
+                r = l.elems[0]
+            }
+        }
+        if x, y := r.(*pair); y {
+            resKind = __string(ctx, x.key)
+            resValue = x.val
+        } else {
+            resKind = __string(ctx, r)
+        }
+        switch resKind {
+        case "stdout": ec.stdoutBuf = true
+        case "stderr": ec.stderrBuf = true
+        }
+    }
+
+    switch ec.tie {
+    case "stdout", "out": ec.stdoutTie = true
+    case "stderr", "err": ec.stderrTie = true
+    case "all", "both":
+        ec.stdoutTie = true
+        ec.stderrTie = true
+    }
+
+    if t := auto_target_value(ctx); patterned(ctx,t) {
+        debug(ctx, "target is pattern: %v", ec.target, trace{})
+    } else {
+        ec.target = t
+        if _, y := t.(flag); !y {
+            ec.targetName, _ = as_fullname_string(ctx, ec.target)
+        }
+    }
+
+    for i, v := range args {
+        var s string
+        if i == 0 && p.contained {
+            if s = __string(ctx, v); s == "shell" { cmd = defaultShell }
+        } else if s = strings.TrimSpace(__string(ctx, v)); s != "" {
+            ec.args = append(ec.args, s)
+        }
+    }
+
+    if p.contained {
+        var proj = _project(ctx)
+        if proj == nil {
+            debug(ctx, "nil project", trace{})
+        }
+
+        if proj.name == dot_container {
+            ec.container = proj
+        } else if _, sym := proj.find(dot_container); sym != nil {
+            ec.container = sym.(*project)
+        }
+        if ec.container == nil {
+            debug(ctx, "%s: nil container", proj.name, trace{})
+        }
+
+        var stringify = func(name string) (str string) {
+            var ctx = closure_with(ctx, ec.container.scope)
+            if obj := ec.container.resolve(ctx, name); obj != nil {
+                if d, _ := obj.(*def); d != nil {
+                    if v := evoke(ctx, d, nil, nil); v != nil {
+                        if str = __string(ctx, v); str == "-" {
+                            // if v, err = def.DiscloseValue(ec.container); err == nil && v != nil {
+                            //   if str, err = __string(ctx, v); str == "" { str = "-" }
+                            //   prompt(ctx, "%v: %v (%v)\n", name, str, def)
+                            // }
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        var containerName = stringify("container")
+        if containerName == "" {
+            debug(ctx, ".container.name undefined", trace{})
+        }
+
+        var containerImage = stringify("image")
+        if containerImage == "" {
+            debug(ctx, ".container.image undefined", trace{})
+        }
+
+        ec.args = append(ec.args, "exec", containerName, cmd)
+        cmd = "docker"
+    }
+
+    if ec._workdir == "" {
+        ec._workdir = prog.workdir(ctx)
+        if ec._workdir == "" {
+            debug(ctx, "workdir is empty", trace{})
+        }
+    }
+
+    if ec.path {
+        if s := filepath.Dir(ec.targetName); s != "" && s != "." && s != "/" {
+            if e := os.MkdirAll(s, os.FileMode(0755)); e != nil {
+                debug(ctx, "make path '%s' for target failed: %v", s, e, trace{})
+            }
+        }
+    }
+
+    ec.exec(cmd, p.opt)
+
+    if ec.result != nil {
+        if resValue != nil {
+            var s string
+            switch resKind {
+            case "stdout": s = trim(ec.Stdout.Buf.String())
+            case "stderr": s = trim(ec.Stderr.Buf.String())
+            case "status": s = fmt.Sprintf("%v", ec.Status)
+            }
+            switch v := __string(ctx, resValue) == s ; resType {
+            case "answer": return _answer(_pos(ctx), v)
+            case "option": return _option(_pos(ctx), v)
+            default:       return _boolean(_pos(ctx), v)
+            }
+        } else {
+            switch resKind {
+            case "stdout": return _raw(_pos(ctx), trim(ec.Stdout.Buf.String()))
+            case "stderr": return _raw(_pos(ctx), trim(ec.Stderr.Buf.String()))
+            case "status": return _decimal(_pos(ctx), int64(ec.Status))
+            }
+        }
+    }
+    return &ec.exec_result
+}
+
+var execCommandClang = regexp.MustCompile(`^@?(?:/(?:[^/]*/)+)?(clang(?:\+{2})?)$`)
+var execExistFlagPath = map[*regexp.Regexp][]*regexp.Regexp{
+    execCommandClang: []*regexp.Regexp{
+        regexp.MustCompile(`^-([IL]|include|(?:i(?:(?:framework)?with)|-)?sysroot|(?:cxx-|stdlib(?:\+\+)?)?isystem(?:-after)?|iframework)=?([[:alnum:]_\-/]+)?$`),
+    },
+}
+
+func correctCommandFlags(ctx Context, source string, w bool) string {
+    var flags []string
+    var fields = strings.Fields(source)
+    if len(fields) > 0 { flags = fields[:1] }
+
+fieldsloop:
+    for i := 1; i < len(fields); i += 1 {
+        var field = fields[i]
+
+        for rx, rxs := range execExistFlagPath {
+            if rx.MatchString(fields[0]) {
+                for _, rx := range rxs {
+                    var m = rx.FindStringSubmatch(field)
+                    if len(m) == 0 { continue }
+
+                    var f bool
+                    var s = m[2]
+                    if s == "" {
+                        if i += 1; i == len(fields) { break fieldsloop }
+                        s, f = fields[i], true
+                    }
+
+                    if _, e := os.Stat(s); e != nil {
+                        if w { debug(ctx, "ignoring nonexistent path: %v", s) }
+                        continue fieldsloop // skip nonexistent path flags
+                    } else if f {
+                        flags = append(flags, field)
+                        field = s
+                    }
+                }
+            }
+        }
+
+        flags = append(flags, field)
+    }
+    return strings.Join(flags, " ")
+}
+
+
+// === Pattern Matching Engine Contract ===
+//
+// 1. Data Taxonomy & Containers
+// The engine evaluates Values categorized into three fundamental types:
+// - Scalars: Non-composite, non-pattern fundamental values (e.g., word, raw, file, decimal, globmeta).
+// - Composites: Structural containers holding other values (e.g., compound, path, list).
+//   * path: Special composite whose elements are separated by path-separators.
+//   * flag: Special composite representing a virtual dash "-" and a wrapped Value.
+// - Patterns: Abstract matching rules (e.g., globpat, percpat, regexpat).
+//
+// 2. The Universal `matched` vs. `full` Principle
+// Lower-level match functions NEVER return `full`. They only return `matched` (often labeled `ok`).
+// - matched == true: The pattern successfully evaluated against the text. It DOES NOT mean 
+//   the value was fully consumed.
+// - rem != nil: The exact unconsumed portion of the value left behind by the pattern.
+// - full == true: A derived state. A match is only "full" if `matched == true AND rem == nil 
+//   AND idx == len(vals)`. Only the top-level `match()` function asserts `full`.
+//
+// 3. Gap Absorption (The Wildcard Rule)
+// When a literal pattern is adjacent to a gap wildcard (*, **, ?), partial matches are successes.
+// - If a literal sub-pattern matches successfully but leaves a remainder (matched == true AND 
+//   rem != nil), the engine MUST NOT reject it.
+// - The literal pattern anchors to the boundary, and the wildcard's explicit job is to 
+//   "absorb" the `rem` along with any intermediate segments.
+//
+// 4. Bidirectionality (`trail` Parameter)
+// The engine executes matches inward from the boundaries to isolate wildcards.
+// - Forward Match (trail = false): Evaluates Left-to-Right. The pattern anchors to the START 
+//   of the value. `rem` represents the unconsumed text on the RIGHT.
+// - Trailing Match (trail = true): Evaluates Right-to-Left. The pattern anchors to the END 
+//   of the value. `rem` represents the unconsumed text on the LEFT.
+//
+// 5. Dispatcher & Function Signatures
+// - Top-Level Dispatcher:
+//   match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Value)
+//
+// - Low-Level Evaluators (shedding unnecessary returns based on scope):
+//   matchScalarScalar (...) (matched bool, res, rem Value)
+//   matchCompComp     (...) (matched bool, res, rem Value, idx int)
+//   matchGlobComp     (...) (matched bool, res, rem Value, stems []Value, idx int, wildToken token)
+//   matchGlobPath     (...) (matched bool, res, rem Value, stems []Value, idx int, wildToken token)
+//   matchPathPath     (...) (matched bool, res, rem Value, stems []Value, idx int)
+//
+// 6. Core Execution Algorithm
+// IF pat is pure literal (no wildcards):
+//   - Iterate through elements (L-to-R or R-to-L based on `trail`).
+//   - IF match fails -> RETURN matched=false.
+//   - RETURN matched=true, res=consumed, rem=leftovers, idx=next_position.
+// IF pat contains GAP_WILDCARD (** or * or ?):
+//   - Split pat into PREFIX, GAP, and SUFFIX.
+//   - matchedPrefix, resPrefix, remPrefix <- MATCH(PREFIX, val, trail=false) // Anchor Left
+//   - matchedSuffix, resSuffix, remSuffix <- MATCH(SUFFIX, val, trail=true)  // Anchor Right
+//   - IF both matched:
+//       GAP absorbs remPrefix, remSuffix, and all intermediate values.
+//       RETURN matched=true, res=combined_res, rem=nil.
+//
+// Ends.
+
+type is_swapped struct{}
+type swapped_ctx struct{ Context }
+func (c swapped_ctx) inner() Context { return c.Context }
+func (c swapped_ctx) cast(t reflect.Type) Context { return icast(c, t) }
+func (c swapped_ctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case is_swapped: return true
+	}
+	return c.Context.do(ctx, op)
+}
+
+// globMatchCharSet checks if char matches the set pattern [range].
+func globMatchCharSet(pattern string, char rune) bool {
+	if len(pattern) < 3 { return false } // []]
+	inner := pattern[1 : len(pattern)-1]
+	negate := false
+	if len(inner) > 0 && inner[0] == '^' {
+		negate = true
+		inner = inner[1:]
+	}
+
+	match := false
+	for i := 0; i < len(inner); i++ {
+		if i+2 < len(inner) && inner[i+1] == '-' {
+			start, end := rune(inner[i]), rune(inner[i+2])
+			if char >= start && char <= end {
+				match = true
+				break
+			}
+			i += 2
+		} else {
+			if rune(inner[i]) == char {
+				match = true
+				break
+			}
+		}
+	}
+	return match != negate
+}
+
+// staticStr returns the string representation of a value ONLY if it can be 
+// determined without evaluating definitions, closures, or rules.
+func staticStr(v any) (string, bool) {
+	if v == nil { return "", true }
+	switch t := v.(type) {
+	case *valbase, *null, *none, *undef: return "", true // Map empty AST nodes to ""
+	case *loc: return staticStr(t.Value)
+	case *xloc: return staticStr(t.Value)
+	case string: return t, true
+	case *raw: return t.s, true
+	case *word: return t.s, true
+	case *strlit: return t.s, true
+	case *project: return t.name, true
+	case *globmeta: return t.token.String(), true
+	case *punct: return t.token.String(), true // (PROOT, PTAIL).String() is empty
+	case token: return t.String(), true
+	case int: return strconv.Itoa(t), true
+	case int64: return strconv.FormatInt(t, 10), true
+	case float64: return strconv.FormatFloat(t, 'g', -1, 64), true
+	case *decimal: return strconv.FormatInt(t.int64, 10), true
+	case *float: return strconv.FormatFloat(t.float64, 'g', -1, 64), true
+	case *boolean: if t.bool { return "true", true } else { return "false", true }
+	case *file: if t.filestub != nil { return t.filestub.name, true } else { return "", false }
+	case flag:
+		if t.Value == nil || isEmpty(t.Value) { return "-", true }
+		if s, ok := staticStr(t.Value); ok { return "-" + s, true }
+		return "", false
+	case *compound: //panic(sf("disabled staticStr(compound(%v))",t))
+		var sb strings.Builder
+		for _, e := range t.elems {
+			if s, ok := staticStr(e); ok { sb.WriteString(s) } else { return "", false }
+		}
+		return sb.String(), true
+	case *path: //panic(sf("disabled staticStr(path(%v))",t))
+		var sb strings.Builder
+		for i, e := range t.elems {
+			if i > 0 { sb.WriteString(pathSep) }
+			if s, ok := staticStr(e); ok { sb.WriteString(s) } else { return "", false }
+		}
+		return sb.String(), true
+	}
+	return "", false
+}
+
+// Replacement of __string for fast match. TODO: more optimization/interning
+func quickStr(ctx Context, v Value) string {
+	if s, ok := staticStr(v); ok { return s }
+	return __string(ctx, v) // Only fallback if staticStr refuses
+}
+
+func getScalarLength(ctx Context, v Value) int {
+	if t, ok := v.(flag); ok {
+		return 1 + getScalarLength(ctx, t.Value)
+	} else {
+		return len(quickStr(ctx, v)) // TODO: optimization	
+	}
+}
+
+// getScalarSubstr extracts a substring from a scalar Value.
+// If end is -1, it returns the substring from start to the end of the string.
+// It returns false if the value is not a supported scalar type.
+func getScalarSubstr(ctx Context, v Value, start, end int) string {
+	if end != -1 && start >= end { return "" }
+
+	if t, ok := v.(flag); ok {
+		// Map [start, end) to the underlying value's coordinates.
+		var vStart, vEnd int
+		var includeDash bool
+
+		if start <= 0 {
+			includeDash = true
+			vStart = 0
+		} else {
+			vStart = start - 1
+		}
+
+		if end == -1 {
+			vEnd = -1
+		} else {
+			if end <= 1 {
+				if includeDash && end == 1 { return "-" }
+				return ""
+			}
+			vEnd = end - 1
+		}
+
+		valStr := getScalarSubstr(ctx, t.Value, vStart, vEnd)
+		if includeDash { return "-" + valStr }
+		return valStr
+	}
+
+	var s = quickStr(ctx, v)
+	if start < 0 { start = 0 }
+	if end < 0 || end > len(s) { end = len(s) }
+	
+	if start > end { return "" }
+	if start >= len(s) { return "" }
+
+	return s[start:end]
+}
+
+func isPureWildcard(val Value) bool {
+	switch e := unloc(val).(type) {
+	case *globmeta:
+		// Any standalone wildcard node (*, **, or an exploded PERC) is pure by definition!
+		return true
+	case *percpat:
+		// A *percpat is only pure if it lacks both a prefix and a suffix
+		suf := e.Suffix
+		if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) { suf = pp.Suffix }
+		return isEmpty(e.Prefix) && isEmpty(suf)
+	}
+	return false
+}
+
+// getWildcardSuffix extracts the hidden suffix from a wildcard node if it exists.
+func getWildcardSuffix(v Value) Value {
+	if pp, ok := unloc(v).(*percpat); ok {
+		suf := pp.Suffix
+		// Handle the %% edge case where the inner percpat holds the true suffix
+		if inner, isPP := unloc(pp.Suffix).(*percpat); isPP && isEmpty(inner.Prefix) { 
+			suf = inner.Suffix 
+		}
+		if suf != nil && !isEmpty(suf) { return suf }
+	}
+	return nil
+}
+
+// getWildcardPrefix extracts the hidden prefix from a wildcard node if it exists.
+func getWildcardPrefix(v Value) Value {
+	if pp, ok := unloc(v).(*percpat); ok {
+		if pp.Prefix != nil && !isEmpty(pp.Prefix) { return pp.Prefix }
+	}
+	return nil
+}
+
+// Helper to unify *globmeta and *percpat logic
+func getGlobToken(v Value) token {
+	switch e := unloc(v).(type) {
+	case *globmeta: return e.token
+	case *percpat: return PERC
+	}
+	return ILLEGAL
+}
+
+type stemseg struct {
+	e, v Value
+}
+
+// gapseg handles the conditional boundary logic for wildcard gaps
+type gapseg struct {
+	bound bool
+	e     Value
+	rem   []Value
+}
+
+type optraw struct {
+	b bool
+	p Pos
+	s string
+}
+
+func concat(args ...any) (parts []Value) {
+	for _, arg := range args {
+		if arg != nil {
+			switch t := arg.(type) {
+			case []Value: parts = append(parts, t...)
+			case Value: parts = append(parts, t)
+			case optraw:
+				if t.b {
+					var v Value
+					if t.s == "" { v = &valbase{t.p} } else { v = _raw(t.p, t.s) }
+					parts = append(parts, v)
+				}
+			case stemseg:
+				if t.v == nil { t.v = &valbase{t.e.Pos()} }
+				parts = append(parts, t.v)
+			case gapseg:
+				switch len(t.rem) {
+				case 0: if t.bound { parts = append(parts, &valbase{t.e.Pos()}) }
+				case 1: parts = append(parts, t.rem[0])
+				default: parts = append(parts, &compound{elements{t.rem}})
+				}
+			}
+		}
+	}
+	return
+}
+
+func packParts(trail bool, parts []Value, args ...any) []Value {
+	var vals []Value
+	for _, arg := range args {
+		if arg != nil {
+			switch t := arg.(type) {
+			case []Value: vals = append(vals, t...)
+			// case *compound: vals = append(vals, t.elems...)
+			case *path: vals = append(vals, t.elems...)
+			case Value: vals = append(vals, t)
+			}
+		}
+	}
+	if 0 < len(vals) {
+		if trail {
+			parts = append(vals, parts...)
+		} else {
+			parts = append(parts, vals...)
+		}
+	}
+	return parts
+}
+
+func packComp(parts []Value) Value {
+	switch len(parts) { case 0: return nil; case 1: return parts[0] }
+	return &compound{elements{parts}}
+}
+
+func packPath(parts []Value) Value {
+	switch len(parts) { case 0: return nil; case 1: return parts[0] }
+	return &path{elements{parts}}
+}
+
+func forwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem []Value, eIdx, sIdx int) {
+	currVal := vals[0] // Guaranteed by caller contract to have at least 1 element
+
+	for eIdx < len(elems) {
+		m, r1, r2 := matchScalarScalar(ctx, elems[eIdx], currVal, false)
+		if !m { break }
+
+		if r2 == nil || isEmpty(r2) {
+			res = concat(res, currVal)
+			sIdx++
+			if sIdx < len(vals) { 
+				currVal = vals[sIdx] 
+			} else { 
+				currVal = nil 
+			}
+		} else {
+			res = concat(res, r1)
+			currVal = r2 // Shrink the current segment
+		}
+
+		eIdx++
+
+		if currVal == nil { break } // Ran out of value segments
+	}
+	
+	matched = eIdx == len(elems)
+
+	// FIX: Safely reconstruct the unconsumed remainder without out-of-bounds truncation
+	if currVal != nil {
+		rem = concat(currVal, vals[sIdx+1:])
+	} else if sIdx < len(vals) {
+		rem = vals[sIdx:]
+	}
+
+	return
+}
+
+func backwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem []Value, eIdx, sIdx int) {
+	eIdx = len(elems) - 1
+	sIdx = len(vals) - 1
+	currVal := vals[sIdx] // Guaranteed by caller contract to have at least 1 element
+
+	for 0 <= eIdx {
+		m, r1, r2 := matchScalarScalar(ctx, elems[eIdx], currVal, true)
+		if !m { break }
+
+		if r2 == nil || isEmpty(r2) {
+			res = concat(currVal, res)
+			sIdx--
+			if sIdx >= 0 { 
+				currVal = vals[sIdx] 
+			} else { 
+				currVal = nil 
+			}
+		} else {
+			res = concat(r1, res)
+			currVal = r2 // Shrink the current segment
+		}
+
+		eIdx--
+
+		if currVal == nil { break } // Ran out of value segments
+	}
+	
+	matched = eIdx < 0
+
+	// FIX: Symmetrical fix to preserve backward unconsumed elements
+	if currVal != nil {
+		rem = concat(vals[:sIdx], currVal)
+	} else if sIdx >= 0 {
+		rem = vals[:sIdx+1]
+	}
+
+	return
+}
+
+func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
+	forward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
+		pos := vals[iV].Pos()
+		val := _raw(pos, str[:size])
+
+		m, r, rm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:],
+			concat(optraw{size < len(str), pos, str[size:]}, vals[iV+1:]))
+
+		if size == len(str) { iV += 1 }
+		return m, concat(res, val, r), rm, concat(stems, val, s), iE + 1 + ie, iV + iv, wt
+	}
+
+	for iE < len(elems) { 
+		switch e := unloc(elems[iE]).(type) {
+		case *globrange: 
+			if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL } 
+			str, t := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
+			r, size := utf8.DecodeRuneInString(str)
+			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(t, r) {
+				return false, res, vals[iV:], stems, iE, iV, ILLEGAL
+			}
+			return forward(str, size)
+
+		case *globmeta:
+			switch tok := getGlobToken(e); tok {
+			case QUE: 
+				if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL } 
+				str := getScalarSubstr(ctx, vals[iV], 0, -1) 
+				r, size := utf8.DecodeRuneInString(str)
+				if r == utf8.RuneError && size <= 1 {
+					return false, res, vals[iV:], stems, iE, iV, ILLEGAL
+				}
+				return forward(str, size)
+
+			case SAST, DAST, ASTQ: 
+				suffix, gap := elems[iE+1:], vals[iV:]
+
+				if tok == ASTQ {
+					for k := 0; k <= len(gap); k++ {
+						if k < len(gap) {
+							str := getScalarSubstr(ctx, gap[k], 0, -1)
+							pos := gap[k].Pos()
+							
+							for i := 0; i < len(str); {
+								if m, r, rm, s, _, _, wt := forwardGlobComp(ctx, suffix, concat(_raw(pos, str[i:]), gap[k+1:])); m {
+									stemParts := concat(gap[:k], _raw(pos, str[:i]))
+									return true, concat(res, stemParts, r), rm, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), len(vals), wt
+								}
+
+								_, size := utf8.DecodeRuneInString(str[i:])
+								i += size
+							}
+						} else {
+							if m, r, rm, s, _, _, wt := forwardGlobComp(ctx, suffix, nil); m {
+								return true, concat(res, gap, r), rm, concat(stems, gapseg{true, elems[iE], gap}, s), len(elems), len(vals), wt
+							}
+						}
+					}
+				} else {
+					for k := len(gap); k != -1; k += -1 {
+						if m, r, rm, s, _, _, wt := backwardGlobComp(ctx, suffix, gap[k:]); m { 
+							stemParts := concat(gap[:k], rm)
+							return true, concat(res, stemParts, r), nil, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), len(vals), wt
+						}
+					}
+				}
+
+				if tok == SAST {
+					return false, concat(res, gap), nil, concat(stems, gapseg{true, elems[iE], gap}), iE, len(vals), ILLEGAL
+				} else {
+					return false, res, gap, stems, iE, iV, tok
+				}
+
+			default:
+				return false, res, vals[iV:], stems, iE, iV, ILLEGAL
+			}
+
+		case *percpat:
+			// 1. Dynamically explode the *percpat into [Prefix, DAST, Suffix]
+			var exploded []Value
+			if e.Prefix != nil && !isEmpty(e.Prefix) { exploded = append(exploded, e.Prefix) }
+			exploded = append(exploded, _globmeta(e.Pos(), DAST)) // '%' acts as '**'
+			if e.Suffix != nil && !isEmpty(e.Suffix) { exploded = append(exploded, e.Suffix) }
+
+			newElems := concat(exploded, elems[iE+1:])
+			m, r, rm, s, ie_rec, iv_ret, wt := forwardGlobComp(ctx, newElems, vals[iV:])
+
+			if m {
+				mapped_iE := iE
+				if ie_rec >= len(exploded) {
+					mapped_iE = iE + 1 + (ie_rec - len(exploded))
+				}
+				if rm == nil || isEmpty(rm) {
+					if iv_ret > 0 { r = vals[iV : iV+iv_ret] }
+				} else if iv_ret == 0 {
+					matchedStr := ""
+					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
+					r = []Value{_raw(vals[iV].Pos(), matchedStr)}
+				}
+
+				// CRITICAL FIX: Flatten the stem produced by the DAST explosion!
+				// The stem for a '%' must be a single string, not a nested compound of atoms!
+				if len(s) > 0 {
+					stemStr := ""
+					for _, v := range unpack(s[0]) {
+						stemStr += getScalarSubstr(ctx, v, 0, -1)
+					}
+					s[0] = _raw(vals[iV].Pos(), stemStr)
+				}
+
+				return true, concat(res, r), rm, concat(stems, s), mapped_iE, iV + iv_ret, wt
+			}
+
+			// 2. Fallback: Intra-string match
+			if iV < len(vals) {
+				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
+				pfx := ""
+				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
+				
+				sfx := ""
+				if e.Suffix != nil && !isEmpty(e.Suffix) {
+					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
+						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1) // Handle %%
+					} else {
+						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
+					}
+				}
+
+				if len(pfx) + len(sfx) <= len(valStr) && strings.HasPrefix(valStr, pfx) {
+					// Use LastIndex because Make's '%' is greedy!
+					idx := strings.LastIndex(valStr[len(pfx):], sfx)
+					if idx >= 0 {
+						idx += len(pfx)
+						stemStr := valStr[len(pfx):idx]
+						matchedLen := idx + len(sfx)
+						
+						resAtom := _raw(vals[iV].Pos(), valStr[:matchedLen])
+						stemAtom := _raw(vals[iV].Pos(), stemStr)
+						
+						var nextVals []Value
+						hasRem := matchedLen < len(valStr)
+						if hasRem {
+							nextVals = append(nextVals, _raw(vals[iV].Pos(), valStr[matchedLen:]))
+						}
+						nextVals = concat(nextVals, vals[iV+1:])
+
+						m_in, r_in, rm_in, s_in, ie_rec_in, iv_rec_in, wt_in := forwardGlobComp(ctx, elems[iE+1:], nextVals)
+						if m_in {
+							// Mathematically map the returned index consumption
+							ret_iV := iV + 1
+							if hasRem {
+								if iv_rec_in > 0 { ret_iV += (iv_rec_in - 1) }
+							} else {
+								ret_iV += iv_rec_in
+							}
+							return true, concat(res, resAtom, r_in), rm_in, concat(stems, stemAtom, s_in), iE + 1 + ie_rec_in, ret_iV, wt_in
+						}
+					}
+				}
+			}
+
+			return false, concat(res, r), rm, concat(stems, s), iE, iV + iv_ret, wt			
+
+		default:
+			if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL }
+
+			m, r, rm := matchScalarScalar(ctx, e, vals[iV], false)
+			if !m {
+				if rm != nil && isEmpty(rm) { rm = nil }
+				return false, concat(res, r), concat(rm, vals[iV+1:]), stems, iE, iV, ILLEGAL
+			}
+
+			res = concat(res, r)
+
+			if rm == nil || isEmpty(rm) {
+				iE++
+				iV++
+			} else {
+				m, rr, rrm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
+				return m, concat(res, rr), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
+			}
+		}
+	}
+
+	if iV < len(vals) { rem = vals[iV:] }
+	return true, res, rem, stems, iE, iV, ILLEGAL
+}
+
+func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
+	iE = len(elems) - 1
+	iV = len(vals) - 1
+
+	backward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
+		pos := vals[iV].Pos()
+		val := _raw(pos, str[len(str)-size:]) 
+
+		m, r, rm, s, ie, iv, wt := backwardGlobComp(ctx, elems[:iE],
+			concat(vals[:iV], optraw{size < len(str), pos, str[:len(str)-size]}))
+
+		return m, concat(r, val, res), rm, concat(s, val, stems), ie, iv, wt
+	}
+
+	for 0 <= iE {
+		switch e := unloc(elems[iE]).(type) {
+		case *globrange: 
+			if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL } 
+			str, t := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
+			r, size := utf8.DecodeLastRuneInString(str) 
+			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(t, r) {
+				return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
+			}
+			return backward(str, size)
+
+		case *globmeta:
+			switch tok := getGlobToken(e); tok {
+			case QUE: 
+				if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL } 
+				str := getScalarSubstr(ctx, vals[iV], 0, -1)
+				r, size := utf8.DecodeLastRuneInString(str) 
+				if r == utf8.RuneError && size <= 1 {
+					return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
+				}
+				return backward(str, size)
+
+			case SAST, DAST, ASTQ: 
+				prefix, gap := elems[:iE], vals[:iV+1]
+
+				if tok == ASTQ {
+					for k := len(gap); k >= 0; k-- {
+						if k > 0 {
+							str := getScalarSubstr(ctx, gap[k-1], 0, -1)
+							pos := gap[k-1].Pos()
+							
+							for i := len(str); i > 0; {
+								if m, r, rm, s, _, _, wt := backwardGlobComp(ctx, prefix, concat(gap[:k-1], _raw(pos, str[:i]))); m {
+									stemParts := concat(optraw{i < len(str), pos, str[i:]}, gap[k:])
+									return true, concat(r, stemParts, res), rm, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, 0, wt
+								}
+								
+								_, size := utf8.DecodeLastRuneInString(str[:i])
+								i -= size
+							}
+						} else {
+							if m, r, rm, s, _, _, wt := backwardGlobComp(ctx, prefix, nil); m {
+								return true, concat(r, gap, res), rm, concat(s, gapseg{true, elems[iE], gap}, stems), -1, 0, wt
+							}
+						}
+					}
+				} else {
+					for k := 0; k != len(gap); k += 1 {
+						if m, r, rm, s, _, _, wt := forwardGlobComp(ctx, prefix, gap[:k]); m { 
+							stemParts := concat(rm, gap[k:])
+							return true, concat(r, stemParts, res), nil, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, 0, wt
+						}
+					}
+				}
+
+				if tok == SAST {
+					return false, concat(gap, res), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, 0, ILLEGAL
+				} else {
+					return false, res, gap, stems, iE, iV + 1, tok
+				}
+
+			default:
+				return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
+			}
+
+		case *percpat:
+			// 1. Dynamically explode the *percpat into [Prefix, DAST, Suffix]
+			var exploded []Value
+			if e.Prefix != nil && !isEmpty(e.Prefix) { exploded = append(exploded, e.Prefix) }
+			exploded = append(exploded, _globmeta(e.Pos(), DAST))
+			if e.Suffix != nil && !isEmpty(e.Suffix) { exploded = append(exploded, e.Suffix) }
+
+			newElems := concat(elems[:iE], exploded)
+			m, r, rm, s, ie_rec, iv_ret, wt := backwardGlobComp(ctx, newElems, vals[:iV+1])
+			
+			if m {
+				mapped_iE := iE
+				if ie_rec < len(elems[:iE]) {
+					mapped_iE = ie_rec
+				}
+
+				if rm == nil || isEmpty(rm) {
+					if iv_ret < iV+1 { r = vals[iv_ret : iV+1] }
+				} else if iv_ret == iV+1 {
+					matchedStr := ""
+					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
+					r = []Value{_raw(vals[iV].Pos(), matchedStr)}
+				}
+
+				// CRITICAL FIX: Flatten the stem produced by the DAST explosion!
+				// In backward matching, the current stem is appended at the END of the slice.
+				if len(s) > 0 {
+					idx := len(s) - 1
+					stemStr := ""
+					for _, v := range unpack(s[idx]) {
+						stemStr += getScalarSubstr(ctx, v, 0, -1)
+					}
+					s[idx] = _raw(vals[iV].Pos(), stemStr)
+				}
+
+				return true, concat(r, res), rm, concat(s, stems), mapped_iE, iv_ret, wt
+			}
+
+			// 2. Fallback: Intra-string match (Backward traversal)
+			if iV >= 0 {
+				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
+				pfx := ""
+				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
+				
+				sfx := ""
+				if e.Suffix != nil && !isEmpty(e.Suffix) {
+					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
+						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
+					} else {
+						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
+					}
+				}
+
+				if len(pfx) + len(sfx) <= len(valStr) && strings.HasSuffix(valStr, sfx) {
+					// Use Index to anchor the greedy match as far left as possible
+					idx := strings.Index(valStr[:len(valStr)-len(sfx)], pfx)
+					if idx >= 0 {
+						stemStr := valStr[idx+len(pfx) : len(valStr)-len(sfx)]
+						
+						resAtom := _raw(vals[iV].Pos(), valStr[idx:])
+						stemAtom := _raw(vals[iV].Pos(), stemStr)
+						
+						var nextVals []Value
+						hasRem := idx > 0
+						if hasRem {
+							nextVals = append(nextVals, _raw(vals[iV].Pos(), valStr[:idx]))
+						}
+						nextVals = concat(vals[:iV], nextVals)
+
+						m_in, r_in, rm_in, s_in, ie_rec_in, iv_rec_in, wt_in := backwardGlobComp(ctx, elems[:iE], nextVals)
+						if m_in {
+							return true, concat(r_in, resAtom, res), rm_in, concat(s_in, stemAtom, stems), ie_rec_in, iv_rec_in, wt_in
+						}
+					}
+				}
+			}
+
+			return false, concat(r, res), rm, concat(s, stems), iE, iv_ret, wt	
+			
+		default:
+			if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL }
+
+			m, r, rm := matchScalarScalar(ctx, e, vals[iV], true)
+			if !m {
+				if rm != nil && isEmpty(rm) { rm = nil }
+				return false, concat(r, res), concat(vals[:iV], rm), stems, iE, iV + 1, ILLEGAL
+			}
+
+			res = concat(r, res)
+
+			if rm == nil || isEmpty(rm) {
+				iE--
+				iV--
+			} else {
+				m, rr, rrm, s, ie, iv, wt := backwardGlobComp(ctx, elems[:iE], concat(vals[:iV], rm))
+				return m, concat(rr, res), rrm, concat(s, stems), ie, iv, wt 
+			}
+		}
+	}
+
+	if iV >= 0 { rem = vals[:iV+1] }
+	return true, res, rem, stems, iE, iV + 1, ILLEGAL
+}
+
+func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
+	matched, res, rem, stems, iE, _, wildToken = forwardGlobComp(ctx, elems, unpack(segments[0]))
+
+	if matched && wildToken == ILLEGAL && len(segments) > 1 {
+		tok := getGlobToken(elems[len(elems)-1]) // FIX: Unify retroactive trigger
+		if tok == DAST || tok == ASTQ || tok == PERC {
+			wildToken, iE = tok, len(elems)-1
+			if len(stems) > 0 {
+				rem = concat(unpack(stems[len(stems)-1]), rem)
+				stems = stems[:len(stems)-1]
+			}
+		}
+	}
+
+	// Always calculate the full path remainder, even if matched is false
+	fullRem := concat(
+		packComp(rem),
+		optraw{len(rem) == 0 && len(segments) > 1, segments[0].Pos(), ""},
+		segments[1:],
+	)
+
+	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
+		// CRITICAL FIX: Ensure the element is a PURE wildcard before taking the shortcut!
+		if isPureWildcard(elems[iE]) && len(elems[iE:]) == 1 {
+			return true,
+				segments, 
+				nil,      
+				concat(stems, stemseg{elems[iE], packPath(concat(gapseg{iE > 0, elems[iE], rem}, segments[1:]))}),
+				len(elems), len(segments), ILLEGAL 
+		}
+
+		step, k := 1, 0
+		if wildToken == DAST || wildToken == PERC { step, k = -1, len(segments)-1 }
+
+		for ; k >= 0 && k < len(segments); k += step {
+			if k == 0 && len(rem) > 0 {
+				if mSuf, rSufAtoms, remSuf, sSuf, _, _, _ := forwardGlobComp(ctx, elems[iE:], rem); mSuf {
+					return true,
+						concat(packComp(concat(res, rSufAtoms))),
+						concat(packComp(remSuf), optraw{len(remSuf) == 0 && len(segments) > 1, segments[0].Pos(), ""}, segments[1:]),
+						concat(stems, sSuf), len(elems), 1, ILLEGAL
+				}
+			}
+
+			if mSuf, rSufAtoms, remSuf, sSuf, _, _, _ := forwardGlobComp(ctx, elems[iE:], unpack(segments[k])); mSuf {
+				return true,
+					concat(segments[:k], packComp(rSufAtoms)),
+					concat(
+						packComp(remSuf),
+						optraw{len(remSuf) == 0 && k+1 < len(segments), segments[k].Pos(), ""},
+						segments[k+1:],
+					),
+					concat(stems, stemseg{elems[iE], packPath(concat(
+						gapseg{iE > 0, elems[iE], rem},
+						segments[1:k],
+						gapseg{true, elems[iE], unpack(sSuf[0])},
+					))}, sSuf[1:]), len(elems), k + 1, ILLEGAL
+			}
+		}
+
+		return false,
+			segments, 
+			nil,      
+			concat(stems, stemseg{elems[iE], packPath(concat(gapseg{iE > 0, elems[iE], rem}, segments[1:]))}),
+			iE + 1, len(segments), wildToken 
+	}
+
+	if !matched { return false, concat(packComp(res)), fullRem, stems, iE, 1, ILLEGAL }
+	return true, concat(packComp(res)), fullRem, stems, len(elems), 1, ILLEGAL
+}
+
+func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
+	matched, res, rem, stems, iE, _, wildToken = backwardGlobComp(ctx, elems, unpack(segments[len(segments)-1]))
+
+	if matched && wildToken == ILLEGAL && len(segments) > 1 {
+		tok := getGlobToken(elems[0]) // FIX: Unify retroactive trigger
+		if tok == DAST || tok == ASTQ || tok == PERC {
+			wildToken, iE = tok, 0
+			if len(stems) > 0 {
+				rem = concat(rem, unpack(stems[0]))
+				stems = stems[1:]
+			}
+		}
+	}
+
+	// Always calculate the full path remainder, even if matched is false
+	fullRem := concat(
+		segments[:len(segments)-1],
+		packComp(rem),
+		optraw{len(rem) == 0 && len(segments) > 1, segments[len(segments)-1].Pos(), ""},
+	)
+
+	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
+		// CRITICAL FIX: Ensure the element is a PURE wildcard before taking the shortcut!
+		if isPureWildcard(elems[iE]) && len(elems[:iE+1]) == 1 {
+			return true,
+				segments, 
+				nil,      
+				concat(stemseg{elems[iE], packPath(concat(segments[:len(segments)-1], gapseg{iE+1 < len(elems), elems[iE], rem}))}, stems),
+				-1, len(segments), ILLEGAL 
+		}
+
+		step, k := -1, len(segments)-1
+		if wildToken == ASTQ { step, k = 1, 0 }
+
+		for ; k >= 0 && k < len(segments); k += step {
+			if k == len(segments)-1 && len(rem) > 0 {
+				if mPre, rPreAtoms, remPre, sPre, _, _, _ := backwardGlobComp(ctx, elems[:iE+1], rem); mPre {
+					return true,
+						concat(packComp(concat(rPreAtoms, res))),
+						concat(
+							segments[:len(segments)-1],
+							packComp(remPre),
+							optraw{len(remPre) == 0 && len(segments) > 1, segments[len(segments)-1].Pos(), ""},
+						),
+						concat(sPre, stems), 0, 1, ILLEGAL
+				}
+			}
+
+			if mPre, rPreAtoms, remPre, sPre, _, _, _ := backwardGlobComp(ctx, elems[:iE+1], unpack(segments[k])); mPre {
+				return true,
+					concat(packComp(rPreAtoms), segments[k+1:]),
+					concat(
+						segments[:k],
+						packComp(remPre),
+						optraw{len(remPre) == 0 && k > 0, segments[k].Pos(), ""},
+					),
+					concat(
+						sPre[:len(sPre)-1],
+						stemseg{elems[iE], packPath(concat(
+							gapseg{true, elems[iE], unpack(sPre[len(sPre)-1])}, 
+							segments[k+1:len(segments)-1],
+							gapseg{iE+1 < len(elems), elems[iE], rem},
+						))},
+						stems,
+					), -1, len(segments) - k, ILLEGAL
+			}
+		}
+
+		return false,
+			segments, 
+			nil,      
+			concat(stemseg{elems[iE], packPath(concat(segments[:len(segments)-1], gapseg{iE+1 < len(elems), elems[iE], rem}))}, stems),
+			iE - 1, len(segments), wildToken 
+	}
+
+	if !matched { return false, concat(packComp(res)), fullRem, stems, iE, 1, ILLEGAL }
+	return true, concat(packComp(res)), fullRem, stems, -1, 1, ILLEGAL
+}
+
+func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int) {
+	for iE < len(elems) { 
+		patAtoms := unpack(elems[iE])
+
+		if len(patAtoms) == 1 {
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PTAIL {
+				if iS < len(segments) {
+					var bypass = true
+					if targetAtoms := unpack(segments[iS]); len(targetAtoms) == 1 {
+						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == PTAIL { bypass = false }
+					}
+					if bypass {
+						res = concat(res, packComp(patAtoms))
+						iE++; continue
+					}
+				}
+			}
+		}
+
+		if iS >= len(segments) { return false, res, nil, stems, iE, iS }
+
+		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
+
+		if m && wt == ILLEGAL && iS+1 < len(segments) {
+			tok := getGlobToken(patAtoms[len(patAtoms)-1])
+			if tok == DAST || tok == ASTQ || tok == PERC {
+				wt, ie = tok, len(patAtoms)-1
+				if len(s) > 0 {
+					remAtoms = concat(unpack(s[len(s)-1]), remAtoms)
+					s = s[:len(s)-1]
+				}
+			}
+		}
+
+		partial := len(remAtoms) > 0
+
+		if wt == DAST || wt == ASTQ || wt == PERC {
+			sufAtoms := patAtoms[ie+1:]
+
+			// BEAUTIFUL ABSTRACTION: Cleanly extract and prepend the suffix!
+			if suf := getWildcardSuffix(patAtoms[ie]); suf != nil {
+				sufAtoms = concat([]Value{suf}, sufAtoms)
+			}
+
+			pathElems := elems[iE+1:]
+			gap := segments[iS+1:] 
+
+			preBound := ie > 0
+			postBound := len(sufAtoms) > 0
+
+			isLast := len(sufAtoms) == 0 && (len(pathElems) == 0 || (len(pathElems) == 1 && func() bool {
+				if p, ok := unloc(unpack(pathElems[0])[0]).(*punct); ok && p.token == PTAIL { return true }
+				return false
+			}()))
+
+			if wt == ASTQ && !isLast {
+				for k := 0; k <= len(gap); k++ {
+					var targetAtoms []Value
+					var targetPos Pos
+					if k == 0 {
+						if !partial { continue }
+						targetAtoms = remAtoms
+						targetPos = segments[iS].Pos()
+					} else {
+						targetAtoms = unpack(gap[k-1])
+						targetPos = gap[k-1].Pos()
+					}
+
+					str := getScalarSubstr(ctx, packComp(targetAtoms), 0, -1)
+					for i := 0; i <= len(str); {
+						var mSuf bool
+						var rSuf, remSuf, sSuf []Value
+						
+						if len(sufAtoms) > 0 {
+							var testVals []Value
+							if i < len(str) { testVals = unpack(_raw(targetPos, str[i:])) }
+							mSuf, rSuf, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, testVals)
+						} else {
+							mSuf = true
+							if i < len(str) { remSuf = unpack(_raw(targetPos, str[i:])) }
+						}
+
+						if mSuf {
+							var gapAtoms []Value
+							if i > 0 { gapAtoms = []Value{_raw(targetPos, str[:i])} }
+
+							var nextSegs []Value
+							if k == 0 {
+								nextSegs = concat(packComp(remSuf), optraw{len(remSuf) == 0 && len(gap) > 0, targetPos, ""}, gap)
+							} else {
+								nextSegs = concat(packComp(remSuf), optraw{len(remSuf) == 0 && k < len(gap), targetPos, ""}, gap[k:])
+							}
+
+							if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, nextSegs); mPath {
+								shift := iSPath
+								if shift == 0 { shift = 1 } 
+
+								if k == 0 {
+									return true,
+										concat(res, packComp(concat(resAtoms, gapAtoms, rSuf)), rPath),
+										remPath,
+										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
+										iE + 1 + iEPath, iS + shift
+								} else {
+									return true,
+										concat(res, segments[iS], gap[:k-1], packComp(concat(gapAtoms, rSuf)), rPath),
+										remPath,
+										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(
+											gapseg{preBound, patAtoms[ie], remAtoms},
+											gap[:k-1],
+											gapseg{postBound, patAtoms[ie], gapAtoms},
+										))}, sSuf, sPath),
+										iE + 1 + iEPath, iS + k + shift
+								}
+							}
+						}
+						if i == len(str) { break }
+						_, size := utf8.DecodeRuneInString(str[i:])
+						i += size
+					}
+				}
+			} else {
+				for k := len(gap); k >= 0; k-- {
+					if k == 0 {
+						if !partial { continue }
+						var mSuf bool
+						var remSuf, sSuf []Value
+						
+						if len(sufAtoms) > 0 {
+							mSuf, _, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, remAtoms)
+							if !mSuf || len(remSuf) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, sufAtoms, remAtoms); mB {
+									mSuf, remSuf, sSuf = mB, remB, sB
+								}
+							}
+							if !mSuf { continue }
+						} else {
+							remSuf = remAtoms
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap); mPath {
+							return true,
+								concat(res, segments[iS], rPath),
+								remPath,
+								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], remSuf}))}, sSuf, sPath),
+								iE + 1 + iEPath, iS + 1 + iSPath
+						}
+					} else {
+						var mSuf bool
+						var remSuf, sSuf []Value
+						
+						if len(sufAtoms) > 0 {
+							mSuf, _, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, unpack(gap[k-1]))
+							if !mSuf || len(remSuf) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, sufAtoms, unpack(gap[k-1])); mB {
+									mSuf, remSuf, sSuf = mB, remB, sB
+								}
+							}
+							if !mSuf { continue }
+						} else {
+							remSuf = unpack(gap[k-1])
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap[k:]); mPath {
+							return true,
+								concat(res, segments[iS], gap[:k], rPath),
+								remPath,
+								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(
+									gapseg{preBound, patAtoms[ie], remAtoms},
+									gap[:k-1],
+									gapseg{postBound, patAtoms[ie], remSuf},
+								))}, sSuf, sPath),
+								iE + 1 + iEPath, iS + 1 + k + iSPath
+						}
+					}
+				}
+			}
+
+			return false,
+				concat(res, segments[iS:]),
+				nil,
+				concat(stems, s, stemseg{patAtoms[ie], packPath(concat(
+					gapseg{preBound, patAtoms[ie], remAtoms},
+					gap,
+				))}),
+				iE + 1, len(segments)
+		}
+		
+		res, stems = concat(res, packComp(resAtoms)), concat(stems, s)
+		rem = concat(
+			packComp(remAtoms),
+			optraw{len(remAtoms) == 0 && iS+1 < len(segments), segments[iS].Pos(), ""},
+			segments[iS+1:],
+		)
+
+		if !m { return false, res, rem, stems, iE, iS + 1 }
+
+		if partial {
+			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + 1 }
+			return true, res, rem, stems, iE + 1, iS + 1
+		}
+
+		iE++
+		iS++
+	}
+
+	if iS < len(segments) && iS > 0 {
+		consumedSlash := false
+		if len(elems) > 0 {
+			if lastPat := unpack(elems[len(elems)-1]); len(lastPat) == 1 {
+				if p, ok := unloc(lastPat[0]).(*punct); ok && p.token == PTAIL { consumedSlash = true }
+			}
+		}
+		if !consumedSlash {
+			rem = concat(&valbase{segments[iS].Pos()}, segments[iS:])
+		} else {
+			rem = segments[iS:]
+		}
+	} else {
+		rem = segments[iS:]
+	}
+	return true, res, rem, stems, iE, iS
+}
+
+func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int) {
+	iE, iS = len(elems) - 1, len(segments) - 1
+
+	for iE >= 0 { 
+		patAtoms := unpack(elems[iE])
+
+		if len(patAtoms) == 1 {
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PROOT {
+				if 0 <= iS {
+					var bypass = true
+					if targetAtoms := unpack(segments[iS]); len(targetAtoms) == 1 {
+						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == PROOT { bypass = false }
+					}
+					if bypass {
+						res = concat(packComp(patAtoms), res) 
+						iE--; continue
+					}
+				}
+			}
+		}
+
+		if iS < 0 { return false, res, nil, stems, iE + 1, iS + 1 }
+
+		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
+		if !m || len(remAtoms) > 0 {
+			if mB, resB, remB, sB, ieB, _, wtB := backwardGlobComp(ctx, patAtoms, unpack(segments[iS])); mB {
+				m, resAtoms, remAtoms, s, ie, wt = mB, resB, remB, sB, ieB, wtB
+			}
+		}
+
+		if m && wt == ILLEGAL && iS > 0 {
+			tok := getGlobToken(patAtoms[0])
+			if tok == DAST || tok == ASTQ || tok == PERC {
+				wt, ie = tok, 0
+				if len(s) > 0 {
+					remAtoms = concat(remAtoms, unpack(s[0]))
+					s = s[1:]
+				}
+			}
+		}
+
+		partial := len(remAtoms) > 0
+
+		if wt == DAST || wt == ASTQ || wt == PERC {
+			preAtoms := patAtoms[:ie]
+
+			// BEAUTIFUL ABSTRACTION: Cleanly extract and append the prefix!
+			if pfx := getWildcardPrefix(patAtoms[ie]); pfx != nil {
+				preAtoms = concat(preAtoms, []Value{pfx})
+			}
+
+			pathElems := elems[:iE]
+			gap := segments[:iS] 
+
+			preBound := len(preAtoms) > 0
+			postBound := ie+1 < len(patAtoms)
+
+			isFirst := len(preAtoms) == 0 && (len(pathElems) == 0 || (len(pathElems) == 1 && func() bool {
+				if p, ok := unloc(unpack(pathElems[0])[0]).(*punct); ok && p.token == PROOT { return true }
+				return false
+			}()))
+
+			if wt == ASTQ && !isFirst {
+				for k := len(gap); k >= 0; k-- {
+					var targetAtoms []Value
+					var targetPos Pos
+					if k == len(gap) {
+						if !partial { continue }
+						targetAtoms = remAtoms
+						targetPos = segments[iS].Pos()
+					} else {
+						targetAtoms = unpack(gap[k])
+						targetPos = gap[k].Pos()
+					}
+
+					str := getScalarSubstr(ctx, packComp(targetAtoms), 0, -1)
+					for i := len(str); i >= 0; {
+						var mPre bool
+						var rPre, remPre, sPre []Value
+						
+						if len(preAtoms) > 0 {
+							var testVals []Value
+							if i > 0 { testVals = unpack(_raw(targetPos, str[:i])) }
+							mPre, rPre, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, testVals)
+							if !mPre || len(remPre) > 0 {
+								if mB, rB, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, testVals); mB {
+									mPre, rPre, remPre, sPre = mB, rB, remB, sB
+								}
+							}
+						} else {
+							mPre = true
+							if i > 0 { remPre = unpack(_raw(targetPos, str[:i])) }
+						}
+
+						if mPre {
+							var gapAtoms []Value
+							if i < len(str) { gapAtoms = []Value{_raw(targetPos, str[i:])} }
+
+							var nextSegs []Value
+							if k == len(gap) {
+								nextSegs = concat(gap, packComp(remPre), optraw{len(remPre) == 0 && len(gap) > 0, targetPos, ""})
+							} else {
+								nextSegs = concat(gap[:k], packComp(remPre), optraw{len(remPre) == 0 && k > 0, targetPos, ""})
+							}
+
+							if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, nextSegs); mPath {
+								shift := iSPath
+								if shift == len(nextSegs) { shift-- } 
+
+								if k == len(gap) {
+									return true,
+										concat(rPath, packComp(concat(rPre, gapAtoms, resAtoms)), res),
+										remPath,
+										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{preBound, patAtoms[ie], gapAtoms}))}, s, stems),
+										iEPath, shift
+								} else {
+									return true,
+										concat(rPath, packComp(concat(rPre, gapAtoms)), gap[k+1:], segments[iS], res),
+										remPath,
+										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(
+											gapseg{preBound, patAtoms[ie], gapAtoms},
+											gap[k+1:],
+											gapseg{postBound, patAtoms[ie], remAtoms},
+										))}, s, stems),
+										iEPath, shift
+								}
+							}
+						}
+						if i == 0 { break }
+						_, size := utf8.DecodeLastRuneInString(str[:i])
+						i -= size
+					}
+				}
+			} else {
+				for k := 0; k <= len(gap); k++ {
+					if k == len(gap) {
+						if !partial { continue }
+						var mPre bool
+						var remPre, sPre []Value
+
+						if len(preAtoms) > 0 {
+							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, remAtoms)
+							if !mPre || len(remPre) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, remAtoms); mB {
+									mPre, remPre, sPre = mB, remB, sB
+								}
+							}
+							if !mPre { continue }
+						} else {
+							mPre = true
+							remPre = remAtoms
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap); mPath {
+							return true,
+								concat(rPath, segments[iS], res),
+								remPath,
+								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{preBound, patAtoms[ie], remPre}))}, s, stems),
+								iEPath, iSPath
+						}
+					} else {
+						var mPre bool
+						var remPre, sPre []Value
+						
+						if len(preAtoms) > 0 {
+							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, unpack(gap[k]))
+							if !mPre || len(remPre) > 0 {
+								if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, unpack(gap[k])); mB {
+									mPre, remPre, sPre = mB, remB, sB
+								}
+							}
+							if !mPre { continue }
+						} else {
+							mPre = true
+							remPre = unpack(gap[k])
+						}
+
+						if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap[:k]); mPath {
+							return true,
+								concat(rPath, gap[k:], segments[iS], res),
+								remPath,
+								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(
+									gapseg{preBound, patAtoms[ie], remPre},
+									gap[k+1:],
+									gapseg{postBound, patAtoms[ie], remAtoms},
+								))}, s, stems),
+								iEPath, iSPath
+						}
+					}
+				}
+			}
+
+			return false,
+				concat(segments[:iS+1], res),
+				nil,
+				concat(stemseg{patAtoms[ie], packPath(concat(
+					gap,
+					gapseg{postBound, patAtoms[ie], remAtoms},
+				))}, s, stems),
+				iE + 1, 0 
+		}
+		
+		res, stems = concat(packComp(resAtoms), res), concat(s, stems)
+		rem = concat(
+			segments[:iS],
+			packComp(remAtoms),
+			optraw{len(remAtoms) == 0 && iS > 0, segments[iS].Pos(), ""},
+		)
+
+		if !m { return false, res, rem, stems, iE + 1, iS }
+
+		if partial {
+			if iE > 0 { return false, res, rem, stems, iE + 1, iS }
+			return true, res, rem, stems, iE, iS
+		}
+
+		iE--
+		iS--
+	}
+
+	if iS >= 0 && iS < len(segments)-1 {
+		consumedSlash := false
+		if len(elems) > 0 {
+			if firstPat := unpack(elems[0]); len(firstPat) == 1 {
+				if p, ok := unloc(firstPat[0]).(*punct); ok && p.token == PROOT { consumedSlash = true }
+			}
+		}
+		if !consumedSlash {
+			rem = concat(segments[:iS+1], &valbase{segments[iS+1].Pos()})
+		} else {
+			rem = segments[:iS+1]
+		}
+	} else {
+		rem = segments[:iS+1]
+	}
+	return true, res, rem, stems, iE + 1, iS + 1 
+}
+
+// matchScalarScalar matches a scalar value against a scalar value.
+// Returns matched=true if the pattern successfully matched (fully or partially).
+// res is the portion of the value that matched.
+// rem is the leftover unconsumed portion of the value.
+func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, res, rem Value) {
+	pStr := getScalarSubstr(ctx, pat, 0, -1)
+	vStr := getScalarSubstr(ctx, val, 0, -1)
+	
+	// 1. Exact Match (Cleanly handles identical strings and structural boundaries)
+	if pStr == vStr {
+		return true, val, nil
+	}
+	
+	// 2. 0-Byte Prefix Consumption
+	if pStr == "" {
+		if isEmpty(pat) { return true, pat, val }
+		return false, nil, val
+	}
+
+	// 3. Atomic Token Protection
+	// If 'val' is an atomic structural token (like *punct or *globmeta),
+	// it CANNOT be partially sliced. Since pStr != vStr and pStr != "", it fails.
+	switch unloc(val).(type) {
+	case *punct, *globmeta:
+		return false, nil, val
+	}
+	
+	// 4. Partial String Match
+	if trail {
+		if strings.HasSuffix(vStr, pStr) {
+			res = _raw(val.Pos(), pStr)
+			rem = _raw(val.Pos(), vStr[:len(vStr)-len(pStr)])
+			return true, res, rem
+		}
+	} else {
+		if strings.HasPrefix(vStr, pStr) {
+			res = _raw(val.Pos(), pStr)
+			rem = _raw(val.Pos(), vStr[len(pStr):])
+			return true, res, rem
+		}
+	}
+	return false, nil, val
+}
+
+// matchCompComp matches a segment (elems) against another segment (vals) (non-path).
+// It iterates strictly (no wildcards), consuming vals segment by segment.
+// Returns matched=true if ALL pattern elements were successfully matched and consumed.
+// Returns rem as the remainder of the last partially consumed value segment.
+func matchCompComp(ctx Context, elems, vals []Value, trail bool) (matched bool, res, rem []Value, iE, iV int) {
+	if checkpoints { defer check_matchCompComp(ctx, elems, vals, trail)(&matched, &res, &rem, &iE, &iV) }
+	if trail { return backwardCompComp(ctx, elems, vals) } else { return forwardCompComp(ctx, elems, vals) }
+}
+
+// matchGlobComp matches glob elements (elems) against value atoms (vals).
+func matchGlobComp(ctx Context, elems, vals []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
+	if checkpoints { defer check_matchGlobComp(ctx, elems, vals, trail)(&matched, &res, &rem, &stems, &iE, &iV, &wildToken) }
+	if trail { return backwardGlobComp(ctx, elems, vals) } else { return forwardGlobComp(ctx, elems, vals) }
+}
+
+// matchGlobPath matches glob elements (elems) against path segments (segments).
+func matchGlobPath(ctx Context, elems, segs []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
+	if checkpoints { defer check_matchGlobPath(ctx, elems, segs, trail)(&matched, &res, &rem, &stems, &iE, &iS, &wildToken) }
+	if trail { return backwardGlobPath(ctx, elems, segs) } else { return forwardGlobPath(ctx, elems, segs) }
+}
+
+// matchPathPath match path segments (elems) against path segments.
+func matchPathPath(ctx Context, elems, segments []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iS int) {
+	if checkpoints { defer check_matchPathPath(ctx, elems, segments, trail)(&matched, &res, &rem, &stems, &iE, &iS) }
+	if trail { return backwardPathPath(ctx, elems, segments) } else { return forwardPathPath(ctx, elems, segments) }
+}
+
+// match matches pattern `pat` against value `val`.
+// Returns matched=true if the pattern was completely satisfied, even if the target value has a remainder.
+// The unconsumed portion of the value is returned as `rem`.
+func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
+	switch p := pat.(type) {
+	case *loc: return match(ctx, p.Value, val)
+	case *xloc: return match(ctx, p.Value, val)
+	case *globbrace: return match(ctx, &p.globpat, val)
+	case *globmeta, *globrange, *percpat: return match(ctx, _globpat(pat), val)
+	case *delegate, *closure: return false, nil, nil, nil
+	case *file: 
+		switch segs := splitPathStr(ctx, p.name); len(segs) {
+		case 0: rem = val ; goto Normalize
+		case 1: return match(ctx, segs[0], val)
+		default: return match(ctx, packPath(segs), val)
+		}
+	case flag:
+		if v, ok := val.(flag); ok { return match(ctx, p.Value, v.Value) }
+	}
+	switch v := val.(type) {
+	case *loc: return match(ctx, pat, v.Value)
+	case *xloc: return match(ctx, pat, v.Value)
+	case *globbrace: return match(ctx, pat, &v.globpat)
+	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
+	case *delegate, *closure: return false, nil, nil, nil
+	case *file: 
+		switch segs := splitPathStr(ctx, v.name); len(segs) {
+		case 0: rem = val ; goto Normalize
+		case 1: return match(ctx, pat, segs[0])
+		default: return match(ctx, pat, packPath(segs))
+		}
+	}
+
+	if checkpoints { defer check_match(ctx, pat, val)(&matched, &res, &rem, &stems) }
+
+	{ trail := truly(ctx, propReversal); switch p := pat.(type) {
+	case *globpat:
+		switch v := val.(type) {
+		case *path:
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobPath(ctx, p.elems, v.elems, trail)
+			res, rem = packPath(r), packPath(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *qualword: // CRITICAL FIX: Unpack qualwords!
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, unpack(v), trail)
+			res, rem = packComp(r), packComp(rm)
+		default:
+			var r, rm []Value
+			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, []Value{v}, trail)
+			res, rem = packComp(r), packComp(rm)
+		}
+
+	case *compound:
+		switch v := val.(type) {
+		case *path:
+			if trail {
+				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
+				rem = packPath(concat(v.elems[:len(v.elems)-1], optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), ""}, rem))
+			} else {
+				matched, res, rem, stems = match(ctx, pat, v.elems[0])
+				rem = packPath(concat(rem, optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), ""}, v.elems[1:]))
+			}
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *qualword: // CRITICAL FIX: Unpack qualwords!
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, unpack(v), trail)
+			res, rem = packComp(r), packComp(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		default:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, []Value{v}, trail)
+			res, rem = packComp(r), packComp(rm)
+		}
+
+	case *qualword:
+		pElems := unpack(p) // Unpack the pattern into structural elements
+		switch v := val.(type) {
+		case *path:
+			if trail {
+				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
+				rem = packPath(concat(v.elems[:len(v.elems)-1], optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), ""}, rem))
+			} else {
+				matched, res, rem, stems = match(ctx, pat, v.elems[0])
+				rem = packPath(concat(rem, optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), ""}, v.elems[1:]))
+			}
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, pElems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *qualword:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, pElems, unpack(v), trail)
+			res, rem = packComp(r), packComp(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, pElems, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		default:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, pElems, []Value{v}, trail)
+			res, rem = packComp(r), packComp(rm)
+		}
+
+	case *path:
+		switch v := val.(type) {
+		case *path:
+			var r, rm []Value
+			matched, r, rm, stems, _, _ = matchPathPath(ctx, p.elems, v.elems, trail)
+			res, rem = packPath(r), packPath(rm)
+		default:
+			matched, res, rem, stems = match(ctx, p.elems[0], v)
+			matched = matched && len(p.elems) <= 1
+		}
+
+	case *regexpat:
+		if p.Regexp == nil { debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}, trace{}) }
+		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
+			res = _raw(val.Pos(), sm[0])
+			for _, s := range sm[1:] { stems = append(stems, _raw(val.Pos(), s)) }
+			matched = true
+		} else {
+			rem = val
+		}
+		goto Normalize
+
+	case *list:
+		if t, ok := val.(*list); ok {
+			for _, _p := range p.elems {
+				for _, _v := range t.elems {
+					if matched, res, rem, stems = match(ctx, _p, _v); matched { goto Normalize }
+				}
+			}
+		} else {
+			for _, _p := range p.elems {
+				if matched, res, rem, stems = match(ctx, _p, val); matched { goto Normalize }
+			}
+		}
+		goto Normalize
+
+	default: 
+		switch v := val.(type) {
+		case *path:
+			if trail {
+				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
+				rem = packPath(concat(v.elems[:len(v.elems)-1], optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), ""}, rem))
+			} else {
+				matched, res, rem, stems = match(ctx, pat, v.elems[0])
+				rem = packPath(concat(rem, optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), ""}, v.elems[1:]))
+			}
+		case *compound:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, []Value{pat}, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		case *globpat:
+			var r, rm []Value
+			matched, r, rm, _, _ = matchCompComp(ctx, []Value{pat}, v.elems, trail)
+			res, rem = packComp(r), packComp(rm)
+		default:
+			matched, res, rem = matchScalarScalar(ctx, pat, val, trail)
+		}
+	}}
+
+Normalize:
+	if !matched && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
+		if matched, _, _, _ = match(swapped_ctx{ctx}, val, pat); matched { res, rem, stems = val, nil, nil }
+	}
+
+	// Universal unwrapper: safely destroys degenerate wrappers and empty AST ghosts
+	res, rem = correctMatchRes(res), correctMatchRes(rem)
+
+	// Universal fallback: if the matcher completely failed and dropped the remainder,
+	// securely restore the unconsumed original value
+	if !matched && res == nil && rem == nil { rem = val }
+	return
+}
+
+func correctMatchRes(v Value) Value {
+	for v != nil {
+		if isEmpty(v) { return nil }
+		switch t := v.(type) {
+		case *compound: if len(t.elems) == 1 { v = t.elems[0]; continue }
+		case *path:     if len(t.elems) == 1 { v = t.elems[0]; continue }
+		}
+		break
+	}
+	return v
+}
+
+func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
+	switch p := pat.(type) {
+	case *loc: 
+		return stencil(ctx, p.Value, stems)
+	case *xloc: 
+		return stencil(ctx, p.Value, stems)
+	case *rule: 
+		return stencil(ctx, p.target, stems)
+	case flag:
+		var name Value
+		name, rest = stencil(ctx, p.Value, stems)
+		return flag{name}, rest
+	case *compound:
+		v := new(compound)
+		rest = stems
+		for _, elem := range p.elems {
+			var t Value
+			t, rest = stencil(ctx, elem, rest)
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *qualword:
+		v := new(qualword)
+		rest = stems
+		for _, elem := range p.elems {
+			var t Value
+			t, rest = stencil(ctx, elem, rest)
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *path:
+		v := new(path)
+		rest = stems
+		// REFINED: Iterate natively. Do not call xmerge here! Stenciling 
+		// is a structural mapping, not a runtime evaluation.
+		for _, elem := range p.elems {
+			var t Value
+			if t, rest = stencil(ctx, elem, rest); isTrivial(t) { t = elem }
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *list:
+		v := new(list)
+		rest = stems
+		for _, elem := range p.elems {
+			var t Value
+			t, rest = stencil(ctx, elem, rest)
+			v.elems = append(v.elems, t)
+		}
+		return v, rest
+	case *pair:
+		v := new(pair)
+		v.key, rest = stencil(ctx, p.key, stems)
+		v.val, rest = stencil(ctx, p.val, rest)
+		return v, rest
+	case *percpat:
+		var vals []Value
+		
+		// 1. Prefix
+		if !isTrivial(p.Prefix) {
+			if patterned(ctx, p.Prefix) {
+				debug(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix, trace{})
+			} else {
+				vals = append(vals, p.Prefix)
+			}
+		}
+
+		// 2. Stem Substitution (The '%')
+		rest = stems
+		if len(stems) > 0 {
+			if s := stems[0]; !isEmpty(s) { vals = append(vals, s) }
+			rest = stems[1:]
+		}
+
+		// 3. Suffix
+		if !isTrivial(p.Suffix) {
+			// REFINED: Cleaned up the nested *percpat checks and gotos
+			var suffix = p.Suffix
+			if pp, ok := p.Suffix.(*percpat); ok && isTrivial(pp.Prefix) && !isTrivial(pp.Suffix) {
+				suffix = pp.Suffix
+			}
+			
+			if suf, r := stencil(ctx, suffix, rest); !isNull(suf) && suf != suffix {
+				vals = append(vals, suf)
+				rest = r
+			} else {
+				vals = append(vals, suffix)
+			}
+		}
+
+		// 4. Flatten the Result
+		if len(vals) == 1 {
+			return vals[0], rest
+		}
+		return &compound{elements{vals}}, rest
+
+	case *barefile:
+		var name Value
+		if p.file != nil {
+			res, rest = stencil(ctx, p.file, stems)
+		} else if name, rest = stencil(ctx, p.Value, stems); name != p.Value {
+			res = &barefile{name, p.file}
+		} else {
+			res = p
+		}
+		return res, rest
+		
+	default:
+		return pat, stems
+	}
+}
+
+func patterned(ctx Context, v any) (res bool) {
+    switch t := v.(type) {
+    case []Value: for _, t := range t { if patterned(ctx, t) { return true } }
+    case *regexpat, *percpat, *globpat, *globrange, *globmeta: return true
+    case *loc: return patterned(ctx, t.Value)
+    case *xloc: return patterned(ctx, t.Value)
+    case flag: return patterned(ctx, t.Value)
+    case *barefile: return patterned(ctx, t.Value)
+    case *strval: return patterned(ctx, t.v)
+    case *strcomp: return patterned(ctx, t.elems)
+    case *compound: return patterned(ctx, t.elems)
+    case *list: return patterned(ctx, t.elems)
+    case *group: return patterned(ctx, t.elems)
+    case *pair: return patterned(ctx, t.key) || patterned(ctx, t.val)
+    case *arrow: return patterned(ctx, t.o) || patterned(ctx, t.s)
+    case *closure: return patterned(ctx, t.x) || patterned(ctx, t.o) || patterned(ctx, t.a)
+    case *delegate: return patterned(ctx, t.x) || patterned(ctx, t.o) || patterned(ctx, t.a)
+    case *path: return patterned(ctx, t.elems)
+    case *rule: return patterned(ctx, t.target)
+    case *recipe: return patterned(ctx, t.elems)
+    case *disjunction: return patterned(ctx, t.val)
+    case *argumented: return patterned(ctx, t.Value) || patterned(ctx, t.args)
+    case *quote: return patterned(ctx, t.elems)
+    case conjunction: return patterned(ctx, t.list.elems) || patterned(ctx, t.sep)
+    case fullname: return patterned(ctx, t.Value)
+    case negative: return patterned(ctx, t.Value)
+    case *plain: return patterned(ctx, t.elems)
+    case *plainline: return patterned(ctx, t.elems)
+    case *returner: return patterned(ctx, t.vals)
+    case *undetermined: return patterned(ctx, t.identifier) || patterned(ctx, t.value)
+    case *url: return patterned(ctx, t.Scheme) || patterned(ctx, t.Username) || patterned(ctx, t.Password) ||
+        patterned(ctx, t.Host) || patterned(ctx, t.Port) || patterned(ctx, t.Path) ||
+        patterned(ctx, t.Query) || patterned(ctx, t.Fragment)
+    }
+    return false
+}
+
+func stamp(ctx Context, a any) (res []*file) {
+    switch t := a.(type) {
+    case *loc: return stamp(ctx, t.Value)
+    case *xloc: return stamp(ctx, t.Value)
+    case flag: return stamp(ctx, t.Value)
+    case *barefile: return stamp(ctx, t.Value)
+    case *strval: return stamp(ctx, t.v)
+    case *strcomp: return stamp(ctx, t.elems)
+    case *compound: return stamp(ctx, t.elems)
+    case *list: return stamp(ctx, t.elems)
+    case *group: return stamp(ctx, t.elems)
+    case *path: return stamp(ctx, t.elems)
+    case *rule: return stamp(ctx, t.target)
+    case *recipe: return stamp(ctx, t.elems)
+    case *globpat: return stamp(ctx, t.elems)
+    case *globrange: return stamp(ctx, t.Value)
+    case *argumented: return stamp(ctx, t.Value)
+    case *disjunction: return stamp(ctx, t.val)
+    case *quote: return stamp(ctx, t.elems)
+    case fullname: return stamp(ctx, t.Value)
+    case negative: return stamp(ctx, t.Value)
+    case *plain: return stamp(ctx, t.elems)
+    case *plainline: return stamp(ctx, t.elems)
+    case *returner: return stamp(ctx, t.vals)
+    default:
+        debug(pc(ctx,a), "%v", ts(a), trace{})
+        return
+    }
+}
+
+func stat(ctx Context, a any) (res []*statinfo) {
+    switch t := a.(type) {
+    case *loc: return stat(ctx, t.Value)
+    case *xloc: return stat(ctx, t.Value)
+    case flag: return stat(ctx, t.Value)
+    case *barefile: return stat(ctx, t.Value)
+    case *strval: return stat(ctx, t.v)
+    case *strcomp: return stat(ctx, t.elems)
+    case *compound: return stat(ctx, t.elems)
+    case *list: return stat(ctx, t.elems)
+    case *group: return stat(ctx, t.elems)
+    case *path: return stat(ctx, t.elems)
+    case *rule: return stat(ctx, t.target)
+    case *recipe: return stat(ctx, t.elems)
+    case *argumented: return stat(ctx, t.Value)
+    case *disjunction: return stat(ctx, t.val)
+    case *quote: return stat(ctx, t.elems)
+    case fullname: return stat(ctx, t.Value)
+    case negative: return stat(ctx, t.Value)
+    default:
+        debug(pc(ctx,a), "%v", ts(a), trace{})
+        return
+    }
+}
+
+func traverse(ctx Context, val Value) {
+    switch p := val.(type) {
+    case *loc: traverse(ctx, p.Value)
+    case *xloc: traverse(ctx, p.Value)
+    case *list: for _, e := range p.elems { traverse(ctx, e) }
+    case *argumented: traverse(p.ctx(ctx), p.Value)
+    case *auto: if v := auto_get(ctx, p.name); v != nil { traverse(ctx, v) }
+    case *def: if v := p.value; v != nil { traverse(ctx, v) }
+    case negative: if v := p.Value; v != nil { traverse(ctx, v) }
+	case matched_rule: traverse(ctx, p.rule)
+    case *project:
+        if t := p.main; t != nil {
+            switch t.destiny().(type) { case flag: return }
+            traverse(ctx, t)
+        }
+    case *stemmed_rule:
+        // NOTE: Make a clone of the underlying rule for traversing the real target;
+        //       the underlying rule target is readonly, it must not be changed, for
+        //       next traversal be done correctly.
+        var t = *p.rule // TODO: consider not copying the rule, use pointer instead
+        t.target = p.target
+        traverse(&stemmed_ctx{ctx, p}, &t)
+    case *rule:
+        var target = auto_get(ctx, "@")
+
+        if target == nil {
+            debug(ctx, "$@ is not defined", trace{})
+        }
+
+        if _entry(ctx) == p {
+            var proj = _project(ctx)
+
+            if c := cast[*term](ctx); c != nil {
+                if t := auto_get(c, "@"); t != nil && eq(ctx, t, target) {
+                    if true { warn(ctx, "%v: %v: %v\n", proj, p, t) }
+                    // FIXES: skip traversal as it's closure, for example:
+                    //
+                    //   %.h($(headers)): $(srcinc)/%.h update-file
+                    //
+                    // where the 'update-file' is like:
+                    //
+                    //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+                    //       [(read-file $>) (update-file -p)]
+                    //
+                    // see also program.execute for the same skip.
+                    return
+                }
+            }
+
+            prompt(ctx, "%v: %v: %v\n", proj, p, target)
+            debug(ctx, "%v: %v: %v", proj, p, target)
+        } else {
+            ctx = &rule_ctx{ctx, p, nil}
+        }
+
+    progloop:
+        for _, prog := range p.program {
+            switch func () (u uint) {
+                defer func() {
+                    if e := recover(); e != nil {
+                        switch t := e.(type) {
+                        case traverse_state: u = t.uint
+                        case test_fail: t.i += 1; panic(t)
+                        default: panic(e)
+                        }
+                    }
+                } ()
+                if v := prog.execute(ctx); v != nil { do(ctx, exe_res{v}) }
+                return
+            } () {
+            case traverse_done: break progloop
+            case traverse_next: continue progloop
+            }
+        }
+    case *arrow:
+        if val := expand(ctx,p); !isTrivial(val) {
+            updated(ctx, val) // NOTE: ensure that updated flag is correct (see rule.updated)
+            traverse(ctx, val)
+        } else {
+            debug(ctx, "selected trivial value '%v' (%v, %v) ", p, ts(p.o), ts(p.s))
+        }
+    case *barefile:
+        if p.file != nil { traverse(ctx, p.file) } else
+        if p.Value != nil { traverse(ctx, p.Value) }
+    case *file:
+        if p._traved == 0 && !p.isSysFile() {
+            do(ctx, act_traverse{p})
+        } else if x := _execution(ctx); x != nil {
+            x.traved(ctx, auto_target_value(ctx), p, nil, p)
+        }
+    case *modifier:
+        if name := __string(ctx, p.elems[0]); name == "" {
+            debug(ctx, "empty name: %v", p.elems[0], trace{})
+        } else if truly(ctx, interpret{name, p.elems[1:]}) {
+            modify(ctx, &p.group, true)
+        }
+    case *modification:
+        if e := _execution(ctx); e != nil { e.Wait() }
+        for _, m := range p.list { traverse(ctx, m) }
+    case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
+        do(ctx, act_traverse{p})
+    default:
+        debug(pc(ctx,p), "unsupported traversal: %v", ts(val), trace{})
+    }
+}
+
+func unique(ctx Context, values ...Value) []Value {
+	if len(values) == 0 {
+		return nil
+	}
+
+	// 1. Pre-allocate slice capacity to completely eliminate memory copying during append
+	elems := make([]Value, 0, len(values))
+	
+	// 2. Use []Value to safely chain hash collisions
+	seen := make(map[uint64][]Value, len(values))
+
+	for _, v := range values {
+		n := hash(ctx, v)
+
+		// Check if we've seen this hash
+		if existing, found := seen[n]; found {
+			// Slow path: Hash collision or duplicate. Verify structural equality!
+			isDuplicate := false
+			for _, ev := range existing {
+				if equal(ctx, v, ev) {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+		}
+
+		// Fast path: First time seeing this value (or a legitimate hash collision)
+		seen[n] = append(seen[n], v)
+		elems = append(elems, v)
+	}
+
+	return elems
+}
+
+func reverse_unique(ctx Context, values ...Value) []Value {
+	if len(values) == 0 {
+		return nil
+	}
+
+	elems := make([]Value, 0, len(values))
+	seen := make(map[uint64][]Value, len(values))
+
+	for j := len(values) - 1; 0 <= j; j-- {
+		v := values[j]
+		n := hash(ctx, v)
+
+		if existing, found := seen[n]; found {
+			isDuplicate := false
+			for _, ev := range existing {
+				if equal(ctx, v, ev) {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+		}
+
+		seen[n] = append(seen[n], v)
+		elems = append(elems, v)
+	}
+
+	return elems
+}
+
+func splitPathStr(ctx Context, str string) (segments []Value) {
+    var pos = _pos(ctx)
+    var a = strings.Split(str, pathSep)
+    for i, s := range a {
+        // TODO: calculate position for each segment
+        var v Value
+        if i == 0 {
+            switch s {
+            case ""  : v = makePunct(pos, PROOT)
+            case "~" : v = makePunct(pos, TILDE)
+            case "." : v = makePunct(pos, DOT)
+            case "..": v = makePunct(pos, DOTDOT)
+				default  : v = _raw(pos, s)
+            }
+        } else if s == "" {
+            if i+1 == len(a) {
+                v = makePunct(pos, PTAIL)
+            } else if false {
+                v = makePunct(pos, PCON)
+            } else {
+                debug(ctx, "%s: %v[%d]: empty path seg", str, a, i)
+                continue
+            }
+        } else {
+            v = _raw(pos, s)
+        }
+        segments = append(segments, v)
+    }
+    return
+}
+
+func ease(ctx Context, a any) (res Value) {
+    if a == nil { return }
+
+    var elems []Value
+
+    switch t := a.(type) {
+    case    Value: elems = append(elems, merge(t   )...)
+    case  []Value: elems = append(elems, merge(t...)...)
+    case    bare : elems = append(elems, _word(   _pos(ctx),  string(t)))
+    case    bool : elems = append(elems, _boolean(_pos(ctx),         t ))
+    case    int  : elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case    int16: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case    int32: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case    int64: elems = append(elems, _decimal(_pos(ctx),         t ))
+    case   uint  : elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case   uint16: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case   uint32: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case   uint64: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
+    case  float32: elems = append(elems, _float(  _pos(ctx), float64(t)))
+    case  float64: elems = append(elems, _float(  _pos(ctx),         t ))
+    case   string: elems = append(elems, _strlit( _pos(ctx),         t ))
+    case []string: for _, s := range t { elems = append(elems, _strlit(_pos(ctx),        s )) }
+    case   []bare: for _, s := range t { elems = append(elems, _word(  _pos(ctx), string(s))) }
+	case  []*file: for _, f := range t { elems = append(elems, f) }
+    default: debug(ctx, "unsupported value: %v", ts(t), trace{})
+    }
+
+    switch len(elems) {
+    case 0: return _null(_pos(ctx))
+    case 1: return elems[0]
+    default: return &list{elements{elems}}
+    }
+}
+
+func scalarize(v Value) (res Value) { // NOTE: unexpanded is not scalar
+    switch t := v.(type) {
+    case *list:
+        var n = len(t.elems)
+        if n == 0 { return _null(t.Pos()) }
+        if n == 1 { return scalarize(t.elems[0]) }
+    }
+    return v
+}
+
+func uval(v Value) Value {
+    switch t := v.(type) {
+    case *list: if len(t.elems) == 1 { v = uval(t.elems[0]) }
+    }
+    return v
+}
+
+func ulist(v Value) (l *list) {
+    switch t := v.(type) {
+    case *list: l = t
+    }
+    return
+}
+
+// loc-prefix
+func lp(ctx Context, ap any, t string, a ...any) (s string) {
+	var p Position
+	var rawPos Pos // Keep track of the raw integer for fallback
+
+	// 1. Dynamically resolve the incoming position type!
+	switch x := ap.(type) {
+	case Position: p = x
+	case Pos:
+		if rawPos = x; x.IsValid() && ctx != nil {
+			p, _ = do(ctx, get_fatpos{x}).(Position)
+		}
+	case positioner:
+		if t := x.Pos(); t.IsValid() { if rawPos = t; ctx != nil {
+			p, _ = do(ctx, get_fatpos{t}).(Position)
+		}}
+	}
+
+	// 2. Format the output
+	if ctx != nil {
+		if f, f2 := p.Filename, _position(ctx).Filename; f != "" && f != f2 { s = f + ":" }
+	}
+
+	// 3. Smart Positional Printing (The Fix)
+	if p.Line > 0 {
+		s += fmt.Sprintf("%d:%d", p.Line, p.Column)
+	} else if rawPos.IsValid() {
+		// Fallback: If we have a valid Pos integer but no Context to resolve it, print the offset!
+		s += fmt.Sprintf("@%d", rawPos)
+	} else {
+		// Only print 0:0 if the node ACTUALLY has no position data whatsoever
+		s += "0:0"
+	}
+
+	if t != "" { s += ":" + t }
+
+	// CRITICAL FIX: Push the local position into the context for variadic children!
+	var local = ctx
+	if ctx != nil && ap != nil { local = pc(ctx, ap) }
+
+	// Safely range over the additional arguments using the new local context
+	for _, val := range a { if val != nil { s += " " + ts(val, local) } }
+	
+	return
+}
+
+func ts(i any, o ...any) (s string) {
+	if i == nil { return "{}" }
+
+	var c Context
+	for _, o := range o {
+		switch t := o.(type) {
+		case Context: c = t
+		case nil: c = nil
+		default: panic(o)
+		}
+	}
+
+	// CRITICAL FIX: Establish a local context to strip redundant filenames from children!
+	var cc = c
+	if c != nil {
+		if pos, ok := i.(positioner); ok && pos != nil {
+			cc = pc(c, pos.Pos())
+		}
+	}
+
+	var t string
+	switch i.(type) {
+	case *globpat: t = "glob"
+	case *globmeta: t = "meta"
+	case *globrange: t = "range"
+	case *regexpat: t = "regex"
+	default:
+		if t = typeof(i); strings.HasPrefix(t, "[]") {
+			v := reflect.ValueOf(i)
+			s  = "["
+			for i := 0; i < v.Len(); i += 1 {
+				if 0 < i { s += " " }
+				// Slices don't have positions, so we just pass cc directly
+				s += ts(v.Index(i).Interface(), cc) 
+			}
+			s += "]"
+			return
+		}
+	}
+
+	switch x := i.(type) {
+	case tst: return ts(x.i, cc)
+	case    filemap: return "{="+t+" "+x.String()+"}"
+	case    Context: return "{="+t+" "+ts(inner(x), cc)+"}"
+	case        opt: return "{="+t+" "+ts(x.Value,cc)+"}"
+	case    skipped: return "{="+t+" "+ts(x.Value,cc)+"}"
+	case   negative: return "{="+t+" "+ts(x.Value,cc)+"}"
+	case   fullname: return "{="+t+" "+ts(x.Value,cc)+"}"
+	case       flag: return "{="+t+" "+ts(x.Value,cc)+"}"
+	case      *rule: return "{="+t+" "+ts(x.target,cc)+"}"
+	case   *percpat: return "{="+t+" "+ts(x.Prefix,cc)+" "+ts(x.Suffix,cc)+"}"
+	case      *pair: return "{="+t+" "+ts(x.key,cc)+" "+ts(x.val,cc)+"}"
+	case      *file: return "{="+t+" "+x.filestub.name+"}"
+	case   fullfile: return "{="+t+" "+x.filestub.name+"}"
+	case   *valbase: return "{"+lp(c, x.pos, "")+"}"
+	case       *loc: return "{"+lp(c, x.pos, "", x.Value)+"}" // lp handles cc internally
+	case      *xloc: return "{"+lp(c, x.pos, "", x.Value)+"}" // lp handles cc internally
+	case      *auto: return "{"+lp(c, x.pos, t)+" "+x.name+"}"
+	case       *def: return "{"+lp(c, x.pos, t)+" "+x.name+"}"
+	case   *project: return "{"+lp(c, x.pos, t)+" "+x.name+"}"
+	case       self: return "{"+lp(c, x.pos, t)+" "+x.name+"}"
+	case  *regexpat: return "{"+lp(c, x.pos, t)+" "+x.Regexp.String()+"}"
+	case  *globmeta: return "{"+lp(c, x.pos, t)+" "+x.token.String()+"}"
+	case *globrange: return "{"+lp(c, x.Pos(), t)+" "+x.Value.String()+"}"
+	case    *answer: return "{"+lp(c, x.pos, _if(x.bool, "yes", "no"))+"}"
+	case   *boolean: return "{"+lp(c, x.pos, _if(x.bool, "true", "false"))+"}"
+	case    *option: return "{"+lp(c, x.pos, _if(x.bool, "on", "off"))+"}"
+	case *none, *null: return "{"+lp(c, x.(Value).Pos(), t)+"}"
+	case *arrow: return "{="+t+" "+ts(x.o,cc)+x.t.String()+ts(x.s,cc)+"}"
+	case *argumented: return "{="+t+" "+ts(x.Value,cc)+ts(x.args,cc)+"}"
+	case *argumented_ctx:
+		for i, a := range x.args { if i > 0 { s += "," }; s += a.String() }
+		return "{="+t+" "+x.val.String()+"("+s+") "+ts(x.Context,cc)+"}"
+	case *defcaps:
+		var s string
+		for _, cap := range x.caps { s += " {"+cap.name+":"+ts(cap.value,cc)+"}" }
+		return "{="+t+" "+ts(x.Value,cc)+s+"}"
+	case *evocation:
+		var s = x.defs.String() ; if s != "" { s += " " }
+		return "{="+t+" "+x.x.String()+" | "+s+ts(x.Context,cc)+"}"
+	case *delegate:
+		var s = "{" + lp(c, x.pos, t, x.x)
+		if cc = pc(c, x.pos); x.o != nil { s += " " + ts(x.o, cc) }
+		for _, a := range x.a { s += " " + ts(a, cc) }
+		s += "}"
+		return s
+	case *closure:
+		var s = "{" + lp(c, x.pos, t, x.x) 
+		if cc = pc(c, x.pos); x.o != nil { s += " " + ts(x.o, cc) }
+		for _, a := range x.a { s += " " + ts(a, cc) }
+		s += "}"
+		return s
+	case *url:
+		return "{"+lp(c,x.Pos(),t, x.Scheme,x.Username,x.Password,x.Host,x.Port,x.Path,x.Query,x.Fragment)+"}"
+	case *strval:
+		for _, v := range x.v { s += " "+ts(v,cc) }
+		return "{"+lp(c, x.pos, t)+s+"}"
+	case *punct:
+		switch x.token {
+		case PROOT: s = "PROOT"
+		case PTAIL: s = "PTAIL"
+		default: s = x.token.String()
+		}
+		return "{"+lp(c, x.pos, t)+" "+s+"}"
+	case *disjunction:
+		return "{"+lp(c, x.pos, t, x.val)+"}"
+	case conjunction:
+		// CRITICAL FIX: Use the global ts() since elements.ts no longer exists!
+		return fmt.Sprintf("{=%s %s%s}", t, ts(x.list, cc), ts(x.sep, cc))
+		
+	case slicer:
+		// Safely extract the compact Pos
+		var pos Pos
+		if p, ok := x.(positioner); ok { pos = p.Pos() }
+
+		var prefix = "="
+		if c != nil && pos.IsValid() {
+			if fat, ok := do(c, get_fatpos{pos}).(Position); ok && fat.Filename != "" {
+				// Change prefix to the absolute filename if it differs from the current trace context!
+				if f1 := _position(c).Filename; f1 != fat.Filename {
+					prefix = fat.Filename + ":"
+				}
+			}
+		}
+
+		if p, ok := x.(*plain); ok && p.name != "" {
+			s += "(" + p.name + ")"
+		}
+
+		var cc = pc(c, pos)
+		for _, a := range x.slice() {
+			s += " " + ts(a, cc)
+		}
+		
+		return "{" + prefix + t + s + "}"
+
+	case Value:
+		if t := x.String(); t != "" { s += " " + strings.ReplaceAll(t, "\n", `\n`) }
+		return "{"+lp(c, x.Pos(), t)+s+"}"
+	default:
+		if t := fmt.Sprintf("%v", x); t != "" { s += " " + strings.ReplaceAll(t, "\n", `\n`) }
+		return "{="+t+s+"}"
+	}
+}
+
+func (p *valcache) km() (ss map[string]struct{}) {
+	ss = make(map[string]struct{})
+	for _, v := range reflect.ValueOf(p.v).MapKeys() {
+		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
+	}
+	return
+}
+
+type tst struct{ i any }
+func (p tst) String() string { return ts(p.i) }
+func (p tst) Pos() (_ Pos) {
+    if x, y := p.i.(positioner); y && x != nil {
+        return x.Pos()
+    }
+    return
+}
+
+func _argumented(val Value, a ...Value) *argumented { return &argumented{val, a} }
+func _arrow(pos Pos, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
+func _null(pos Pos) *null { return &null{valbase{pos}} }
+func _none(pos Pos) *none { return &none{valbase{pos}} }
+func _answer(pos Pos, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
+func _boolean(pos Pos, v bool) *boolean { return &boolean{valbase{pos},v} }
+func _option(pos Pos, v bool) *option { return &option{boolean{valbase{pos},v}} }
+func _binary(pos Pos, i int64) *binary { return &binary{integer{valbase{pos},i}} }
+func _octal(pos Pos, i int64) *octal { return &octal{integer{valbase{pos},i}} }
+func _decimal(pos Pos, i int64) *decimal { return &decimal{integer{valbase{pos},i}} }
+func _hexadecimal(pos Pos, i int64) *hexadecimal { return &hexadecimal{integer{valbase{pos},i}} }
+func _float(pos Pos, f float64) *float  { return &float{valbase{pos},f} }
+func _strlit(pos Pos, s string) *strlit { return &strlit{valbase{pos},s} }
+func _strcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
+func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
+func _list(elems ...Value) *list { return &list{elements{elems}} }
+func _group(pos Pos, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
+func _globmeta(pos Pos, tok token) *globmeta { return &globmeta{valbase{pos},tok} }
+func _globrange(val Value) *globrange { return &globrange{val} }
+func _globpat(elems ...Value) *globpat { return &globpat{elements{elems}} }
+func _word(pos Pos, w string) *word { return &word{valbase{pos},w} }
+func _raw(pos Pos, s string) Value {
+	if s == "" { return &valbase{pos} } else { return &raw{valbase{pos},s} }
+}
+
+func makeDate(pos Pos, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
+func makeTime(pos Pos, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
+func makeUrl(pos Pos, s *neturl.URL) *url {
+    var host, port string
+    var v = strings.Split(s.Host, ":")
+    if len(v) == 1 { host = v[0] }
+    if len(v) == 2 { host, port = v[0], v[1] }
+
+    var password Value
+    if t, y := s.User.Password(); y {password = _strlit(pos, t)}
+    if s.RawQuery != "" { panic("url query: "+s.RawQuery) }
+    return &url{ // FIXME: calculate component positions
+        Scheme:   _strlit(pos, s.Scheme),
+        Username: _strlit(pos, s.User.Username()),
+        Password: password,
+        Host:     _strlit(pos, host),
+        Port:     _strlit(pos, port),
+        Path:     _strlit(pos, s.Path),
+        // Query:    _strlit(pos, s.RawQuery),
+        Fragment: _strlit(pos, s.Fragment),
+    }
+}
+
+func list_t[T Value](ii ...T) *list {
+    var elems []Value
+    for _, i := range ii { elems = append(elems, i) }
+    return &list{elements{elems}}
+}
+
+func makePair(k, v Value) (p *pair) { return &pair{k, v} }
+func makePath(segments ...Value) *path { return &path{elements{segments}} }
+func makePunct(pos Pos, t token) *punct { return &punct{valbase{pos},t} }
+func makePercpat(pos Pos, prefix, suffix Value) *percpat {
+    if prefix == nil { prefix = &valbase{pos} }
+    if suffix == nil { suffix = &valbase{pos} }
+    return &percpat{valbase{pos},prefix,suffix}
+}
+func makeDelegate(pos Pos, tok token, obj Value, opts []Value, args ...Value) Value {
+    return &delegate{valbase{pos}, tok, obj, opts, args}
+}
+func makeClosure(pos Pos, tok token, obj Value, opts []Value, args ...Value) Value {
+    return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
+}
+
+func Make(pos Pos, in any) (out Value) {
+    switch v := in.(type) {
+    case int:       out = _decimal(pos,int64(v))
+    case int32:     out = _decimal(pos,int64(v))
+    case int64:     out = _decimal(pos,v)
+    case float32:   out = _float(pos,float64(v))
+    case float64:   out = _float(pos,v)
+    case string:    out = _strlit(pos, v)
+    case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
+    case Value:     out = v
+    }
+    return
+}
+func MakeAll(pos Pos, in... any) (out []Value) {
+    for _, v := range in {
+        // TODO: position for each element
+        out = append(out, Make(pos,v))
+    }
+    return
+}
+
+func ParseBinary(pos Pos, s string) *binary {
+    if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
+        s = s[2:]
+    }
+    if i, e := strconv.ParseInt(s, 2, 64); e == nil {
+        return _binary(pos,i)
+    } else {
+        panic(e)
+    }
+}
+
+func ParseOctal(pos Pos, s string) *octal {
+    if strings.HasPrefix(s, "0") {
+        s = s[1:]
+    }
+    if i, e := strconv.ParseInt(s, 8, 64); e == nil {
+        return _octal(pos,i)
+    } else {
+        panic(e)
+    }
+}
+
+func ParseDecimal(pos Pos, s string) *decimal {
+    if i, e := strconv.ParseInt(s, 10, 64); e == nil {
+        return _decimal(pos,i)
+    } else {
+        panic(e)
+    }
+}
+
+func ParseHexadecimal(pos Pos, s string) *hexadecimal {
+    if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+        s = s[2:]
+    }
+    if i, e := strconv.ParseInt(s, 16, 64); e == nil {
+        return _hexadecimal(pos,i)
+    } else {
+        panic(e)
+    }
+}
+
+func parseFloat(pos Pos, s string) *float {
+    if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
+        return _float(pos,f)
+    } else {
+        panic(e)
+    }
+}
+
+// time.RFC3339Nano
+func parseDateTime(s string) (time.Time, error) { return time.Parse("2006-01-02T15:04:05.999999999Z07:00", s) }
+func parseDate(s string) (time.Time, error) { return time.Parse("2006-01-02", s) }
+func parseTime(s string) (time.Time, error) { return time.Parse("15:04:05.999999999Z07:00", s) }
+
+func ParseDateTime(pos Pos, s string) Value {
+    if t, e := parseDateTime(s); e == nil {
+        return &datetime{valbase{pos},t}
+    } else {
+        panic(e)
+    }
+}
+
+func ParseDate(pos Pos, s string) *Date {
+    if t, e := parseDate(s); e == nil {
+        return makeDate(pos,t)
+    } else {
+        panic(e)
+    }
+}
+
+func ParseTime(pos Pos, s string) *Time {
+    if t, e := parseTime(s); e == nil {
+        return makeTime(pos,t)
+    } else {
+        panic(e)
+    }
+}
+
+func ParseURL(pos Pos, s string) *url {
+    if u, e := neturl.Parse(s); e == nil {
+        return makeUrl(pos,u)
+    } else {
+        panic(e)
+    }
+}
+
+// NOTE: evokeTraceots is for debugging call trace, if this finally goes into a formal
+//       feature, it should need a sync-lock protection.
+var evokeTraceots string
+
+type prerequisite_evoke_loop struct{ Context ; Value }
+
+type evoke_x           struct{ name string }
+type evoke_builtin     struct{ name string }
+type evoke_def         struct{ name string }
+type evoke_detect_loop struct{ Value }
+type evoke_count       struct{}
+type evocation struct{
+    automatic
+    x   Value
+    o []Value
+    a []Value
+}
+func (p *evocation) inner() Context { return &p.automatic }
+func (p *evocation) cast(t reflect.Type) Context {
+    if reflect.TypeOf((*automatic)(nil)) == t { return &p.automatic }
+    if reflect.TypeOf(p) == t { return p }
+    return p.automatic.cast(t)
+}
+func (p *evocation) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) { // case keep_autos: return false
+    case evoke_builtin:
+        if x, y := p.x.(*builtin); y && (t.name == "" || t.name == x.name) {
+            return x
+        }
+    case evoke_def:
+        if x, y := p.x.(*def); y && (t.name == "" || t.name == x.name) {
+            return x
+        }
+    case evoke_x:
+        if p.x != nil && (t.name == "" || t.name == ident(ctx, p.x)) {
+            return p.x
+        }
+
+    case evoke_count:
+        u, _ := p.Context.do(ctx, t).(uint)
+        return 1 + u
+
+    case evoke_detect_loop:
+        if t.Value == p.x {
+            switch p.x.(type) {
+            case *auto, *def: return true
+            }
+        }
+        if u, y := do(ctx, evoke_count{}).(uint); y && u > 255 {
+            debug(pc(ctx,p.x), "%s : %s", p.x, ts(p.x), trace{})
+        }
+
+    case get_position:
+		// Try extracting a fat Position first via our escape hatch (*xloc)
+        if p.x != nil {
+            if ep, ok := p.x.(interface{ Position() Position }); ok {
+                if pos := ep.Position(); pos.valid() { return pos }
+            }
+        }
+        
+        // Fallback to compact Pos
+        var pos Pos
+        if p.x != nil { pos = p.x.Pos() }
+        if !pos.IsValid() && p.a != nil && p.a[0] != nil { pos = p.a[0].Pos() }
+        if !pos.IsValid() && p.o != nil && p.o[0] != nil { pos = p.o[0].Pos() }
+        if  pos.IsValid()  {  return pos  }
+    }
+    return p.automatic.do(ctx, op)
+}
+
+type opts struct{ vals []Value }
+type opt  struct{ Value }
+
+func call(ctx Context, name string, o []Value, a ...Value) (res Value) {
+    if v := _universe(ctx).lookup(name); v != nil { res = evoke(ctx, v, o, a) }
+    return
+}
+
+var         name_prefix = regexp.MustCompile(`^((android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~)(.+)$`)
+var illegal_name_prefix = regexp.MustCompile(`^use\.(android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~`)
+
+// A scope maintains a set of objects;
+// TODO: remote scope struct, use scopeContext instead
+type scope struct {
+	mutex sync.Mutex
+	elems map[string]object
+	project *project
+	outer *scope
+	comment string
+}
+
+func newscope(outer *scope, owner *project, c string) (s *scope) {
+	return &scope{outer:outer, project:owner, comment:c, elems:make(map[string]object)}
+}
+
+func (s *scope) has_outer(outer *scope) bool {
+	return s.outer != nil && (s.outer == outer || s.outer.has_outer(outer))
+}
+
+func (s *scope) copyElems() (result map[string]object) {
+	s.mutex.Lock(); defer s.mutex.Unlock()
+	result = make(map[string]object, len(s.elems))
+	for k, o := range s.elems { result[k] = o }
+	return
+}
+
+func (s *scope) estr() (res string) {
+	for _, o := range s.elems {
+		if res != "" { res += " " }
+		res += fmt.Sprintf("%v", o)
+	}
+	return
+}
+
+// Names returns the scope's element names in sorted order.
+func (s *scope) names() []string {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	var i = 0
+	var names = make([]string, len(s.elems))
+	for name := range s.elems {
+		names[i] = name
+		i++
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Lookup returns the object in scope s with the given name if such an
+// object exists; otherwise the result is nil.
+func (s *scope) Lookup(name string) object {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	return s.lookup(name)
+}
+func (s *scope) lookup(name string) (obj object) {
+	if s.elems != nil { obj, _ = s.elems[name] }
+	return
+}
+
+// findouter follows the outer chain of scopes starting with s until
+// it finds a scope where Lookup(name) returns a non-nil object, and then
+// returns that scope and object. If no such scope and object exists, the
+// result is (nil, nil).
+//
+// Note that obj.Outer() may be different from the returned scope if the
+// object was inserted into the scope and already had a outer at that
+// time (see Insert, below). This can only happen for dot-imported objects
+// whose scope is the scope of the package that exported them.
+func (s *scope) find(name string) (res *scope, obj object) {
+	if obj = s.lookup(name) ; obj != nil {
+		return s,obj
+	} else if  s.outer != nil  {
+		return s.outer.find(name)
+	}
+	return
+}
+
+func (s *scope) finddef(name string) (d *def) {
+	if _, o := s.find(name) ; o != nil { d, _ = o.(*def) }
+	return
+}
+
+func (s *scope) resolve(name string) (obj object) {
+	if false { s.mutex.Lock() ; defer s.mutex.Unlock() }
+	_, obj = s.find(name)
+	return
+}
+
+// Insert attempts to insert an object obj into scope s.
+// If s already contains an alternative object alt with
+// the same name, Insert leaves s unchanged and returns alt.
+// Otherwise it inserts obj, sets the object's outer scope
+// if not already set, and returns nil.
+func (s *scope) insert(ctx Context, obj object) object {
+	s.mutex.Lock(); defer s.mutex.Unlock()
+
+    var ic *ident_ctx
+    if ic, ctx = identity(ctx); ic.nil > 0 {
+		debug(pc(ctx,obj), "no ident: %v", obj)
+	}
+
+	if name := ident(ctx, obj); name == "" {
+		debug(pc(ctx,obj), "no ident: %v", obj)
+		return nil
+	} else if alt := s.elems[name]; alt != nil {
+		return alt
+	} else {
+		s.replace(ctx, name, obj)
+		return nil
+	}
+}
+
+func (s *scope) replace(ctx Context, name string, obj object) {
+	switch o := obj.(type) {
+	case interface { setscope(string, *scope) }:
+		o.setscope(name, s)
+	}
+	s.elems[name] = obj
+}
+
+// WriteTo writes a string representation of the scope to w,
+// with the scope elements sorted by name.
+// The level of indentation is controlled by n >= 0, with
+// n == 0 for no indentation.
+func (s *scope) WriteTo(w io.Writer, n int) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+
+	const ind = ".  "
+
+	var indn  = strings.Repeat(ind, n)
+	var indn1 = indn + ind
+
+	fmt.Fprintf(w, "%s%s scope %p {", indn, s.comment, s)
+
+	if len(s.elems) == 0 {
+		fmt.Fprintf(w, "}")
+		return
+	}
+
+	fmt.Fprintln(w)
+
+	for _, name := range s.names() {
+		fmt.Fprintf(w, "%s%s\n", indn1, s.elems[name])
+	}
+
+	fmt.Fprintf(w, "%s}", indn)
+}
+
+// String returns a string representation of the scope, for debugging.
+func (s *scope) String() string { return fmt.Sprintf("{=scope %s}", s.string()) }
+func (s *scope) string() string {
+	var buf bytes.Buffer
+	if s.outer != nil {
+		if false {
+			fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.comment)
+		} else {
+			fmt.Fprintf(&buf, "%s ← %s", s.comment, s.outer.string())
+		}
+	} else {
+		fmt.Fprintf(&buf, "%s", s.comment)
+	}
+	return buf.String()
+}
+
+func (s *scope) projectname(ctx Context, name string, project *project) (p *project, a object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	if a = s.elems[name] ; a == nil {
+		p = project
+		s.replace(ctx, name, p)
+	}
+	return
+}
+
+func (s *scope) builtin(ctx Context, name string, f reflect.Type) (res *builtin, a object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+	if a = s.elems[name] ; a == nil {
+		res = &builtin{knownobject{objbase{scope:s}, name}, f}
+		s.replace(ctx, name, res)
+	}
+	return
+}
+
+func (s *scope) _auto(ctx Context, name string) (a *auto, o object) {
+	s.mutex.Lock() ; defer s.mutex.Unlock()
+
+	var y bool
+
+	if o, y = s.elems[name]; y && o == nil {
+		delete(s.elems, name)
+		y = false
+	}
+
+	if !y {
+		a = &auto{knownobject{objbase{valbase{_pos(ctx)},s}, name}}
+		s.replace(ctx, name, a)
+	}
+	return
+}
+
+func (s *scope) auto(ctx Context, name string) (a *auto) {
+	var y bool
+	var o object
+	if a, o = s._auto(ctx, name); o != nil {
+		if a, y = o.(*auto); !y {
+			debug(ctx, "name already taken (%s)", typeof(o))
+		}
+	}
+	return
+}
+
+func (s *scope) alias(ctx Context, o object, alias ...string) {
+	for _, a := range alias { s.elems[a] = o }
+}
+
+func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNew bool) {
+	var name string = ident_any(ctx, id)
+	if name == "" {
+		debug(ctx, "empty name: %s: `%v`", typeof(id), id, callstack{num:16}, trace{})
+	}
+	if checkpoints { if illegal_name_prefix.MatchString(name) {
+		debug(ctx, "illegal name: %v", name, callstack{num:16}, trace{})
+	}}
+
+	s.mutex.Lock()
+
+	if a, y := s.elems[name]; !y || a == nil {
+		d = new(def)
+		d.name, d.pos, d.scope = name, _pos(ctx), s
+		s.elems[name] = d
+		isNew = true
+	} else {
+		d, _ = a.(*def)
+	}
+
+	s.mutex.Unlock()
+	
+	if o != defInvalid && o != d.o {
+		if d.o == defInvalid { d.o = o } else {
+			debug(pc(ctx, d), "%v: conflicts origin: %v <> %v", id, d.o, o, trace{})
+		}
+	}
+	
+	if vals != nil { d.set(ctx, ease(ctx, vals)) }
+	return
+}
+
+func (s *scope) def(ctx Context, o origin, ident any, vals ...Value) (d *def) {
+	d, _ = s._def(ctx, o, ident, vals...)
+	return
+}
+
+type object interface{ Value ; owner() *project }
+type objbase struct{ valbase ; scope *scope }
+func (_ *objbase) kind() Kind { return KindObject }
+func (p *objbase) owner() *project { return p.scope.project }
+func (p *objbase) String() string { return fmt.Sprintf("{=obj %p}", p) }
+func (p *objbase) exists() existence { return existenceMatterless }
+func (p *objbase) declscope() *scope { return p.scope }
+func (p *objbase) setscope(name string, s *scope) {
+    if p.scope != s {
+        if p.scope != nil { delete(p.scope.elems, name) }
+        p.scope = s
+    }
+}
+
+type knownobject struct{ // generally named objects
+    objbase
+    name string // single, or group name if containing '(*)' and corresponding members
+}
+func (p *knownobject) kind() Kind { return p.objbase.kind()|KindKnownObject }
+func (p *knownobject) String() string { return fmt.Sprintf("{=object %s}", p.name) }
+func (p *knownobject) ident(Context) string { return p.name }
+
+// FIXME: locking for MT processing
+var usePrepared = make(map[*project]int)
+
+type use struct {
+    valbase
+    project *project
+    params []Value
+    opts useopts
+}
+func (_ *use) kind() Kind { return KindUse }
+// func (p *use) _cmp(ctx Context, v Value) (res cmpres) {
+//     if a, ok := v.(*use); ok {
+//         assert(ok, "value is not use")
+//         if p.project == a.project {
+//             res = cmpEqual
+//         }
+//     }
+//     return
+// }
+func (p *use) String() string {
+    if len(p.params) > 0 {
+        return fmt.Sprintf("%s(%v)", p.project.name, p.params)
+    } else {
+        return fmt.Sprintf("%s", p.project.name)
+    }
+}
+
+type uselist struct {
+    owner_ *project
+    name string
+    scope *scope
+    list []*use
+}
+func (_ *uselist) kind() Kind { return KindUse }
+func (p *uselist) owner() *project { return p.owner_ }
+func (p *uselist) Pos() (pos Pos) {
+    if len(p.list) > 0 { pos = p.list[0].Pos() }
+    return
+}
+func (p *uselist) String() string {
+    var s string
+    for i, elem := range p.list {
+        if i > 0 { s += "," }
+        s += elem.project.name
+    }
+    return fmt.Sprintf("%s", s)
+}
+// func (p *uselist) _cmp(ctx Context, v Value) (res cmpres) {
+//     if a, y := v.(*uselist); y { assert(y, "value is not uselist")
+//         if p.name == a.name && p.owner_ == a.owner_ { res = cmpEqual }
+//     }
+//     return
+// }
+func (p *uselist) append(ctx Context, proj *project, params []Value, opts useopts) {
+    for _, elem := range p.list {
+        if elem.project == proj {
+            return
+        }
+    }
+    p.list = append(p.list, &use{valbase{_pos(ctx)},proj,params,opts})
+}
+
+// func (p *uselist) _invoke(ctx Context, o, a []Value) (result Value) {
+//     var targets []Value
+//     if p.list != nil {
+//         for _, usee := range p.list {
+//             if entry := usee.project.main; entry != nil {
+//                 if usee.project.opt.traveUseLoop {
+//                     // FIXME: break use loop
+//                 } else if false {
+//                     usePrepared[usee.project] += 1
+//                 }
+//                 targets = append(targets, entry)
+//             }
+//         }
+//         result = ease(ctx, targets)
+//     }
+//     return
+// }
+
+type origin uint
+
+const (
+    defInvalid origin = 0
+    defVoid origin = 1<<(iota-1)
+    defConfig  // configure
+    defDecl    // declaration names
+    defStatic  // auto-expand within a code block at parse time (aka def/end, for/end)
+    defParam   // program parameter
+    defExpand0 //   =  normal value
+    defExpand1 //  :=  expand delegates (simple expand)
+    defExpand2 // ::=  expand all (delegates, closures, paths)
+    defExpand3 // ;:=  TODO: expand as plain
+    defExecute //  !=  value to be executed
+    defAssign0 // ?=
+    defAssign1 // +=
+    defAssign2 // =+
+    defAssign3 // -=
+    defAssign4 // -+=
+    defAssign5 // -=+
+)
+
+var origin_names = []string{
+    "void", "config", "decl", "static", "param",
+    "expand_0", "expand_1", "expand_2", "expand_3", "execute",
+    "assign_0", "assign_1", "assign_2", "assign_3", "assign_4", "assign_5",
+    "test_val", "test_str",
+}
+
+func (o origin) String() (s string) {
+    for i := 0; i < len(origin_names); i += 1 {
+        if o&(1<<i) != 0 {
+            if s != "" { s += "|" }
+            s += origin_names[i]
+        }
+    }
+    return
+}
+
+type def_map map[string]*def
+func (m def_map) len() int { return len(m) }
+func (m def_map) String() (s string) {
+    seen := make(map[string]struct{}) // NOTE: digits alias: 1 2 3...
+    for _, d := range m {
+        if _, y := seen[d.name]; y { continue }
+        if s == "" { s = "{" } else { s += "," }
+        seen[d.name] = struct{}{}
+        s += d.String()
+    }
+    if s != "" { s += "}" }
+    return
+}
+
+func _automatic(c Context) *automatic { return cast[*automatic](c) }
+
+type find_auto struct{ s string }
+type set_auto  struct{ o origin; s string; v Value }
+type res_auto  struct{ d *def; v Value }
+type automatic struct{
+    Context
+    sync.RWMutex
+    defs def_map
+    params map[string]*auto
+}
+func (ac *automatic) cast(t reflect.Type) Context { return icast(ac, t) }
+func (ac *automatic) inner() Context { return ac.Context }
+func (ac *automatic) ts(t string) string {
+    s := ac.defs.String()
+    if s != "" { s += " " }
+    return "{="+t+" "+s+ts(ac.Context)+"}"
+}
+func (ac *automatic) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case init_args:
+        if t.automatic == nil {
+            panic("automatic.init_args")
+        }
+    case find_auto:
+        if d, _ := ac.defs[t.s]; d != nil {
+            return d
+        }
+    case set_auto:
+        d, v := ac.set(ctx, t.o, t.s, t.v)
+        return res_auto{ d, v }
+    }
+    return ac.Context.do(ctx, op)
+}
+func (ac *automatic) amend(ctx Context, name string, val Value) (out *def, res Value) {
+    if d, _ := ac.do(ctx, find_auto{name}).(*def); d == nil {
+        return ac.set(ctx, defVoid, name, val)
+    } else if res = d.value; d.value != val {
+        out, d.value = d, val
+    }
+    return
+}
+func (ac *automatic) has(s string) (y bool) { _, y = ac.defs[s]; return }
+func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
+    if name == "-" && val != nil {
+        if x, y := val.(*def); y && x.o != defConfig {
+            debug(ctx, "set $- to def (%v): %v", x.o, x, trace{})
+        }
+    }
+
+    if out, _ = ac.defs[name]; out != nil {
+        old = out.value
+        // out.Lock()
+        out.value = val
+        // out.Unlock()
+        return
+    }
+
+    out = &def{o:o, value:val}
+    out.pos, out.scope, out.name = _pos(ctx), _scope(ctx), name
+
+    ac.Lock()
+    ac.defs[name] = out
+    ac.Unlock()
+    return
+}
+func (ac *automatic) args(ctx Context, vals []Value) {
+    type arg struct{ id, name string ; value Value }
+
+    if vals == nil { return }
+
+    var argn int // setup named/number parameters ($1, $2, etc.)
+    var args = make(map[string]*arg, len(vals)) // compact args: combine duplicated pairs
+
+    for i, val := range vals {
+        a := &arg{ id: strconv.Itoa(argn+1) }
+
+        if p, y := val.(*pair); y {
+            if a.name = __string(ctx, p.key); a.name == "" {
+                debug(pc(ctx,a), "empty name: %v", p.key, trace{})
+                return
+            }
+
+            if ac.params != nil {
+                if _, y = ac.params[a.name]; !y {
+                    var keys = reflect.ValueOf(ac.params).MapKeys()
+                    debug(pc(ctx,a), "unknown arg#%d: %v ; known: %v", i, p, keys, trace{})
+                    return
+                }
+            }
+
+            if t, y := args[a.name]; y {
+                if x, y := t.value.(*list); y {
+                    x.elems = append(x.elems, merge(p.val)...)
+                } else {
+                    a.value = _list(t.value)
+                }
+                continue
+            }
+
+            a.value = p.val
+        } else {
+            a.name, a.value = paramName(ctx, argn), scalarize(val)
+            if a.name == "" { a.name = a.id }
+        }
+
+        if a.id != a.name { args[a.id] = a }
+        args[a.name] = a
+        argn += 1
+
+        if d, _ := ac.set(ctx, defParam, a.name, a.value); d == nil {
+            debug(ac, "arg '%s' not set", a.name, trace{})
+            return
+        }
+
+        if d, y := ac.defs[a.name]; !y || d == nil {
+            debug(ac, "arg '%s' not set", a.name, trace{})
+            return
+        } else if a.id != "" && a.id != a.name {
+            ac.Lock()
+            ac.defs[a.id] = d // NOTE: alias or replacement
+            ac.Unlock()
+        }
+    }
+    return
+}
+
+func auto_find(ctx Context, name string) (d *def) {
+    d, _ = do(ctx, find_auto{name}).(*def)
+    return
+}
+
+func auto_get(ctx Context, name string) (_ Value) {
+    if d := auto_find(ctx, name); d != nil { return d.value }
+    return
+}
+
+func auto_set(ctx Context, o origin, name string, val Value) (_ *def, _ Value) {
+    t, _ := do(ctx, set_auto{o, name, val}).(res_auto)
+    if t.d != nil && name == "TYPE" && _project(ctx).name == "configure.base" {
+        debug(ctx, "%v %v", t.d, t.v)
+    }
+    return t.d, t.v
+}
+
+type auto struct{ knownobject }
+func (a *auto) kind() Kind { return a.knownobject.kind()|KindAuto }
+func (a *auto) String() string { return a.name }
+func (a *auto) def(ctx Context) *def { return auto_find(ctx, a.name) }
+func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
+    if value == nil && app != nil {
+        if d := auto_find(ctx, a.name); d != nil {
+            d.value = ease(ctx, append(merge(d.value), app...))
+            if false { d.pos = a.pos }
+            return
+        }
+    }
+
+    d, _ := auto_set(ctx, o, a.name, ease(ctx, append(merge(value), app...)))
+    if d != nil {
+        if false { d.pos = a.pos }
+    } else {
+        debug(ctx, "set auto failed: %v: %v %v", a.name, value, app, trace{})
+    }
+}
+func (a *auto) isDigit() bool { return IsDigits(a.name) }
+func (a *auto) isPlaceholder() bool { return a.name == "_" }
+func (a *auto) stat(ctx Context) (si *statinfo) {
+    if val := auto_get(ctx, a.name); val != nil { si = statFile(ctx, val) }
+    return
+}
+
+type def_evoke struct{ *evocation }
+func (c def_evoke) inner() Context { return c.evocation }
+func (c def_evoke) cast(t reflect.Type) Context { return icast(c, t) }
+func (c def_evoke) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case param_name: return // avoids program execution
+    case find_auto:
+        if IsDigits(t.s) {
+            if x, y := c.defs[t.s]; y {
+                return x
+            } else {
+                return
+            }
+        }
+    }
+    return c.evocation.do(ctx, op)
+}
+
+// A def represents a definition, it's a caller but mustn't be a Valuer.
+type def struct{
+    knownobject
+    value Value
+    o origin
+}
+func (d *def) kind() Kind { return d.knownobject.kind()|KindDef }
+func (d *def) Pos() (pos Pos) {
+	if pos = d.pos; !pos.IsValid() && d.value != nil { pos = d.value.Pos() }
+	return
+}
+func (d *def) streq() (s string) {
+    switch d.o {
+    case defExpand0: s =   "="
+    case defExpand1: s =  ":="
+    case defExpand2: s = "::="
+    case defExpand3: s = ";:="
+    case defExecute: s =  "!="
+    default:         s =   "⇒"
+    }
+    return
+}
+func (d *def) String() (s string) {
+	if d == nil { return "" }
+	
+    var value Value
+    {
+        // d.Lock()
+        value = d.value
+        // d.Unlock()
+    }
+
+    if s = d.name + d.streq(); value != nil {
+        s += value.String()
+    } else {
+        s += "<nil>"
+    }
+    return
+}
+func (d *def) origin(ctx Context, o origin) (res origin) {
+    if d.o == o { return o }
+
+    if checkpoints {
+        if d.o != defInvalid && (o == defVoid || o == defInvalid) {
+            debug(pc(ctx,d), "%v: %v → %v", d.name, d.o, o, trace{})
+        }
+    }
+
+    res, d.o = d.o, o
+    return
+}
+func (d *def) val(ctx Context, vals []Value) {
+    var val Value
+    if n := len(vals); n == 1 {
+        val = vals[0]
+    } else if 1 < n {
+        val = _list(vals...)
+    }
+    d.set(ctx, val)
+}
+func (d *def) set(ctx Context, value Value, app ...Value) {
+	if checkpoints && d.o == defConfig && d.value != nil {
+		debug(pc(pc(ctx,value),d.value),
+			_f("duplicated %v %v → %v %v", d.o, d, value, app),
+			callstack{num:16}, trace{})
+	}
+    if value == d.value && len(app) == 0 { return }
+
+    var vals []Value
+    if value != nil { vals = merge(value) }
+
+    var a bool
+    if a = len(app) > 0; a { vals = append(vals, app...) }
+    if a && d.value != nil {
+        // d.Lock()
+        var v = d.value
+        // d.Unlock()
+        vals = append(merge(v), vals...)
+    }
+
+    // d.Lock()
+    if n := len(vals); 1 < n {
+        if true || d.o == defExpand0 {
+            d.value = _list(vals...)
+        } else {
+            l, t := new(list), Value(nil)
+            for _, v := range vals {
+                if isNull(v) {
+                    if t == nil { t = v }
+                } else {
+                    l.elems = append(l.elems, v)
+                }
+            }
+            if l.len() == 0 && t != nil {
+                d.value = t
+            } else {
+                d.value = l
+            }
+        }
+    } else if 1 == n {
+        d.value = vals[0]
+    } else if d.o == defExecute {
+        d.value = nil
+    } else if d.pos.IsValid() {
+        d.value = _null(d.pos)
+    } else {
+        d.value = _null(_pos(ctx))
+    }
+    // d.Unlock()
+    return
+}
+func (d *def) append(ctx Context, a ...Value) { if len(a) > 0 { d.set(ctx, nil, a...) } }
+func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
+    if isTrivial(value) { return }
+
+    var cmd string
+    if cmd = __string(ctx, value); cmd == "" {
+        debug(pc(ctx,value), "%v: empty command (value=%v)", d.name, value)
+        return
+    }
+
+    // TODO: options for running command in the specified container
+    var stdout, stderr bytes.Buffer
+    var sh = exec.Command("sh", "-c", cmd)
+    sh.Stdout, sh.Stderr = &stdout, &stderr
+    defer func() {
+        stdout.Reset()
+        stderr.Reset()
+    } ()
+
+    if e := sh.Run(); e != nil {
+        debug(pc(ctx,value), "%v: execute command failed: %v", d.name, e, trace{})
+        return
+    }
+
+    var pos = value.Pos()
+    if !pos.IsValid() { pos = _pos(ctx) }
+    res = _raw(pos, strings.TrimSpace(stdout.String()))
+    return
+}
+func (d *def) stat(ctx Context) (si *statinfo) {
+    var value Value
+    {
+        // d.Lock()
+        value = d.value
+        // d.Unlock()
+    }
+    if value != nil { si = statFile(ctx, value) }
+    return
+}
+
+type undetermined struct{
+    token token
+    identifier Value
+    value Value
+}
+func (_ *undetermined) kind() Kind { return KindObject|KindUndetermined }
+func (p *undetermined) Pos() Pos { return p.identifier.Pos() }
+func (p *undetermined) exists() existence { return existenceMatterless }
+func (p *undetermined) String() (s string) {
+    s  = p.identifier.String()
+    s += p.token.String()
+    s += p.value.String()
+    return
+}
+
+const max_expand = 32
+
+func builtinFinalField(ctx Context, bv reflect.Value, bi any, force bool) bool {
+    if f := bv.Elem().FieldByName("final"); f.IsValid() && f.Kind() == reflect.Bool {
+        if force {
+            if f.CanSet() {
+                f.SetBool(true)
+            } else {
+                *(*bool)(unsafe.Pointer(f.UnsafeAddr())) = true
+            }
+        } else {
+            force = f.Bool()
+        }
+    }
+    return force
+}
+
+// A builtin represents a built-in function. builtins don't have a valid type.
+type builtin struct{ knownobject ; t reflect.Type }
+func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
+func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
+func (p *builtin) String() string { return p.name }
+func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
+	var n = time.Now()
+	if d := n.Sub(t); 2*time.Second < d {
+		var a = xmerge(_final(ctx), ctx.a...)
+		var m = time.Since(n)//; %v %v
+		debug(pc(ctx,p), "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a), callstack{frames:-1})
+	} else if f := v.Elem().FieldByName("timing"); f.IsValid() {
+		if f.Type().Kind() == reflect.Bool && f.Bool() {
+			debug(pc(ctx,p), "%v: %v", p, d, callstack{frames:-1})
+		}
+	}
+}
+
+type get_rule struct{}
+type is_rule struct{ x *regexp.Regexp }
+
+type rule_ctx struct{ Context ; rule *rule ; args []Value }
+func (p *rule_ctx) cast(t reflect.Type) Context { return icast(p, t) }
+func (p *rule_ctx) inner() Context { return p.Context }
+func (p *rule_ctx) Pos() Pos { return p.rule.Pos() }
+func (p *rule_ctx) ts(t string) (s string) {
+    s = "{="+t+" "+p.rule.String()
+    if p.args != nil {
+        s += "("
+        for i, a := range p.args {
+            if 0 < i { s += "," }
+            s += a.String()
+        }
+        s += ")"
+    }
+    s += " "+ts(p.Context)+"}"
+    return
+}
+func (p *rule_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case  get_rule: return p.rule
+    case  get_args: if p.args != nil { return p.args }
+    case init_args: if p.args != nil { t.args(ctx, p.args); return }
+    case is_rule:
+        if v := t.x.MatchString(p.rule.target.String()); v {
+            if false { debug(ctx, "%v %v", t.x, p.rule.target) }
+            return true
+        }
+    }
+    return p.Context.do(ctx, op)
+}
+
+func _entry(ctx Context) entry { return try[entry](ctx, get_rule{}) }
+
+type entry interface {
+    destiny() Value // aka target
+    programs(...*program) []*program
+    executer
+    object
+}
+
+func hasRecipes(e entry) (_ bool) {
+    for _, p := range e.programs() {
+        if 0 < len(p.recipes) { return true }
+    }
+    return
+}
+
+func execute_entry(ctx Context, e entry, args ...Value) ([]Value, bool) {
+    return e.execute(ctx, args...), true
+}
+
+const (
+    traverse_noop uint = iota
+    traverse_case
+    traverse_done
+    traverse_next
+)
+type traverse_state struct{ p any ; uint }
+func (t traverse_state) String() (_ string) {
+    switch t.uint {
+    case traverse_noop: return "noop"
+    case traverse_case: return "case"
+    case traverse_done: return "done"
+    case traverse_next: return "next"
+    }
+    return fmt.Sprintf("%v", t.uint)
+}
+
+// rule represents a declared rule entry.
+type rule struct{
+    target Value
+    arged []Value
+    program []*program
+}
+func (_ *rule) kind() Kind { return KindObject|KindRule }
+func (p *rule) destiny() Value { return p.target }
+func (p *rule) owner() *project { return p.program[0].project }
+func (p *rule) Pos() (_ Pos) {
+    if pos := p.target.Pos(); pos.IsValid() {
+        return pos
+    }
+    for _, prog := range p.program {
+        if prog.pos.IsValid() {
+            return prog.pos
+        }
+    }
+    return
+}
+func (p *rule) programs(a ...*program) []*program {
+    if 0 < len(a) { p.program = a }
+    return p.program
+}
+func (p *rule) String() string {
+    if p.target == nil { return "<nil entry>" }
+    return p.target.String()
+}
+func (p *rule) execute(ctx Context, a ...Value) (res []Value) {
+    if patterned(ctx, p.target) {
+        debug(ctx, "execute pattern entry: %v", p.target, trace{})
+    }
+
+    ctx = &rule_ctx{ctx, p, a}
+
+    for _, prog := range p.program {
+        if v := prog.execute(ctx); v != nil {
+            res = append(res, v)
+        }
+    }
+    return
+}
+func (p *rule) recipes() (res []Value) {
+    for _, prog := range p.program {
+        for _, recipe := range prog.recipes {
+            res = append(res, recipe)
+        }
+    }
+    return
+}
+
+// FIXME: p.target maybe not the real target
+
+func _stemmed(ctx Context) *stemmed_ctx { return cast[*stemmed_ctx](ctx) }
+func _stems(ctx Context) (res []Value) {
+    res, _ = do(ctx, get_stems{}).([]Value)
+    return
+}
+
+type get_stems struct{}
+
+type stemmed_ctx struct{ Context ; *stemmed_rule }
+func (p *stemmed_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *stemmed_ctx) inner() Context { return p.Context }
+func (p *stemmed_ctx) ts(_t string) string {
+    s, t := p.target.String(), p.rule.target.String()
+    return "{="+_t+" "+s+" "+t+" "+ts(p.Context)+"}"
+}
+func (p *stemmed_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case get_stems: return p.stems
+    }
+    return p.Context.do(ctx, op)
+}
+
+type stemmed_rule struct{
+    *rule
+    target Value
+    stems []Value
+}
+func (p *stemmed_rule) kind() Kind { return p.rule.kind()|KindStemmedRule }
+func (p *stemmed_rule) destiny() Value { return p.target/* versus p.rule.target */ }
+func (p *stemmed_rule) String() (s string) {
+    for i, stem := range p.stems { if i > 0 { s += "," }; s += stem.String() }
+    return fmt.Sprintf("%s:%s", p.target, s) // "<%s:%s>"
+}
+
+const configuration_sm = "configuration.sm"
+const pathSepByte = filepath.Separator
+const pathSep = string(pathSepByte)
+
+type _filemap struct { project *project ; patts, paths []Value }
+func (p *_filemap) String() string { return fmt.Sprintf("%s", p.patts) }
+
+func filemap_str(t *[]filemap) (s string) {
+	for i, t := range *t { if 0 < i { s += " " }; s += t.String() }
+	return "["+s+"]"
+}
+
+type filemap struct { *_filemap ; pattern Value }
+func (p *filemap) ts(t string) string { return fmt.Sprintf("{=%s %v}", t, ts(p.pattern)) }
+func (p *filemap) String() (s string) {
+    if p.pattern == nil {
+        s = p._filemap.String()
+    } else {
+        s = p.pattern.String()
+    }
+    return
+}
+
+func (p *filemap) patterns(ctx Context) (pats []Value) {
+    var patts = []Value{ p.pattern }
+    if patts[0] == nil { patts = p.patts }
+
+    for _, pattern := range patts {
+        // NOTE it may preserve closure patterns after this expand
+        pat := expand(ctx,pattern)
+        pats = append(pats, merge(pat)...)
+    }
+    return
+}
+
+// match split filename into list and match each part with the pattern correspondingly.
+func (p *filemap) match(ctx Context, val Value) (_ bool, _ Value, _ string) {
+    // TODO: escape file matching for 'String' and "strcomp" values
+    for _, pat := range p.patterns(ctx) {
+        if matched, name := p._match(ctx, pat, val); matched {
+            return matched, pat, name
+        }
+    }
+    return
+}
+
+func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string) {
+    // TODO: escape file matching for 'String' and "strcomp" values
+    var res any
+    matched, res, _, _ = match(ctx, pat, val)
+
+    if false && !matched && !(isNone(pat) || isNull(pat)) {
+        var str string // NOOP
+        if n := strings.Index(str, pathSep); n < 0 { return }
+
+        // NOTE: Dealing with these files:
+        //     files (
+        //         (foo.c) ⇒ $(srcdir)/sub/dir
+        //         (sub/dir/foo.c) ⇒ $(srcdir)
+        //     )
+        for _, p := range p.paths { // FIXME: performance, operate on p.(*path) instead
+            if _, ok := p.(*path); !ok { continue } // NOTE: only work with paths to improve performance
+            var ps = __string(ctx, p)
+            for i := strings.LastIndex(ps, pathSep); -1 <= i; {
+                var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
+                if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
+                    if matched, _, _, _ = match(ctx, pat, &raw{valbase{pat.Pos()}, str[len(prefix)+1:]}); matched { break }
+                }
+                if 0 < i { i = strings.LastIndex(ps[:i], pathSep) } else { break }
+            }
+        }
+    }
+
+    if res == nil {
+        // okay
+    } else if s, y := res.(string); y {
+        name = s
+    } else if a, y := res.([]string); y {
+        name = joinpath(a...)
+    } else {
+        debug(ctx, "unexpected result: %v", ts(res), trace{})
+    }
+    return // NOTE: also `globMatchFile(ctx, pat, str, true)`
+}
+
+func (p *filemap) stat(ctx Context, name string) (res *file) {
+    var patts = p.patts
+    if len(patts) == 0 {
+        debug(ctx, "no map patterns: %v", p, trace{})
+    }
+
+    if len(p.paths) == 0 {
+        for _, pat := range p.patts {
+            if f, y := pat.(*file); y && ident(ctx,f) == name { return f }
+        }
+        for i, pat := range p.patts {
+            if f, y := pat.(*file); y {
+                info(ctx, "pattern %d. %v %s (exists=%v)", i, f, f.fullname(), f.exists())
+            } else {
+                info(ctx, "pattern %d. %v", i, ts(pat))
+            }
+        }
+        debug(ctx, "%s → %v", name, p.patts, trace{})
+    }
+
+    for _, path := range p.paths {
+        if isNull(path) {
+            debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p), trace{})
+        } else if isNone(path) {
+            debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p))
+            continue
+        }
+
+        var dir, sub string
+
+        if sub = __string(ctx, path); sub == "" {
+            if false {
+                debug(ctx, "empty filemap path: %v, patterns=%v", path, patts, trace{})
+            }
+            return
+        }
+
+        if s := filepath.Clean(sub); sub != s { sub = s }
+
+        if filepath.IsAbs(sub) {      // 'sub' is abs
+            if filepath.IsAbs(name) { // 'name' is abs too
+                if s := sub+pathSep; strings.HasPrefix(name, s) { // 'name' should have 'sub' prefix
+                    name = strings.TrimPrefix(name, s)
+                } else {
+                    continue
+                }
+            }
+        } else if !filepath.IsAbs(name) {
+            // dir = filepath.Clean(base)
+        }
+
+        if res = _stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true}); res != nil { break }
+
+        var pre string // Not used!
+        if filepath.IsAbs(sub) {
+            if pre == "" { // Fullmatch!
+                // For example of:
+                //   xxx.c  <->  (*.c => /path/to/source)
+                // Become:
+                //   /path/to/source  ""  xxx.c
+                res = _stat(ctx, name, stat_dir{sub}, stat_nonexist{true})
+            } else if strings.HasSuffix(sub, pathSep+pre) {
+                // For example of:
+                //   foo/bar/xxx.c  <->  (*.c => /path/to/source/foo/bar)
+                // Become:
+                //   /path/to/source  foo/bar  xxx.c
+                s := strings.TrimSuffix(sub, pathSep+pre)
+                n := strings.TrimPrefix(name, pre+pathSep)
+                res = _stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
+            } else if false { // This is wrong, only base name matched!!
+                // For example of:
+                //   foo/bar/xxx.c  <->  (*.c => /path/to/source)
+                // Become:
+                //   /path/to/source  foo/bar  xxx.c
+                n := strings.TrimPrefix(name, pre+pathSep)
+                res = _stat(ctx, n, stat_sub{pre}, stat_dir{sub}, stat_nonexist{true})
+            }
+        } else {
+            if pre == "" { // Fullmatch!
+                // For example of:
+                //   xxx.c  <->  (*.c => source)
+                // Become:
+                //   <p.absPath>  source  xxx.c
+                res = _stat(ctx, name, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
+            } else if sub == pre {
+                // For example of:
+                //   foo/bar/xxx.c  <->  (*.c => foo/bar)
+                // Become:
+                //   <dir>  foo/bar  xxx.c
+                n := strings.TrimPrefix(name, pre+pathSep)
+                res = _stat(ctx, n, stat_sub{sub}, stat_dir{dir}, stat_nonexist{true})
+            } else if strings.HasSuffix(sub, pathSep+pre) {
+                // For example of:
+                //   foo/bar/xxx.c  <->  (*.c => source/foo/bar)
+                // Become:
+                //   <dir>  source/foo/bar  xxx.c
+                s := strings.TrimSuffix(sub, pathSep+pre)
+                n := strings.TrimPrefix(name, pre+pathSep)
+                res = _stat(ctx, n, stat_sub{pre}, stat_dir{s}, stat_nonexist{true})
+            } else if false { // This is wrong, only base name matched!!
+                // For example of:
+                //   foo/bar/xxx.c  <->  (*.c => source)
+                // Become:
+                //   <dir>  source/foo/bar  xxx.c
+                s := filepath.Join(sub, pre)
+                n := strings.TrimPrefix(name, pre+pathSep)
+                res = _stat(ctx, n, stat_sub{s}, stat_dir{dir}, stat_nonexist{true})
+            }
+        }
+    }
+    return
+}
+
+
+// =============================================================================
+// 1. Core Data Structures & Interning
+// =============================================================================
+
+const mapThreshold = 16
+
+var (
+	// Global Wildcard Constants (Already "interned" by being constants)
+	WildcardOne   = "*"
+	WildcardAny   = "**"
+	WildcardShort = "*?"
+	WildcardChar  = "?"
+
+	// Intern Cache: Maps string content to the canonical string header
+	internPool = make(map[string]string)
+	internM sync.RWMutex
+)
+
+func intern(s string) string {
+	// 1. Optimization: Return constants for wildcards immediately
+	switch s {
+	case "*":  return WildcardOne
+	case "**": return WildcardAny
+	case "*?": return WildcardShort
+	case "?":  return WildcardChar
+	}
+
+	// 2. Fast Path: Read Lock
+	internM.RLock()
+	interned, ok := internPool[s]
+	internM.RUnlock()
+	if ok { return interned }
+
+	// 3. Slow Path: Write Lock
+	internM.Lock()
+	// Double check to prevent race conditions
+	if interned, ok = internPool[s]; ok {
+		internM.Unlock()
+		return interned
+	}
+	internPool[s] = s
+	internM.Unlock()
+	return s
+}
+
+func internBytes(b []byte) string {
+	// Optional: Micro-optimize single-byte/common sequences to bypass the lock entirely
+	switch len(b) {
+	case 1:
+		switch b[0] {
+		case '*': return WildcardOne
+		case '?': return WildcardChar
+		}
+	case 2:
+		if b[0] == '*' { switch b[1] {
+		case '*': return WildcardAny
+		case '?': return WildcardShort
+		}}
+	}
+
+	// 1. Zero-allocation fast-path lookup
+	internM.RLock()
+	interned, ok := internPool[string(b)]
+	internM.RUnlock()
+	if ok { return interned }
+
+	// 2. Slow-path allocation
+	s := string(b)
+	internM.Lock()
+	// Double check to prevent race conditions
+	if interned, ok = internPool[s]; ok {
+		internM.Unlock()
+		return interned
+	}
+	internPool[s] = s
+	internM.Unlock()
+	return s
+}
+
+// nodeEntry preserves order
+type nodeEntry struct {
+	k string
+	v *valcache
+}
+
+// valcache: Hybrid Trie Node (Slice 'o' for order/compactness, Map 'v' for speed)
+type valcache struct {
+	a []any                // Payload: Rules, Filemaps
+	o []nodeEntry          // Primary Storage: Compact & Ordered
+	v map[string]*valcache // Acceleration Index: Created only when len(o) >= mapThreshold
+}
+
+func (p *valcache) String() (s string) { // NOTE: for debug
+	for i, a := range p.a {
+		var t string
+		switch v := a.(type) {
+		case filemap: t = v.String()
+		case *rule: t = v.target.String()
+		}
+		s += fmt.Sprintf("%d:%s,", i, t)
+	}
+	for _, n := range p.o {
+		c, _ := p.get(n.k)
+		s += fmt.Sprintf("%v:%v,", n.k, c)
+	}
+	if s != "" { s = s[:len(s)-1] } // aka. TrimSuffix(s, ",")
+	return "{"+s+"}"
+}
+
+// =============================================================================
+// 2. Valcache Methods
+// =============================================================================
+
+func (c *valcache) get(key string) (*valcache, bool) {
+	if c.v != nil {
+		n, ok := c.v[key]
+		return n, ok
+	}
+	for i := range c.o {
+		if c.o[i].k == key {
+			return c.o[i].v, true
+		}
+	}
+	return nil, false
+}
+
+func (c *valcache) add(rawKey string) *valcache {
+	// Intern the key to deduplicate memory
+	key := intern(rawKey)
+
+	if n, ok := c.get(key); ok {
+		return n
+	}
+
+	child := new(valcache)
+	c.o = append(c.o, nodeEntry{k: key, v: child})
+
+	if len(c.o) == mapThreshold {
+		c.v = make(map[string]*valcache, len(c.o))
+		for _, entry := range c.o {
+			c.v[entry.k] = entry.v
+		}
+	} else if len(c.o) > mapThreshold {
+		c.v[key] = child
+	}
+
+	return child
+}
+
+// =============================================================================
+// 3. Path Processing
+// =============================================================================
+
+// tokenizePaths parse a path pattern (Extended Glob) into tokens
+func tokenizePaths(path string) (results [][][]string) {
+	// Expand braces first: foo/{a,b} -> [foo/a, foo/b]
+	for _, p := range expandBraces(path) {
+		results = append(results, tokenizePath(p))
+	}
+	return
+}
+
+// tokenizePath convert a path into tokens
+func tokenizePath(path string) [][]string {
+	return tokenizeSegments(strings.Split(path, "/"))
+}
+
+func tokenizeSegments(parts []string) [][]string {
+	ss := make([][]string, len(parts))
+
+	for i, part := range parts {
+		// Optimization: If no meta-chars, intern the whole segment
+		if !strings.ContainsAny(part, "*?.[") {
+			ss[i] = []string{intern(part)}
+			continue
+		}
+
+		var tokens []string
+		start := 0
+		
+		for j := 0; j < len(part); {
+			c := part[j]
+			if c == '*' || c == '?' || c == '.' || c == '[' {
+				// Flush preceding literal
+				if j > start {
+					tokens = append(tokens, intern(part[start:j]))
+				}
+
+				if c == '*' {
+					// Check for ** or *?
+					if j+1 < len(part) {
+						if part[j+1] == '*' {
+							tokens = append(tokens, WildcardAny)
+							j += 2; start = j; continue
+						} else if part[j+1] == '?' {
+							tokens = append(tokens, WildcardShort)
+							j += 2; start = j; continue
+						}
+					}
+					tokens = append(tokens, WildcardOne)
+					j++
+				} else if c == '[' {
+					// Capture [a-z] as one token
+					end := strings.IndexByte(part[j:], ']')
+					if end != -1 {
+						// Intern the whole set "[a-z]"
+						tokens = append(tokens, intern(part[j:j+end+1]))
+						j += end + 1
+					} else {
+						tokens = append(tokens, "[")
+						j++
+					}
+				} else {
+					// Capture . and ? -- Dots and Qmarks
+					tokens = append(tokens, intern(string(c)))
+					j++
+				}
+				start = j
+			} else {
+				j++
+			}
+		}
+		// Flush trailing literal
+		if start < len(part) {
+			tokens = append(tokens, intern(part[start:]))
+		}
+		ss[i] = tokens
+	}
+	return ss
+}
+
+// expandBraces Recursive Brace Expander (One-pass)
+func expandBraces(text string) []string {
+	res, _ := expandBracesAt(text, 0)
+	return res
+}
+
+// expandBracesAt is the recursive core
+// It returns the list of expanded strings found at this level, and the index where it stopped.
+func expandBracesAt(s string, idx int) ([]string, int) {
+	var parts []string // The comma-separated options at this level
+
+	// We need to track the "current working string" for the current comma-option.
+	// However, because we might encounter a nested brace {a,b} inside an option,
+	// we actually need a list of "current prefixes" that we are building.
+	// Let's simplify: 
+	// The standard way to do this recursively is to parse the *structure* first, 
+	// then generate the combinations. 
+	// But to do it in one pass as you asked:
+
+	// Actually, the logic "prefix + middles[n] + suffix" is slightly complex 
+	// to do purely linearly because 'suffix' hasn't been parsed yet.
+	
+	// Better approach for "One Pass":
+	// 1. Scan until '{', ',', or '}'.
+	// 2. If '{': Recurse. Get [m1, m2]. Cartesian product with current prefixes.
+	// 3. If ',': Finish current set of strings, start new set.
+	// 4. If '}': Return.
+
+	currentSet := []string{""} // Start with one empty prefix
+
+	i := idx
+	for i < len(s) {
+		char := s[i]
+
+		if char == '{' {
+			// Recursion: parse the content inside {...}
+			middles, newIdx := expandBracesAt(s, i+1)
+			i = newIdx // Advance to after the matching '}'
+
+			// Cartesian Product: append each middle to each current prefix
+			var nextSet []string
+			for _, prefix := range currentSet {
+				for _, mid := range middles {
+					nextSet = append(nextSet, prefix+mid)
+				}
+			}
+			currentSet = nextSet
+
+		} else if char == '}' {
+			// Found closing brace for THIS level.
+			// We are done with this specific brace block.
+			// Return our results and the current index (to let caller continue)
+			return combine(parts, currentSet), i
+			
+		} else if char == ',' {
+			// Found a comma at THIS level.
+			// 1. Commit currentSet to parts.
+			parts = combine(parts, currentSet)
+			// 2. Reset currentSet for the next option
+			currentSet = []string{""}
+			
+		} else {
+			// Literal character
+			// Append char to all strings in currentSet
+			for k := range currentSet {
+				currentSet[k] += string(char)
+			}
+		}
+		i++
+	}
+
+	// End of string reached (implicit closing brace)
+	return combine(parts, currentSet), i
+}
+
+// Helper to merge the final set into the results
+func combine(existing []string, current []string) []string {
+	if len(current) == 0 { return existing }
+	return append(existing, current...)
+}
+
+// =============================================================================
+// 4. Cache & Uncache Logic
+// =============================================================================
+
+func cache(ctx Context, c *valcache, ss [][]string) *valcache {
+	for _, segment := range ss {
+		for _, token := range segment {
+			c = c.add(token)
+		}
+	}
+	return c
+}
+
+func uncache(ctx Context, root *valcache, ss [][]string) (r []*valcache) {
+	seen := make(map[*valcache]bool)
+	seenShadows := make(map[*valcache]struct{})
+	seenAmpNodes := make(map[*valcache]struct{}) // <--- NEW: Query-level & edge lock
+	var shadowsToSearch []*valcache // <--- NEW: Queue to defer shadow searches
+
+	fullvalue := do(ctx, fullvalue{}).(Value)
+	fullmatch := func(c *valcache) (res bool) {
+		if full, exists := seen[c]; exists { return full }
+		if res = c.matchPayload(ctx, fullvalue); res { r = append(r, c) }
+		seen[c] = res
+		return 
+	}
+
+	const priorDynamicClosureShadowing = true
+
+	var f0 func(*valcache, [][]string, int, int, int) bool
+	f0 = func(c *valcache, ss [][]string, i, j, k int) (found bool) {
+		if c == nil { return false }
+
+		// 1. Success Condition
+		if i == len(ss) { return fullmatch(c) }
+
+		// 2. Segment Boundary
+		if j == len(ss[i]) { return f0(c, ss, i+1, 0, 0) }
+
+		s := ss[i][j]
+
+		// 3. Token Boundary
+		if k == len(s) { return f0(c, ss, i, j+1, 0) }
+
+		// ---------------------------------------------------------------------
+		// DYNAMIC CLOSURE SHADOWING
+		// Must be evaluated before Input Wildcards to survive early returns!
+		// ---------------------------------------------------------------------
+		var doDynamicClosureShadowing func()
+		if x, y := c.get("&"); !y { doDynamicClosureShadowing = func() {} } else {
+			doDynamicClosureShadowing = func() {
+				// CRITICAL FIX: Lock the specific '&' edge!
+				// This guarantees that even if ** forces f0 to revisit this node 
+				// with a new token state, we never double-queue its shadow trie!
+				if _, ok := seenAmpNodes[x]; ok { return } else { seenAmpNodes[x] = struct{}{} }
+
+				if proj := _project(ctx); proj != nil {
+					for _, payload := range x.a {
+						if shadow := proj.shadow(ctx, payload); shadow != nil {
+							if _, ok := seenShadows[shadow]; !ok { 
+								seenShadows[shadow] = struct{}{}
+								shadowsToSearch = append(shadowsToSearch, shadow)
+							}
+						}
+					}
+				}
+			}
+		}
+		if priorDynamicClosureShadowing { doDynamicClosureShadowing() }
+
+		// 4. Input Wildcard
+		switch s {
+		case WildcardOne: // "*"
+			for _, entry := range c.o {
+				if f0(entry.v, ss, i, j, 0) { found = true } // Greedy Consume (Trie)
+			}
+			if f0(c, ss, i, j+1, 0) { found = true } // Stop (Consume Input)
+			return found
+
+		case WildcardShort: // "*?"
+			if f0(c, ss, i, j+1, 0) { found = true } // Stop (Non-Greedy)
+			for _, entry := range c.o {
+				if f0(entry.v, ss, i, j, 0) { found = true } // Continue
+			}
+			return found
+
+		case WildcardAny: // "**"
+			for _, entry := range c.o {
+				if f0(entry.v, ss, i, j, 0) { found = true } // Greedy Consume
+			}
+			if f0(c, ss, i, j+1, 0) { found = true } // Stop
+			return found
+
+		case WildcardChar: // "?"
+			for _, entry := range c.o {
+				// Match Literal or Set
+				if (len(entry.k) == 1 && !isWildcardMeta(entry.k)) || (len(entry.k) > 2 && entry.k[0] == '[') {
+					if f0(entry.v, ss, i, j+1, 0) { found = true }
+				}
+				// Match Trie Wildcards (*, **, *?)
+				if isWildcardMeta(entry.k) {
+					if f0(entry.v, ss, i, j+1, 0) { found = true } // Stop
+					if f0(c, ss, i, j+1, 0) { found = true }       // Continue
+				}
+			}
+			return found
+		}
+
+		// ---------------------------------------------------------------------
+		// 5. TRIE WILDCARD LOGIC
+		// ---------------------------------------------------------------------
+
+		// A. Compressed Node Match
+		if k == 0 && (len(ss[i]) > 1 || s == WildcardChar) {
+			for _, entry := range c.o {
+				if isWildcardMeta(entry.k) { continue }
+				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
+					if f0(entry.v, ss, i, j+n, 0) { found = true }
+				}
+			}
+		}
+
+		// B. Literal / Prefix Match
+		if k < len(s) {
+			for _, entry := range c.o {
+				key := entry.k
+				if isWildcardMeta(key) || key == "?" { continue }
+
+				if len(key) > 2 && key[0] == '[' {
+					if matchCharSet(key, s[k]) {
+						if f0(entry.v, ss, i, j, k+1) { found = true }
+					}
+				} else if len(key) > 0 { // Literal match
+					if strings.HasPrefix(s[k:], key) {
+						// Advance k by the length of the matched prefix.
+						// The next recursive call will safely hit '3. Token Boundary' if k == len(s)!
+						if f0(entry.v, ss, i, j, k+len(key)) { found = true }
+					}
+				}
+			}
+		}
+
+		// (C. Hybrid Token Match has been safely superseded and optimized into B)
+
+		// D. Trie Wildcards
+		
+		if x, y := c.get("?"); y {
+			if f0(x, ss, i, j, k+1) { found = true }
+		}
+		
+		// Handle "*" (WildcardOne) in Trie
+		if x, y := c.get("*"); y {
+			if f0(x, ss, i, j, k) { found = true }          // Transition (Match 0)
+			
+			nextJ, nextK := j, k+1
+			if nextK == len(ss[i][nextJ]) { nextJ++; nextK = 0 }
+			
+			if nextJ < len(ss[i]) {
+				if f0(c, ss, i, nextJ, nextK) { found = true } // Consume (Match 1+)
+			} else {
+				if f0(x, ss, i, nextJ, nextK) { found = true } // End of Segment
+			}
+		}
+
+		// Handle "*?" (WildcardShort) in Trie
+		if x, y := c.get("*?"); y {
+			if f0(x, ss, i, j, k) { found = true }          // Transition (Match 0) - Prioritized
+
+			nextJ, nextK := j, k+1
+			if nextK == len(ss[i][nextJ]) { nextJ++; nextK = 0 }
+			
+			if f0(c, ss, i, nextJ, nextK) { found = true }  // Consume (Match 1+)
+		}
+
+		// Handle "**" (WildcardAny) in Trie
+		if x, y := c.get("**"); y {
+			if f0(c, ss, i+1, 0, 0) { found = true }     // Consume Segment - Prioritized
+			if f0(x, ss, i, j, k) { found = true }       // Transition (Match 0)
+		}
+
+		// ---------------------------------------------------------------------
+		// DYNAMIC CLOSURE SHADOWING
+		// ---------------------------------------------------------------------
+		if !priorDynamicClosureShadowing { doDynamicClosureShadowing() }
+		return found
+	}
+
+	// 1. Traverse the Static Trie and collect all static matches
+	f0(root, ss, 0, 0, 0)
+
+	// 2. Flush the queue: Traverse the Discovered Shadow Tries
+	// This guarantees dynamic matches are appended securely at the END of the array!
+	for _, shadow := range shadowsToSearch {
+		f0(shadow, ss, 0, 0, 0)
+	}
+
+	return
+}
+
+func isWildcardMeta(k string) (res bool) {
+	switch k { case WildcardAny, WildcardOne, WildcardShort: res = true }
+	return
+}
+
+// Returns number of tokens consumed (n) and success (ok).
+func consumeCompressed(nodeKey string, tokens []string) (int, bool) {
+	keyIdx, tokIdx := 0, 0
+	for keyIdx < len(nodeKey) {
+		if tokIdx >= len(tokens) { return 0, false } // Not enough tokens
+		t := tokens[tokIdx]
+		
+		// If input has complex wildcards, abort optimization (let recursion handle it)
+		if t == WildcardAny || t == WildcardOne { return 0, false }
+
+		if t == WildcardChar { // "?"
+			keyIdx++ // Consumes 1 char of nodeKey
+			tokIdx++ // Consumes 1 token
+			continue
+		}
+		
+		// Literal Match (e.g. t="z" matches nodeKey="zz" at index 0)
+		if strings.HasPrefix(nodeKey[keyIdx:], t) {
+			keyIdx += len(t)
+			tokIdx++
+		} else {
+			return 0, false
+		}
+	}
+	// Must consume exactly the whole nodeKey
+	return tokIdx, true
+}
+
+func matchCharSet(pattern string, char byte) bool {
+	// Simplified parser for [a-z0-9]
+	inner := pattern[1 : len(pattern)-1]
+	for i := 0; i < len(inner); i++ {
+		if i+2 < len(inner) && inner[i+1] == '-' {
+			start, end := inner[i], inner[i+2]
+			if char >= start && char <= end { return true }
+			i += 2
+		} else if inner[i] == char {
+			return true
+		}
+	}
+	return false
+}
+
+func canStartMatch(c *valcache, segment []string) bool {
+	if len(segment) == 0 { return false }
+	firstChar := segment[0]
+	
+	// Check exact match (literal or whole token)
+	if _, ok := c.get(firstChar); ok { return true }
+	if len(firstChar) > 0 {
+		if _, ok := c.get(firstChar[:1]); ok { return true }
+	}
+	
+	// Check wildcard/meta match
+	if _, ok := c.get("?"); ok { return true }
+	if _, ok := c.get("*"); ok { return true }
+	
+	for _, entry := range c.o {
+		if entry.k[0] == '[' && matchCharSet(entry.k, firstChar[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+// =============================================================================
+
+type matched_filemap struct{ filemap ; value Value }
+type matched_rule struct{ *rule ; value Value }
+func (t matched_filemap) String() string {
+	s1, s2 := t.filemap.String(), t.value.String()
+	if s1 == s2 { return "{=matched_filemap "+s1+"}" }
+	return "{=matched_filemap "+s1+" name="+s2+"}"
+}
+func (t matched_rule) String() string {
+	s1, s2 := t.rule.String(), t.value.String()
+	if s1 == s2 { return "{=matched_rule "+s1+"}" }
+	return "{=matched_rule "+s1+" name="+s2+"}"
+}
+
+func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
+	for _, a := range p.a {
+		switch a := a.(type) {
+		case filemap:
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.pattern, fullvalue); matched && rem == nil {
+				var a = filemap{a._filemap, a.pattern}
+				if 0 < do(ctx, matched_filemap{a, res}).(int) {
+					ok = true
+				} else {
+					debug(ctx, "%v %v", ts(a), res, callstack{num:10}, trace{})
+				}
+			}
+		case *rule:
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.target, fullvalue); matched && rem == nil {
+				var a = &rule{a.target, a.arged, a.program}
+				if 0 < do(ctx, matched_rule{a, res}).(int) {
+					ok = true
+				} else {
+					debug(ctx, "%v %v", ts(a), res, callstack{num:10}, trace{})
+				}
+			}
+		default:
+			debug(ctx, "%v", ts(a), callstack{num:10}, trace{})
+		}
+	}
+	return
+}
+
+func (p *valcache) ks() string {
+	var ks []string
+	for _, n := range p.o { ks = append(ks, n.k) }
+	return "[" + strings.Join(ks, " ") + "]"
+}
+func (p *valcache) k(s []string, j int) (string, bool) {
+	for _, o := range p.o {
+		var i, l = 0, len(o.k)
+		for n := j; n < len(s); n += 1 {
+			if t := s[n]; t == "?" {
+				i += 1
+			} else if i < l && strings.HasPrefix(o.k[i:], t) {
+				i += len(t)
+			} else {
+				break
+			}
+		}
+		if i == l { return o.k, true }
+	}
+	return "", false
+}
+
+type hit_segs struct{ *valcache ; s [][]string }
+type fullvalue struct{}
+type fullctx struct{ Context ; any }
+func (p *fullctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case fullvalue: return p.any
+	}
+	return p.Context.do(ctx, op)
+}
+
+// toks handles pure string splitting. We intercept the string here BEFORE it 
+// hits tokenizeSegments, ensuring "**.c" natively compiles as "**/*.c".
+func toks(ctx Context, c *valcache, segs ...string) hit_segs {
+	var norm []string
+	for _, seg := range segs {
+		// Option 1: Normalize intra-string path closures
+		if strings.Contains(seg, "**.") {
+			norm = append(norm, strings.ReplaceAll(seg, "**.", "**/*."))
+		} else {
+			norm = append(norm, seg)
+		}
+	}
+	return hit_segs{c, tokenizeSegments(norm)}
+}
+
+// tokc delegates to toks, so it automatically inherits the normalization
+// applied above when prefix is evaluated.
+func tokc(ctx Context, c *valcache, comp *compound) hit_segs {
+	var prefix string
+	for _, e := range comp.elems {
+		if _, isClosure := unbox(e).(*closure); isClosure {
+			var ss [][]string
+			if prefix != "" { 
+				ss = append(ss, toks(ctx, c, prefix).s...) 
+			}
+			ss = append(ss, []string{"&"})
+			return hit_segs{c, ss} // Mathematical halt!
+		}
+		prefix += __string(ctx, e)
+	}
+	if prefix != "" { return toks(ctx, c, prefix) }
+	return hit_segs{c, nil}
+}
+
+// UPGRADED: tokg builds the token array directly. We use a lookahead (peek) 
+// to dynamically inject a '*' node if '**' is followed by a literal '.'.
+func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
+	var s []string
+	if false && checkpoints { defer func() {
+		if t := tokenizePath(__string(ctx, g)); sf("[%s]",s) != sf("%s",t) {
+			debug(ctx, "%s ⇒ [%s] != %v | %v", g, s, t, c, trace{})
+		}
+	}()}
+	
+	for i, e := range g.elems {
+		if _, isClosure := unbox(e).(*closure); isClosure {
+			var ss [][]string
+			if len(s) > 0 { ss = append(ss, s) }
+			ss = append(ss, []string{"&"})
+			return hit_segs{c, ss} // Mathematical halt!
+		}
+		
+		str := __string(ctx, e)
+		
+		// Fallback for un-split strings inside glob elements
+		if strings.Contains(str, "**.") {
+			str = strings.ReplaceAll(str, "**.", "**/*.")
+		}
+		
+		s = append(s, str) 
+		
+		// Option 1: Inter-token lookahead injection
+		// If current node is "**" and the NEXT node is ".", we implicitly 
+		// insert a "*" node into the slice to consume the file base name.
+		if str == "**" && i+1 < len(g.elems) {
+			nextStr := __string(ctx, g.elems[i+1])
+			if nextStr == "." || strings.HasPrefix(nextStr, ".") {
+				s = append(s, "*") // Inject implicit file-base consumer
+			}
+		}
+	}
+	return hit_segs{c, [][]string{s}}
+}
+
+// tokp natively delegates to tokc/tokg/toks, so it requires no normalization logic of its own.
+func tokp(ctx Context, c *valcache, p *path) hit_segs {
+	var ss [][]string
+	if false && checkpoints { defer func() {
+		if t := tokenizePath(__string(ctx, p)); sf("%s",ss) != sf("%s",t) {
+			debug(ctx, "%v: %v != %v", p, ss, t, trace{})
+		}
+	}()}
+	
+	for _, e := range p.elems {
+		switch t := unbox(e).(type) {
+		case *closure:
+			ss = append(ss, []string{"&"})
+			return hit_segs{c, ss} 
+			
+		case *compound:
+			res := tokc(ctx, c, t)
+			ss = append(ss, res.s...)
+			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == "&" {
+				return hit_segs{c, ss}
+			}
+			
+		case *globpat: 
+			res := tokg(ctx, c, t)
+			ss = append(ss, res.s...)
+			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == "&" {
+				return hit_segs{c, ss}
+			}
+			
+		default: 
+			ss = append(ss, toks(ctx, c, __string(ctx, t)).s...)
+		}
+	}
+	return hit_segs{c, ss}
+}
+
+func _tokq(ctx Context, c *valcache, t *qualword) hit_segs {
+	// 1. unpack(t) correctly interleaves the dots: [word(foo), punct(.), word(c)]
+	// 2. Wrap it in a temporary compound so tokc can natively extract the hit_segs!
+	return tokc(ctx, c, &compound{elements{unpack(t)}})	// Let the universal flattener safely interleave the structural dots!
+}
+func tokq(ctx Context, c *valcache, t *qualword) hit_segs {
+	// Interleave punct(.) on the fly so it hits the cache edges correctly
+	res := make([]Value, 0, len(t.elems)*2-1)
+	for i, e := range t.elems { if i > 0 { res = append(res, implicitDot) }
+		res = append(res, e)
+	}
+	return tokc(ctx, c, &compound{elements{res}})
+}
+
+func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
+	if checkpoints { defer func(s string) {
+		if  truly(ctx, propCache)   { check_cache(ctx, k, s, c, r) }
+		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
+		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, callstack{num:10}, trace{}) }
+	}(c.String())}
+	
+	switch t := k.(type) {
+	case *argumented: return _hit(ctx, c, t.Value)
+	case *loc       : return _hit(ctx, c, t.Value)
+	case *rule      : return _hit(ctx, c, t.target)
+	case *closure   : return do_hit(&fullctx{ctx,t}, toks(ctx, c, "&")) // Return directly to avoid duplication
+	case *compound  : r = do_hit(&fullctx{ctx,t}, tokc(ctx, c, t))
+	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
+	case *path      : r = do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
+	case *qualword  : r = do_hit(&fullctx{ctx,t}, tokq(ctx, c, t)) // CRITICAL FIX: Route qualword to tokq
+	case *percpat   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
+	case *regexpat  : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
+	case *strval    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `{`+__string(ctx,t)+`}`))
+	case *strlit    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `'`+__string(ctx,t.s)+`'`))
+	case *strcomp   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `"`+__string(ctx,t)+`"`))
+	default:
+		segs := strings.Split(__string(ctx, k), pathSep)
+		r = do_hit(&fullctx{ctx,t}, toks(ctx, c, segs...))
+	}
+
+	// Universal Closure Inclusion: For any non-recursive query, unconditionally 
+	// fetch the dynamic closures branch ("&") and append it to the results.
+	if false { r = append(r, do_hit(&fullctx{ctx, k}, toks(ctx, c, "&"))...) }
+	return r
+}
+func do_hit(c Context, a any) (r []*valcache) { r, _ = do(c,a).([]*valcache); return }
+func hit(ctx Context, c *valcache, k Value) []*valcache { return _hit(ctx, c, k) }
+
+type   cache_t struct{ Context }
+type uncache_t struct{ Context ; a []any }
+
+func (c cache_t) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case property: if t&propCache != 0 { return true }
+	case hit_segs: return []*valcache{cache(ctx, t.valcache, t.s)}
+	}
+	return c.Context.do(ctx, op)
+}
+
+func (u *uncache_t) do(ctx Context, op any) (res any) {
+	switch t := op.(type) {
+	case property: if t&propUncache != 0 { return true }
+	case hit_segs: return uncache(ctx, t.valcache, t.s)
+	case matched_filemap, matched_rule:
+		u.a = append(u.a, t); return len(u.a)
+	}
+	return u.Context.do(ctx, op)
+}
+
+func map_files(ctx Context, p *project, patts, paths []Value) (res []filemap) {
+	var base = &_filemap{p, patts, paths}
+	for _, patt := range patts {
+		switch patt.(type) {
+		case *valbase, *null, *none:
+			continue
+		}
+		if c := hit(cache_t{ctx}, &p.filemap, patt); c != nil {
+			switch len(c) {
+			case 1:
+				c0, f := c[0], filemap{base, patt}
+				c0.a, res = append(c0.a, f), append(res, f)
+			default:
+				debug(pc(ctx,patt), "too many cached: %v %v", ts(patt), c, trace{})
+			}
+		} else {
+			debug(pc(ctx,patt), "cache failed: %v", ts(patt), trace{})
+		}
+    }
+    return
+}
+
+func map_entry(ctx Context, p *project, target Value, prog *program) (entry entry) {
+	var patterned = patterned(ctx, target)
+	if !patterned {
+		switch target.(type) {
+		case *barefile, *file, *path, *percpat, *globpat, *regexpat:
+			goto skip_file
+		}
+		if t := p.file(ctx, target); t != nil { target, t.pos = t, target.Pos() }
+	skip_file:
+	}
+
+    var args []Value // e.g. for pattern filtering
+	switch t := target.(type) {
+	case *argumented: target, args = t.Value, merge(t.args...)
+	case *group: debug(ctx, "not supported target: %v", t, trace{})
+	}
+
+	if c := hit(cache_t{ctx}, &p.entries, target); c == nil {
+		debug(ctx, "uncachable for: %v | %s", target, ts(target), trace{})
+	} else {
+		switch len(c) {
+		case 1:
+			r := &rule{target:target, arged:args, program:[]*program{prog}}
+			if patterned { p.patterns = append(p.patterns, r) }
+			if p.main == nil { p.main = r }
+			c[0].a = append(c[0].a, r)
+			entry = r
+		default:
+			debug(pc(ctx,target), "too many cached: %v %v", ts(target), c, trace{})
+		}
+	}
+	return
+}
+
+func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
+	var u = &uncache_t{ctx, nil}
+	var k Value
+
+	if v, ok := key.(Value); ok { 
+		k = v 
+	} else {
+		str := __string(ctx, key)
+		// Emulate the parser: if the raw string is a path, pack it into a *path AST node.
+		if strings.Contains(str, pathSep) {
+			if segs := splitPathStr(ctx, str); len(segs) > 1 {
+				k = packPath(segs)
+			} else {
+				k = _raw(_pos(ctx), str)
+			}
+		} else {
+			k = _raw(_pos(ctx), str)
+		}
+	}
+	
+	var x = hit(u, c, k)
+	for _, a := range u.a {
+		switch t := a.(type) {
+		case T: 
+			res = append(res, t)
+		default: 
+			debug(ctx, "%v %v", ts(key), ts(a), trace{})
+		}
+	}
+	if checkpoints { check_unmap(u, key, c, x) }
+	return
+}
+
+func unmap_entries(ctx Context, p *project, key any, m map[*project]struct{}) (res []entry) {
+	if false && checkpoints { defer check_unmap_entries(ctx, p, key, &res) }
+	if m == nil { m = map[*project]struct{}{} } else if _, y := m[p]; y { return }
+	if m != nil { m[p] = struct{}{} }
+	if res = unmap[entry](ctx, &p.entries, key); res != nil { return }
+	for _, b := range p.bases {
+		if res = unmap_entries(ctx, b, key, m); res != nil { return }
+	}
+	if c := p.configure; false && c != nil {
+		if res = unmap_entries(ctx, c, key, m); res != nil { return }
+	}
+	return
+}
+
+func unmap_files(ctx Context, p *project, key any, m map[*project]struct{}) (res []matched_filemap) {
+	if false && checkpoints { defer check_unmap_files(ctx, p, key, &res) }
+	if m == nil { m = map[*project]struct{}{} } else if _, y := m[p]; y { return }
+	if m != nil { m[p] = struct{}{} }
+	if res = unmap[matched_filemap](ctx, &p.filemap, key); res != nil { return }
+	for _, b := range p.bases {
+		if res = unmap_files(ctx, b, key, m); res != nil { return }
+	}
+	if c := p.configure; c != nil {
+		if res = unmap_files(ctx, c, key, m); res != nil { return }
+	}
+	return
+}
+
+
+type project_ctx struct{ Context ; p *project }
+func (c project_ctx) cast(t reflect.Type) Context { return icast(c,t) }
+func (c project_ctx) inner() Context { return c.Context }
+func (c project_ctx) do(ctx Context, op any) any {
+    switch op.(type) {
+    case get_project: return c.p
+    }
+    return c.Context.do(ctx, op)
+}
+
+type shadowCache struct {
+	val  string
+	trie *valcache
+}
+type project_ext struct{ *plugin.Plugin }
+type project struct {
+    *scope
+
+    pos Pos
+
+    bases []*project
+
+    use *uselist
+
+    configure *project // .configure project
+    configuration *file // configuration.sm if saved or loaded
+
+    absPath string
+    tmpPath string
+    name    string
+    rel     string // path segment relative to the workBaseDir
+    spec    string // relative to search-paths as a specification
+
+    filemap valcache
+    entries valcache
+
+	shadowsMu sync.RWMutex
+	shadows map[Value]*shadowCache
+
+    patterns []*rule // order is important
+    configs  []*def // configure entries
+    main entry
+
+    ext project_ext
+    opt project_opts
+}
+func (_ *project) kind() Kind { return KindObject|KindKnownObject|KindProject }
+func (p *project) Pos() Pos { return p.pos }
+func (p *project) String() string { return "{=project "+p.name+"}" }
+func (p *project) owner() *project { return p.scope.project }
+func (p *project) stencil(_ Context, stems []string) (Value, []string) { return p, stems }
+
+// shadow builds an isolated valcache for the dynamic payload,
+// shadowing stale results by tracking the evaluated string value.
+func (p *project) shadow(ctx Context, payload any) *valcache {
+	var cacheKey Value
+	switch t := payload.(type) {
+	case filemap: cacheKey = t.pattern
+	case *rule: cacheKey = t.target
+	}
+	if cacheKey == nil { return nil }
+
+	// 1. Fully evaluate the closure to get the CURRENT files
+	compiledVal := unloc(expand(_final(ctx), cacheKey))
+	if compiledVal == nil { return nil }
+
+	// 2. Stringify the result to detect reassignments (Stale Cache Detection)
+	compiledStr := __string(ctx, compiledVal)
+
+	// 3. O(1) Memoization Hit (Thread-Safe Read)
+	p.shadowsMu.RLock()
+	if sc, ok := p.shadows[cacheKey]; ok && sc.val == compiledStr {
+		p.shadowsMu.RUnlock()
+		return sc.trie
+	}
+	p.shadowsMu.RUnlock()
+
+	// 4. Cache Miss / Stale Cache: The variable changed! Build a NEW isolated shadow trie.
+	shadow := &valcache{}
+
+	inject := func(elem Value) {
+		var boundPayload any = payload
+		switch t := payload.(type) {
+		case filemap: boundPayload = filemap{_filemap: t._filemap, pattern: elem}
+		case *rule:
+			r := *t
+			r.target = elem
+			boundPayload = &r
+		}
+
+		if nodes := hit(cache_t{ctx}, shadow, elem); len(nodes) > 0 {
+			found := false
+			for _, a := range nodes[0].a {
+				switch existing := a.(type) {
+				case filemap:
+					if bp, ok := boundPayload.(filemap); ok {
+						if existing._filemap == bp._filemap && __string(ctx, existing.pattern) == __string(ctx, bp.pattern) { found = true }
+					}
+				case *rule:
+					if bp, ok := boundPayload.(*rule); ok {
+						if __string(ctx, existing.target) == __string(ctx, bp.target) { found = true }
+					}
+				}
+			}
+			if !found { nodes[0].a = append(nodes[0].a, boundPayload) }
+		}
+	}
+
+	// 5. Inject the NEW current files into the isolated shadow trie
+	if list, ok := compiledVal.(*list); ok {
+		for _, elem := range list.elems { inject(elem) }
+	} else {
+		inject(compiledVal)
+	}
+
+	// 6. Save the new shadow trie (Thread-Safe Write)
+	p.shadowsMu.Lock()
+	if p.shadows == nil { p.shadows = make(map[Value]*shadowCache) }
+	p.shadows[cacheKey] = &shadowCache{val: compiledStr, trie: shadow}
+	p.shadowsMu.Unlock()
+	
+	return shadow
+}
+
+type self struct { *project }
+func (p self) kind() Kind { return p.project.kind()|KindSelf }
+func (p self) String() string { return "{=self "+p.name+"}" }
+
+func findfile(ctx Context, s string, ps ...*project) (_ *file) {
+    if len(ps) == 0 { ps = append(ps, _project(ctx)) }
+    for _, p := range ps { if f := p.file(ctx, s); f != nil { return f } }
+    return
+}
+
+func select_file_1(ctx Context, m matched_filemap) (res *file) {
+    defer func() { if res != nil { res.filemap = &m.filemap } } ()
+
+    if m.paths == nil {
+        if res, _ = m.pattern.(*file); res != nil {
+            return
+        } else {
+            var d = _project(ctx).absPath
+            return _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true})
+        }
+    }
+
+    var fs []*file
+
+    for _, v := range m.paths {
+        if t := expand(_final(ctx),v); t != nil {
+            if d := __string(ctx, t); d != "" {
+                if f := _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true}); f != nil {
+                    fs = append(fs, f)
+                } else {
+                    debug(ctx, "%s ⇒ %v → %v → ''", m.value, v, t, trace{})
+                }
+            } else if false {
+                debug(ctx, "%s ⇒ %v → %v → ''", m.value, v, t, trace{})
+            }
+        } else {
+            debug(ctx, "%s ⇒ %v", m.value, v, trace{})
+        }
+    }
+
+    for _, f := range fs { if f.exists() { return f } }
+    if 0 < len(fs) { res = fs[0] }
+    return
+}
+
+func select_files(ctx Context, m []matched_filemap) (res []*file) {
+    for _, m := range m {
+        if f := select_file_1(ctx, m); f != nil {
+            res = append(res, f)
+        }
+    }
+    return
+}
+
+func select_file(ctx Context, m []matched_filemap) (res *file) {
+    if a := select_files(ctx, m); 0 < len(a) {
+        if res = a[0] ; !res.exists() {
+            for _, f := range a { if f.exists() { return f } }
+        }
+    }
+    return
+}
+
+func (p *project) file(ctx Context, a any) *file {
+    return select_file(ctx, unmap_files(ctx, p, a, nil))
+}
+
+func (p *project) tempdir(ctx Context) (d *def, s string) {
+	for _, t := range []string{"outtmp", ".tmp", "CTD"} {
+		if d = p.resolveDef(ctx, t); d != nil { break }
+	}
+
+	if d == nil {
+		debug(ctx, "%v: tmp is not defined", p, trace{})
+		return
+	}
+
+	// =========================================================
+	// CRITICAL FIX: Polymorphic Macro Expansion
+	// =========================================================
+	// 1. Create a closure context locked to the active project
+	// 2. Stringify the dynamically evaluated result
+	s = filepath.Clean(__string(closure_with(ctx, p), d.value))
+
+	if false && checkpoints { tempdir_check(ctx, p, d, s) }
+	return
+}
+
+func (p *project) tempfile(ctx Context, name string) (f *file) {
+    var t, d = p.tempdir(ctx)
+    switch d {
+    case "", "/":
+        debug(ctx,
+			_f("%v: %s: tempdir is illegal: %v → '%s', %s", p.name, name, t, __string(ctx, t), d),
+			_f("%v", p.resolveDef(ctx, "outtmp")),
+			_f("%v", p.resolveDef(ctx, "target.tmp")),
+			_f("%v", p.resolveDef(ctx, "target.out")),
+			_f("%v", p.resolveDef(ctx, "target.triple")),
+			_f("%v", p.resolveDef(ctx, "rel.remnant")),
+			_f("%v", p.resolveDef(ctx, "rel.chop")),
+			_f("%v", p.resolveDef(ctx, "variant.tag")),
+			trace{})
+    }
+
+    if f = _stat(ctx, name, stat_dir{d}, stat_nonexist{true}); f == nil {
+        debug(ctx, "%v: not a file: %v : %v", p, name, d, trace{})
+    }
+
+    if false && checkpoints { tempfile_check(ctx, p, name, d, f) }
+    return
+}
+
+func (p *project) configuration_sm(ctx Context) (f *file) {
+    if f = p.tempfile(ctx, configuration_sm); f == nil {
+        debug(ctx, "%v: no file %s", p, configuration_sm, trace{})
+    }
+    return
+}
+
+func project_entry(c Context, s any, a ...bool) entry { return _project(c).entry(c, s, a...) }
+func project_resolve(c Context, s string) object { return _project(c).resolve(c, s) }
+
+func (p *project) resolveDef(ctx Context, name string) (res *def) {
+    if o := p.resolve(ctx, name); o != nil { res, _ = o.(*def) }
+    return
+}
+
+func (p *project) resolve(ctx Context, name string) (obj object) {
+    if _, obj = p.find(name); obj != nil { return }
+
+    if p.ext.Plugin != nil {
+        if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
+            debug(ctx, "TODO: convert ext symbol: %v: %s", name, typeof(sym), trace{})
+        }
+    }
+
+    for _, base := range p.bases {
+        if base.has_base(p) {
+            debug(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base), trace{})
+        }
+        if obj = base.resolve(ctx, name); obj != nil { return }
+    }
+
+    if p.configure != nil && p.configure != p {
+        return p.configure.resolve(ctx, name)
+    }
+    return
+}
+
+func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
+    entries = unmap_entries(ctx, p, name, nil)
+
+    if false && p.configure != nil && is_configurecontext(ctx) {
+        entries = append(entries, p.configure._entries(ctx, name, true)...)
+    }
+
+    var resolveBases = __t(_b...)
+    if resolveBases || entries == nil {
+        for _, base := range p.bases {
+            if t := base._entries(ctx, name, resolveBases); t != nil {
+                entries = append(entries, t...)
+                break
+            }
+        }
+    }
+
+    if false && entries == nil { // NOTE: this would be SLOW
+        for _, u := range p.use.list {
+            t := u.project._entries(ctx, name, resolveBases)
+            if t != nil { entries = append(entries, t...); break }
+        }
+    }
+    return
+}
+
+func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
+    var entries = p._entries(c, name, a...)
+    if n := len(entries); 0 < n {
+        if 1 < n { debug(c, "%v : %d entries", name, n, trace{}) }
+        return entries[0]
+    }
+    return
+}
+
+func (p *project) resolvePatterns(ctx Context, v Value, s string) (res []*stemmed_rule) {
+    var t1, t2 time.Time
+
+    defer func(t0 time.Time) {
+        var t = time.Now()
+        if d := t.Sub(t0); d > 1*time.Second {
+            var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
+            var a = auto_get(ctx, "@")
+            for sc := _stemmed(ctx); sc != nil; n += 1 {
+                if c := inner(sc); c != nil { sc = _stemmed(c) } else { break }
+            }
+
+            var pos = _position(ctx)
+            prompt(ctx, "%v: slow: %v: %v, %v %v %v", pos, p, d, d1, d2, d3)
+            prompt(ctx, "%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n)
+
+            for _, pat := range p.patterns {
+                var pt = pat.target
+                var pa = pat.arged
+                var full, r, _, stems = match(ctx, pt, &raw{valbase{pt.Pos()}, s})
+                var m = joinp(ctx, r)
+                prompt(ctx, "%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m)
+            }
+            debug(ctx, "slow")
+        }
+    } (time.Now())
+
+    if res, t1, t2 = p.resolvePatterns123(ctx, v, s); false && len(res) > 0 {
+        for _, t := range res {
+            if f, _ := to_file(t.target); f != nil {
+                f.pos = t.Pos()
+            } else if f = p.file(ctx, s); f != nil {
+                f.pos = t.Pos()
+                t.target = f
+            }
+        }
+    }
+    return
+}
+
+func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed_rule, t1, t2 time.Time) {
+    if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) } ; t1 = time.Now()
+    if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) } ; t2 = time.Now()
+    if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
+    return
+}
+
+func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed_rule) {
+    defer func(t0 time.Time) {
+        if d := time.Now().Sub(t0); d > 1*time.Second {
+            debug(ctx, "%v: slow: %v %v", _position(ctx), val, d)
+        }
+    } (time.Now())
+
+ForPatterns:
+    for _, pat := range p.patterns {
+        if full, r, _, stems := match(ctx, pat.target, &raw{valbase{pat.target.Pos()}, s}); full {
+            var m = joinp(ctx, r)
+
+            if true {
+                for sc := _stemmed(ctx); sc != nil; { // pattern loop detection
+                    if s := __string(ctx, sc.target); s == m { continue ForPatterns }
+                    if c := inner(sc); c != nil { sc = _stemmed(c) } else { break }
+                }
+            }
+
+            if pa := pat.arged; len(pa) > 0 {
+                var y bool
+                var t1 = time.Now()
+                var av = xmerge(ctx, pa...)
+                var t2 = time.Now()
+                for _, a := range av { if y, _, _, _ = match(ctx, a, &raw{valbase{a.Pos()}, s}); y { break } }
+
+                var t3 = time.Now()
+                if d := t3.Sub(t1); d > 1*time.Second {
+                    var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
+                    var ( p = _position(ctx) ; pt = pat.target )
+                    debug(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3)
+                }
+
+                if !y { continue ForPatterns }
+            }
+
+            res = append(res, &stemmed_rule{pat, val, stems})
+        }
+    }
+    return
+}
+
+func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed_rule) {
+    for _, base := range p.bases {
+        var a, _, _ = base.resolvePatterns123(ctx, val, s)
+        res = append(res, a...)
+    }
+    if p.configure != nil && is_configurecontext(ctx) {
+        var a, _, _ = p.configure.resolvePatterns123(ctx, val, s)
+        res = append(res, a...)
+    }
+    return
+}
+
+func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*stemmed_rule) {
+    for _, use := range p.use.list {
+        var a, _, _ = use.project.resolvePatterns123(ctx, val, s)
+        res = append(res, a...)
+    }
+    return
+}
+
+func (p *project) family() (res []*project) {
+    res = append(res, p)
+    for _, base := range p.bases {
+        res = append(res, base.family()...)
+    }
+    return
+}
+
+func (p *project) _isa(s string) (_ bool) {
+    for _, base := range p.bases {
+        if base.name == s || base._isa(s) { return true }
+    }
+    return
+}
+
+func (p *project) isa(proj *project) (_ bool) {
+    for _, base := range p.bases {
+        if base == proj || base.isa(proj) { return true }
+    }
+    return
+}
+
+func (p *project) has_base(proj *project) (_ bool) {
+    for _, base := range p.bases {
+        if base == proj || base.has_base(proj) { return true }
+    }
+    return
+}
+
+func (p *project) has_loaded(ctx Context, proj *project, traveUseLoop bool) (rp *project, res, isb bool) {
+    if u := _universe(ctx) ; u.checkLoadGraph || !u.fastMode {
+        rp, res, isb, _ = p.has_loaded_recur(ctx, p, proj, 1, traveUseLoop)
+    }
+    return
+}
+
+func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
+    if depth > 1 && top == p && true {
+        err = fmt.Errorf("loop '%v' (depth=%d)", p.loop_load_path(), depth)
+        debug(ctx, "%v: %v", p, err, trace{})
+    } else if depth > 128 {
+        err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
+        debug(ctx, "%v: %v", p, err)
+        debug(ctx, "start: %v", top)
+        debug(ctx, "target: %v", proj, trace{})
+    }
+    for _, base := range p.bases {
+        if isb = base == proj; isb { return }
+        if rp, res, isb, err = base.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
+            return
+        } else if res || isb { rp = base ; return }
+    }
+    for _, use := range /*p.loads*/p.use.list {
+        var imp = use.project
+        if imp == top && !traveUseLoop {
+            s := top.loop_load_path()
+            err = fmt.Errorf("loop `%v`", s)
+            debug(ctx, "start: %v", top)
+            debug(ctx, "stop: %v", proj)
+            debug(ctx, "%v: %v", p, err, trace{})
+        }
+        if res = imp == proj; res { rp = imp; return }
+        if rp, res, res, err = imp.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
+            return
+        } else if res { rp = imp; return }
+    }
+    rp = p
+    return
+}
+
+func (p *project) loop_base_path(ctx Context, _p *project, s string) (_ string) {
+    if s == "" { s = p.name }
+    for _, base := range p.bases {
+        if t := s + " → " + base.name; base == _p {
+            return t
+        } else if t = base.loop_base_path(ctx, _p, t); t != "" {
+            return t
+        }
+    }
+    return
+}
+
+func (p *project) loop_load_path() (s string) { return p.loop_load_recur(p) }
+func (p *project) loop_load_recur(top *project) (s string) {
+    for _, use := range /*p.loads*/p.use.list {
+        var imp = use.project
+        if imp == top {
+            if p != top { s = "⇢" }
+            s += fmt.Sprintf("(%s)⇢(%s)", p.spec, imp.spec)
+            break
+        }
+        if t := imp.loop_load_recur(top); t != "" {
+            if p != top { s = "⇢" }
+            s += fmt.Sprintf("(%s)%s", p.spec, t)
+            break
+        }
+    }
+    return
+}
+
+func (p *project) isUsing(usee *project) (res bool) {
+    for _, use := range p.use.list {
+        if res = use.project == usee; res { break  }
+        if res = use.project.isUsing(usee); res { break }
+    }
+    return
+}
+
+func (p *project) isUsingDirectly(proj *project) (res bool) {
+    for _, u := range p.use.list {
+        if res = u.project == proj; res { break }
+    }
+    return
+}
+
+func (p *project) usees(bases, basesRecur, useeRecur, pre bool) (res []*project) {
+    if p.opt.traveUseLoop { return }
+    if bases {
+        for _, base := range p.bases {
+            res = append(res, base.usees(basesRecur, basesRecur, useeRecur, pre)...)
+        }
+    }
+    for _, u := range p.use.list {
+        if pre { res = append(res, u.project) }
+        if useeRecur {
+            for _, u := range u.project.usees(bases && basesRecur, basesRecur, true, pre) {
+                if !p.isUsingDirectly(u) { res = append(res, u) }
+            }
+        }
+        if !pre { res = append(res, u.project) }
+    }
+    return
+}
+
+// Note: this is okay not using an atomic value, because
+// chdirMutex can serve to protect the whole timeframe.
+var chdirMutex = new(sync.Mutex)
+
+func lockCD(dir string, dura time.Duration) error {
+    // Protect the work directory, `chdirMutex` ensures that
+    // there's only one timer being counting to avoid work
+    // directory being changed before the deadline.
+    chdirMutex.Lock()
+    go func() {
+        if dura > 0 { time.Sleep(dura) }
+        chdirMutex.Unlock()
+    } ()
+    return os.Chdir(dir)
+}
+
+type dirtyOpts struct {
+    general_opts
+    verboseUpdated  bool "verbose-updated"  // vu,
+    verboseOutdated bool "verbose-outdated" // vo,
+    checksum bool "checksum" // cs,crc,
+    silent   bool "silent" // s,
+    pats []Value
+}
+
+type default_value struct{ v Value }
+type exe_res       struct{ v Value }
+type get_program   struct{}
+
+type is_ordered_prereq struct{}
+type is_prerequisite   struct{}
+
+func _execution(c Context) *execution { return cast[*execution](c) }
+
+type execution_lang struct{}
+type missing_file struct{ file string }
+
+type interpret struct { name string ; args []Value }
+type execution struct {
+    automatic
+    sync.Mutex
+    sync.WaitGroup
+
+    by dirtyOpts
+
+    proj *project
+    prog *program
+    recipes []Value
+    language string
+
+    defval   Value
+    defers []Value
+    values []Value
+
+    prerequisite Value
+    _ordered bool
+
+    _env []*pair
+    changedWD string
+
+    dirt string // reason of outdated
+    start time.Time // start time
+
+    recs map[Value]int
+
+    calleeErrs []error
+    calleeErrsM sync.Mutex
+
+    missing []string
+
+    grepping bool
+    grepped []Value
+    ordered []Value
+    targets []Value // all targets def
+
+    countFiles int
+    traceLevel int
+
+    interpreted []interpreter
+}
+func (p *execution) inner() Context { return &p.automatic }
+func (p *execution) caller() *execution { return _execution(p.Context) }
+func (p *execution) cast(t reflect.Type) Context {
+    if t == reflect.TypeOf(p) { return p }
+    if t == reflect.TypeOf((*argumented_ctx)(nil)) { return nil }
+    if t == reflect.TypeOf((*stemmed_ctx)(nil)) { return nil }
+    return p.automatic.cast(t)
+}
+func (p *execution) do(ctx Context, op any) (res any) {
+    switch t := op.(type) {
+    case ex_closure: return true
+    case get_position:
+        if p.prerequisite != nil { return p.prerequisite.Pos() }
+        if len(p.recipes) > 0 { return p.recipes[0].Pos() }
+
+    case get_program : return    p.prog
+    case get_project : if nil != p.proj { return p.proj }
+    case get_scope   : if nil != p.proj { return p.proj.scope }
+
+    case is_ordered_prereq : return p._ordered && p.prerequisite != nil
+    case is_prerequisite, evoke_loop_null: return p.prerequisite != nil
+
+    case default_value:  p.defval = t.v; return
+    case exe_res:        p.values = append(p.values, t.v); return
+    case mark_dirty:     p.dirty_mark(t.a...)//; return
+    case act_traverse:   p.traverse(ctx, t.v); return
+    case act_traversed:  return p.traversed(ctx,t.v)
+    case act_dirt:       return p.dirty(ctx,t.a...)
+
+    case param_name:
+        if p.prog != nil {
+            if t.i < len(p.prog.params) {
+                res = p.prog.params[t.i].name
+            }
+        }
+        return
+
+    case execution_lang:
+        return p.language
+
+    case interpret:
+        return p.interp(ctx, t.name, t.args)
+
+    case missing_file:
+        p.missing = append(p.missing, t.file)
+
+    case property:
+        if t&propDirtyOpts != 0 { return &p.by }
+    }
+    return p.automatic.do(ctx, op)
+}
+
+func (p *execution) ts(t string) (s string) {
+    s = "{=" + t
+    if v := p.prerequisite; v != nil {
+        s += " " + v.String()
+    }
+    s += " " + ts(p.Context) + "}"
+	return
+}
+
+func (p *execution) aquire() func() { p.Lock() ; return p.Unlock }
+
+func (p *execution) depth() (res int) {
+    for c := p.caller(); c != nil; c = c.caller() { res += 1 }
+    return
+}
+func (p *execution) calleeError(err error) {
+    if err != nil {
+        p.calleeErrsM.Lock()
+        p.calleeErrs = append(p.calleeErrs, err)
+        p.calleeErrsM.Unlock()
+    }
+}
+
+// traverse_context is a single thread traverse context, for traversing in a new goroutine,
+// a spawned traversal must be used and then merge.
+func (p *execution) level(n int) { p.traceLevel += n }
+func (p *execution) trace(a ...any) { printIndentDots(p.traceLevel, a...) }
+func (p *execution) tracef(s string, a ...any) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
+
+func (p *execution) traversed(ctx Context, target Value) []Value {
+    if !isTrivial(target) {
+        if _, y := to_file(target); y {
+            p.addFilesCount(1)
+        }
+        if truly(ctx, is_ordered_prereq{}) {
+            p.ordered = append(p.ordered, target)
+            auto_set(ctx, defVoid, "|", _list(p.ordered...))
+        } else {
+            p.targets = append(p.targets, target)
+            auto_set(ctx, defVoid, "^", _list(p.targets...))
+            auto_set(ctx, defVoid, "<", p.targets[0])
+            auto_set(ctx, defVoid, ">", p.targets[len(p.targets)-1])
+        }
+    }
+    return p.targets
+}
+
+func (p *execution) addFilesCount(n int) {
+    p.countFiles += n
+    if c := p.caller(); c != nil { c.addFilesCount(1) }
+}
+
+func (p *execution) env(ctx Context) (env []string, osi int) {
+    env = os.Environ()
+    osi = len(env)
+    for _, p := range p._env {
+        var k, v = __string(ctx, p.key), __string(ctx, p.val)
+        env = append(env, fmt.Sprintf("%s=%s", k, v)) // strconv.Quote(v)
+    }
+    return
+}
+
+func (p *execution) dirty_mark(vals ...Value) {
+    const (
+        enableDirtyMark = true
+        perUpdatedDep = true
+    )
+    if !enableDirtyMark {
+        // does nothing
+    } else if targets := merge(auto_get(p, "@")); len(targets) == 0 {
+        // should not happen, but safely ignoring..
+    } else if len(vals) == 0 {
+        vals = append(vals, targets...)
+    } else if true {
+        vals = merge(vals...)
+
+        var mat, dup bool
+        var opts = &p.by
+        for _, t := range targets {
+        ForVals:
+            for _, val := range vals {
+                if eq(p, val, t) {
+                    dup = true; continue ForVals
+                }
+                for _, pat := range opts.pats {
+                    if mat, _, _, _ = match(p, pat, val); mat {
+                        if perUpdatedDep { updatedDeps(p, t, val) }
+                        break ForVals
+                    }
+                }
+            }
+            if !perUpdatedDep && mat { updatedDeps(p, t, vals...) }
+            if !dup { // vals = append(vals, merge(targets)...)
+                vals = append(updatedDeps(p, t), vals...)
+                vals = append(merge(t), vals...)
+            }
+        }
+    }
+    if false && enableDirtyMark { p.dirty_mark(vals...) }
+}
+
+func (p *execution) interp(ctx Context, name string, args []Value) (res bool) {
+    if len(p.interpreted) == 0 && 0 < len(p.recipes) && name == "configure" {
+        if x, y := dialects["eval"]; y && x != nil {
+            p.interpret(ctx, x, args)
+        }
+    } else if x, y := dialects[name]; y && x != nil {
+        p.interpret(ctx, x, args)
+        return
+    }
+    return true
+}
+
+func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Value) {
+    target, _, _ := wait(ctx, waitopts{
+        ExecResults: false,
+        ReportUpdates: false,
+        StampCurrentTarget: false,
+    })
+
+    if false && truly(ctx, is_test_univ{}) {
+        if x, y := target.(*file); y && strings.HasSuffix(x.name, ".log") {
+            defer func() {
+                var cc = pc(pc(ctx,auto_get(ctx,">")),x.fullname())
+                debug(cc, "%v %v %v", p.language, args, res)
+            } ()
+        }
+    }
+    if _, y := target.(*file); y && !truly(ctx, is_configure{}) && !p.dirty(ctx) {
+        // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
+        return
+    }
+
+    res = i.evaluate(ctx, args...)
+
+    if checkpoints {
+        p.evaluate_check(ctx, i, args, res)
+    }
+
+    if res != nil {
+        if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
+            _, ent, _ := entryIndicator(ctx, _entry(ctx))
+            prompt(ctx, "%v: %s\n", ent, intername(i))
+            debug(ctx, "set buffer value failed: %v → %v", prev, res, trace{})
+        }
+    }
+
+    p.interpreted = append(p.interpreted, i)
+
+    if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
+        _, ent, _ := entryIndicator(ctx, _entry(ctx))
+        prompt(ctx, "%v: %s\n", ent, intername(i))
+        debug(ctx, "update recipes hash failed: %v", e, trace{})
+    }
+    return
+}
+
+func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
+    var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
+    if !y {
+        debug(ctx, "nil dirtyopts : %v", ts(ctx), trace{})
+        return
+    }
+    if len(updatedDeps(ctx, target)) > 0 { return true }
+    if v := auto_get(ctx, "^"); v != nil { a = append(a, v) }
+    for _, dep := range xmerge(ctx, a...) {
+        var mat bool = len(opts.pats) == 0
+        if !mat {
+            for _, pat := range opts.pats {
+                if mat, _, _, _ = match(ctx, pat, dep); mat { break }
+            }
+        }
+        if mat && (updated(ctx, dep) || statFile(ctx, dep).mod().After(statFile(ctx, target).mod())) {
+            return true
+        }
+    }
+    return
+}
+
+func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
+    for _, dep := range updatedDeps(ctx, target) {
+        if ds := statFile(ctx, dep); ds != nil {
+            res = ds.mod().After(t) || isDirtyAfter(ctx, dep, t)
+            if res { break }
+        }
+    }
+    return
+}
+
+func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
+    var target Value
+
+    target, _, _ = wait(p, waitopts{
+        ReportUpdates: false,
+        ExecResults: false,
+        StampCurrentTarget: false,
+    })
+
+    var y bool
+    var reason string
+    var targetFile *file
+    var targetFull string
+    var opts, args = _opts_[dirtyOpts](ctx, aa...)
+
+    if targetFile, targetFull, y = as_fullname_file(ctx, target); !y {
+        targetFull = __string(ctx, target)
+    } else if n := targetFile._traved; n > 1 {
+        if false { debug(ctx, 5, "%v, %v, %d", targetFile, targetFull, n) }
+        return
+    }
+
+    var verb = opts.debug>0 || opts.verbose
+    var ts = trimPromptString(targetFull)
+
+    if s := statFile(ctx, target); s == nil || s.exists() != existenceConfirmed {
+        outdated, reason = true, "not exists" //fmt.Sprintf("not exists: %s %v", typeof(target), target)
+    } else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, s.mod()) {
+        outdated, reason = true, "prerequisites updated"
+    }
+
+    if outdated {
+        assert(reason != "", "needs outdated reason")
+    } else if y, e := p.isRecipesChanged(ctx, target); e != nil {
+        debug(ctx, "recipes changed: %v", e, trace{})
+        return
+    } else if y {
+        outdated, reason = true, "recipes changed"
+    } else if !opts.checksum {
+        // does nothing
+    } else {
+        debug(ctx, "FIXME: check prerequisites against the saved checksums", trace{})
+        return
+    }
+
+    verb = verb ||
+        (opts.verboseOutdated && outdated) ||
+        (opts.verboseUpdated && !outdated)
+
+    if verb {
+        var d = time.Now().Sub(p.start)
+        if false && d > 10*time.Second {
+            debug(ctx, "%v: %v", target, d)
+        }
+
+        var m string
+        if outdated { m = "outdated" } else { m = "updated" }
+
+        var s = d.String()
+        if targetFile != nil {
+            if targetFile._travin > 1 {
+                s += fmt.Sprintf(", travin %d", targetFile._travin)
+            }
+            if targetFile._traved > 1 {
+                s += fmt.Sprintf(", traved %d", targetFile._traved)
+            }
+            targetFile._dirty += 1
+        }
+
+        var n = p.countFiles + len(p.grepped)
+        if db := opts.debug>0; db && !opts.verbose {
+            debug(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFull, m, n, s, opts.debug)
+        } else {
+            prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s)
+			debug(ctx, "%d %d", db, 6)
+        }
+    }
+
+    if outdated && p.dirt != "" { reason = p.dirt + "; " + reason }
+    if !opts.silent && reason != "" { p.dirt = reason }
+    return
+}
+
+func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal string, prereqFile *file) {
+	var mapPrereqFile = func(name Value) {
+		var ms = unmap_files(ctx, _project(ctx), name, nil)
+		if ms != nil {
+			defer func() {
+				if prereqFile != nil { return }
+				for _, m := range ms { warn(ctx, "%v, skipped %v", name, m) }
+				debug(ctx, "skipped %d, projects %v", len(ms), projects)
+			}()
+		}
+
+        if prereqFile = select_file(ctx, ms); prereqFile != nil {
+            prereqValue = prereqFile
+			prereqFinal = prereqFile.name
+		} else if prereqValue != nil {
+			if f, y := to_file(prereqValue); y {
+				prereqFile = f
+				prereqFinal = f.name
+			} else {
+				prereqFinal = __string(ctx, prereqValue)
+				if _, y := prereqValue.(*path); y {
+					if f := _stat(ctx, __string(ctx, prereqValue)); f != nil { prereqFile, prereqValue = f, f }
+				}
+			}
+		}
+    }
+
+	prereqValue = val
+    if _, y := prereqValue.(object); y { return }
+
+    if !patterned(ctx,prereqValue) {
+        switch prereqValue.(type) {
+        case flag, *strlit, *strcomp: // skip checking files for performance
+		default: mapPrereqFile(prereqValue)
+        }
+		return
+    }
+
+    var stems = _stems(ctx)
+    if len(stems) == 0 {
+        if false { debug(ctx, "%v: no stems, %v", prereqValue, ctx, trace{}) }
+        return
+    }
+
+	var stemVals []Value
+	for _, s := range stems {
+		stemVals = append(stemVals, s)
+	}
+
+    var rest []Value
+    prereqPattern = prereqValue
+    prereqValue, rest = stencil(ctx, prereqPattern, stemVals)
+    if isTrivial(prereqValue) {
+        debug(ctx, "%v: empty stencil with %v", prereqPattern, stems, trace{})
+    } else if len(rest) > 0 {
+        debug(ctx, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest, trace{})
+    }
+
+    mapPrereqFile(prereqValue)
+    return
+}
+
+func (p *execution) traved(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *file) {
+    var av = targetValue
+    var bv = prereqValue
+    if prereqFile == nil {
+        do(ctx, act_traversed{prereqValue}) // set $< $> $^ or $|
+    } else if targetValue != prereqFile {
+        do(ctx, act_traversed{prereqFile}) // set $< $> $^ or $|
+        bv = prereqFile
+    }
+
+    if !isTrivial(av) && !isTrivial(bv) {
+        var a = statFile(ctx, av).mod()
+        var b = statFile(ctx, bv).mod()
+        if (!a.IsZero() && b.After(a)) || updated(ctx, bv) || updatedDeps(ctx, bv) != nil {
+            updatedDeps(ctx, av, bv)
+        }
+    }
+}
+
+func with(ctx Context, target Value) (res bool) {
+    if t := auto_find(ctx, "@"); t == nil || t.value == nil {
+        return
+    } else if res = equal(ctx, target, t.value); res {
+        return
+    } else {
+        return with(inner(ctx), target)
+    }
+}
+
+func (p *execution) traverse(ctx Context, prereqValue Value) {
+    var (
+        targetValue Value
+
+        prereqPattern Value
+        prereqFinal string
+        prereqFile *file
+
+        concreteList []entry
+        stemmedList []*stemmed_rule
+    )
+
+    if targetValue = auto_target_value(ctx); targetValue == nil {
+        debug(ctx, "%s: target is nil\n", prereqFinal, trace{})
+    } else if isTrivial(targetValue) {
+        debug(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue, trace{})
+    }
+
+    var projs = []*project{ p.proj }
+
+    if len(projs) == 0 {
+        note(ctx, "%v", closure_projects(ctx))
+        debug(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue, trace{})
+    }
+
+    prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
+
+    if f := prereqFile; f != nil {
+        if f._travin += 1; f._travin > 1 { return }
+    }
+
+    // Recursion detection -- simply return to break it if looped.
+    if traverseDetectLoops {
+        if eq(ctx, targetValue, prereqValue) {
+            prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue)
+            warn(ctx, "recursion: %T %v", prereqValue, prereqValue)
+            warn(ctx, "recursion: %T %v", targetValue, targetValue)
+            debug(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs, trace{})
+        }
+        for c := p; c != nil; c = c.caller() {
+            if val := auto_get(c, "@"); val != nil && eq(c, val, prereqValue) {
+                var f = as_file(ctx, targetValue, projs...)
+                if true && f == nil {
+                    prompt(ctx, "%v: %v: recursion detected, consider using [(once)] to avoid\n", targetValue, prereqValue)
+                    warn(ctx, "recursion: %T %v", prereqValue, prereqValue)//.of(prereqValue)
+                    warn(ctx, "recursion: %T %v", targetValue, targetValue)//.of(targetValue)
+                    debug(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
+                }
+                return
+            }
+        }
+    }
+
+    if prereqFile != nil {
+        if n := prereqFile._traved; n > 0 {
+            return
+        }
+    }
+
+    t1 := time.Now()
+
+    for _, proj := range projs {
+        var entries = proj._entries(ctx, prereqValue, false)
+        if len(entries) == 0 { continue }
+        concreteList = append(concreteList, entries...)
+        for _, entry := range entries {
+            if !isNull(entry) && targetValue == entry { continue }
+            if w, k := targetValue.(*word); k && w.s == prereqFinal {
+                continue // target resolve to itself, does nothing
+            }
+            traverse(ctx, entry)
+        }
+    }
+
+    if d := time.Now().Sub(t1); 60*time.Second < d {
+        for _, concrete := range concreteList {
+            prompt(ctx, "%v: slow: %v %v\n", concrete.Pos(), concrete, targetValue)
+        }
+        debug(ctx, "%v: slow: %v: %v %v (%d concretes)\n", _position(ctx), targetValue, prereqValue, d, len(concreteList))
+    }
+
+    if prereqFile != nil && prereqFile.exists() {
+        p.traved(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
+        return
+    }
+
+    t2 := time.Now()
+
+    for _, proj := range projs {
+        for _, p := range proj.patterns { assert(patterned(ctx,p.target), "not pattern") }
+
+        var patterns = proj.resolvePatterns(ctx, prereqValue, prereqFinal)
+        if len(patterns) == 0 { continue }
+
+        stemmedList = append(stemmedList, patterns...)
+
+        for _, entry := range patterns { traverse(ctx, entry) }
+    }
+
+    if d := time.Now().Sub(t2); 60*time.Second < d {
+        for _, stemmed  := range stemmedList { prompt(ctx, "%v: slow: %v\n", stemmed.Pos(), stemmed) }
+        debug(ctx, "%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList))
+    }
+
+    p.traved(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
+    return // no operation
+}
+
+func (p *execution) prerequisites(va []Value, ordered bool) {
+    defer p.Wait()
+    p._ordered = ordered
+    for _, p.prerequisite = range va { traverse(p, p.prerequisite) }
+    p.prerequisite = nil
+    return
+}
+
+func _program(ctx Context) (p *program) {
+    p, _ = do(ctx, get_program{}).(*program)
+    return
+}
+
+type program struct {
+    pos Pos
+    project *project
+    params   []*auto
+    depends  []Value // normal
+    ordered  []Value // order-only
+    recipes  []Value
+    language  string
+}
+
+func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
+    for _, d := range prog.depends {
+        if g, y := d.(*modification); y {
+            for _, m := range g.list {
+                if __string(ctx, m.elems[0]) == name { ms = append(ms, m) }
+            }
+        }
+    }
+    return
+}
+
+const maxCallRecursion  = 32 //64
+
+func (prog *program) workdir(ctx Context) (workdir string) {
+    var proj = prog.project
+    if p := _execution(ctx); p == nil {
+        workdir = proj.absPath
+    } else if p.changedWD == "" {
+        var o object
+        if o = proj.resolve(ctx, "CWD"); isTrivial(o) {
+            if o = proj.resolve(ctx, "/"); isTrivial(o) {
+                debug(ctx, "both $(CWD) and $/ are trivial", trace{})
+            }
+        }
+        if v := expand(_final(ctx),o); v == nil {
+            debug(ctx, "trivial %v", ts(o), trace{})
+        } else {
+            workdir = __string(ctx, v)
+        }
+    } else if filepath.IsAbs(p.changedWD) {
+        workdir = p.changedWD
+    } else {
+        workdir = filepath.Join(proj.absPath, p.changedWD)
+    }
+    return
+}
+
+func (prog *program) target(ctx *execution) (target Value) {
+    if target = _entry(ctx).destiny(); target == nil {
+        debug(ctx, "%v: nil entry target", target, trace{})
+    }
+
+    switch a := target.(type) {
+    case *strlit, *strcomp: // NOTE: skip strings to optimize speed from searching
+    case *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+    case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+    default:
+        if _, y := a.(flag); y {
+            if s := prog.project.name; s == "configure" || s == "configure.base" {
+                break
+            }
+        }
+        if f := prog.project.file(ctx, a); f != nil {
+            if f._traved > 1 { return } else { target = f }
+        }
+    }
+
+    if ctx.recs == nil { ctx.recs = make(map[Value]int) }
+    ctx.recs[target] += 1
+    return
+}
+
+func (prog *program) check_exe(ctx *execution) {
+    var cc = ctx.Context
+    var a = []Value{ auto_get(cc, "@") }
+    var depth, loop int = 0, -1
+
+callerloop:
+    for c := ctx.caller(); c != nil; c = c.caller() {
+        if _program(c) == prog {
+            if depth += 1; depth == maxCallRecursion { break callerloop }
+            var t = auto_get(c, "@")
+            for i, v := range a {
+                if eq(ctx, t, v) { loop = i; break callerloop }
+            }
+            if loop < 0 { a = append(a, t) }
+        }
+    }
+
+    if 0 <= loop {
+        var o = cast[*term](cc)
+        var v = auto_get(o, "@")
+        var t = auto_get(cc, "@")
+        if o != nil {
+            if v != nil && eq(cc, v, t) {
+                if true { debug(ctx, "skip closure loop: %v %v", o, t) }
+                // FIXES: skip execution as it's closure, for example:
+                //
+                //   %.h($(headers)): $(srcinc)/%.h update-file
+                //
+                // where the 'update-file' is like:
+                //
+                //   update-file: [((in)) (closure) (set @=&@)] $(in) \
+                //       [(read-file $>) (update-file -p)]
+                //
+                // see also Rule.traverse for the same skip.
+                return
+            }
+        }
+
+        prompt(ctx, "%v: %v: %v, %v\n", a[0], v, cc, o)
+        for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
+        debug(ctx, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a, trace{})
+    }
+
+    if depth < maxCallRecursion {
+        // continues
+    } else if c := ctx.caller(); c != nil {
+        ctx.traceLevel = c.traceLevel
+
+        var tt = auto_get(c, "@")
+        var s, _ = as_fullname_string(ctx, tt)
+        prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
+        debug(ctx, "max recursion call (%d)\n", depth)
+
+        const collapse = false
+
+        for ; c != nil; c = c.caller() {
+            var n int
+
+            if collapse {
+                for next := c.caller(); next != nil; next = next.caller() {
+                    if d := auto_get(next, "@"); d == nil { continue } else
+                    if t := d; t != nil && eq(ctx, t, tt) { n += 1;  continue }
+                    if _program(next) == _program(c) { n += 1; c = next } else { break }
+                }
+            }
+
+            if prog, t := _program(c), auto_get(c, "@"); prog == nil {
+                erro(ctx, "%v (@=%v)", _entry(ctx), tt)
+                break
+            } else if n > 0 {
+                erro(ctx, "%v (repeated %d times)", t, n)
+            } else if !collapse {
+                erro(ctx, "%v : %v", t, auto_get(c, ">"))
+            } else if depth -= 1; maxCallRecursion - depth > 5 {
+                erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth)
+                break
+            } else {
+                erro(ctx, "%v : %v", t, auto_get(c, ">"))
+            }
+
+            flush(ctx) // dump immediately
+        }
+
+        debug(ctx, depth, "#>", _entry(ctx), trace{})
+    }
+}
+
+func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
+    if res = auto_get(ctx, "-"); res != nil {
+        return
+    }
+    if len(ctx.interpreted) == 0 {
+        if x, y := dialects[""]; y && x != nil {
+            return ctx.interpret(ctx, x, nil)
+        }
+        debug(ctx, "no default dialect", trace{})
+    }
+    return
+}
+
+func (prog *program) execute(_ctx Context) (res Value) {
+    var exe = &execution{
+        automatic:automatic{Context:_ctx, defs:make(def_map)},
+        recs:make(map[Value]int), start:time.Now(), prog:prog,
+        proj:prog.project, recipes:prog.recipes, language:prog.language,
+    }
+
+    if checkpoints { defer prog.execute_check(exe, &res) }
+
+    prog.check_exe(exe)
+
+    defer func() {
+        for _, a := range exe.defers {
+            if x, y := a.(*group); y {
+                modify(exe, x, true)
+            } else {
+                debug(exe, "defer: not a modifier: %s", ts(a), trace{})
+            }
+        }
+
+        if res == nil { res = auto_get(exe, "-") }
+        if res == nil { res = exe.defval }
+        if res != nil { do(exe.Context, default_value{res}) }
+
+        exe.defval = nil
+    } ()
+
+    for _, param := range prog.params {
+        if  exe.params == nil  {
+            exe.params = make(map[string]*auto, len(prog.params))
+        }
+        exe.params[param.name] = param
+    }
+
+    if checkpoints { prog.execute_check_0(exe) }
+
+    // NOTE: set "@" before setting auto args
+    // Select the right target value before setting parameters,
+    // because the target could be overrided by parameters.
+    exe.set(exe, defVoid, "@", prog.target(exe))
+
+    if t := _stems(exe); t != nil {
+        exe.set(exe, defVoid, "*", ease(exe, t))
+    }
+
+    exe.do(exe, init_args{&exe.automatic})
+    exe.prerequisites(prog.depends, false)
+    exe.prerequisites(prog.ordered, true)
+
+    if checkpoints { prog.execute_check_1(exe) }
+
+    if len(prog.recipes) == 0  { return }
+    return prog.result_or_default_interpret(exe)
+}
+
+func _configurecontext(c Context) *configurecontext { return cast[*configurecontext](c) }
+func is_configurecontext(ctx Context) bool { return _configurecontext(ctx) != nil }
+
+type silent_configure struct {}
+
+type configurecontext struct {
+    Context
+    current *project
+    silent bool
+    file *os.File
+    writer *bufio.Writer
+    defs map[string]struct{}
+    done map[*def]struct{}
+}
+func (cc *configurecontext) inner() Context { return cc.Context }
+func (cc *configurecontext) cast(t reflect.Type) Context { return icast(cc, t) }
+func (cc *configurecontext) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case silent_configure: if cc.silent { return true }
+    }
+    return cc.Context.do(ctx, op)
+}
+func (cc *configurecontext) open_configuration_sm(ctx Context, p *project) (res *os.File) {
+    if f := p.configuration_sm(ctx); f == nil {
+        debug(ctx, "%p: nil configuration file", p, trace{})
+    } else if s := f.fullname(); s == "" {
+        debug(ctx, "empty configuration file name: %v", f, trace{})
+    } else if e := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
+        debug(ctx, "make path %s failed: %v", filepath.Dir(s), e, trace{})
+    } else {
+        res, e = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600))
+        if e != nil { debug(ctx, "%v", e, trace{}) }
+    }
+    return
+}
+func (cc *configurecontext) execute(ctx *execution, e entry) {
+    var d *def
+    var s string
+    var p = e.owner()
+
+    if checkpoints {
+        defer cc.execute_check(ctx, e, p, &s, &d)
+    }
+
+    if p != cc.current && p != nil {
+        cc.defs = make(map[string]struct{}) // reset defs for p
+
+        // NOTE: configuration.sm is created for every project
+        var f = cc.open_configuration_sm(ctx, p)
+        if f != nil {
+            if cc.writer != nil {
+                if e := cc.writer.Flush(); e != nil {
+                    debug(ctx, "%v", e, trace{})
+                }
+            }
+            if cc.file != nil {
+                if e := cc.file.Close(); e != nil {
+                    debug(ctx, "%v", e, trace{})
+                }
+            }
+        }
+
+        cc.file, cc.writer = f, bufio.NewWriter(f)
+        fmt.Fprintf(cc.writer, "# %s (%s) configuration\n", p.spec, p.name)
+
+        if !cc.silent {
+            u := _universe(ctx)
+            s := u.trimSpecPath(ctx, p.spec)
+            prompt(ctx, "configure %s …… (%s)\n", p.name, s)
+            if true { flush(ctx) }
+        }
+
+        cc.current = p
+    }
+
+    e.execute(ctx)
+
+    s = __string(ctx, e.destiny())
+    if _, y := cc.defs[s]; y { return }
+
+    if d = cc.current.finddef(s); d == nil {
+        debug(ctx, "%v: `%s` not configured", cc.current, s, trace{})
+        return
+    }
+
+    cc.defs[s] = struct{}{}
+
+    if s := d.name; d.value == nil {
+        // Set <nil> value with exec-assign ('!=') to a None value.
+        fmt.Fprintf(cc.writer, "%v !=\n", s)
+    } else {
+        fmt.Fprintf(cc.writer, "%v = %v\n", s, d.value.String())
+    }
+    return
+}
+func (cc *configurecontext) close() {
+    if cc.writer != nil { if e := cc.writer.Flush(); e != nil {} }
+    if cc.file != nil   { if e := cc.file.Close();   e != nil {} }
+}
+
+func scanExitStatts(err error) (n, status int) {
+    switch e := err.(type) {
+    case *exitstatus: n, status = 1, e.int
+    default: n, _ = fmt.Sscanf(err.Error(), fmtExitStatus, &status)
+    }
+    return
+}
+
+type filewalkFunc func(file *file, err error) error
+
+func walkFileInfos(ctx Context, root string, pats []Value, fn filepath.WalkFunc) (err error) {
+    return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+        if err != nil { return err }
+    ForPats:
+        for _, p := range pats {
+            var matched bool
+            if matched, _, _, _ = match(ctx, p, _pathStr(ctx, path)); !matched {
+                matched, _, _, _ = match(ctx, p, _pathStr(ctx, filepath.Base(path)))
+            }
+            if matched {
+                if err = fn(path, info, err); err != nil {
+                    break ForPats
+                }
+            }
+        }
+        return err
+    })
+}
+
+func walkFiles(ctx Context, root string, pats []Value, fn filewalkFunc) error {
+    return walkFileInfos(ctx, root, pats, func(path string, info os.FileInfo, err error) error {
+        if err != nil { return err }
+        var rel string
+        if rel, err = filepath.Rel(root, path); err != nil {
+            return err
+        }
+        return fn(_stat(ctx, rel, stat_dir{root}, stat_fileinfo{info}), err)
+    })
+}
+
+var configuredFiles = make(map[string]*scope, 8)
+
+type (
+    configureconvertArgs func([]Value, *bytes.Buffer) []Value
+    configureconvertFunc func(string, *bytes.Buffer)
+    configureconvertOpts struct {
+        general_opts
+        mode     os.FileMode `mode`
+        makePath bool `path`
+        mustConf bool `mustconfig,mustconf,must-conf,must-config,nc,needsconfig,needs-config`
+        reconfig bool `reconfig`
+        update   bool `update`
+    }
+)
+func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData configureconvertFunc, opts *configureconvertOpts, args ...Value) (_ Value) {
+    var (
+        closured = closure_projects(ctx)
+        filename string
+        f *file
+        target Value
+    )
+
+    args = parseOpts(ctx, opts, args...)
+
+    if target = auto_get(ctx, "@"); isTrivial(target) {
+        debug(ctx, "'@' is not defined", trace{})
+    } else if f, filename, _ = as_fullname_file(ctx, target, closured...); f == nil {
+        if depend := auto_get(ctx,">"); !isTrivial(depend) {
+            panic(traveTargetNotDefinedFile)
+        } else if true {
+            prompt(ctx, "%v: not defined as file\n", __string(ctx, target))
+            debug(ctx, "%v", ts(target), trace{})
+        }
+        return
+    } else if filename == "" {
+        debug(ctx, "%v: empty fullname", target, trace{})
+    }
+
+    if _, prev := auto_set(ctx, defVoid, "@", f); opts.debug>0 {
+        debug(ctx, "configure-file: %s->%s (%v -> %v)", f, filename, ts(prev), ts(f))
+    }
+
+    if f.info == nil { if f := _stat(ctx, filename); f != nil { f.info = f.info }}
+    if f != nil && 0 < opts.debug {
+        debug(ctx, "configure-file: %v: %v (%s) (%v)", auto_get(ctx,"@"), f.fullname(), closured)
+    }
+
+    if len(ctx.proj.configs) == 0 {
+        // no need to check configuration
+    } else if f := ctx.proj.configuration_sm(ctx); f == nil || !f.exists() {
+        prompt(ctx, "%v\n", filename)
+        if opts.mustConf {
+            var d = opts.debug ; if d == 0 { d = 1 }
+            debug(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj, trace{})
+        } else if true {
+            debug(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj)
+        }
+    }
+
+    // Check previously configured files, we only configure once unless
+    // optReconfig is true.
+    var closure *scope
+    if configuredFiles != nil {
+        var okay bool
+        closure, okay = configuredFiles[filename]
+        if okay && closure != nil && !opts.reconfig { return }
+    }
+
+    //if closure == nil { closure = ctx.closcop }
+    defer func(s string, c *scope) { configuredFiles[s] = c } (filename, closure)
+
+    var data bytes.Buffer
+    if h := auto_get(ctx,"-"); !isNull(h) { args = append(args, h) }
+    if dealArgs != nil { args = dealArgs(args, &data) }
+    if dealData != nil {
+        for _, arg := range args {
+            if str := __string(ctx, arg); str == "" {
+                continue
+            } else {
+                dealData(str, &data)
+            }
+        }
+    }
+
+    if data.Len() == 0 {
+        prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
+        debug(ctx, "empty configuration data", trace{})
+    } else if f := ctx.proj.configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
+        // NOTE: TrimSpace to ease emacs *compilation* parse errors
+        debug(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String()))
+    }
+
+    var (
+        e error
+        same bool
+        status string
+    )
+    if opts.verbose { defer func(st time.Time) {
+        if same {
+            if true { return } else { status = "unchanged" }
+        } else if status == "" {
+            status = fmt.Sprintf("outdated (%s)", filename)
+        }
+
+        var d = time.Now().Sub(st)
+        prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filename), status, d)
+        if d := opts.debug; d>0 { debug(ctx, "%v (%v)", auto_get(ctx, "@"), d) }
+    }(time.Now())}
+
+    if f.info != nil {
+        if same, e = crc64CheckFileModeContent(ctx, filename, data.Bytes(), opts.mode); e != nil {
+            debug(ctx, " crc64 checksum failed: %v", e, trace{})
+            return
+        }
+        if same {
+            var tt = f.info.ModTime()
+            for _, d := range merge(ctx.targets...) {
+                if f, y := to_file(d); !y { continue } else
+                if dt := f.info.ModTime(); dt.After(tt) { tt = dt }
+            }
+            if tt.After(f.info.ModTime()) { e = touch(ctx, f, 0, false, tt) }
+            return f
+        }
+    } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != pathSep {
+        if e = os.MkdirAll(dir, os.FileMode(0755)); e != nil {
+            debug(ctx, " %v", e, trace{})
+        }
+    }
+
+    if e = ioutil.WriteFile(filename, data.Bytes(), opts.mode); e != nil {
+        debug(ctx, " %v", e, trace{})
+    }
+
+    if f.info == nil {
+        if f.info, e = os.Stat(filename) ; e == nil {
+            debug(ctx, " %v", e, trace{})
+        }
+    }
+
+    if 0 < opts.debug {
+        status = fmt.Sprintf("configured (%s, %d bytes)", filename, data.Len())
+    } else {
+        status = fmt.Sprintf("configured (%d bytes)", data.Len())
+    }
+    return f
+}
+
+type modifier_configureinput struct { modifier_ }
+func (ctx *modifier_configureinput) x(args ...Value) (result any) {
+    var opts = configureconvertOpts{ mode: os.FileMode(0600) }
+    var dealArgs = func(args []Value, out *bytes.Buffer) []Value {
+        var p = _project(ctx)
+
+        if x, y := p.Lookup("configure.names").(*def); y {
+            args = append(args, xmerge(ctx, x.value)...)
+        }
+
+        var configs = make(map[string]*def)
+        for _, a := range args {
+            var name = __string(ctx, a)
+            if _, ok := configs[name]; ok {
+                continue
+            } else if obj := p.resolve(ctx, name); obj == nil {
+                debug(ctx, "undefined %v", name, trace{})
+                return nil
+            } else if def, ok := obj.(*def); ok {
+                configs[name] = def
+            }
+        }
+        for _, c := range p.configs {
+            var name = c.ident(ctx)
+            if def, ok := p.Lookup(name).(*def); ok {
+                configs[name] = def
+            }
+        }
+        for _, def := range configs {
+            fmt.Fprintf(out, "#undef %s\n", def.ident(ctx))
+        }
+        return args
+    }
+    return configureconvert(_execution(ctx), dealArgs, nil, &opts, args...)
+}
+
+// configure-file modifier (see also builtinConfigureFile), example usage:
+//
+//     config.h: config.h.in [(configure-file)]
+//
+type modifier_configurefile struct { modifier_ }
+func (ctx *modifier_configurefile) x(args ...Value) (result any) {
+    var opts = configureconvertOpts{ mode: os.FileMode(0600) }
+    var convert = func(str string, out *bytes.Buffer) {
+        configurestring(ctx, out, _project(ctx), str)
+    }
+    return configureconvert(_execution(ctx), nil, convert, &opts, args...)
+}
+
+// extract-configuration extracts configuration from C/C++ files, example usage:
+//
+//      config.h.in:[(extract-configuration)]: $(wildcard *.cpp)
+//
+type modifier_extractconfiguration struct { modifier_
+    mode os.FileMode "mode"
+    makePath bool "path"
+    target string "target"
+    rxs []*regexp.Regexp "rx,regex" // regexp.Compile(s)
+}
+func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
+    var pats []Value
+    var pos = _position(ctx)
+    for _, arg := range args {
+        switch a := arg.(type) {
+        case *group: pats = append(pats, a.elems...)
+        default:     pats = append(pats, a)
+        }
+    }
+
+    if len(pats) == 0 {
+        debug(ctx, "extract-configuration: missing file names (patterns)", trace{})
+        return
+    }
+
+    if len(ctx.rxs) == 0 {
+        debug(ctx, "extract-configuration: missing -rx=... flags", trace{})
+        return
+    }
+
+    if ctx.target == "" { ctx.target = "configuration" }
+
+    var outFile string
+    if target := auto_get(ctx,"@"); isNull(target) {
+        debug(ctx, " target '@' is undefined", trace{})
+        return
+    } else {
+        outFile = __string(ctx, target)
+    }
+
+    if ctx.makePath {
+        if err := os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
+            debug(ctx, " make path failed: %v", err, trace{})
+            return
+        }
+    }
+
+    var fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, ctx.mode)
+    if err != nil {
+        debug(ctx, " open file failed: %v", err, trace{})
+        return
+    }
+
+    var out = bufio.NewWriter(fil)
+    defer func() { out.Flush() ; fil.Close() } ()
+
+    var depends, sources []Value
+    if d := auto_get(ctx, "^"); !isTrivial(d) { depends = xmerge(ctx, d) }
+
+    var patsVal = ease(ctx, pats)
+    for _, depend := range depends {
+        var a []Value
+        switch d := depend.(type) {
+        case *file:
+            if a = merge(call(ctx, "filter", nil, patsVal, d)); a != nil {
+                sources = append(sources, a...)
+            }
+        case *path:
+            var s = __string(ctx, d)
+            err = walkFiles(ctx, s, pats, func(file *file, err error) error {
+                if err == nil { sources = append(sources, file) }
+                return err
+            })
+        default:
+            var s = __string(ctx, d)
+            var dir = filepath.Dir(s)
+            var name = filepath.Base(s)
+            var f = _stat(ctx, name, stat_dir{dir})
+            if f == nil {
+                debug(ctx, " extract-configuration: `%s` file not found", name, trace{})
+                return
+            } else if f.info.IsDir() {
+                err = walkFiles(ctx, s, pats, func(f *file, err error) error {
+                    if err == nil { sources = append(sources, f) }
+                    return err
+                })
+            } else if a = merge(call(ctx, "filter", nil, patsVal, d)); a != nil {
+                sources = append(sources, a...)
+            }
+        }
+    }
+
+    var exprs = make(map[string]struct{})
+
+sourceloop:
+    for _, source := range sources {
+        var s string
+        switch t := source.(type) {
+        case *file: s = t.fullname()
+        default:    s = __string(ctx, t)
+        }
+
+        var f *os.File
+        if f, err = os.Open(s); err != nil {
+            prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)
+            continue sourceloop
+        }
+
+        scanner := bufio.NewScanner(f)
+        scanner.Split(bufio.ScanLines)
+    scanloop:
+        for scanner.Scan() {
+            var s = scanner.Text()
+            for _, x := range ctx.rxs {
+                if sm := x.FindStringSubmatch(s); sm == nil {
+                    continue
+                } else {
+                    exprs[sm[1]] = struct{}{}
+                    break scanloop
+                }
+            }
+        }
+
+        f.Close()
+    }
+
+    var keys []string
+    for x, _ := range exprs { keys = append(keys, x) }
+    sort.Strings(keys)
+
+    for _, k := range keys { fmt.Fprintf(out, "#%s :{(configure)}\n", k) }
+
+    fmt.Fprintf(out, "\n")
+    fmt.Fprintf(out, "%s:{(configure -check)}\\\n", ctx.target)
+    for _, k := range keys { fmt.Fprintf(out, "  %s \\\n", k) }
+    fmt.Fprintf(out, "\n")
+    return
+}
+
+const (
+    vertag = "dev" // dev, alpha, beta, final
+)
+
+type property uint64
+
+const (
+    propDirtyOpts property = 1<<iota
+    propErros
+    propReversal
+    propCache
+    propUncache
+)
+
+type (
+    mark_dirty     struct{ a []Value }
+    act_dirt       struct{ a []Value }
+    act_count_dia  struct{ t []diagtype }
+    act_traversed  struct{ v Value }
+    act_traverse   struct{ v Value }
+    init_args      struct{ *automatic }
+    get_closure_scopes struct{}
+    get_args       struct{}
+    get_workdir    struct{}
+	get_fatpos     struct{ p Pos }
+    get_position   struct{}
+    get_project    struct{}
+    get_scope      struct{}
+    no_position    struct{}
+    on_errors      struct{ i int }
+    param_name     struct{ i int }
+    is_good_with   struct{ p property ; a []any }
+    is_test_case   struct{}
+    is_test_mode   struct{}
+    is_test_univ   struct{}
+)
+
+func _workdir(ctx Context) (s string) {
+	s, _ = do(ctx, get_workdir{}).(string)
+	return
+}
+
+func paramName(ctx Context, n int) (s string) {
+	s, _ = do(ctx, param_name{n}).(string)
+    return
+}
+
+func diagCount(ctx Context, t ...diagtype) (i int) {
+    i, _ = do(ctx, act_count_dia{t}).(int)
+    return
+}
+
+type Context interface {
+	cast(reflect.Type) Context
+	do(Context, any) any
+}
+
+func do(c Context, o any) any { return c.do(c, o) }
+
+func truly(ctx Context, ops ...any) (_ bool) {
+	for _, op := range ops {
+		switch t := do(ctx, op).(type) {
+		case []*valcache: return len(t) > 0
+		case bool: return t
+		}
+	}
+	return
+}
+
+func try[T any](ctx Context, op any) (_ T) {
+    if ctx != nil {
+		if x, y := do(ctx, op).(T); y {
+			return x
+		}
+	}
+    return
+}
+
+func cast[T Context](ctx Context) (res T) {
+    if ctx != nil {
+        if t := ctx.cast(reflect.TypeOf(res)); t != nil {
+          return t.(T)
+        }
+    }
+    return
+}
+
+func icast(ctx Context, t reflect.Type) (res Context) {
+    if v := reflect.ValueOf(ctx); v.Type() == t {
+        res = ctx
+    } else if i := _inner(v); i != nil {
+        res = i.(Context).cast(t)
+    }
+    return
+}
+
+func _inner(v reflect.Value) (i Context) {
+	if x, y := v.Interface().(interface{ inner() Context }); y {
+		return x.inner()
+	} else if t := v.Type(); t.Kind() == reflect.Struct {
+		for n := 0; false && n < v.NumField(); n++ {
+			if ft := t.Field(n); ft.Anonymous {
+				var fv = v.FieldByIndex(ft.Index)
+				if fv.CanInterface() {
+					if f := fv.Interface(); ft.Name == "Context" {
+						i, _ = f.(Context)
+						return
+					} else if i, y = f.(Context); y {
+						return
+					}
+				}
+				if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
+					if fv = fv.Addr(); fv.CanInterface() {
+						if i, y = fv.Interface().(Context) ; y {
+							return
+						}
+					}
+				}
+			}
+		}
+		if x, y := t.FieldByName("Context"); y && x.Anonymous {
+			if v = v.FieldByIndex(x.Index); v.IsValid() {
+				if i, y = v.Interface().(Context) ; y {
+					return
+				}
+				if false && v.Type().Kind() == reflect.Struct && v.CanAddr() {
+					if i, y = v.Addr().Interface().(Context) ; y {
+						return
+					}
+				}
+			}
+		} else if false {
+			for n := 0; n < v.NumField(); n++ {
+				if f := t.Field(n); f.Anonymous {
+					var fv = v.FieldByIndex(f.Index)
+					if fv.CanInterface() {
+						if i, y = fv.Interface().(Context); y {
+							return
+						}
+					}
+					if fv.Type().Kind() == reflect.Struct && fv.CanAddr() {
+						if fv = fv.Addr(); fv.CanInterface() {
+							if i, y = fv.Interface().(Context) ; y {
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+	} else if t.Kind() == reflect.Pointer {
+		i = _inner(v.Elem())
+	}
+	return
+}
+
+func inner(c Context) Context { return _inner(reflect.ValueOf(c)) }
+
+func _scope(ctx Context) (s *scope) {
+    s, _ = do(ctx, get_scope{}).(*scope)
+    return
+}
+
+func _project(ctx Context) (p *project) {
+    p, _ = do(ctx, get_project{}).(*project)
+    return
+}
+
+func auto_target_value(ctx Context) (res Value) {
+    if val := auto_get(ctx, "@"); val == nil {
+        if false { erro(ctx, "target is nil") }
+    } else if v := expand(ctx, val); v == nil {
+        erro(ctx, "multiple targets: %v → %v", val, v)
+    } else {
+        res = scalarize(v)
+    }
+    return
+}
+
+func auto_target_valstr(ctx Context) (val Value, str string) {
+    if val = auto_target_value(ctx); val == nil {
+        if false { erro(ctx, "target is nil") }
+    } else {
+        str, _ = as_fullname_string(ctx, val)
+    }
+    return
+}
+
+type stopframe string
+type skipint int
+type frames int
+type callstack struct{
+	num, frames, skip int
+	stop string
+}
+
+var (
+    callstackLine1 = regexp.MustCompile(`^(?:extbit\.io/)?((?:smart\.\(.+?\)\.)?.+?)(\(.*\))$`)
+    callstackLine2 = regexp.MustCompile(`^	(.*?:\d+)(?: \+.*)?$`)
+    callstackPanic = regexp.MustCompile(`^panic(\(.+\))$`)
+    callstackSkips = regexp.MustCompile(`^(?:(?:testing\.tRunner`+
+		`|created by testing\.(\*T)\.Run in goroutine [0-9]+`+ // skips: |erro|recovered
+		`|(?:extbit\.io/)?(?:.+?)smart\.(?:do(?:_hit)?|tr(?:ace|uly|y)|(?:\*diagnostic|diagtracer)\.trace)`+
+		`|runtime\.Goexit)\(.+\)|exit status [0-9]+)$`)
+)
+func _callstack(s string, i, j int, args ...any) (res []byte) {
+    var nums []int
+	var stop string
+    var v = bytes.Split(rt_debug.Stack(), []byte{'\n'})
+
+    i += 2 // skips this func
+	for _, a := range args {
+		switch t := a.(type) {
+		case bool: if !t { return /* d */ }
+		case int: nums = append(nums, t)
+		case stopframe: stop, j = string(t), len(v) / 2
+		case skipint: i += int(t) * 2
+		case frames: if 0 < t { j += int(t) } else { j += len(v) / 2 }
+		}
+	}
+
+	switch len(nums) {
+	case 0: j += 1
+	case 1: j += nums[0]
+	case 2: j += nums[1]; i += nums[0]*2
+	default: panic("too many stack nums")
+	}
+
+    var wasPanic bool
+    for 0 < j && i+1 < len(v) {
+        if callstackSkips.Match(v[i]) { i += 2; continue }
+
+		sm1 := callstackLine1.FindSubmatch(v[i+0]) //extbit.io/smart.recovered(...)
+		sm2 := callstackLine2.FindSubmatch(v[i+1]) //	/.../src/context.go:123 +0x456
+
+		if sm1 != nil && sm2 != nil { n := i
+			switch string(sm1[1]) {
+			case stop: i, j = len(v), 0
+			case "panic":
+				if false { fmt.Printf("%s: %s `%s`\n", sm2[1], v[i+0], v[i+1]) }
+				i, wasPanic = i+2, true
+				continue
+			}
+
+			var e string
+			if i, j = i+1, j-1; 0 < j && i < len(v) {
+				if wasPanic { wasPanic, e = false, "	<---- panic" }
+			} else {
+				e = fmt.Sprintf("  (%d more)", (len(v)-n)/2)
+			}
+
+            res = append(res, sm2[1]...)
+            res = append(res, []byte(":"+s+" ")...)
+            res = append(res, sm1[1]...)
+            res = append(res, sm1[2]...)
+            res = append(res, []byte(e+"\n")...)
+        } else {
+			i += 1
+		}
+    }
+    return
+}
+
+func debugSyntax(ctx Context, s string) (res bool) {
+    if u := _universe(ctx); u != nil {
+        for _, t := range u.debugSyntax { if res = t == s; res { break } }
+    }
+    return
+}
+
+const (
+    diagInfo diagtype = iota
+    diagWarn
+    diagError
+    diagPrompt
+)
+
+type diagtype int
+type diagpoint struct {
+    t diagtype
+    position Position
+    message string
+	panic any
+    stack []byte // see also rt_debug.Stack()
+}
+
+type too_many_diags       struct{ int }
+type too_many_erros       struct{ int }
+type trace_errors         struct{ Context ; int }
+type trace_evoke_loop_err struct{ Context ; Value }
+type trace_evoke_loop     struct{ Context }
+type trace_val            struct{ int ; val Value }
+type trace_ctx            struct{ int }
+type trace                struct{}
+type evoke_loop_null      struct{}
+type evoke_loop_panic     struct{}
+
+func (x trace_evoke_loop) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case evoke_loop_panic: return true
+    }
+    return x.Context.do(ctx, op)
+}
+
+func (t trace_evoke_loop_err) String() string {
+    return "evoke loop: " + ts(t.Value)
+}
+
+func (t trace_errors) String() string {
+    return fmt.Sprintf("trace %d errors, %v", t.int, ts(t.Context))
+}
+
+func (t too_many_diags) String() string { return fmt.Sprintf("too many diagnostics (%d)", t.int) }
+func (t too_many_erros) String() string { return fmt.Sprintf("too many errors (%d)", t.int) }
+
+// NOTE: never recover test_fail in recovered, it will break the test runner
+type test_fail struct{ Context; i int }
+type test_failed struct{}
+
+func (t test_fail) Error() string { return typeof(t.Context)+": test fail" }
+func (_ test_failed) Error() string { return "test failed" }
+
+func recovered(ctx Context) {
+    var ( n int ; te trace_errors )
+
+	for e := recover(); e != nil; e = recover() {
+		switch n += 1 ; t := e.(type) {
+		case              failure: erro(t.Context, t.Error())
+		case                Value: erro(ctx, "trace: %s", ts(t))
+		case               string: erro(ctx, "trace: %s", t)
+		case        runtime.Error: erro(ctx, "trace: %s", t.Error())
+		case       too_many_diags: erro(ctx, "too many diagnostics (%v)", t.int)
+		case       too_many_erros: erro(ctx, "too many errors (%v)", t.int)
+		case trace_evoke_loop_err: erro(pc(ctx,t.Value), "evoke loop (%s)", ts(t.Value))
+		case trace_errors: te = t
+		case test_fail:
+			if t.i += 1; t.i == 1 {
+				debug(ctx, "%s: failed (%d panics)", typeof(t.Context), n, callstack{frames:-1})
+			}
+			if flush(ctx); true { runtime.Goexit() } else if false { panic(test_failed{}) } else { return }
+		default:
+			if true { panic(e) } else { note(ctx, "%s: %v", typeof(e), e) }
+		}
+	}
+
+    if 0 < n {
+        debug(ctx, "%s (%d panics)", typeof(te.Context), n, callstack{frames:-1})
+        flush(ctx)
+    }
+
+    if false && truly(ctx, is_test_mode{}) {
+        if te.Context != nil && 0 < te.int {
+            panic(test_fail{te.Context, 0}) // rethrow to break the test runner
+        }
+    }
+}
+
+var _debug_m sync.Mutex
+func debug(ctx Context, f any, a ...any) {
+	_debug_m.Lock(); defer _debug_m.Unlock()
+
+	var tr = false
+	var trCtx int
+	var trVal int
+	var cs callstack
+	var dias []*diag_point
+	var args []any
+	for _, a := range a {
+		switch t := a.(type) {
+		case trace: tr = true
+		case trace_ctx: trCtx = t.int
+		case trace_val: trVal = t.int
+		case callstack:
+			if 0 < t.num     { cs.num = t.num }
+			if 0 < t.skip    { cs.skip = t.skip }
+			if 0 != t.frames { cs.frames = t.frames }
+			if "" != t.stop  { cs.stop = t.stop }
+		case []*diag_point:
+			dias = append(dias, t...)
+		case *diag_point:
+			dias = append(dias, t)
+		default:
+			args = append(args, t)
+		}
+	}
+
+	var p *diagpoint
+	var s = _position(ctx).String()+": "
+	switch t := f.(type) {
+	case *diag_point:
+		if t.f != "" {
+			p, _ = do(ctx, diag_point{diagPrompt, s+t.f+"\n", t.a}).(*diagpoint)
+		}
+	case []*diag_point:
+		for _, t := range t {
+			p, _ = do(ctx, diag_point{diagPrompt, s+t.f+"\n", t.a}).(*diagpoint)
+		}
+	case string:
+		for _, t := range strings.Split(t, "\n") { if t == "" { continue }
+			p, _ = do(ctx, diag_point{diagPrompt, s+t+"\n", args}).(*diagpoint)
+		}
+	default:
+		p, _ = do(ctx, diag_point{diagPrompt, s+typeof(t)+": %v\n", args}).(*diagpoint)
+	}
+
+	if n := trCtx; n > 0 {
+		var pos = _position(ctx)
+		for c := inner(ctx); c != nil && 0 < n && pos.valid(); c = inner(c) {
+			var _pos = _position(c)
+			if !_pos.valid() || _pos.same(&pos) { continue }
+
+			n -= 1
+			pos = _pos
+
+			proj := _project(c)
+			s := pos.String() + ": " + typeof(c) + ": "
+			if proj == nil {
+				s += "<nil>"
+			} else {
+				s += proj.name
+			}
+
+			if e := _entry(c); e != nil {
+				if t, _, _ := entryIndicator(c, e); t == "" {
+					s += ": " + ident(ctx, e)
+				} else {
+					s += ": " + t
+				}
+			}
+
+			if false { s += " ; " + ts(c) }
+
+			p, _ = do(c, diag_point{diagPrompt, s+"\n", nil}).(*diagpoint)
+		}
+	}
+
+	if n := trVal; n > 0 {
+		p, _ = do(ctx, diag_point{diagError, "TODO: trace value\n", nil}).(*diagpoint)
+	}
+
+	for _, d := range dias {
+		p, _ = do(ctx, diag_point{diagPrompt, s+d.f+"\n", d.a}).(*diagpoint)
+	}
+
+	if args = []any{}; p == nil { return }
+	if cs.num > 0     { args = append(args, cs.num) }
+	if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
+	if cs.frames != 0 { args = append(args, frames(cs.frames)) }
+	if cs.stop != ""  { args = append(args, stopframe(cs.stop)) }
+	if p.stack = _callstack("info:", 5, 0, args...); true { flush(ctx) }
+	if tr {
+		if truly(ctx, is_test_mode{}) {
+			p.panic = test_fail{ctx, 0}
+		} else {
+			p.panic = trace_errors{ctx, diagCount(ctx, diagError)}
+		}
+		panic(p.panic)
+	}
+}
+
+const diagnostic_limit = 10_000
+var   diagnostic_limit_erros = 520
+var   diagnostic_limit_bytes = 1_000_000
+
+func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
+func _f(f string, a ...any) *diag_point { return &diag_point{0, f, a} }
+
+type diag_struct struct{ t diagtype; f string; a []any }
+type diag_trace diag_struct
+type diag_point diag_struct
+type diag_flush struct{}
+type diagnostic struct{
+    Context
+    sync.Mutex
+    points []*diagpoint
+    erros int // number of flushed erros
+    flushed int // in bytes
+}
+func (d *diagnostic) aquire() func() { d.Lock(); return d.Unlock }
+func (d *diagnostic) cast(t reflect.Type) Context { return icast(d, t) }
+func (d *diagnostic) inner() Context { return d.Context }
+func (d *diagnostic) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case property: if t&propErros != 0 { return d.erros }
+    case diag_flush   : return d.flush(ctx)
+	case diag_point   : return d.point(ctx, t.t, t.f, t.a...)
+    case act_count_dia: return d.count(t.t...)
+    }
+    if d.Context == nil { return }
+    return d.Context.do(ctx, op)
+}
+func (d *diagnostic) add(p *diagpoint) *diagpoint {
+    defer d.aquire()()
+    if i := len(d.points); diagnostic_limit < i {
+        panic(too_many_diags{i})
+    }
+	d.points = append(d.points, p)
+	return p
+}
+func (d *diagnostic) point(ctx Context, dt diagtype, f string, args ...any) *diagpoint {
+	if dt != diagPrompt { f = strings.TrimSpace(f) }
+	return d.add(&diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil, nil})
+}
+func (d *diagnostic) count(dt ...diagtype) (errs int) {
+	defer d.aquire()()
+	for _, d := range d.points {
+		for _, t := range dt {
+			if d.t == t { errs += 1 ; break }
+		}
+	}
+	return
+}
+func (d *diagnostic) flush(ctx Context) (errs int) {
+    const count_bytes = false
+
+	defer func() { if d.erros += errs ; errs > 0 { do(ctx, on_errors{errs}) }} ()
+
+	print := func(p *diagpoint, pend bool) (_ bool) {
+		defer func() {
+			if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
+				if false { d.erros = 0 } // reset to avoid causing next panics
+				panic(too_many_erros{y})
+			}
+			if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y && false {
+				if false { d.flushed = 0 } // reset to avoid causing next panics
+				panic(too_many_diags{y})
+			}
+		} ()
+
+        pos, msg := p.position.String(), p.message
+
+        if count_bytes {
+            d.flushed += len(pos) + len(msg)
+        } else {
+            d.flushed += 1
+        }
+
+		if p.panic != nil {
+			msg += fmt.Sprintf(": %v", p.panic)
+		}
+
+		switch p.t {
+		case diagInfo: fmt.Fprintf(stderr, "%v:info: %s\n", pos, msg)
+		case diagWarn: fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
+		case diagPrompt:
+			if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
+			if pend && !strings.HasSuffix(msg, "\n") { return true }
+		case diagError:
+			if errs += 1 ; p.stack == nil {
+				fmt.Fprintf(stderr, "%v:error: %s\n", pos, msg)
+			} else {
+				fmt.Fprintf(stderr, "%v: %s\n", pos, msg)
+			}
+		}
+
+        if p.stack != nil {
+            fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
+            if count_bytes {
+                d.flushed += len(p.stack)
+            } else {
+                d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
+            }
+        }
+        return
+    }
+
+	d.Lock(); defer d.Unlock()
+	for 0 < len(d.points) {
+		var point = d.points[0]
+		d.points = d.points[1:]
+		if print(point, true); 16 < errs {
+			fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
+		}
+	}
+    return
+}
+
+func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
+
+func diag(ctx Context, dt diagtype, f string, a ...any) (res *diagpoint) {
+    res, _ = do(ctx, diag_point{dt, f, a}).(*diagpoint)
+    return
+}
+
+func prompt(c Context, f string, a ...any) *diagpoint { return diag(c,   diagPrompt, f, a...) }
+func info(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagInfo,   f, a...) }
+func warn(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagWarn,   f, a...) }
+func erro(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagError,  f, a...) }
+func note(ctx Context, f string, a ...any) *diagpoint {
+    if !strings.HasSuffix(f, "\n") { f += "\n" }
+    return prompt(ctx, _position(ctx).String()+": "+f, a...)
+}
+
+func infostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagInfo  , a...) }
+func warnstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagWarn  , a...) }
+func errostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagError , a...) }
+func notestack(ctx Context, n int, a ...any) *diagpoint {
+    if true {
+        var f string
+        if len(a) > 0 {
+            if x, y := a[0].(string); y {
+                f, a = x, a[1:]
+            }
+        }
+        a = append([]any{"%v: "+f+"\n", _position(ctx)}, a...)
+    }
+    return diagstack(ctx, n, diagPrompt, a...)
+}
+func diagstack(ctx Context, n int, dt diagtype, a ...any) (point *diagpoint) {
+    var s string
+
+    if 0 < len(a) {
+        if x, y := a[0].(string); y {
+            s, a = x, a[1:] // separate the format string and args
+            if !strings.HasSuffix(s, "\n") { s += "\n" }
+        }
+    }
+
+    point = diag(ctx, dt, s, a...)
+    dt = diagInfo
+
+    var proj = _project(ctx)
+    var p = _position(ctx)
+    for c := inner(ctx); c != nil && 0 < n && p.valid(); c = inner(c) {
+        var pos = _position(c)
+        if !pos.valid() || pos.same(&p) { continue }
+
+        n -= 1
+        p = pos
+
+        if proj == nil {
+            s = "<nil>"
+        } else {
+            s = proj.name
+        }
+
+        proj = _project(c)
+
+        if e := _entry(c); e != nil {
+            if t, _, _ := entryIndicator(c, e); t == "" {
+                s += ": " + ident(ctx, e)
+            } else {
+                s += ": " + t
+            }
+        }
+
+        if true { s += " ; " + ts(c) }
+
+        point = diag(c, dt, s)
+    }
+    return
+}
+
+func _position(ctx Context) (_ Position) {
+	switch x := do(ctx, get_position{}).(type) {
+	case Position:
+		// Fast path: Context natively provided a fat Position (e.g., from the universe or *xloc)
+		if x.valid() { return x }
+	case Pos:
+		// Resolution path: Context provided a compact AST Pos. 
+		// We dynamically resolve it into a fat Position using our bridge!
+		if x.IsValid() {
+			if fat, ok := do(ctx, get_fatpos{x}).(Position); ok {
+				return fat
+			}
+		}
+	}
+	
+	// Fallback (matches your `else if true { return }` logic)
+	return 
+}
+
+func _pos(ctx Context) Pos {
+	// 1. Context/Evaluation Path: Extract a compact Pos from the runtime context stack!
+	// This allows posctx and evocation to inject specific AST node positions.
+	switch x := do(ctx, get_position{}).(type) {
+	case Pos:
+		if x.IsValid() { return x }
+	case positioner:
+		if p := x.Pos(); p.IsValid() { return p }
+	}
+
+	// 2. Parse-Time Fallback: Extract the exact compact integer
+	// offset from the active parser if no context explicitly overrides it.
+	if p, ok := do(ctx, get_parser{}).(*parser); ok && p != nil {
+		if p.pos.IsValid() { return p.pos }
+	}
+
+	return 0 // 0 represents NoPos
+}
+
+func walkSmartBaseDirs(ctx Context, cwd string, vis func(string) bool) (s string) {
+    for s = cwd ; s != "" ; {
+        var f = _stat(ctx, ".smart", stat_dir{s})
+        if f != nil && f.info.IsDir() && !vis(s) { break }
+        if up := filepath.Dir(s); up == s { break } else { s = up }
+    }
+    if s == "" { s = cwd }
+    return
+}
+
+// baseTmpPath is the base tmp path initialized only once.
+var baseTmpPath string
+
+func joinTmpPath(ctx Context, base, rel string) string {
+    if baseTmpPath == "" {
+        var s = walkSmartBaseDirs(ctx, base, func(d string) bool {
+            return false // return the first found
+        })
+        if s == "" {
+            // FIXME: Windows system temporary path.
+            s = filepath.Join("/", "tmp")
+        }
+        baseTmpPath = s
+    }
+    if s := filepath.Dir(rel); s != "" {
+        if strings.HasSuffix(base, s) {
+            // In case like '/foo/bar/a/b/c/x'+'a/b/c/x', we set
+            // rel to 'x' to produce 'foo/bar/.smart/tmp/a/b/c/x'.
+            rel = filepath.Base(rel)
+        } else if t, _ := filepath.Rel(baseTmpPath, base); strings.HasPrefix(t, ".smart"+pathSep) {
+            // In case like '/foo/bar/.smart/a/b/x'+'a/e/f/x', we set
+            // base to '/foo/bar/.smart' to produce 'foo/bar/.smart/tmp/a/e/f/x'.
+            v1 := strings.Split(t, pathSep)
+            v2 := strings.Split(s, pathSep)
+            for i := len(v1)-1; i >= 0; i -= 1 {
+                if v1[i] == v2[0] {
+                    base = filepath.Join(v1[i-1:]...)
+                    break
+                }
+            }
+        }
+    }
+    if s, err := filepath.Rel(baseTmpPath, filepath.Join(base, rel)); err == nil {
+        rel = s
+    }
+    if s := ".smart"+pathSep; strings.HasPrefix(rel, s) { // .smart/
+        rel = strings.TrimPrefix(rel, s)
+        if s = "modules"+pathSep; strings.HasPrefix(rel, s) { // modules/
+            rel = strings.TrimPrefix(rel, s)
+        }
+    }
+    rel = strings.Replace(rel, "..", "_", -1)
+    if strings.HasPrefix(rel, "tmp"+pathSep) {
+        return filepath.Join(baseTmpPath, ".smart", rel)
+    }
+    return filepath.Join(baseTmpPath, ".smart", "tmp", rel)
+}
+
+func positionForDir(dir string) (pos Position) {
+    if strings.HasSuffix(dir, mainFileName) || strings.HasSuffix(dir, deprFileName) {
+        pos.Filename = dir
+    } else if _, e := os.Stat(filepath.Join(dir, mainFileName)); e == nil {
+        pos.Filename = filepath.Join(dir, mainFileName)
+    } else if _, e := os.Stat(filepath.Join(dir, deprFileName)); e == nil {
+        pos.Filename = filepath.Join(dir, deprFileName)
+    } else {
+        pos.Filename = dir
+    }
+    pos.Line = 1
+    return
+}
+
+func loadSeachPaths(ctx *universe, s string) (paths []string) {
+    var f, err = os.Open(filepath.Join(s, ".search"))
+    if err != nil { return }
+
+    defer f.Close()
+
+    for r := bufio.NewReader(f); err == nil; {
+        var fi os.FileInfo
+        var line string
+        if line, err = r.ReadString('\n'); err != nil {
+            if err != io.EOF {
+                fmt.Fprintf(stderr, "%v", err)
+            } else {
+                err = nil
+                if line == "" { break }
+            }
+        } else {
+            line = strings.TrimSpace(line)
+        }
+
+        if strings.HasPrefix(line, "#") { continue }
+
+        if filepath.IsAbs(line) {
+            line = filepath.Clean(line)
+        } else {
+            line = filepath.Clean(filepath.Join(s, line))
+        }
+
+        if fi, err = os.Stat(line); err == nil && fi.IsDir() {
+            ctx.paths = append(ctx.paths, line)
+        }
+    }
+
+    if err != nil {
+        fmt.Fprintf(stderr, "%v: %v", f, err)
+    }
+    return
+}
+
+func Main() {
+    var ctx = new_universe()
+    var modulesPaths, packagePaths searchlist
+
+    walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
+        if baseTmpPath == "" { baseTmpPath = s }
+        packagePaths = append(packagePaths, filepath.Join(s, ".smart", "packages"))
+        modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
+        return true
+    })
+
+    userLib := filepath.Join(ctx.prefix, "user", "lib", "smart")
+    packagePaths = append(packagePaths, filepath.Join(userLib, "packages"))
+    modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
+
+    // make sure that .smart dirs have higher priority.
+    ctx.paths = append(modulesPaths, ctx.paths...)
+
+    for _, s := range modulesPaths { loadSeachPaths(ctx, s) }
+
+    ctx.load(ctx)
+
+    if ctx.flush(ctx) > 0 {
+        prompt(ctx, "loading work got %d errors\n", ctx.erros)
+    } else if ctx.help {
+        do_helpscreen(ctx)
+    } else if ctx.printFlags {
+        print_flag_trace(ctx)
+    } else if ctx.printConfig {
+        print_configuration(ctx)
+    } else if numUpdatedPlugins > 0 { // see buildPlugin
+        prompt(ctx, "plugins updated, please relaunch.\n")
+    } else if result := ctx.run(); ctx.flush(ctx) > 0 {
+        prompt(ctx, "run work got %d errors\n", ctx.erros)
+    } else if result != nil {
+        for i, v := range result {
+            if s := ""; v == nil {
+                s = "<nil>"
+            } else if s = strings.TrimSpace(__string(ctx, v)); s == "" {
+                continue
+            } else if i == 0 {
+                fmt.Fprintf(stderr, "%s", s)
+            } else {
+                fmt.Fprintf(stderr, ", %s", s)
+            }
+        }
+        fmt.Fprintf(stderr, "\n")
+    }
+}
+
+
+var searchPaths searchlist
+var launchTime = time.Now()
+var workBaseDir = func () string {
+    if s, e := os.Getwd(); e == nil { return s } else { panic(e) }
+} ()
+
+type searchlist []string
+func (sl *searchlist) String() string { return fmt.Sprint(*sl) }
+func (sl *searchlist) set(s string) error {
+    *sl = append(*sl, strings.Split(s, ",")...)
+    return nil
+}
+func (sl *searchlist) has(s string) (_ bool) {
+    for _, p := range *sl { if p == s { return true }}
+    return
+}
+
+type hooks struct {
+    assert func(Context, Value, bool) bool
+    debug func(Context, string, []Value)
+    error func(Context, string, []Value)
+}
+
+type packagetype uint8
+
+const (
+    packageUnknown packagetype = iota
+    packageSmart  // smart package
+    packageConfig // pkgconfig
+)
+
+type packageinfo struct {
+    *project
+    t packagetype // smart, pkgconfig, cmake, etc.
+}
+
+// ResolvePosition converts a compact AST 'Pos' back into a human-readable 'Position'
+func ResolvePosition(ctx Context, v Value) Position {
+	if v == nil {
+		return Position{}
+	}
+	
+	// 1. Runtime / Synthetic Position Escape Hatch
+	// If the value is explicitly wrapped in an external location (*xloc), use its fat struct!
+	if l, ok := v.(*xloc); ok {
+		return l.pos 
+	}
+	
+	// (Optional but robust) Check if any other node implements the fat Position interface
+	if p, ok := v.(interface{ Position() Position }); ok {
+		if pos := p.Position(); pos.valid() {
+			return pos
+		}
+	}
+	
+	// 2. Parse-Time Position Resolution
+	pos := v.Pos() // The compact integer
+	if !pos.IsValid() {
+		return Position{} // NoPos
+	}
+	
+	// Safely retrieve the fset from the universe
+	if u := _universe(ctx); u != nil && u.fset != nil {
+		return u.fset.Position(pos)
+	}
+	
+	return Position{}
+}
+
+func _universe(c Context) *universe { return cast[*universe](c) }
+
+type universe struct {
+    diagnostic
+    commandline
+
+    *scope
+    *globe
+
+    fset *fileset
+
+    workdir string
+    prefix  string // FIXME: prefix for distribution
+    paths   searchlist
+    packages  map[string]packageinfo
+    statcache map[string]*filebase // file.fullname() -> File
+    statmutex sync.Mutex
+
+    hooks hooks
+
+    expand_n int32
+}
+func (ctx *universe) String() string { return "universe" }
+func (ctx *universe) inner() Context { return &ctx.diagnostic }
+func (ctx *universe) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.diagnostic.cast(t)
+}
+func (ctx *universe) _position() (p Position) {
+    if ctx.globe != nil && ctx.globe.main != nil && ctx.fset != nil {
+		p = ctx.fset.Position(ctx.globe.main.pos)
+    } else {
+		p.Filename, p.Line, p.Column = _workdir(ctx), 0, 0
+	}
+    return
+}
+func (ctx *universe) ts(t string) string {
+    var s = ts(ctx.Context)
+    if  s == "{}"  {
+        s, _ = filepath.Rel(workBaseDir, ctx.workdir)
+        s = bases(3, s, "testdata", true)
+        if s == "." || s == "" { return "{="+t+"}" }
+    }
+    return "{="+t+" "+s+"}"
+}
+func (ctx *universe) trimSpecPath(c Context, spec string) string {
+    spec = strings.ReplaceAll(spec, "../", "")
+    for _, s := range ctx.paths {
+        if s += pathSep; strings.HasPrefix(spec, s) {
+            spec = strings.TrimPrefix(spec, s)
+            break
+        }
+    }
+    if s := ctx.workdir+pathSep; strings.HasPrefix(spec, s) {
+        spec = strings.TrimPrefix(spec, s)
+    }
+    return spec
+}
+func (ctx *universe) do(_ctx Context, op any) (res any) {
+    switch t := op.(type) {
+    case on_errors:
+        if ctx.panicFailureOnFlushedErrors && truly(_ctx, is_test_mode{}) {
+            if 0 < t.i { panic(_failure(ctx, "got %d errors", t.i)) }
+            res = true
+        }
+        return
+
+	case get_fatpos:
+		var p Position
+		if ctx.fset != nil && t.p.IsValid() { p = ctx.fset.Position(t.p) } // FIX: Use the receiver 'ctx'
+		return p
+
+    case get_position:
+        p := Position{}
+        p.Filename = ctx.workdir
+        return
+
+    case get_workdir: return ctx.workdir
+    case get_scope: if ctx.scope != nil { return ctx.scope }
+    case get_project: if ctx.globe != nil { return ctx.globe.main }
+    case no_exec: if ctx.noExec { return ctx.noExec }
+	case is_test_mode: if ctx.testMode { return true }
+    case is_test_univ: return ctx.testMode
+    }
+    return ctx.diagnostic.do(_ctx, op)
+}
+
+type no_exec struct{}
+type commandline struct {
+    help            bool `h,help`
+
+    debug           bool `d,db,debug`
+    debugErrors     bool `de,dberro,debug-errors`
+    debugWarns      bool `dw,dbwarn,debug-warns`
+    debugInfos      bool `di,dbinfo,debug-infos`
+    debugPrompt     bool `dp,dbprom,debug-prompt`
+    debugSyntax []string `ds,dbsyntax,debug-syntax`
+
+    autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
+    cpuProf         string `cpuprof,cpu-profile`
+    memProf         string `memprof,memory-profile`
+
+    printConfig     bool `opts,print-options,printoptions`
+    printFlags      bool `flags,print-flags,printflags`
+
+    buildPlugins    bool `bp,bup,build-plugins,buildplugins`
+
+    silentOptionalArrow bool
+
+    verbose         bool `v,verb,verbose`
+    verboseBreaks   bool `vb,vbrk,verbose-breaks`
+    verboseChecks   bool `vc,vchk,verbose-checks`
+    verboseImport   bool `vi,vimp,verbose-import`
+    verboseParse    bool `vp,vpar,verbose-parsing`
+    verboseUsing    bool `vu,vuse,verbose-using`
+    verboseExecFlags bool `vxf,verbose-exec-flag`
+
+    allowClosureFilemap bool `cf,closure-filemap,closure-files`
+
+    cleanDotCache   bool `clcac,clean-cache,clear-cache;rmc,rm-cache`
+    cleanDotDeps    bool `cldep,clean-deps,clear-deps;rmd,rm-deps`
+    cleanDotGrep    bool `clgrp,clean-grep,clear-grep;rmg,rm-grep`
+    cleanTmpDirs    bool `cltmp,clean-temp,clear-temp;rmt,rm-temp`
+
+    checkLoadGraph  bool `ckld,check-loads`
+
+    reconfigure     bool `rc,reconf,reconfig,reconfigure`
+
+    saveGrepSource  bool `savgs,save-grep-source`
+
+    noRun           bool `nor,no-run`
+    noExec          bool `nox,ne,no-exec,no-execute`  // optionNoExec
+    noDeps          bool `nod,no-deps`
+    noGrep          bool `nog,no-grep`
+    noDepsGrep      bool `nodg,ngd,no-deps-grep,no-grep-deps`
+    noImportFiles   bool `noif,no-import-files`
+
+    parallel        bool `par,para,parallel`
+
+    testMode        bool `test,test-mode`
+    fastMode        bool `fast,fast-mode`
+    errorUncache    bool `eu,error-uncache,error-no-cache`
+    panicFailureOnFlushedErrors bool `foe,fail-on-errors`
+
+    traceLaunch     bool `tl,trace-launch`
+    traceParsing    bool `tp,trace-parse`
+    traceExecutor   bool `te,trace-executor`
+    traceExec       bool `tx,trace-exec`
+    traceEntering   bool `ti,trace-entering`
+    traceConfig     bool `tc,trace-config`
+
+    slow time.Duration `slow` // time.Millisecond
+}
+
+func _commandline() commandline { return commandline{
+    debugPrompt: true,
+    debugErrors: true,
+    debugWarns:  true,
+    debugInfos:  true,
+
+    fastMode: true,
+    parallel: false, // FIXME: program.traverse not working in parallel
+
+    panicFailureOnFlushedErrors: true,
+    silentOptionalArrow: false,
+
+    slow: 2999 * time.Millisecond,
+}}
+
+func new_universe(ii ...any) (ctx *universe) {
+    ctx = &universe{}
+    ctx.paths = searchPaths
+    ctx.workdir = workBaseDir
+    ctx.fset = _fileset()
+    ctx.statcache = make(map[string]*filebase)
+    ctx.scope = newscope(nil, nil, `universe`)
+
+    var cl = true
+    for _, i := range ii {
+        switch t := i.(type) {
+        case  commandline: ctx.commandline, cl =  t, false
+        case *commandline: ctx.commandline, cl = *t, false
+        case *hooks: ctx.hooks = *t
+        case  hooks: ctx.hooks =  t
+        }
+    }
+    if cl { ctx.commandline = _commandline() }
+
+    var bin  = ease(ctx, os.Args[0])
+    var args = ease(ctx, os.Args[1:])
+    ctx.scope.def(ctx, defVoid, "SMART.ARGS", args)
+    ctx.scope.def(ctx, defVoid, "SMART.BIN",  bin)
+    ctx.scope.def(ctx, defVoid, "SMART",      bin)
+
+    for name, f := range builtins {
+        if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
+            panic(fmt.Sprintf("builtin '%s' already defined", name))
+        }
+    }
+
+    var pos Pos = 0 //ctx._position()
+	// one of darwin, freebsd, linux, and so on.
+	var os Value = ease(ctx, []Value{_word(pos, runtime.GOOS)})
+
+    ctx.globe = &globe{
+        scope: newscope(ctx.scope, nil, `globe`),
+        flagEntries: make(map[string][]entry),
+        loaded: make(map[string]*project),
+        args: make(map[Value][]Value),
+    }
+
+    // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
+    ctx.globe.os    = ctx.globe.def(ctx, defVoid, ".os",    os)
+    ctx.globe.goals = ctx.globe.def(ctx, defVoid, ".goals", _none(pos))
+    ctx.globe.mode  = ctx.globe.def(ctx, defVoid, ".mode",  _null(pos))
+    return
+}
+
+type filestub struct {
+    dir      string   // full directory where the file was or should be found
+    sub      string   // matched sub path (see project.search), may be Dir (absolete path)
+    name     string   // constant represented name (e.g. relative filename)
+    filemap *filemap  // matched pattern (see 'files' directive)
+    other   *filestub // pointed to another stub (in a different project) of the same file
+}
+func (p *filestub) subname() string {
+    if isAbsOrRel(p.sub) {
+        return p.name
+    } else {
+        return filepath.Join(p.sub, p.name)
+    }
+}
+
+type filebase struct {
+    stub filestub    // cycled-list of file stubs of different projects
+    info os.FileInfo // file info if exists
+    _updated bool // true if this file has been updated by a program
+    _updatedDeps []Value // any updated deps
+    _travin int
+    _traved int
+    _dirty  int
+}
+func (p *filebase) exists() bool { return p != nil && p.info != nil }
+
+type stat_dir struct { string }
+type stat_sub struct { string }
+type stat_nonexist struct { bool }
+type stat_fileinfo struct{ os.FileInfo }
+
+func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
+	var name = __string(ctx, a0)
+	var sub, dir string
+	var nonexist bool
+	var fileInfo os.FileInfo
+
+	for _, a := range aa {
+		switch t := a.(type) {
+		case *project: dir = t.absPath
+		case stat_dir: dir = t.string
+		case stat_sub: sub = t.string
+		case stat_fileinfo: fileInfo = t.FileInfo
+		case stat_nonexist: nonexist = t.bool
+		default: debug(ctx, "invalid stat arg: %v", ts(a), trace{})
+		}
+	}
+
+	var u = _universe(ctx)
+	var fullname string
+
+	// 1. Trim slashes and clean paths
+	if dir != "" { dir = filepath.Clean(dir) }
+	if sub != "" { sub = filepath.Clean(sub) }
+
+	// 2. Cleaned Path Resolution Logic (Dead code removed)
+	if filepath.IsAbs(name) {
+		fullname = name
+		if dir != "" && strings.HasPrefix(fullname, dir+pathSep) {
+			if tail := fullname[len(dir)+1:]; sub == "" {
+				name = tail 
+			} else if strings.HasPrefix(fullname, sub+pathSep) {
+				name = tail[len(sub)+1:]
+			}
+		} else {
+			dir = "" // Conflict resolution: Absolute name overrides directory
+		}
+	} else if filepath.IsAbs(sub) {
+		if fullname = filepath.Join(sub, name); dir == "" {
+			dir = sub
+			sub = ""
+		} else if sub == dir {
+			sub = ""
+		} else if strings.HasPrefix(sub, dir) {
+			sub = strings.TrimPrefix(sub, dir)
+			sub = strings.TrimPrefix(sub, pathSep)
+			sub = filepath.Clean(sub)
+		} else {
+			debug(ctx,
+				_f("conflicted sub/dir: %s", fullname),
+				_f("sub=%s", sub),
+				_f("dir=%s", dir),
+				callstack{num:16}, trace{})
+		}
+	} else if filepath.IsAbs(dir) {
+		fullname = filepath.Join(dir, sub, name)
+	} else {
+		dir = filepath.Join(_workdir(ctx), dir)
+		fullname = filepath.Join(dir, sub, name)
+	}
+
+	var cleanFullname = filepath.Clean(fullname)
+	
+	// 3. First Pass: Fast lock to retrieve or initialize the cache entry shell
+	u.statmutex.Lock()
+	base, exists := u.statcache[cleanFullname]
+	if !exists {
+		// Initialize the shell of the filebase. We will stat it outside the lock.
+		base = &filebase{filestub{dir, sub, name, nil, nil}, nil, false, nil, 0, 0, 0}
+		base.stub.other = &base.stub
+		u.statcache[cleanFullname] = base
+	}
+	u.statmutex.Unlock() // DROP THE GLOBAL LOCK BEFORE HITTING THE DISK!
+
+	// 4. Heavy I/O: os.Stat executes concurrently without blocking the universe
+	if base.info == nil && fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
+
+	// 5. Second Pass: Re-acquire lock to safely update the shared base and stubs
+	u.statmutex.Lock(); defer u.statmutex.Unlock()
+
+	// Update the file metadata if we just fetched it
+	if fileInfo != nil && base.info == nil { base.info = fileInfo }
+
+	// Bail out if the file doesn't exist and we aren't explicitly allowing non-existent files
+	if base.info == nil && !nonexist { return nil }
+
+	var head = &base.stub
+	var stub *filestub
+
+	// Sanity assertions
+	if enable_assertions {
+		for stub = head; stub != nil; stub = stub.other {
+			if s1, s2 := fullname, filepath.Join(stub.dir, stub.sub, stub.name); s1 != s2 {
+				debug(ctx,
+					_f("fullname '%s' conflicted", fullname),
+					_f("panic: (%s, %s, %s) %s", stub.dir, stub.sub, stub.name, s1),
+					_f("panic: (%s, %s, %s) %s", dir, sub, name, s2),
+					callstack{num:16}, trace{})
+			}
+			if stub.other == head { break }
+		}
+	}
+
+	// Check for an existing stub that matches our current path parameters exactly
+	for stub = head; stub != nil; stub = stub.other {
+		if stub.dir == dir && stub.sub == sub && stub.name == name {
+			return &file{valbase{_pos(ctx)}, base, stub}
+		}
+		if stub.other == head { break }
+	}
+
+	// If no matching stub was found, link a new one into the circular list
+	stub = &filestub{dir, sub, name, nil, head.other}; head.other = stub
+	return &file{valbase{_pos(ctx)}, base, stub}
+}
+
+func AddPaths(paths... string) (err error) {
+    for _, s := range paths {
+        if s, err = filepath.Abs(s); err != nil {
+            break
+        }
+        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+           searchPaths = append(searchPaths, s)
+        }
+    }
+    return
+}
+
+func (ctx *universe) AddPaths(paths... string) (err error) {
+    for _, s := range paths {
+        if s, err = filepath.Abs(s); err != nil { break }
+        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
+            ctx.paths = append(ctx.paths, s)
+        } else {
+            return fmt.Errorf("path '%s' is not dir", s)
+        }
+    }
+    return nil
+}
+
+func cpu_profile(ctx Context, name string, heap ...bool) (stop func()) {
+    var fn string
+    if filepath.IsAbs(name) { fn = name } else
+    if m := _universe(ctx).globe.main; m == nil {} else
+    if f := m.tempfile(ctx, name); f == nil {
+        fn = filepath.Join(_workdir(ctx), name)
+    } else {
+        fn = f.fullname()
+    }
+
+    f, e := os.Create(fn)
+    if e != nil {
+        debug(ctx, "%T: %v", e, e, trace{})
+    } else if e = pprof.StartCPUProfile(f); e != nil {
+        debug(ctx, "%T: %v", e, e, trace{})
+    }
+    return func() { if f != nil {
+        if e != nil { pprof.StopCPUProfile() }
+        if heap != nil && heap[0] { runtime.GC() // update memory statistics
+            if e = pprof.WriteHeapProfile(f); e != nil {
+                debug(ctx, "WriteHeapProfile: %v", e, trace{})
+            }
+        }
+        f.Close()
+    }}
+}
+
+func heap_profile(ctx Context, name string) (stop func()) {
+    var fn string
+    if filepath.IsAbs(name) { fn = name } else
+    if m := _universe(ctx).globe.main; m == nil {} else
+    if f := m.tempfile(ctx, name); f == nil {
+        fn = filepath.Join(_workdir(ctx), name)
+    } else {
+        fn = f.fullname()
+    }
+
+    f, e := os.Create(fn)
+    if e != nil {
+        debug(ctx, "%T: %v", e, e, trace{})
+    }
+    return func() { if f != nil {
+        if e != nil { pprof.StopCPUProfile() }
+        runtime.GC() // update memory statistics
+        if e = pprof.WriteHeapProfile(f); e != nil {
+            debug(ctx, "WriteHeapProfile: %v", e, trace{})
+        }
+        f.Close()
+    }}
+}
+
+func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
+    switch g := goal.(type) {
+    case *rule:
+        var y bool
+        if result, y = execute_entry(ctx, g, args...); !y {
+            debug(ctx, "update '%v' failed", g, trace{})
+        }
+    default:
+        debug(ctx, "not an entry: %v", ts(goal), trace{})
+    }
+    return
+}
+
+func (l ul) parse_args(base string, a ...string) {
+    var args []Value
+
+	if s := strings.Join(a, " "); s != "" {
+		if v := l.text(l.universe, base, s); v != nil {
+			args = parseOpts(l.universe, &l.commandline, merge(v)...)
+		}
+	}
+
+    if v := l.fastMode; v { // Turn off many things for fast mode:
+        //l.noImportFiles = v
+        l.noDepsGrep = v
+        l.noDeps = v
+        l.noGrep = v
+    }
+
+    var mode = new(word)
+
+    for _, target := range args {
+        switch t := target.(type) {
+        case *pair: l.globe.pairs = append(l.globe.pairs, t)
+        case  flag: l.globe.flags = append(l.globe.flags, t)
+            if s := __string(l.universe, t.Value); s == "clean" {
+                mode.pos, mode.s = t.Pos(), "clean"
+            }
+        case *argumented:
+            l.globe.args[t.Value] = t.args
+            if f, y := t.Value.(flag); y {
+                l.globe.flags = append(l.globe.flags, f)
+            } else {
+                l.globe.goals.append(l.universe, t/*.Value*/)
+            }
+        default:
+            l.globe.goals.append(l.universe, t)
+        }
+    }
+
+    if mode.s == "" {
+        mode.s = "goals"
+    }
+
+    l.globe.mode.value = mode
+}
+
+func (u *universe) load(ctx Context) {
+    if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
+
+    if false { loadGrepCache(ctx) }
+
+    if s := filepath.Join(u.workdir, ".smart", "modules"); s != "" {
+        if _, e := os.Stat(s); e == nil { u.AddPaths(s) }
+    }
+    if s := filepath.Join(u.workdir, mainFileName); s != "" {
+        if _, e := os.Stat(s); e != nil {
+            s = filepath.Join(u.workdir, deprFileName)
+            if _, e := os.Stat(s); e != nil { s = "" }
+        }
+    }
+
+    u.globe.top = &loader{term:term{ctx, u.globe.scope}}
+
+    l := ul{u, u.globe.top}
+    l.parse_args(u.workdir, os.Args[1:]...)
+
+    if u.autoProfs {
+        if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
+            debug(ctx, "%v", e, trace{})
+        } else {
+            defer f.Close()
+            if e := pprof.StartCPUProfile(f); e != nil {
+                debug(ctx, "could not start CPU profile: %v", e, trace{})
+            }
+            defer pprof.StopCPUProfile()
+        }
+        defer func() {
+            var prof string //= u.memProf
+            if prof == "" { prof = filepath.Join(workBaseDir, "load.mem.auto.prof") }
+            if f, e := os.Create(prof); e != nil {
+                debug(ctx, "%v", e, trace{})
+            } else {
+                defer f.Close()
+                runtime.GC() // update memory statistics
+                if e := pprof.WriteHeapProfile(f); e != nil {
+                    debug(ctx, "could not start CPU profile: %v", e, trace{})
+                }
+            }
+        } ()
+    }
+
+    if u.verboseImport { prompt(ctx, "┌→%s\n", u.workdir) }
+
+    defer func(t time.Time) {
+        if d := time.Now().Sub(t); u.verboseImport {
+            var name string
+            if p := _project(u.globe.top); p != nil { name = p.name }
+            prompt(ctx, "└·%s … (%s)\n", name, d)
+        } else if false && u.slow < d {
+            debug(pc(ctx, u.workdir), "slow loading (%v)!!\n", d)
+        }
+    } (time.Now())
+
+    spec, _ := filepath.Rel(workBaseDir, u.workdir)
+    l.directory(l.loader, spec, u.workdir, nil)
+
+    if l.globe.main == nil {
+        debug(ctx, "nothing loaded", trace{})
+    }
+    return
+}
+
+func (u *universe) run() (result []Value) {
+    if u.noRun { return }
+
+    var main = u.globe.main
+    if main == nil {
+        debug(u, "no targets to update `%v`", u.globe.goals, trace{})
+    }
+
+    var ctx Context = closure_with(u, main.scope)
+    if u.verbose { debug(ctx, "goal: %v", main) }
+
+    removeTempDirs(ctx)
+
+    if u.cpuProf != "" || u.autoProfs {
+        var name = u.cpuProf
+        if name == "" { name = "run.cpu.auto.prof" }
+        defer cpu_profile(ctx, name, true)()
+    } else if u.memProf != "" || u.autoProfs {
+        var name = u.memProf
+        if name == "" { name = "run.mem.auto.prof" }
+        defer heap_profile(ctx, name)()
+    }
+
+    var done bool
+    for _, flag := range u.globe.flags {
+        if u.verboseExecFlags { info(ctx, "%v", flag) }
+
+        var s = __string(ctx, flag.Value)
+        var args, _ = u.globe.args[flag]
+        var entries, _ = u.globe.flagEntries[s]
+        for _, entry := range entries {
+            if u.verboseExecFlags {
+                info(ctx, "%v", entry)
+                flush(ctx)
+            }
+
+            var res = entry.execute(ctx, args...)
+            result = append(result, res...)
+            done = true
+        }
+    }
+    if done { return }
+
+    var updated int
+    var goals []Value
+    var collect func(proj *project, vals []Value) bool
+    collect = func(proj *project, vals []Value) bool {
+        if len(vals) == 0 {
+            if entry := proj.main; entry != nil {
+                goals = append(goals, entry)
+            } else {
+                // NOTE: ignored project
+            }
+            return true
+        }
+        for _, goal := range vals {
+            switch t := goal.(type) {
+            case *null, *none: // just ignore
+            case *word:
+                if entries := proj._entries(ctx, t.s, true); entries == nil {
+                    debug(ctx, "no such entry `%s`", t.s, trace{})
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case *delegate:
+                var s = __string(ctx, t)
+                if entries := proj._entries(ctx, s, true); entries == nil {
+                    debug(ctx, "no such entry `%s` (via `%v`)", s, t, trace{})
+                    return false
+                } else {
+                    for _, entry := range entries {
+                        goals = append(goals, entry)
+                    }
+                }
+            case flag:
+                var s = __string(ctx, t)
+                if entries := proj._entries(ctx, s, true); entries == nil {
+                    debug(ctx, "no such entry `%s` (via `%v`)", s, t, trace{})
+                    return false
+                } else {
+                    for _, entry := range entries { goals = append(goals, entry) }
+                }
+            case *argumented:
+                {
+                    // For examples:
+                    //     project-name(-clean)
+                    //     project/spec(-clean)
+                    //     xxxx()
+                    var (
+                        s = __string(ctx, t.Value)
+                        args = merge(t.args...)
+                        found int
+                    )
+                    for _, p := range u.globe.loaded {
+                        if p.name == s || p.spec == s { found += 1
+                            if !collect(p, args) { return false }
+                        }
+                    }
+                    if found == 0 {
+                        debug(ctx, `"%s" not loaded: %v`, s, args, trace{})
+                        return false
+                    }
+                }
+            default:
+                debug(ctx, "%v: unknown target: %v (%s)", proj, goal, typeof(goal), trace{})
+                return false
+            }
+        }
+        return true
+    }
+
+    if collect(main, merge(u.globe.goals.value)) {
+        if len(goals) == 0 {
+            if entry := main.main; entry != nil {
+                goals = append(goals, entry)
+            }
+        }
+        for _, goal := range goals {
+            var args, _ = u.globe.args[goal]
+            result = append(result, updateGoal(ctx, goal, args)...)
+            updated += 1
+        }
+    }
+    return
+}
+
+// A globe represents a global execution context.
+type globe struct {
+    *scope
+
+    top    *loader
+    main   *project
+    loaded map[string]*project // loaded projects
+
+    args map[Value][]Value
+    flagEntries map[string][]entry
+    flags []flag
+    pairs []*pair
+
+    os    *def
+    goals *def
+    mode  *def
+}
+
+func (g *globe) SetScopeOuter(scope *scope) { scope.outer = g.scope }
+func (g *globe) AddFlagEntry(name string, entry entry) {
+    flags, _ := g.flagEntries[name]
+    flags     = append(flags, entry)
+    g.flagEntries[name] = flags
+    return
+}
+
+var (
+    errorIllImport = errors.New("illegal import spec")
+    errorIllJson   = errors.New("illegal json format")
+    errorIllName   = errors.New("illegal name")
+    errorIllXml    = errors.New("illegal xml format")
+    errorNilExec   = errors.New("execute nil program")
+    errorNoEntry   = errors.New("no matched rule")
+    errorUpdated   = errors.New("target updated")
+)
+
+type (
+    failureAssert      string
+    failureUnreachable string
+    failureTargetNotFound struct { project *project; target string }
+    failurePathNotFound   struct { project *project; path *path }
+    failureFileNotFound   struct { project *project; file *file }
+    failure     struct { Context; reason string }
+    termination struct { position Position }
+)
+
+func _failure(ctx Context, a ...any) failure {
+    var s string
+    if y := false; 0 < len(a) {
+        if s, y = a[0].(string); y {
+            if 1 < len(a) {
+                s = fmt.Sprintf(s, a[1:]...)
+            }
+        }
+    }
+    return failure{ctx, s}
+}
+
+func (f *failure) Error() (s string) {
+    s = "failed"
+    if f.Context != nil { s += " : "+ts(f.Context) }
+    if f.reason != "" { s += " : "+f.reason }
+    return
+}
+
+func (s failureAssert) Error() string { return string(s) }
+func (s failureUnreachable) Error() string { return string(s) }
+
+func (e failureTargetNotFound) Error() string {
+    return fmt.Sprintf("%s: %v: target not found", e.project.name, e.target)
+}
+
+func (e failurePathNotFound) Error() string {
+    return fmt.Sprintf("%s: %v: path not found", e.project.name, e.path)
+}
+
+func (e failureFileNotFound) Error() string {
+    if s, t := e.file.fullname(), e.file.filestub.name; t == s { // e.project.name
+        return fmt.Sprintf(`"%v" not found`, t)
+    } else {
+        return fmt.Sprintf(`"%v" not found (at %s)`, t, s) //trimPromptString(s)
+    }
+}
+
+func assert(cond bool, s string, a ...any) {
+    if !cond { panic(failureAssert(fmt.Sprintf(s, a...))) }
+}
+
+func unreachable(a ...any) {
+    panic(failureUnreachable(fmt.Sprint(a...)))
+}
+
+func get_filename(n int) string {
+    var num int
+    var filename string
+    var lines = strings.Split(string(rt_debug.Stack()), "\n")
+    for _, line := range lines {
+        if !strings.HasPrefix(line, "\t") { continue }
+        if i := strings.Index(line, ":"); num == n && i > 0 {
+            filename = line[1:i]
+            break
+        }
+        num += 1
+    }
+    return filename
+}
+
+// FIXME: duplicate is still buggy
+func buggy__duplicate(v []Value) []Value {
+    return _duplicate(reflect.ValueOf(v)).Interface().([]Value)
+}
+
+func _duplicate(v reflect.Value) reflect.Value {
+    switch v.Kind() {
+    case reflect.Slice, reflect.Array:
+        // Allocate a new slice/array with same length and capacity
+        dst := reflect.MakeSlice(v.Type(), v.Len(), v.Cap())
+        // Recursively duplicate elements
+        for i := 0; i < v.Len(); i++ {
+            if elem := v.Index(i) ; !elem.IsNil() {
+                dst.Index(i).Set(_duplicate(elem))
+            }
+        }
+        return dst
+    case reflect.Int, reflect.String, reflect.Bool:
+        // Simple value types can be copied directly
+        return reflect.ValueOf(v.Interface())
+    case reflect.Ptr/* , reflect.Interface */:
+        // Duplicate pointers by creating a new pointer and copying the underlying value
+        elem := reflect.New(v.Type().Elem())
+        elem.Elem().Set(_duplicate(v.Elem()))
+        return elem
+    case reflect.Interface:
+        elem := reflect.New(v.Type()).Elem()
+        elem.Set(_duplicate(v.Elem()))
+        return elem
+    case reflect.Struct:
+        // Duplicate structs by creating a new struct and copying fields
+        newStruct := reflect.New(v.Type()).Elem()
+        for i := 0; i < v.NumField(); i++ {
+            field := v.Field(i)
+            newField := newStruct.Field(i)
+            newField.Set(_duplicate(field)) // Recursively duplicate nested values
+        }
+        return newStruct
+    default:
+        i := v.Interface()
+        panic(fmt.Sprintf("Unsupported value type for duplication: %T %v : %s", i, v.Kind(), ts(i)))
+    }
+}
+
+var (
+	l_t        = time.Now()
+	l_config   = &ltracing{ tm: l_t }
+	l_exec     = &ltracing{ tm: l_t }
+	l_launch   = &ltracing{ tm: l_t }
+	l_load     = &ltracing{ tm: l_t }
+	l_parse    = &ltracing{ tm: l_t } // UNUSED
+	l_traverse = &ltracing{ tm: l_t }
+)
+
+type l_tracer interface {
+	elapsed() time.Duration
+	tracef(string,...any)
+	trace(...any)
+	level(int)
+}
+
+func l_trace(t l_tracer, s string) l_tracer {
+	t.trace(s, "(")
+	t.level(+1)
+	t.tracef("%v", t.elapsed())
+	return t
+}
+
+func l_tracef(t l_tracer, f string, a ...any) l_tracer {
+	t.trace(fmt.Sprintf(f, a...), "(")
+	t.level(+1)
+	t.tracef("%v", t.elapsed())
+	return t
+}
+
+// Usage:
+//   defer un(trace(p, "..."))
+//   defer un(tracef(p, "..."))
+//   defer un(tr(p, "..."))
+//   defer un(tt(p, t, "..."))
+func un(t l_tracer) {
+	t.tracef("%v", t.elapsed())
+	t.level(-1)
+	t.trace(")")
+}
+
+func tr(t l_tracer, i Value) l_tracer {
+	t.tracef("%s (", ts(i))
+	t.level(+1)
+	t.tracef("%v", t.elapsed())
+    return t
+}
+
+func tt(t l_tracer, ctx Context, i Value) l_tracer {
+    // Note that t.args and t.arguments are different, they're
+    // target execution args and argumented-prerequisite args.
+    var a string = ts(_entry(ctx).destiny())
+    if false { a += " " + ts(ctx) }
+    t.trace(a, ":", ts(i), "(")
+    t.level(+1)
+	t.tracef("%v", t.elapsed())
+    return t
+}
+
+type ltracing struct {
+	// Tracing/debugging
+	all bool
+	enabled bool // (mode&Trace != 0)
+	indent int  // indentation used for tracing output
+	tm time.Time
+}
+
+// Printing fields (splitted by \t).
+//var lenPrintField = lenPrintTab * 1
+
+const (
+	// Tab size helps formatting fields.
+	lenPrintTab = 8
+
+	dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
+	ndots = len(dots)
+)
+
+func fprintIndentDots(w io.Writer, indent int, a ...any) {
+	i := 2 * indent
+	for i > ndots {
+		fmt.Fprint(w, dots)
+		i -= ndots
+	}
+	// i <= n
+	fmt.Fprint(w, dots[0:i])
+	if false && len(a) > 0 {
+		fmt.Fprintln(w, a...)
+	} else {
+		var fieldLen = 0
+		for i, v := range a {
+			if r, ok := v.(rune); ok && r == '\t' {
+				const sps = "                         "
+				if m := fieldLen % lenPrintTab; m > 0 {
+					if m > len(sps) { m = len(sps)-1 }
+					fmt.Fprint(w, sps[:m])
+				}
+				fieldLen = 0
+			} else if s := fmt.Sprint(v); s != "" {
+				if i > 0 {
+					fmt.Fprint(w, " ", s)
+					fieldLen += len(s) + 1
+				} else {
+					fmt.Fprint(w, s)
+					fieldLen += len(s)
+				}
+			}
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func printIndentDots(indent int, a ...any) {
+	fprintIndentDots(stderr, indent, a...)
+}
+
+func (p *ltracing) traceAt(pos Position, a ...any) {
+	fmt.Fprintf(stderr, "%7d:%3d: ", pos.Line, pos.Column)
+	printIndentDots(p.indent, a...)
+}
+
+func (p *ltracing) trace(a ...any) {
+	printIndentDots(p.indent, a...)
+}
+
+func (p *ltracing) tracef(s string, a ...any) {
+	printIndentDots(p.indent, fmt.Sprintf(s, a...))
+}
+
+func (p *ltracing) level(n int) {
+	p.indent += n
+}
+
+func (p *ltracing) elapsed() time.Duration {
+	if false && p.tm.IsZero() { p.tm = time.Now() }
+	return time.Now().Sub(p.tm)
+}
+
+type interpreter interface {
+    evaluate(Context, ...Value) Value
+}
+
+var dialects = map[string]interpreter{
+    "":       &eval{ o:defExpand0 },
+    "eval":   &eval{ o:defExpand1 },
+    "value":  &eval{ accumulation:true },
+    "shell":  &executor{ cmd:"bash",   opt:"-c", contained:false },
+    "python": &executor{ cmd:"python", opt:"-c", contained:false },
+    "perl":   &executor{ cmd:"perl",   opt:"-e", contained:false },
+    "dock":   &executor{ cmd:"sh",     opt:"-c", contained:true },
+    "plain":  &plainint{},
+    "json":   &json{},
+    "xml":    &xml{ whitespace:false },
+    "yaml":   &yaml{ whitespace:false },
+}
+
+func intername(i interpreter) (s string) {
+    for k, d := range dialects {
+        if d == i { s = k; break }
+    }
+    return
+}
+
+type token int
+
+// https://unicode-table.com/en/sets/arrows-symbols/
+// 🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚🕛🕜🕝🕞🕟🕠🕡🕢🕣🕤🕥🕦🕧
+// ┌────────────────────────────────┐
+// ├────────────────────────────────┼ ⇔ ⇒
+// ├────┬─────────────────┬─────────┤   ↑    ⇡
+// ├┬───┼─────────────────┼─────────┘  ←·→  ⇠·⇢
+// │├┬──┴─     arrows     └──┬──┐       ↓    ⇣
+// ││└─────────────────┐     │  ├─
+// │└─────┬──   ────┬──┴──┬──┘  │      ⇤…⇥
+// └──    ┘        ─┘           └─
+
+// https://en.wikipedia.org/wiki/Mathematical_operators_and_symbols_in_Unicode
+const (
+	// Special tokens.
+	ILLEGAL = token(iota) // illegal token represents no valid token
+
+	EOF      // end of file
+	SPACE    // [ ]
+	COMMENT  // #
+	HASH     // # (same char as COMMENT, but different meaning)
+
+	_literal_beg
+	// Identifiers and basic type literals (these tokens stand for classes of literals)
+	WORD
+	BINARY   // 0b010101, 0B0111001
+	OCTAL    // 0600, 0567
+	INTEGER  // 12345
+	HEXADECIMAL // 0x1234567890ABCDEF
+	FLOATING    // 123.45
+	DATETIME // 1979-05-27T07:32:00.999999-07:00 (internet date/time format - RFC3339)
+	DATE     // 1979-05-27 (internet date format - RFC3339)
+	TIME     // 07:32:00.999999 (internet time format - RFC3339)
+	URL      // 'mailto:name@example.com' (uniform resource identifier - RFC3986)
+	RAW      // raw strings
+	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
+	STRING   // 'abc'
+	STRVAL   // {abc}
+	STRCOMP  // "abc $(foo) 123"
+	_literal_end
+
+	COMPOSED // the ending quote of a strcomp literal
+	RECIPE   // tab to indicate a command recipe
+	LINEND   // significannot line break (LF or CRLF)
+
+	PROOT    // the root of a path, aka "" before the first '/' in a path
+	PTAIL    // the tail of a path, aka "" after the last '/' in a path
+
+	_operator_beg
+	LANGLE    // <
+	LBRACE    // {    left curly
+	LBRACK    // [
+	LPAREN    // (
+	Lchevron    // ⟨ ⟪⟫ ｟｠ 〝〞
+	Ltop_corner // ⌜
+	Lbot_corner // ⌞
+	Lsing_guil  // ‹
+	Lguillemet  // «
+	Rguillemet  // »
+	Rsing_guil  // ›
+	Rbot_corner // ⌟
+	Rtop_corner // ⌝
+	Rchevron    // ⟩
+	RPAREN    // )
+	RBRACK    // ]
+	RBRACE    // }    right curly
+	RANGLE    // >
+
+	CARET     // ^ ˆ‸
+	COMMA     // ,
+	DOT       // .    period
+	DOTDOT    // ..
+	TILDE     // ~
+
+	SELECT_PROP  // -> 'foo→xxx' (different from ' → ')
+	SELECT_PROG1 // => 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+	SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
+	// ⤌ ⤍	⤎ ⤏	⤐	⤑
+
+	SEMICOLON // ;
+
+	EXC       // !    exclamation
+	QUE       // ?
+
+	AT        // @
+	SAST      // *    Single Asterisk
+	DAST      // **   Double Asterisk
+	ASTQ      // *?   Asterisk Que
+	UNDERLINE // _
+
+	CLOSURE   // &
+	DELEGATE  // $
+
+	MINUS // unary -
+	PLUS  // unary +
+	PCON  // path concatenation '/'
+	PERC  // percent sign '%'(REM)
+
+	_ruledelim_beg
+	BAR       // |
+	COLON     // :
+	DOLON     // ::
+	SOLON     // ;:
+	_ruledelim_end
+
+	// ⩵ ⩶
+	_assign_beg
+	ASSIGN     //   =       define a new symbol (don't override, neither !=)
+	ASSIGN_SHI //   =+      shift (insert to the front)
+	ASSIGN_ADD //  +=       append
+	ASSIGN_QUE //  ?=       set if absent (defined, including empty)
+	ASSIGN_EXC //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
+	// TODO: more assigns like !?=  !:=  !+=
+	ASSIGN_CO1 //  := ≔     delegate-expanded (also override)
+	ASSIGN_CO2 // ::= ⩴    all-expanded (POSIX standard)
+	ASSIGN_CO3 // ;:=       all and unexpanded-force
+	ASSIGN_SC1 //  ;=       unexpanded-force
+	ASSIGN_SUB //  -=       remove
+	ASSIGN_SAD // -+=       remove-append assign
+	ASSIGN_SSH //  -=+      remove-shift assign
+	_assign_end
+	_operator_end
+
+	_keyword_beg
+	PROJECT    // project a
+	CONFIGURE  // configure [...] TODO: use a different keyword
+	USE        // use b
+	ASSERT     // assert clause
+	APPEND     // append values
+	LOCAL      // declare local def names
+	EVAL       // evaluate a builtin immediately
+	EXPORT     // export ...
+	INCLUDE    // include a.smart
+	INSTANCE   // instance
+	FILES      // files
+	TEMPLATE   // template
+	AND        // and
+	OR         // or
+	FOR        // for
+	FOREACH    // foreach
+	DONE       // done
+	DEF        // def
+	END        // end
+
+	_constant_beg
+	UNDEF   // `undef`
+	NULL    // `null`
+	NONE    // `none`
+	BARE    // `bare`  // TODO
+	PATH    // `path`  // TODO
+	GLOB    // `glob`  // TODO
+	REGEX   // `regex` // TODO
+	FILE    // `file`  // TODO
+	BIN     // `bin`
+	OCT     // `oct`
+	INT     // `int`
+	HEX     // `hex`
+	FLOAT   // `float`
+	ANSWER  // `answer`
+	BOOL    // `bool`
+	BOOLEAN // `boolean`
+	TRUE    // boolean `true`
+	FALSE   // boolean `false`
+	YES     // answer `yes`
+	NO      // answer `no`
+	ON      // option `on`
+	OFF     // option `off`
+	_constant_end
+	_keyword_end = _constant_end
+)
+
+var tokens = [...]string{
+	ILLEGAL: "ILLEGAL",
+
+	EOF:     "EOF",
+	SPACE:   "SPACE",
+	COMMENT: "COMMENT",
+	HASH:    "HASH",
+
+	WORD:     "WORD",
+	BINARY:   "BINARY",
+	OCTAL:    "OCTAL",
+	INTEGER:  "INTEGER",
+	HEXADECIMAL: "HEXADECIMAL",
+	FLOATING:    "FLOATING",
+	DATETIME: "DATETIME",
+	DATE:     "DATE",
+	TIME:     "TIME",
+	URL:      "URL",
+	RAW:      "RAW",
+	STRING:   "STRING",
+	STRVAL:   "STRVAL",
+	STRCOMP:  "STRCOMP",
+
+	COMPOSED: "COMPOSED",
+	RECIPE:   "RECIPE",
+	ESCAPE:   "\\",
+	LINEND:   "\\n", //"LINEND",
+	PROOT:    "", // the "" before the first '/' in a path
+	PTAIL:    "", // the "" after the last '/' in a path
+
+	LANGLE: "<",
+	LBRACE: "{",
+	LBRACK: "[",
+	LPAREN: "(",
+	Lchevron: "⟨",
+	Ltop_corner: "⌜",
+	Lbot_corner: "⌞",
+	Lsing_guil: "‹",
+	Lguillemet: "«",
+	Rguillemet: "»",
+	Rsing_guil: "›",
+	Rbot_corner: "⌟",
+	Rtop_corner: "⌝",
+	Rchevron: "⟩",
+	RPAREN: ")",
+	RBRACK: "]",
+	RBRACE: "}",
+	RANGLE: ">",
+
+	CARET:  "^",
+	COMMA:  ",",
+	DOT:    ".",
+	DOTDOT: "..",
+	TILDE:  "~",
+
+	SELECT_PROP:  "→", // foo->bar
+	SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
+	SELECT_PROG2: "⇢", // foo~>bar foo⇢bar
+
+	SEMICOLON: ";",
+
+	EXC:       "!",
+	QUE:       "?",
+
+	BAR:       "|",
+	COLON:     ":",
+	DOLON:     "::",
+	SOLON:     ";:",
+
+	AT:        "@",
+	SAST:      "*",
+	DAST:      "**",
+	ASTQ:      "*?",
+	UNDERLINE: "_",
+
+	CLOSURE:   "&",
+	DELEGATE:  "$",
+
+	ASSIGN:     "=",
+	ASSIGN_SHI: "=+",
+	ASSIGN_ADD: "+=",
+	ASSIGN_QUE: "?=",
+	ASSIGN_EXC: "!=",
+	ASSIGN_CO1: ":=",
+	ASSIGN_CO2: "::=",
+	ASSIGN_CO3: ";:=",
+
+	ASSIGN_SC1: ";=",
+	ASSIGN_SUB: "-=",
+	ASSIGN_SAD: "-+=",
+	ASSIGN_SSH: "-=+",
+
+	MINUS: "-",
+	PLUS:  "+",
+	PCON:  "/",
+	PERC:  "%",
+
+	PROJECT:   "project",
+	CONFIGURE: "configure",
+	USE:       "use",
+	ASSERT:    "assert",
+	APPEND:    "append",
+	LOCAL:     "local",
+	EVAL:      "eval",
+	EXPORT:    "export",
+	INCLUDE:   "include",
+	INSTANCE:  "instance",
+	FILES:     "files",
+	TEMPLATE:  "template",
+	AND:       "and",
+	OR:        "or",
+	FOR:       "for",
+	FOREACH:   "foreach",
+	DONE:      "done",
+	DEF:       "def",
+	END:       "end",
+
+	UNDEF:  "undef",
+	NULL:   "null",
+	NONE:   "none",
+	BARE:   "bare",
+	PATH:   "path",
+	GLOB:   "glob",
+	REGEX:  "regex",
+	FILE:   "file",
+	BIN:    "bin",
+	OCT:    "oct",
+	INT:    "int",
+	HEX:    "hex",
+	FLOAT:  "float",
+	ANSWER: "answer",
+	BOOL:   "bool",
+	BOOLEAN:"boolean",
+	TRUE:   "true",
+	FALSE:  "false",
+	YES:    "yes",
+	NO:     "no",
+	ON:     "on",
+	OFF:    "off",
+}
+
+func (tok token) String() (s string) {
+	if 0 <= tok && tok < token(len(tokens)) { s = tokens[tok] }
+	if s == "" {
+		switch tok {
+		case PROOT, PTAIL: return
+		default:
+			return "token(" + strconv.Itoa(int(tok)) + ")"
+		}
+	}
+	return
+}
+
+var keywords = make(map[string]token)
+
+func init() {
+	for i := _keyword_beg + 1; i < _keyword_end; i++ {
+		if s := tokens[i]; s != "" { keywords[s] = i }
+	}
+}
+
+// lookup_keyword maps an identifier to its keyword token or IDENT (if not a keyword).
+//
+func lookup_keyword(ident string) token {
+	if t, y := keywords[ident]; y { return t }
+	return WORD
+}
+
+func (tok token) is_literal() bool          { return   _literal_beg < tok && tok <   _literal_end }
+func (tok token) is_operator() bool         { return  _operator_beg < tok && tok <  _operator_end }
+func (tok token) is_keyword() bool          { return   _keyword_beg < tok && tok <   _keyword_end }
+func (tok token) is_constant() bool         { return  _constant_beg < tok && tok <  _constant_end }
+func (tok token) is_closure() bool          { return  CLOSURE == tok }
+func (tok token) is_closure_delegate() bool { return  CLOSURE == tok || tok == DELEGATE }
+func (tok token) is_delegate() bool         { return  DELEGATE == tok }
+func (tok token) is_assign() bool           { return    _assign_beg < tok && tok <    _assign_end }
+func (tok token) is_rule_delim() bool       { return _ruledelim_beg < tok && tok < _ruledelim_end }
+func (tok token) is_list_delim() bool {
+	switch tok {
+	case RPAREN, RBRACK, RBRACE, Rbot_corner, Rtop_corner, Rsing_guil, Rguillemet, Rchevron, SEMICOLON, COMMA, LINEND, EOF:
+		return true
+	}
+	return tok.is_rule_delim()
+}
+
+/*
+  Struct Position:
+	Filename string  -- filename, if any
+	Offset   int     -- offset, starting at 0
+	Line     int     -- line number, starting at 1
+	Column   int     -- column number, starting at 1 (byte count)
+*/
+type Position struct { gt.Position }
+func (p *Position) valid() bool { return p.Filename != "" && p.Line > 0 }
+func (p *Position) same(o *Position) bool {
+	return p == o ||
+		p.Filename == o.Filename && p.Line == o.Line &&
+		p.Column == o.Column && p.Offset == o.Offset
+}
+func (p *Position) sameLoc(o *Position) bool {
+	return p == o ||
+		p.Filename == o.Filename && p.Line == o.Line &&
+		p.Column == o.Column
+}
+func (p *Position) sameLine(o *Position) bool {
+	return p == o || (p.Filename == o.Filename && p.Line == o.Line)
+}
+
+func atoi(a any) (res int) {
+	switch t := a.(type) {
+	case string: res, _ = strconv.Atoi(t)
+	case []byte: res, _ = strconv.Atoi(string(t))
+	}
+	return
+}
+
+const NoPos Pos = Pos(gt.NoPos)
+
+type Pos gt.Pos
+func (p Pos) IsValid() bool { return gt.Pos(p).IsValid() }
+
+// mbInfo stores the byte offset of a multi-byte character and how many "extra" 
+// bytes it consumes compared to a standard 1-byte ASCII character.
+type mbInfo struct {
+	offset int
+	extra  int
+}
+
+type tokfile struct {
+	*gt.File
+	sync.RWMutex // Protects the slice during concurrent parsing/tracing
+	mb []mbInfo  // The sparse multibyte index
+}
+
+func (f *tokfile) Offset(p Pos) int { return f.File.Offset(gt.Pos(p)) }
+func (f *tokfile) Line(p Pos) int { return f.File.Line(gt.Pos(p)) }
+func (f *tokfile) Pos(offset int) Pos { return Pos(f.File.Pos(offset)) }
+
+// CRITICAL FIX: Mathematical Correction for Rune Columns
+func (f *tokfile) Position(p Pos) Position {
+	gpos := gt.Pos(p)
+	pos := f.File.PositionFor(gpos, true)
+
+	// Translate Byte Column to Rune Column using the sparse index
+	if pos.Column > 1 {
+		f.RLock() // Protect slice read
+		if len(f.mb) > 0 {
+			lineStartPos := f.File.LineStart(pos.Line)
+			lineStartOffset := f.File.Offset(lineStartPos)
+			targetOffset := f.File.Offset(gpos)
+
+			// Binary search: Find the first multibyte char on or after this line
+			startIdx := sort.Search(len(f.mb), func(i int) bool {
+				return f.mb[i].offset >= lineStartOffset
+			})
+
+			// Accumulate the extra bytes occurring before our target token
+			extraBytes := 0
+			for i := startIdx; i < len(f.mb); i++ {
+				if f.mb[i].offset >= targetOffset { break }
+				extraBytes += f.mb[i].extra
+			}
+
+			// Mathematically collapse the byte column into a precise rune column!
+			pos.Column -= extraBytes
+		}
+		f.RUnlock()
+	}
+
+	return Position{pos}
+}
+
+// AddSpan registers a multi-byte character during scanningt.
+func (f *tokfile) AddSpan(offset, extraBytes int) {
+	f.Lock()
+	f.mb = append(f.mb, mbInfo{offset: offset, extra: extraBytes})
+	f.Unlock()
+}
+
+type fileset struct {
+	*gt.FileSet
+	sync.RWMutex
+	files map[*gt.File]*tokfile
+}
+
+func _fileset() *fileset {
+	return &fileset{
+		FileSet: gt.NewFileSet(),
+		files:   make(map[*gt.File]*tokfile),
+	}
+}
+
+func (s *fileset) AddFile(filename string, base, size int) *tokfile {
+	gf := s.FileSet.AddFile(filename, base, size)
+	tf := &tokfile{File: gf}
+	
+	s.Lock()
+	s.files[gf] = tf
+	s.Unlock()
+	
+	return tf
+}
+
+func (s *fileset) Iterate(f func(*tokfile) bool) {
+	s.FileSet.Iterate(func(a *gt.File) bool { 
+		s.RLock()
+		tf, ok := s.files[a]
+		s.RUnlock()
+		if ok { return f(tf) }
+		return f(&tokfile{File: a}) 
+	})
+}
+
+func (s *fileset) Position(p Pos) Position {
+	gpos := gt.Pos(p)
+	if gf := s.FileSet.File(gpos); gf != nil {
+		s.RLock()
+		tf, ok := s.files[gf]
+		s.RUnlock()
+		if ok {
+			return tf.Position(p)
+		}
+	}
+	return Position{s.FileSet.Position(gpos)}
+}
+
+const (
+	isStrcompLine scanbits = 1 << iota    // 0000000000000001
+	isStrcompString  // 0000000000000010 "...."
+	isCall           // 0000000000000100 $.....
+	isCallParen      // 0000000000001000 $(...)              8
+	isCallBrace      // 0000000000010000 ${...}             16
+	isCallColonL     // 0000000000100000 $:....             32
+	isCallColonR     // 0000000001000000 $:...:             64
+	isGroup          // 0000000010000000 (...)             128
+	isBrace          // 0000000100000000 {...}             256
+	isBraceRaw       // 0000001000000000                   512
+	isBracedPlain    // 0000010000000000                  1024
+	isRecipes        // 0000100000000000                  2048
+	isRecipeTab      // 0001000000000000 \t                4096
+	isHashValid      // 0010000000000000 scan '#' as HASH token (commentsOff)
+	isMaximumBit     // 1000000000000000                   8192
+)
+
+type scanstate struct {
+	ch         rune  // current character
+	offset     int   // character offset
+	offsetRead int   // reading offset (position after current character)
+	offsetLine int   // current line offset
+	bitss []scanbits // scan bits stack
+	bits    scanbits // scan bits
+}
+
+func (s *scanstate) ch_bytes() int { return s.offsetRead - s.offset }
+
+func (s *scanstate) String() string {
+	var t string
+	switch s.ch {
+	case '\n': t = "\\n"
+	case '}': t = "\\}"
+	default: t = string(s.ch)
+	}
+	return fmt.Sprintf("{=scan %s {%v %v %v} %016b %016b}",
+		t, s.offsetLine, s.offset, s.offsetRead, s.bitss, s.bits)
+}
+
+func (s *scanstate) push(bits scanbits) (prev scanbits) {
+	if prev = s.bits; prev != 0 {
+		s.bitss = append(s.bitss, prev) // &^ isLineFeed
+	}
+	s.bits = bits
+	return
+}
+func (s *scanstate) pop(bits scanbits) (prev scanbits) {
+	if prev = s.bits ; bits == 0 || (s.bits&bits != 0) {
+		if i := len(s.bitss); 0 == i {
+			s.bits = 0
+		} else {
+			s.bits = s.bitss[i-1] //&^ isLineFeed
+			s.bitss = s.bitss[0:i-1]
+		}
+	}
+	return
+}
+
+func (s *scanstate) setBits(bits scanbits) (prev scanbits) {
+	prev = s.bits
+	s.bits = bits
+	return
+}
+
+func (s *scanstate) addBits(bits scanbits) (prev scanbits) {
+	prev = s.bits
+	s.bits |= bits
+	return
+}
+
+func (s *scanstate) remBits(bits scanbits) (prev scanbits) {
+	prev = s.bits
+	s.bits &^= bits
+	return
+}
+
+func (s *scanstate) commentsOff() scanbits { return s.addBits(isHashValid) }
+func (s *scanstate) recipes(v bool) {
+	var bits = s.bits
+	if v { bits |= isRecipes } else { bits &^= isRecipes }
+	s.bits = bits
+}
+
+func (s *scanstate) canRecipe() (res bool) {
+	if t := s.bits; (s.offsetLine == s.offset-1) && t.canRecipe() {
+		res = !t.is(isCallParen|isCallBrace|isCallColonL|isCallColonR|isGroup)
+	}
+	return
+}
+
+func (s *scanstate) bit(bits scanbits) (res bool) {
+	if res = s.bits&bits != 0; !res {
+		for i := len(s.bitss)-1; 0 <= i; i -= 1 {
+			if res = s.bitss[i]&bits != 0; res { break }
+		}
+	}
+	return
+}
+
+const bom = 0xFEFF // byte order mark, only permitted as very first character
+
+// A scanner holds the scanner's internal state while processing
+// a given text.  It can be allocated as part of another data
+// structure but must be initialized via Init before use.
+//
+// (See go.token)
+type scanner struct { // immutable state
+	file *tokfile     // source file handle
+	dir  string       // directory portion of file.Name()
+	src  []byte       // source
+	mode scanmode     // scanning mode
+	scanstate
+}
+
+// Read the next Unicode char into s.ch, s.ch < 0 means end-of-file.
+func (s *scanner) next(ctx Context) {
+	var newline = s.ch == '\n'
+
+	if s.offsetRead < len(s.src) {
+		if s.offset = s.offsetRead; s.ch == '\n' {
+			s.offsetLine = s.offset
+			s.file.AddLine(s.offset)
+		}
+		var w int
+		s.ch, w = s.pick(ctx, s.offsetRead)
+		s.offsetRead += w
+	} else {
+		if s.offset = len(s.src); s.ch == '\n' {
+			s.offsetLine = s.offset
+			s.file.AddLine(s.offset)
+		}
+		s.ch = -1 // eof
+	}
+
+	if newline && s.ch == '\t' {
+		s.bits |= isRecipeTab
+		// s.bits &^= isLineFeed
+	} else {
+		// s.bits &^= isLineFeed | isRecipeTab
+		s.bits &^= isRecipeTab
+	}
+}
+
+func (s *scanner) pickNext(ctx Context) (ch rune, w int) {
+	if n := s.offsetRead + 1; n < len(s.src) { ch, w = s.pick(ctx, n) }
+	return
+}
+
+func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
+	switch ch, w = rune(s.src[offset]), 1; {
+	case ch == 0:
+		debug(pc(ctx,s.pos(offset)), "illegal character NUL", trace{})
+	case ch >= 0x80: // Non ASCII
+		if ch, w = utf8.DecodeRune(s.src[offset:]); ch == utf8.RuneError && w == 1 {
+			debug(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding", trace{})
+		} else if ch == bom && offset > 0 {
+			debug(pc(ctx,s.pos(offset)), "illegal byte order mark", trace{})
+		} else if w > 1 {
+			// CRITICAL FIX: Register the multibyte span instantly during parsing!
+			// We pass the byte offset and the "extra" bytes (width - 1).
+			s.file.AddSpan(offset, w - 1)
+		}
+	}
+	return
+}
+
+// A mode value is a set of flags (or 0).
+// They control scanner behavior.
+type scanmode uint
+type scanbits uint
+func (bits scanbits) is(t scanbits)     bool { return bits&t != 0 }
+func (bits scanbits) isCall()           bool { return bits&isCall != 0 }
+func (bits scanbits) isCallZero()       bool { return bits&isCall != 0 && bits&(isCallParen|isCallBrace|isCallColonL) == 0 }
+func (bits scanbits) isCallParen()      bool { return bits&isCallParen != 0 }
+func (bits scanbits) isCallBrace()      bool { return bits&isCallBrace != 0 }
+func (bits scanbits) isCallColonL()     bool { return bits&isCallColonL != 0 }
+func (bits scanbits) isCallColonR()     bool { return bits&isCallColonR != 0 }
+func (bits scanbits) isCommentsOff()    bool { return bits&isHashValid != 0 }
+func (bits scanbits) isBrace()          bool { return bits&isBrace != 0 }
+func (bits scanbits) isBraceRaw()       bool { return bits&isBraceRaw != 0 }
+func (bits scanbits) isBracedPlain()    bool { return bits&isBracedPlain != 0 }
+func (bits scanbits) isGroup()          bool { return bits&isGroup != 0 }
+func (bits scanbits) isStrcompLine()    bool { return bits&isStrcompLine != 0 }
+func (bits scanbits) isStrcompString()  bool { return bits&isStrcompString != 0 }
+func (bits scanbits) canRecipe()        bool { return bits&(isRecipeTab|isRecipes) != 0 }
+
+func IsLetter(r rune) bool {
+	return 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || r == '_' || r >= 0x80 && unicode.IsLetter(r)
+}
+
+func IsDigit(r rune) bool {
+	return unicode.IsDigit(r) //('0' <= r && r <= '9') || (r >= 0x80 && unicode.IsDigit(r))
+}
+
+func IsDigits(s string) bool {
+    return strings.IndexFunc(s, func(r rune) bool { return !IsDigit(r) }) < 0
+}
+
+// punctuation used as non-terminator
+func IsUntermPunct(r rune) bool {
+	// Most chars accepted in URL (RFC3986)
+	return r == '@' || r == '+' /* || r == '-' || r == '.' || r == '/' */;
+}
+
+func IsDatetimeTerminator(r rune) bool {
+	return  r == ' ' || r == '\t' || r == '\n' || r == '\r' ||
+		r == '(' || r == ')' || r == '{' || r == '}' ||
+		r == '$' || r == '#' || r == '\\'
+}
+
+func IsIdentifier(r rune) bool {
+	return IsLetter(r) || IsDigit(r) || IsUntermPunct(r) //|| r == '\\'
+}
+
+func (s *scanner) init(ctx Context, file *tokfile, src []byte, mode scanmode) {
+	// Explicitly initialize all fields since a scanner may be reused.
+	if file.Size() != len(src) {
+		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
+	}
+
+	s.file = file
+	s.dir, _ = filepath.Split(file.Name())
+	s.src = src
+	s.mode = mode
+
+	s.ch = ' '
+	s.offset = 0
+	s.offsetRead = 0
+	s.offsetLine = 0
+	s.bits = 0
+	s.bitss = nil
+
+	// The BOM at file beginning will be discarded.
+	if s.next(ctx); s.ch == bom { s.next(ctx) }
+}
+
+func (s *scanner) pos(offs ...int) Position {
+	if 0 < len(offs) {
+		return s.file.Position(s.file.Pos(offs[0]))
+	}
+	return s.file.Position(s.file.Pos(s.offset))
+}
+
+func (s *scanner) scanComment(ctx Context) (res string) {
+	for s.ch == ' '  || s.ch == '\t' { s.next(ctx) } // skip preceding spaces
+
+	var offs = s.offset
+	for s.ch != '\n' && s.ch != -1 { s.next(ctx) }
+
+	// We should intern identifiers, words, and numbers. We should not intern
+	// comments (they are long and rarely repeated) to avoid bloating the pool.
+	return string(s.src[offs:s.offset])
+}
+
+func (s *scanner) scanIdentifier(ctx Context) string {
+	var offs = s.offset
+	for IsIdentifier(s.ch) {
+		if s.next(ctx); /* s.ch == '-' */false { // Looking for '->'
+			var n = s.offset + 1 // No need UTF8 decoding!
+			if n < len(s.src) && rune(s.src[n]) == '>' { break }
+		}
+	}
+	return internBytes(s.src[offs:s.offset])
+}
+
+func digitVal(ch rune) int {
+	switch {
+	case '0' <= ch && ch <= '9': return int(ch - '0')
+	case 'a' <= ch && ch <= 'f': return int(ch - 'a' + 10)
+	case 'A' <= ch && ch <= 'F': return int(ch - 'A' + 10)
+	}
+	return 16 // larger than any legal digit val
+}
+
+func (s *scanner) scanMantissa(ctx Context, base int) {
+	if digitVal(s.ch) < base { // first digit
+		s.next(ctx)
+		if true {
+			for digitVal(s.ch) < base { s.next(ctx) }
+		} else {
+			// NOTE: disable '_' number separaters as ParseInt not support it and
+			//       it's not recoverable from ints back to strings.
+			for s.ch == '_' || digitVal(s.ch) < base {
+				if s.ch == '_' {
+					if s.next(ctx); s.ch == '_' {
+						debug(pc(ctx,s), "invalid digit group", trace{})
+						break
+					}
+				} else {
+					s.next(ctx)
+				}
+			}
+		}
+	}
+}
+
+func (s *scanner) scanDatetime(ctx Context) (tok token) {
+	var (
+		ch byte
+		hasDate = false
+		hasTime = false
+		o = s.offset
+		l = len(s.src)
+	)
+	if x := l-o; 8 <= x {
+		for i := 0; i < 2; i++ {
+			if ch = s.src[o+i]; ch < '0' || '9' < ch {
+				goto exit
+			}
+		}
+		if s.src[o+2] == ':' || s.src[o+5] == ':' {
+			hasTime = true; goto checkTime
+		}
+		if s.src[o+4] == '-' || s.src[o+7] == '-' && 10 <= x {
+			hasDate = true; goto checkDate
+		}
+	}
+
+	goto exit
+
+checkDate:
+	// 4 digits fullyear (first two digit already checked)
+	for i := 2; i < 4; i++ {
+		if ch = s.src[o+i]; ch < '0' || '9' < ch {
+			goto exit
+		}
+	}
+
+	// month range is 01-12
+	if ch = s.src[o+5]; ch != '0' && ch != '1' {
+		debug(pc(ctx,s.pos(o+5)), "bad month", trace{}); goto exit
+	}
+	if ch = s.src[o+6]; ch < '0' || '9' < ch {
+		debug(pc(ctx,s.pos(o+6)), "bad month", trace{}); goto exit
+	}
+
+	// month-day range is 01-28, 01-29, 01-30, 01-31 based on month/year
+	if ch = s.src[o+8]; ch < '0' && '3' < ch {
+		debug(pc(ctx,s.pos(o+8)), "bad month day", trace{}); goto exit
+	}
+	if ch = s.src[o+9]; ch < '0' || '9' < ch {
+		debug(pc(ctx,s.pos(o+9)), "bad month day", trace{}); goto exit
+	}
+
+	if o += 10; o == l {
+		goto success // 1979-05-27
+	} else if ch = s.src[o]; IsDatetimeTerminator(rune(ch)) {
+		goto success // 1979-05-27
+	}
+
+	if ch == 'T' || ch == 't' {
+		o += 1 // consume 'T'
+		hasTime = true
+	} else {
+		debug(pc(ctx,s.pos(o)), "bad time", trace{}); goto exit
+	}
+
+	if l-o < 9 || s.src[o+2] != ':' || s.src[o+5] != ':' {
+		debug(pc(ctx,s.pos(o)), "illegal time", trace{}); goto exit
+	}
+
+checkTime:
+	// hour range is 00-23
+	if ch = s.src[o+0]; ch < '0' || '2' < ch {
+		debug(pc(ctx,s.pos(o+0)), "bad hour", trace{}); goto exit
+	}
+	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
+		debug(pc(ctx,s.pos(o+1)), "bad hour", trace{}); goto exit
+	}
+
+	// minute range is 00-59
+	if ch = s.src[o+3]; ch < '0' || '5' < ch {
+		debug(pc(ctx,s.pos(o+3)), "bad minute", trace{}); goto exit
+	}
+	if ch = s.src[o+4]; ch < '0' || '9' < ch {
+		debug(pc(ctx,s.pos(o+4)), "bad minute", trace{}); goto exit
+	}
+
+	// second ranges are 00-59 00-58, 00-59, 00-60 based on leap second rules
+	if ch = s.src[o+6]; ch < '0' || '5' < ch {
+		debug(pc(ctx,s.pos(o+6)), "bad second", trace{}); goto exit
+	}
+	if ch = s.src[o+7]; ch < '0' || '9' < ch {
+		debug(pc(ctx,s.pos(o+7)), "bad second", trace{}); goto exit
+	}
+
+	if ch = s.src[o+8]; IsDatetimeTerminator(rune(ch)) {
+		o += 8; goto success // consume 00:00:00
+	} else if ch == 'Z' || ch == 'z' {
+		o += 9; goto success // consume 00:00:00Z
+	} else if ch == '.' {
+		for o += 9; o < l; o++ {// consume 00:00:00.
+			if ch = s.src[o]; ch == 'Z' || ch == 'z' {
+				o += 1; goto success // consume 'Z'
+			} else if IsDatetimeTerminator(rune(ch)) {
+				goto success
+			} else if ch == '+' || ch == '-' {
+				o += 1; goto checkNumOffset // consume '+' or '-'
+			} else if ch < '0' || '9' < ch {
+				debug(pc(ctx,s.pos(o)), "bad secfrac", trace{}); goto exit
+			}
+		}
+	} else if ch == '+' || ch == '-' {
+		o += 9; goto checkNumOffset // consume 00:00:00+
+	} else {
+		debug(pc(ctx,s.pos(o)), "bad time", trace{}); goto exit
+	}
+
+checkNumOffset:
+	if ch = s.src[o+2]; ch != ':' {
+		debug(pc(ctx,s.pos(o+2)), "bad offset", trace{}); goto exit
+	}
+
+	// hour range is 00-23
+	if ch = s.src[o+0]; ch < '0' || '2' < ch {
+		debug(pc(ctx,s.pos(o+0)), "bad hour", trace{}); goto exit
+	}
+	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
+		debug(pc(ctx,s.pos(o+1)), "bad hour", trace{}); goto exit
+	}
+
+	// minute range is 00-59
+	if ch = s.src[o+3]; ch < '0' || '5' < ch {
+		debug(pc(ctx,s.pos(o+3)), "bad minute", trace{}); goto exit
+	}
+	if ch = s.src[o+4]; ch < '0' || '9' < ch {
+		debug(pc(ctx,s.pos(o+4)), "bad minute", trace{}); goto exit
+	}
+
+	o += 5 // consume 00:00
+
+success:
+	for i := s.offset; i < o; i++ { s.next(ctx) }
+	switch {
+	case hasDate && hasTime: tok = DATETIME
+	case hasDate && !hasTime: tok = DATE
+	case !hasDate && hasTime: tok = TIME
+	default: tok = ILLEGAL
+	}
+
+exit:
+	return
+}
+
+func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string) {
+	// digitVal(s.ch) < 10
+	offs := s.offset
+	tok := INTEGER
+
+	if seenDecimalPoint {
+		offs--
+		tok = FLOATING // CRITICAL FIX: Was FLOAT (which is a keyword!)
+		s.scanMantissa(ctx, 10)
+		goto exponent
+	}
+
+	if t := s.scanDatetime(ctx); t != ILLEGAL {
+		tok = t; goto exit
+	}
+
+	if s.ch == '0' {
+		// int or float
+		offs := s.offset
+		s.next(ctx)
+		if s.ch == 'b' || s.ch == 'B' {
+			// binary int
+			s.next(ctx)
+			s.scanMantissa(ctx, 2)
+			tok = BINARY
+			if s.offset-offs <= 2 {
+				// only scanned "0b" or "0B"
+				debug(pc(ctx,offs), "illegal binary number", trace{})
+			}
+		} else if s.ch == 'x' || s.ch == 'X' {
+			// hexadecimal int
+			s.next(ctx)
+			s.scanMantissa(ctx, 16)
+			tok = HEXADECIMAL
+			if s.offset-offs <= 2 {
+				// only scanned "0x" or "0X"
+				debug(pc(ctx,offs), "illegal hexadecimal number", trace{})
+			}
+		} else {
+			// octal int or float
+			seenDecimalDigit := false
+			s.scanMantissa(ctx, 8)
+			if s.ch == '8' || s.ch == '9' {
+				// illegal octal int or float
+				seenDecimalDigit = true
+				s.scanMantissa(ctx, 10)
+			}
+			if s.ch == '.' || s.ch == 'e' || s.ch == 'E' || s.ch == 'i' {
+				goto fraction
+			}
+			// octal int
+			if seenDecimalDigit {
+				debug(pc(ctx,offs), "illegal octal number", trace{})
+			}
+			if s.offset-offs > 1 {
+				tok = OCTAL
+			} else {
+				tok = INTEGER // just '0'
+			}
+		}
+		goto exit
+	}
+
+	// decimal int or float
+	s.scanMantissa(ctx, 10)
+
+fraction:
+	if s.ch == '.' {
+		// Safety check 1: Must be followed by a digit. Prevents 1.$2 from breaking.
+		if n := s.offset + 1; n < len(s.src) {
+			if ch := rune(s.src[n]); !IsDigit(ch) { 
+				goto exit
+			}
+		} else {
+			goto exit
+		}
+		
+		// Safety check 2 (The "+2 Hack"): Must have a second character after the dot 
+		// that is ALSO a digit (or 'e'/'E'). This intentionally prevents 1-digit 
+		// decimals (like .0 or .4) from being floats, forcing them to parse as 
+		// structural qualwords for version strings (e.g., 25.4 or 25.4.0).
+		if n := s.offset + 2; n < len(s.src) {
+			ch := rune(s.src[n])
+			if !IsDigit(ch) && ch != 'e' && ch != 'E' {
+				goto exit
+			}
+		} else {
+			goto exit
+		}
+
+		tok = FLOATING
+		s.next(ctx)
+		s.scanMantissa(ctx, 10)
+	}
+
+exponent:
+	if s.ch == 'e' || s.ch == 'E' {
+		tok = FLOATING // CRITICAL FIX: Was FLOAT (which is a keyword!)
+		s.next(ctx)
+		if s.ch == '-' || s.ch == '+' {
+			s.next(ctx)
+		}
+		s.scanMantissa(ctx, 10)
+	}
+
+	/*
+	if s.ch == 'i' {
+		tok = IMAG
+		s.next(ctx)
+	} */
+
+exit:
+	return tok, internBytes(s.src[offs:s.offset])
+}
+
+func (s *scanner) scanEscape(ctx Context, quote rune) bool {
+	var n int
+	var base, max uint32
+	var offs = s.offset
+	switch s.ch {
+	case 'a', 'b', 'f', 'n', 'r', 't', 'v', '\\', '$', quote:
+		s.next(ctx)
+		return true
+	case '0', '1', '2', '3', '4', '5', '6', '7':
+		n, base, max = 3, 8, 255
+	case 'x':
+		s.next(ctx)
+		n, base, max = 2, 16, 255
+	case 'u':
+		s.next(ctx)
+		n, base, max = 4, 16, unicode.MaxRune
+	case 'U':
+		s.next(ctx)
+		n, base, max = 8, 16, unicode.MaxRune
+	case '\n':
+		s.next(ctx)
+	default:
+		var msg = "unknown escape sequence"
+		if s.ch < 0 { msg = "escape sequence not terminated" }
+		debug(pc(ctx,offs), msg, trace{})
+		return false
+	}
+
+	var x uint32
+	for n > 0 {
+		d := uint32(digitVal(s.ch))
+		if d >= base {
+			var msg = fmt.Sprintf("illegal character %#U in escape sequence", s.ch)
+			if s.ch < 0 { msg = "escape sequence not terminated" }
+			debug(pc(ctx,offs), msg, trace{})
+			return false
+		}
+		x = x*base + d
+		s.next(ctx)
+		n--
+	}
+
+	if x > max || 0xD800 <= x && x < 0xE000 {
+		debug(pc(ctx,offs), "escape sequence is invalid Unicode code point", trace{})
+		return false
+	}
+
+	return true
+}
+
+func (s *scanner) scanStrliting(ctx Context, ml bool) string {
+	// '\'' opening already consumed
+	offs := s.offset - 1
+	if ml { offs -= 1 }
+
+	for s.offsetRead < len(s.src) {
+		ch := s.ch
+		if (!ml && ch == '\n') || ch < 0 { // if ch < 0 {
+			debug(pc(ctx,offs), "raw string literal not terminated", trace{})
+			break
+		}
+		if ch == '\\' { s.next(ctx) } // escapes
+		s.next(ctx)
+		if ch == '\'' {
+			if !ml { break }
+			if s.ch == '\'' {
+				if s.next(ctx); s.ch == '\'' {
+					s.next(ctx)
+					break
+				}
+			}
+		}
+	}
+
+	return internBytes(s.src[offs+1:s.offset-1])
+}
+
+func (s *scanner) scanString(ctx Context, ml bool) string {
+	// '"' opening already consumed
+	offs := s.offset - 1
+	if ml { offs -= 1 }
+
+	for s.offsetRead < len(s.src) {
+		ch := s.ch
+		if (!ml && ch == '\n') || ch < 0 {
+			debug(pc(ctx,offs), "string literal not terminated", trace{})
+			break
+		}
+		s.next(ctx)
+		if ch == '"' {
+			if !ml {
+				break
+			}
+			if s.ch == '"' {
+				if s.next(ctx); s.ch == '"' {
+					s.next(ctx)
+					break
+				}
+			}
+		}
+		switch ch {
+		case '\\': s.scanEscape(ctx, '"')
+		case '$': //
+		}
+	}
+	return internBytes(s.src[offs:s.offset])
+}
+
+func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
+	if q != 0 && s.ch == q {
+		switch q {
+		case '"':
+			tok = COMPOSED
+			s.pop(isStrcompString)
+			s.next(ctx) // take the ending '"'
+			return
+		case '}':
+			tok = RBRACE
+			s.pop(isBracedPlain)
+			s.next(ctx) // take the ending '"'
+			return
+		}
+	}
+
+	var offs = s.offset
+
+	switch s.ch {
+	case '{': // mistaken strcomp string terminated with line feed
+		if q == '}' {
+			tok = LBRACE
+			s.next(ctx)
+			return
+		}
+	case '\n': // mistaken strcomp string terminated with line feed
+		tok = LINEND
+		s.pop(isStrcompString|isStrcompLine)
+		if s.next(ctx); s.ch != '\t' { s.bits &^= isRecipes }
+		return
+	case '\\':
+		if s.next(ctx); q == 0 { // skim the \ character
+			tok, lit = ESCAPE, string(s.ch)
+			s.next(ctx) // the escaped character
+			if s.bits&isRecipes != 0 && s.ch == '\t' {
+				s.next(ctx) // skip escaped recipe-tab
+			}
+		} else if s.scanEscape(ctx, q) {
+			tok, lit = ESCAPE, string(s.src[offs+1:s.offset])
+		} else {
+			tok, lit = ILLEGAL, string(s.src[offs:s.offset])
+			debug(pc(ctx,offs), "illegal strcomp escape %#U", s.ch, trace{})
+			s.next(ctx) // discard
+		}
+		return
+	case '&', '$': // Escapes '&', '$', but '&&' or '$$' is not escaped.
+		if n := s.offset+1; n < len(s.src) && rune(s.src[n]) == s.ch {
+			s.next(ctx) //! the first & or $
+			s.next(ctx) //! the second & or $
+		} else if s.ch == '$' {
+			return DELEGATE, lit
+		} else {
+			return CLOSURE, lit
+		}
+	}
+
+rawloop:
+	for ; s.offsetRead < len(s.src) ; s.next(ctx) {
+		switch s.ch {
+		case '\\', '\n', '$', '&', q: break rawloop
+		case '{':
+			if i := s.offsetRead; i < len(s.src) && s.src[i] == '=' {
+				// note(ctx, "%s", s.src[offs:i+1]).debug(5)
+				return LBRACE, lit
+			}
+		}
+	}
+
+	tok, lit = RAW, internBytes(s.src[offs:s.offset])
+	return
+}
+
+func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
+	switch pos = s.file.Pos(s.offset) ; {
+	case s.offset >= len(s.src) || s.ch == -1: return pos, EOF, ""
+	case s.bits.isBracedPlain()  : tok, lit = s.scanStrcomp(ctx, '}')
+	case s.bits.isStrcompString(): tok, lit = s.scanStrcomp(ctx, '"')
+	case s.bits.isStrcompLine()  : tok, lit = s.scanStrcomp(ctx, 0)
+	}
+
+	if tok != 0 {
+		switch tok {
+		case CLOSURE, DELEGATE, LBRACE:
+		default: return
+		}
+		switch s.ch {
+		case '$', '&', '{':
+		default:
+			debug(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:]), trace{})
+		}
+	}
+
+	if IsDigit(s.ch) { // '0' <= s.ch && s.ch <= '9'
+		tok, lit = s.scanNumber(ctx, false)
+		return
+	}
+
+	if IsLetter(s.ch) {
+		lit = s.scanIdentifier(ctx)
+		// CRITICAL FIX: Downgrade keywords to WORD if they are immediately followed by a dash.
+		// This prevents rule targets like `configure-input:` from being hijacked!
+		if len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' && s.ch != '-' {
+			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
+				debug(pc(ctx,s), "unexpected token '%s' %s", tok, lit, trace{})
+			}
+		} else {
+			tok = WORD
+		}
+		if s.bits.isCallZero() { s.pop(/*isCall*/0) }
+		return
+	}
+
+	var ch, offs = s.ch, s.offset
+
+	s.next(ctx)
+
+	if s.bits.isBraceRaw() {
+		switch ch {
+		case '$':
+			if s.ch == '$' {
+				s.next(ctx)
+				return pos, RAW, string(ch)
+			} else if false {
+				debug(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch))
+			}
+		case '&':
+			if s.ch == '&' {
+				s.next(ctx)
+				return pos, RAW, string(ch)
+			} else if false {
+				debug(pc(ctx,s.pos(offs)), "%s %s", string(ch), string(s.ch))
+			}
+		case '\\':
+			if tok = ESCAPE; IsDigit(s.ch) {
+				_, lit = s.scanNumber(ctx, false)
+			} else {
+				lit = string(s.ch)
+				s.next(ctx) // escape a single char
+			}
+			return
+		case '{':
+			s.push(isBraceRaw)
+			return pos, RAW, string(ch)
+		case '}':
+			t := s.bits.isBrace()
+			s.pop(isBrace|isBraceRaw)
+			if t {
+				return pos, RBRACE, ""
+			} else {
+				return pos, RAW, string(ch)
+			}
+		default:
+			return pos, RAW, string(ch)
+		}
+	}
+
+	switch ch {
+	case '#':
+		if s.bits.isCommentsOff() {
+			tok = HASH
+			lit = string(ch)
+		} else {
+			tok = COMMENT
+			lit = s.scanComment(ctx)
+			s.next(ctx) // discard '\n'
+		}
+	case '!':
+		if tok = EXC; s.ch == '=' {
+			tok = ASSIGN_EXC
+			s.next(ctx)
+		}
+	case '?':
+		if tok = QUE; s.ch == '=' {
+			tok = ASSIGN_QUE
+			s.next(ctx)
+		}
+	case '+':
+		if tok = PLUS; s.ch == '=' {
+			tok = ASSIGN_ADD
+			s.next(ctx)
+		}
+	case '-':
+		if s.ch == '-' { // "-->" => "-", "->"
+			if s.offsetRead < len(s.src) && s.src[s.offsetRead] == '>' {
+				tok, lit = WORD, "-"
+			} else {
+				tok = MINUS
+			}
+		} else if s.ch == '=' { // -=
+			tok = ASSIGN_SUB
+			s.next(ctx)
+			if s.ch == '+' { // -=+
+				tok = ASSIGN_SSH
+				s.next(ctx)
+			}
+		} else if s.ch == '+' { // -+
+			s.next(ctx)
+			if s.ch == '=' { // -+=
+				tok = ASSIGN_SAD
+				s.next(ctx)
+			} else {
+				tok = ILLEGAL
+			}
+		} else if s.ch == '>' {
+			tok = SELECT_PROP
+			s.next(ctx)
+		} else if '0' <= s.ch && s.ch <= '9' {
+			tok, lit = s.scanNumber(ctx, false)
+			lit = "-" + lit // minus number
+		} else {
+			tok = MINUS
+		}
+	case '\\':
+		tok, lit = ESCAPE, string(s.ch)
+		s.next(ctx) // eat escaped char
+		if s.bits&isRecipes != 0 && s.ch == '\t' {
+			s.next(ctx) // skip escaped recipe-tab
+		}
+	case '\'':
+		if tok = STRING; s.ch == '\'' {
+			if s.next(ctx); s.ch == '\'' { // '''
+				lit = s.scanStrliting(ctx, true)
+			} else if offs := s.offset - 2; false {
+				lit = string(s.src[offs:s.offset])
+			} else {
+				lit = "" // empty string ''
+			}
+		} else {
+			lit = s.scanStrliting(ctx, false)
+		}
+	case '"':
+		if s.bits.isStrcompString() {
+			debug(pc(ctx,s.pos(offs)), "composed", trace{})
+		} else {
+			tok = STRCOMP
+			s.push(isStrcompString)
+		}
+	case '$', '&':
+		if ch == '&' { tok = CLOSURE } else { tok = DELEGATE }
+		if ch = rune(s.src[s.offset]); ch == '(' || ch == '{' {
+			s.push(isCall)
+		} else if false {
+			s.push(isCall /* | isCallZero */)
+		}
+	case '(':
+		tok = LPAREN
+		if s.bits.isCallZero() { s.bits |= isCallParen } else { s.push(isGroup) }
+	case ')':
+		tok = RPAREN
+		t := isCallParen|isGroup
+		if s.bits&t == 0 {
+			if n := len(s.bitss); n > 0 {
+				if b := s.bitss[n-1]; b&t != 0 {
+					// Fix nested right-paren in recipes
+					s.bits, s.bitss = b, s.bitss[0:n-1]
+					goto poprparen
+				}
+			}
+			debug(pc(ctx,s.pos(offs)), "unexpected right-paren, %016b %016b", s.bits, s.bitss, trace{})
+		}
+		poprparen: s.pop(t)
+	case '{':
+		tok = LBRACE
+		if s.bits.isCallZero() { s.bits |= isCallBrace } else { s.push(isBrace) }
+	case '}':
+		tok = RBRACE
+		t := isCallBrace|isBrace
+		if s.bits&t == 0 {
+			if n := len(s.bitss); n > 0 {
+				if b := s.bitss[n-1]; b&t != 0 {
+					// Fix nested right-brace in recipes
+					s.bits, s.bitss = b, s.bitss[0:n-1]
+					goto poprbrace
+				}
+			}
+			debug(pc(ctx,s.pos(offs)), "unexpected right-brace, %016b %016b", s.bits, s.bitss, trace{})
+		}
+		poprbrace: s.pop(t)
+	case '=':
+		if s.ch == '>' { // =>
+			tok = SELECT_PROG1
+			s.next(ctx) // concume the '>'
+		} else if s.ch == '+' {
+			tok = ASSIGN_SHI
+			s.next(ctx)
+		} else {
+			tok = ASSIGN
+		}
+	case ' ', '\t': // ASCII 32, 9
+		if ch == '\t' && s.canRecipe() {
+			tok, lit = RECIPE, string(ch)
+			s.push(isStrcompLine)
+		} else {
+			for s.ch == ' ' || s.ch == '\t' { s.next(ctx) }
+			tok, lit = SPACE, internBytes(s.src[offs:s.offset])
+		}
+	case '~':
+		if s.ch == '>' { s.next(ctx) // concume the '>' // ~>
+			tok = SELECT_PROG2
+		} else {
+			tok = TILDE
+		}
+	case '.':
+		if tok = DOT; s.ch == '.' { s.next(ctx) // consume the second '.'
+			tok = DOTDOT
+		} else if IsDigit(s.ch) {
+			if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) { // skip xxx.1
+				tok, lit = s.scanNumber(ctx, true)
+			}
+		}
+	case ':':
+		if s.ch == '=' { s.next(ctx) // consume '='
+			tok = ASSIGN_CO1
+		} else if s.ch == ':' { s.next(ctx) // consume the second ':'
+			if s.ch == '=' { s.next(ctx) // consume '='
+				tok = ASSIGN_CO2
+			} else {
+				tok = DOLON
+			}
+		} else {
+			tok = COLON
+		}
+	case '*':
+		switch s.ch {
+		case '*':
+			s.next(ctx) // consume the second '*'
+			tok = DAST
+		case '?':
+			s.next(ctx) // consume the '?'
+			tok = ASTQ
+		default:
+			tok = SAST
+		}
+	case '%':
+		tok = PERC
+	case '@':
+		tok = AT
+	case '|':
+		tok = BAR
+	case '/':
+		tok = PCON
+	case ',':
+		tok = COMMA
+	case '→': // different from ' → '
+		tok = SELECT_PROP
+	case '⇒': // =>
+		tok = SELECT_PROG1
+	case '⇢': // ~>
+		tok = SELECT_PROG2
+	case '≔':
+		tok = ASSIGN_CO1
+	case '⩴':
+		tok = ASSIGN_CO2
+	case ';':
+		if s.ch == '=' { tok = ASSIGN_SC1 ; s.next(ctx) } else
+		if s.ch == ':' { tok = SOLON      ; s.next(ctx)
+			if s.ch == '=' { tok = ASSIGN_CO3 ; s.next(ctx) }
+		} else {
+			tok = SEMICOLON
+		}
+	case '^':
+		tok = CARET
+	case '[':
+		tok = LBRACK
+	case ']':
+		tok = RBRACK
+	case '<':
+		tok = LANGLE
+	case '>':
+		tok = RANGLE
+	case '⟨':
+		tok = Lchevron
+	case '⟩':
+		tok = Rchevron
+	case '⌜':
+		tok = Ltop_corner
+	case '⌝':
+		tok = Rtop_corner
+	case '⌞':
+		tok = Lbot_corner
+	case '⌟':
+		tok = Rbot_corner
+	case '‹':
+		tok = Lsing_guil
+	case '›':
+		tok = Rsing_guil
+	case '«':
+		tok = Lguillemet
+	case '»':
+		tok = Rguillemet
+	case '\n': // ASCII 10, 13⇒\r
+		tok = LINEND
+		if s.pop(isStrcompLine); s.ch != '\t' { s.bits &^= isRecipes }
+	default:
+		// next reports unexpected BOMs - don't repeat
+		if ch != bom {
+			debug(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch, trace{})
+		} else {
+			tok = ILLEGAL
+			lit = string(ch)
+		}
+	}
+	return
+}
+
+
+const (
+    dot_base      = ".base"
+    dot_configure = ".configure"
+    dot_container = ".container"
+
+    mainFileName = "do.smart"
+    altrFileName = "work.smart"
+    deprFileName = "build.smart"
+
+	maxDigitAutoNum = 9
+    optSortErrors = false
+)
+
+type ResolveBits int
+
+const (
+    FromBase ResolveBits = 1<<iota
+    FromProject
+    FromGlobe
+    FromHere
+
+    FindDef
+    FindRule
+
+    anywhere = FromHere
+    local    = FromProject
+    global   = FromGlobe
+    nonlocal = FromGlobe | FromBase | FromProject
+)
+
+type EvalBits int
+
+const (
+    KeepClosures EvalBits = 1<<iota
+    KeepDelegates
+
+    // Wants value for rule depends.
+    DependValue
+
+    // Wants v.string(ctx), expands delegates and closures,
+    // turn off KeepClosures, KeepDelegates.
+    StringValue = 0
+)
+
+// A Mode value is a set of flags (or 0).
+// They control the amount of source code parsed and other optional
+// parser functionality.
+type Mode uint
+
+const (
+    ModuleClauseOnly Mode = 1<<iota // stop parsing after project or module clause
+    ImportsOnly               // stop parsing after import declarations
+    ParseComments             // parse comments and add them to AST
+    AllErrors
+)
+
+type use_spec struct{
+	props []Value
+}
+
+type template struct{
+	state scanstate
+	end  *scanstate
+	pos, endPos Pos // token position
+	tok  token  // one token look-ahead
+	lit  string // token literal
+	verb string
+	name Value // if only 'def', TODO: considering []Value for nested template defs?
+	params []Value
+}
+
+type parser struct{
+	scanner
+
+	// Next token
+	pos, stop Pos // parsing and stop position
+	tok token  // one token look-ahead
+	lit string // token literal
+	multibyte int
+
+	comments  []*commentgroup
+	leadComment *commentgroup // last lead comment
+	lineComment *commentgroup // last line comment
+
+	templates []*template
+
+	imports []*use_spec // list of imports
+
+	targets []Value // targets of current rule
+	ruparas []*auto // parameters of current rule
+	dialect  string // recipe dialect of current rule
+
+	locals []map[string]*def
+}
+
+type (
+	left_hand_side  struct{}
+	is_undef        struct{}
+	p_is_params     struct{}
+	p_is_glob       struct{}
+	p_no_argumented struct{}
+	p_no_path       struct{}
+)
+
+type      aware_c     struct{ token }
+type      aware_token struct{ token }
+type    p_aware       struct{ Context; token }
+func (p p_aware) ts(t string) (_ string) {
+	return "{="+t+" "+p.token.String()+" "+ts(p.Context)+"}"
+}
+func (p p_aware) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case aware_token: return t.token == p.token
+	case aware_c: if t.token == p.token { return p }
+	}
+	return p.Context.do(ctx, op)
+}
+
+func aware(ctx Context, t token) (res Context) {
+	// if x, y := do(ctx, aware_c{t}).(p_aware); y { return x }
+	return p_aware{ctx, t}
+}
+
+type can_select struct{}
+type selection struct{ Context }
+func (p selection) cast(t reflect.Type) Context { return icast(p,t) }
+func (p selection) inner() Context { return p.Context }
+func (p selection) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case can_select: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+type is_braced  struct{}
+type keep_autos struct{}
+type codeblock      struct{ *automatic ; token }
+type defval         struct{ original ; d *def}
+type def_name       struct{ Context }
+type braced         struct{ Context }
+type p_auto_ctx     struct{ Context }
+type foreach_txt    struct{ Context ; a *auto }
+type grep_txt       struct{ Context ; o objbase ; a map[string]*auto }
+type p_group_ctx    struct{ Context }
+type left_side      struct{ Context }
+type p_params       struct{ Context }
+type p_path         struct{ Context }
+type p_perc         struct{ Context }
+type p_glob         struct{ Context }
+type p_regex        struct{ Context }
+type p_strcomp      struct{ Context }
+type p_undef        struct{ Context }
+type p_rule_ctx     struct{ Context ; p *parser }
+type p_recipe struct{
+	Context
+	builtin bool
+	lines [][]Value
+	elems []Value
+}
+
+func (p *codeblock) inner() Context { return p.Context }
+func (p *codeblock) cast(t reflect.Type) Context {
+    if reflect.TypeOf(p) == t { return p }
+    return p.automatic.cast(t)
+}
+func (p *codeblock) ts(t string) (_ string) {
+	return "{="+t+" "+p.token.String()+" "+ts(p.Context)+"}"
+}
+
+func (p p_undef) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_undef) inner() Context { return p.Context }
+func (p p_undef) ts(t string) (_ string) {
+	return "{="+t+" "+ts(p.Context)+"}"
+}
+func (p p_undef) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_undef: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p p_perc) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_perc) inner() Context { return p.Context }
+func (p p_perc) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
+}
+func (p p_perc) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case p_no_argumented: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p p_glob) inner() Context { return p.Context }
+func (p p_glob) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_glob) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p p_glob) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case p_is_glob: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+
+type p_is_strcomp struct{}
+func (p p_strcomp) inner() Context { return p.Context }
+func (p p_strcomp) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_strcomp) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p p_strcomp) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case p_is_strcomp: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p p_params) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_params) inner() Context { return p.Context }
+func (p p_params) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
+}
+func (p p_params) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case p_is_params: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+type is_auto_preserved struct{ s string }
+type is_auto           struct{ s string }
+type is_defname        struct{}
+
+func (p p_auto_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_auto_ctx) inner() Context { return p.Context }
+func (p p_auto_ctx) ts(t string) (_ string) {
+	return fmt.Sprintf("{="+t+" %s}", ts(p.Context))
+}
+func (p p_auto_ctx) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_auto: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p def_name) cast(t reflect.Type) Context { return icast(p,t) }
+func (p def_name) inner() Context { return p.Context }
+func (p def_name) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_defname: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p defval) inner() Context { return p.Context }
+func (p defval) cast(t reflect.Type) Context { return icast(p,t) }
+func (p defval) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case is_auto: return t.s != "0" && IsDigits(t.s)
+	case keep_autos: return true
+    case origin_def:
+        if p.d != nil && (t.name == "" || t.name == p.d.name) { return p.d }
+	}
+	return p.original.do(ctx, op)
+}
+
+func (p braced) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_braced: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p *foreach_txt) inner() Context { return p.Context }
+func (p *foreach_txt) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *foreach_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p *foreach_txt) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+    case find_auto: if t.s == "_" { return p.a }
+	case is_auto: if t.s == "_" { return true }
+	case is_auto_preserved: if t.s == "_" { return true }
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p *grep_txt) inner() Context { return p.Context }
+func (p *grep_txt) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *grep_txt) ts(t string) (_ string) { return "{="+t+" "+ts(p.Context)+"}" }
+func (p *grep_txt) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_auto_preserved:
+		if p.a != nil {
+			if _, y := p.a[t.s]; y { return true }
+		}
+	case is_auto:
+		if p.a != nil {
+			if _, y := p.a[t.s]; y { return true }
+		}
+    case find_auto:
+		if p.a != nil {
+			if x, y := p.a[t.s]; y { return x }
+		}
+	case regex_subexp_auto:
+		p.a = map[string]*auto{"0":&auto{knownobject{p.o, "0"}}}
+		for i, name := range t.SubexpNames() {
+			if 0 < i {
+				if name == "" { name = strconv.Itoa(i) }
+				p.a[name] = &auto{knownobject{p.o, name}}
+			}
+		}
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p p_rule_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_rule_ctx) inner() Context { return p.Context }
+func (p p_rule_ctx) ts(t string) string { return "{="+t+" "+ts(p.Context)+"}" }
+func (p p_rule_ctx) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_auto:
+		if IsDigits(t.s) { return true }
+		if _, y := rule_autos[t.s]; y { return true }
+	}
+	return p.Context.do(ctx, op)
+}
+
+type add_recipe_line struct{ a []Value }
+type is_recipe_start struct{}
+type is_recipe       struct{ bool } // builtin or text
+
+func (p *p_recipe) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *p_recipe) inner() Context { return p.Context }
+func (p *p_recipe) ts(t string) string { return "{="+t+" "+ts(p.Context)+"}" }
+func (p *p_recipe) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_recipe:
+		return t.bool == p.builtin
+	case is_recipe_start:
+		return p.elems == nil
+	case add_recipe_line:
+		p.lines = append(p.lines, t.a)
+		return len(p.lines)
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p left_side) cast(t reflect.Type) Context { return icast(p,t) }
+func (p left_side) inner() Context { return p.Context }
+func (p left_side) ts(t string) string { return fmt.Sprintf("{="+t+" %s}", ts(p.Context)) }
+func (p left_side) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case left_hand_side: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p *parser) ts(_t string) string {
+	t, s := p.tok.String(), p.scanner.file.Name()
+	return "{="+_t+" "+t+" "+s+"}"
+}
+
+// ----------------------------------------------------------------------------
+// Parsing support
+
+func (p *parser) trace(a ...any) { l_traverse.traceAt(p.Position(), a...) }
+
+func (p *parser) scan(ctx Context) {
+	// Because of one-token look-ahead, print the previous token
+	// when tracing as it provides a more readable output. The
+	// very first token (!p.pos.IsValid()) is not initialized
+	// (it is ILLEGAL), so don't print it .
+	if l_traverse.enabled && p.pos.IsValid() {
+		s := p.tok.String()
+		switch {
+		case p.tok.is_literal():
+			p.trace(s, p.lit)
+		case p.tok.is_operator(), p.tok.is_keyword():
+			p.trace("\"" + s + "\"")
+		default:
+			p.trace(s)
+		}
+	}
+
+	if n := p.scanner.ch_bytes(); n > 1 { p.multibyte += n-1 }
+
+	switch p.pos, p.tok, p.lit = p.scanner.scan(ctx); p.tok {
+	case COMMENT, LINEND: p.multibyte = 0
+	}
+}
+
+func (p *parser) step(ctx Context) {
+	p.leadComment = nil
+	p.lineComment = nil
+
+	var prev = p.pos
+	if p.scan(ctx); p.tok == COMMENT {
+		var comment *commentgroup
+		var endline int
+
+		// If the comment is on same line as the previous token;
+		// it cannot be a lead comment but may be a line comment.
+		if p.scanner.file.Line(p.pos) == p.scanner.file.Line(prev) {
+			comment, endline = p.commentgroup(ctx, 0)
+			if p.scanner.file.Line(p.pos) != endline {
+				// The next token is on a different line, thus
+				// the last comment group is a line comment.
+				p.lineComment = comment
+			}
+		}
+
+		// consume successor comments, if any
+		endline = -1
+		for p.tok == COMMENT {
+			comment, endline = p.commentgroup(ctx, 1)
+		}
+
+		if endline+1 == p.scanner.file.Line(p.pos) {
+			// The next token is following on the line immediately after the
+			// comment group, thus the last comment group is a lead comment.
+			p.leadComment = comment
+		}
+	}
+
+	if false && p.tok != LINEND && p.lineComment != nil { p.tok = LINEND }
+}
+
+func (p *parser) next(ctx Context, ws bool) {
+	if p.step(ctx); ws { p.spaces(ctx) }
+}
+
+func (p *parser) spaces(ctx Context) {
+	for p.lineComment == nil && p.tok != EOF {
+		if p.tok == SPACE || (p.tok == RECIPE && truly(ctx, is_recipe{true})) {
+			p.step(ctx)
+		} else if p.tok == ESCAPE && p.lit == "\n" {
+			if p.step(ctx); p.tok == LINEND || p.lineComment != nil { break }
+			if truly(ctx, is_recipe{true}) {
+			tokloop:
+				for p.tok != EOF {
+					switch p.tok {
+					case RECIPE: // TODO: using p.recipe_start()
+						if true { p.scanner.pop(isStrcompLine) }
+						p.step(ctx)
+					default:
+						break tokloop
+					}
+				}
+			}
+		} else {
+			break
+		}
+	}
+}
+
+func (p *parser) comment(ctx Context) (res *comment, endline int) {
+	// /*-style comments may end on a different line than where they start.
+	// Scan the comment for '\n' chars and adjust endline accordingly.
+	endline = p.scanner.file.Line(p.pos)
+	if len(p.lit) > 1 && p.lit[1] == '*' {
+		// don't use range here - no need to decode Unicode code points
+		for i := 0; i < len(p.lit); i++ {
+			if p.lit[i] == '\n' {
+				endline++
+			}
+		}
+	}
+
+	res = &comment{p.pos, p.lit}
+	p.scan(ctx)
+
+	return
+}
+
+func (p *parser) commentgroup(ctx Context, n int) (res *commentgroup, endline int) {
+	res = new(commentgroup)
+	p.comments = append(p.comments, res)
+	endline = p.scanner.file.Line(p.pos)
+	for p.tok == COMMENT && p.scanner.file.Line(p.pos) <= endline+n {
+		var com *comment
+		com, endline = p.comment(ctx)
+		res.comments = append(res.comments, com)
+	}
+	return
+}
+
+func (p *parser) valbase(Context) valbase { return valbase{p.pos} }
+func (p *parser) loc(a Pos) Position { return p.scanner.file.Position(a) }
+func (p *parser) line() int { return p.scanner.file.Line(p.pos) }
+func (p *parser) column() int { return utf8.RuneCount(p.scanner.src[p.scanner.offsetLine:p.scanner.offset]) }
+func (p *parser) Position() (r Position) {
+	if r = p.loc(p.pos); 0 < p.multibyte { r.Column -= p.multibyte }
+	return
+}
+
+func (p *parser) is_file(s string) bool {
+	return strings.HasSuffix(p.scanner.file.Name(), s)
+}
+
+func (p *parser) expect(ctx Context, tok token) Pos {
+	var pos = p.pos
+	if p.tok == tok {
+		p.step(ctx) // move forward
+	} else {
+		debug(pc(ctx,p), "expect %v, not %v", tok, p.tok, trace{})
+	}
+	return pos
+}
+
+func (p *parser) linend(ctx Context) (ok bool) {
+	if p.lineComment != nil {
+		p.lineComment, ok = nil, true
+	} else if p.tok == EOF {
+		ok = true
+	} else if p.tok == LINEND {
+		p.step(ctx); ok = true
+	} else {
+		debug(pc(ctx,p), "expect end of line, but %v", p.tok, trace{})
+	}
+	return
+}
+
+func (p *parser) recipe_start() (res bool) {
+	if p.tok == RECIPE {
+		res = true
+	} else if p.tok == SPACE && p.lit == "\t" {
+		p.tok, res = RECIPE, true // FIXES recipe \t
+	}
+	return
+}
+
+// ----------------------------------------------------------------------------
+// Words & Identifiers
+
+func (l ul) arrow(ctx Context, lhs Value) (res Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "arrow")) }
+
+	pos, tok := lhs.Pos(), l.p.tok // the arrow '->' or '=>'
+
+	ctx = pc(ctx, pos)
+
+	l.p.step(ctx) // skip '->' or '=>'
+
+	switch t := lhs.(type) {
+	case *arrow:
+		return _arrow(pos, tok, t, l.composite(ctx))
+	case *word, *compound:
+		if o := l.resolve(ctx, t, __string(ctx, lhs)); !isNull(o) {
+			return _arrow(pos, tok, o, l.composite(ctx))
+		} else if tok == SELECT_PROG2 {
+			return _null(pos) // ignore
+		} else {
+			debug(ctx, _f("%v: '%v' is undefined (name=%v, obj=%v)", l.project, lhs, t, o),
+				_f("%v: parser is here (name=%s, tok=%s)", l.project, lhs, tok),
+				_f("%v: parser to go here (tok=%s, lit=%s)", l.project, l.p.tok, l.p.lit),
+				trace{})
+		}
+	}
+	return _arrow(pos, tok, lhs, l.composite(ctx))
+}
+
+func (p *parser) bare(ctx Context) Value {
+	tok, lit, pos := p.tok, p.lit, p.pos
+	if tok != WORD && lit == "" { lit = tok.String() }
+	p.step(ctx) // consumes the current token
+	return _word(pos, lit)
+}
+
+func (l ul) braced(ctx Context) (x Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "braced")) }
+
+	pos := l.p.pos
+	l.p.expect(ctx, LBRACE)
+
+	ctx = braced{ctx}
+
+	if l.p.tok == RBRACE {
+		x = &null{l.p.valbase(ctx)}
+		l.p.spaces(ctx)
+		l.p.step(ctx) // consumes }
+		return
+	}
+
+	switch l.p.tok {
+	case LBRACK: // obsolete syntax: {[...]}
+		debug(ctx, "syntax error, use {(modifier)} for modification", trace{})
+		return
+	case LPAREN:
+		x = l.modification(ctx)
+		l.p.spaces(ctx)
+		l.p.expect(ctx, RBRACE)
+		return
+	case ASSIGN: // =
+		l.p.step(ctx) // skips =
+		switch l.p.tok {
+		case AND:     return l.braced_and(ctx)
+		case OR:      return l.braced_or(ctx)
+		case FOR:     return l.braced_for(ctx)
+		case FOREACH: return l.braced_foreach(ctx)
+		case PROJECT: // {=project ...}
+			l.p.next(ctx, true)
+			x = l.braced_project(ctx)
+			l.p.expect(ctx, RBRACE)
+			return
+
+		case BARE: // {=bare ...}
+			l.p.next(ctx, true)
+			x = l.p.bare(ctx)
+			l.p.spaces(ctx)
+			l.p.expect(ctx, RBRACE)
+			return
+
+		case RAW: // {=raw ...}
+			l.p.next(ctx, true)
+			x = &raw{l.p.valbase(ctx), __string(ctx, l.expr(ctx))}
+			l.p.spaces(ctx)
+			l.p.expect(ctx, RBRACE)
+			return
+
+		case UNDEF: // {=undef ...}
+			l.p.next(ctx, true)
+			x = undef{l.expr(ctx)}
+			l.p.spaces(ctx)
+			l.p.expect(ctx, RBRACE)
+			return
+
+		case NULL: // {=null}
+			return l.braced_null(ctx)
+
+		case NONE: // {=none ...}
+			return l.braced_none(ctx)
+
+		case ANSWER, BOOL, BOOLEAN, BIN, OCT, INT, HEX, FLOAT: // {=bin ...}, {=oct ...}, {=int ...}, {=hex ...}, {=float ...}
+			return l.braced_type(ctx, l.p.tok)
+
+		case TRUE, FALSE, YES, NO, ON, OFF: // {=true}, {=false}, {=yes}, {=no}, {=on}, {=off}
+			return l.braced_const(ctx, l.p.tok)
+
+		case FILE: // {=file ...}
+			return l.braced_file(ctx)
+
+		case PATH: // {=path ...}
+			return l.braced_path(ctx)
+
+		case GLOB: // {=glob ...}
+			l.p.next(ctx, true)
+			g := l.glob(ctx, nil)
+			l.p.spaces(ctx)
+			l.p.expect(ctx, RBRACE)
+			return &globbrace{*g}
+
+		case REGEX: // {=regex ...}
+			l.p.step(ctx)
+			l.p.scanner.addBits(isBraceRaw)
+
+			// Trim leading spaces differently to avoid messing the scan states.
+			// NOTE: the first SPACE and WORD do not become RAW.
+			for l.p.tok == SPACE || (l.p.tok == RAW && l.p.lit == " ") { l.p.step(ctx) }
+			return l.regex(ctx)
+
+		case WORD:
+			switch t := l.p.lit; t {
+			case "here":
+				l.p.next(ctx, true)
+				l.p.expect(ctx, RBRACE)
+				p := l.p.Position()
+				x = &compound{elements{[]Value{
+					_raw(l.p.pos, p.Filename), _punct(ctx, COLON),
+					_decimal(l.p.pos, int64(p.Line)), _punct(ctx, COLON),
+					_decimal(l.p.pos, int64(p.Column)), _punct(ctx, COLON),
+				}}}
+				return
+
+			case "plain":
+				x = &plain{elements{l.braced_plain(ctx)}, t}
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "plainline":
+				x = &plainline{elements{l.braced_plain(ctx)}}
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "self":
+				l.p.next(ctx, true)
+				x = self{l.braced_project(ctx)}
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "str": // $(string ...)
+				x = l.braced_str(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "quote": // $(quote ...)
+				x = l.braced_quote(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "word":
+				x = l.braced_word(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "grep":
+				if false {
+					x = l.braced_word(ctx)
+					l.p.expect(ctx, RBRACE)
+					return
+				}
+
+			case "defs":
+				x = l.braced_defs(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+
+			case "fullname":
+				x = l.braced_fullname(ctx)
+				l.p.expect(ctx, RBRACE)
+				return
+			}
+
+			debug(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit, trace{})
+			return
+
+		default:
+			l.p.next(ctx, true)
+			return
+		}
+	default: // {...}
+		if v := l.values(ctx); len(v) == 0 {
+			x = _null(pos)
+		} else if len(v) == 1 {
+			x = &disjunction{valbase{pos},v[0]}
+		} else {
+			x = &disjunction{valbase{pos},_list(v...)}
+		}
+		l.p.spaces(ctx)
+		l.p.expect(ctx, RBRACE)
+		return
+	}
+}
+
+func (l ul) braced_elems(ctx Context) (elems []Value) {
+	for l.p.tok != RBRACE && l.p.tok != EOF {
+		switch l.p.tok {
+		case SPACE:
+			l.p.spaces(ctx)
+		case LBRACE:
+			elems = append(elems, l.braced(ctx))
+		case RAW:
+			elems = append(elems, l.literal(ctx))
+		default:
+			elems = append(elems, l.expr(ctx))
+		}
+	}
+	return
+}
+
+// ----------------------------------------------------------------------------
+// Common productions
+
+func (p *parser) is_end_of_line() bool {
+	// If there's a comment right after the parsed expression, we break
+	// the expression list to treat the end-of-line comment like a LINEND.
+	return p.lineComment != nil || p.tok == LINEND || p.tok == EOF
+}
+
+func (p *parser) is_list_term(ctx Context) bool {
+	// If there's a comment right after the parsed expression, we break
+	// the expression list to treat the end-of-line comment like a LINEND.
+	if p.lineComment != nil || p.tok.is_list_delim() || (truly(ctx, left_hand_side{}) && p.tok.is_assign()) {
+		return true
+	}
+	return p.tok == RECIPE && truly(ctx, is_recipe{false})
+}
+
+func (p *parser) rule_params(ctx Context, args []Value) (err error) {
+	var s = _scope(ctx)
+	for _, arg := range args {
+		switch arg.(type) {
+		case *word, *compound/* , *qualword */:
+			name := __string(ctx, arg)
+			a := &auto{knownobject{objbase{valbase{arg.Pos()}, s}, name}}
+			
+			// CRITICAL FIX: The parameter must be resolvable by its explicit name 
+			// inside the rule body (e.g., $(ARG1)), not just by its positional alias ($1).
+			s.alias(ctx, a, name) // Map "ARG1" -> auto
+			s.alias(ctx, a, strconv.Itoa(len(p.ruparas)+1)) // Map "1" -> auto
+			
+			p.ruparas = append(p.ruparas, a)
+		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
+			debug(ctx, "bad parameter form (%v)", ts(arg), trace{})
+		}
+	}
+	return
+}
+
+func (l ul) depends(ctx Context, params bool) (res []Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "depends")) }
+
+	l.p.spaces(ctx)
+
+	if params && l.p.tok == LPAREN {
+		if g := l.group(p_params{ctx}); 0 < g.len() {
+			if x, y := g.elems[0].(*group); y && g.len() == 1 { g = x }
+			l.p.rule_params(ctx, g.elems)
+		}
+	}
+
+	for l.p.tok != BAR && l.p.tok != SEMICOLON && !l.p.is_end_of_line() {
+		if l.p.tok == COLON {
+			// FIXME: this check is not working!
+			// FIXME: detects unexpected colon ':'
+			debug(ctx, "unexpected colon", trace{})
+		} else if l.p.spaces(ctx) ; !l.p.is_end_of_line() {
+			var val = l.expr(selection{ctx})
+
+			if x, y := val.(*globpat); y && x.len() == 1 {
+				if z, y := x.elems[0].(*globrange); y {
+					debug(ctx, "use {%v} instead", z.Value)
+				} else if z, y := x.elems[0].(*group); y {
+					debug(ctx, "use {%v} instead", z.elems[0])
+				} else {
+					debug(ctx, "use {%v} instead", x.elems[0])
+				}
+			}
+
+			res = append(res, merge(val)...)
+			if l.p.tok == SPACE { l.p.next(ctx, true) }
+		}
+	}
+	return
+}
+
+// If lhs is set, result list elements which are identifiers are not resolved.
+func (l ul) values(ctx Context) (values []Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "values")) }
+
+	for l.p.spaces(ctx); !l.p.is_list_term(ctx); l.p.spaces(ctx) {
+		var prev = l.p.pos
+		if values = append(values, l.expr(ctx)); l.p.pos == prev {
+			debug(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, values, trace{})
+		}
+
+		// If there's a comment right after the parsed expression, we break
+		// the expression list to treat the end-of-line comment like a LINEND.
+		if l.p.tok == EOF || l.p.tok == LINEND || l.p.lineComment != nil { break }
+	}
+	return
+}
+
+func (l ul) group(ctx Context) *group {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "group")) }
+
+	ctx = p_group_ctx{aware(ctx,COMMA)}
+
+	pos := l.p.pos
+	l.p.expect(ctx, LPAREN)
+	l.p.spaces(ctx)
+
+	var elems, converted = l.values(ctx), false
+	for l.p.tok != RPAREN && l.p.tok != EOF {
+		// if l.p.tok == COMMA { l.p.next(ctx, true) }
+		switch l.p.tok {
+		case BAR, COMMA, SEMICOLON:
+			elems = append(elems, l.punct(ctx))
+			l.p.spaces(ctx)
+		}
+
+		p := l.p.pos
+		next := _list(l.values(ctx)...)
+
+		if l.p.pos == p { debug(ctx, "syntax error", callstack{num:64}, trace{}) }
+
+		if !converted {
+			elems = []Value{ _list(elems...), next }
+			converted = true
+		} else {
+			elems = append(elems, next)
+		}
+	}
+	l.p.expect(ctx, RPAREN)
+	return _group(pos, elems...)
+}
+
+func (l ul) corner_list(ctx Context) *list { // ⌜a b c⌟
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "corner")) }
+
+	var elems []Value
+	switch l.p.tok {
+	case Lbot_corner, Ltop_corner: l.p.step(ctx)
+	default: debug(pc(ctx,l.p), "unexpect %v", l.p.tok, trace{})
+	}
+
+corner_loop:
+	for l.p.spaces(ctx); l.p.tok != EOF; l.p.spaces(ctx) {
+		var saved = l.p.pos
+		if elems = append(elems, l.expr(ctx)); l.p.pos == saved {
+			debug(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, elems, trace{})
+		}
+
+		// If there's a comment right after the parsed expression, we break
+		// the expression list to treat the line-end comment like a LINEND.
+		if l.p.lineComment != nil { break }
+
+		switch l.p.tok { case Rbot_corner, Rtop_corner, LINEND: break corner_loop }
+	}
+
+	switch l.p.tok {
+	case Rbot_corner, Rtop_corner: l.p.step(ctx)
+	default: debug(pc(ctx,l.p), "unexpect %v", l.p.tok, trace{})
+	}
+
+	return _list(elems...)
+}
+
+func (l ul) argumented(ctx Context, x Value) *argumented {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
+
+	ctx = p_group_ctx{aware(ctx,COMMA)}
+
+	l.p.next(ctx, true) // skip LPAREN
+
+	var a = []Value{ _list(l.values(ctx)...) }
+	for l.p.tok != RPAREN && l.p.tok != LINEND && l.p.tok != EOF {
+		switch l.p.tok {
+		case COMMA: l.p.next(ctx, true) // skip COMMA
+		case BAR, SEMICOLON:
+			if false {
+				a = append(a, l.punct(ctx))
+				l.p.spaces(ctx)
+			} else {
+				debug(ctx, "unexpected punctuation: %v", l.p.tok, trace{})
+			}
+		}
+		a = append(a, _list(l.values(ctx)...))
+	}
+	l.p.expect(ctx, RPAREN)
+	return _argumented(x, a...)
+}
+
+func (l ul) globmeta(ctx Context) (x *globmeta) {
+	p, t := l.p.pos, l.p.tok
+	l.p.step(ctx)
+	return _globmeta(p, t)
+}
+
+func (l ul) globrange(ctx Context) (x *globrange) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "globrange")) }
+
+	l.p.expect(ctx, LBRACK) // skip '['
+
+	chars := l.expr(ctx)
+
+	l.p.expect(ctx, RBRACK) // skip ']'
+
+	return _globrange(chars)
+}
+
+func (l ul) glob(ctx Context, x Value) (g *globpat) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
+
+	ctx = p_glob{ctx}
+
+	if y := x == nil; y {
+		g = &globpat{}
+	} else if g, y = x.(*globpat); !y || g == nil {
+		g = _globpat(x)
+	}
+
+	for l.p.lineComment == nil {
+		var v Value
+		var p = l.p.pos
+
+		switch l.p.tok {
+		case PCON,RBRACE,RPAREN,COMMA,SELECT_PROP,SELECT_PROG1,SELECT_PROG2,SPACE,LINEND,EOF:
+			return
+		case SAST, DAST, ASTQ, QUE:
+			v = l.globmeta(ctx) // * ** *? ?
+		case LBRACK:
+			v = l.globrange(ctx) // [abc0-9xyz]
+		case DOT:
+			v = l.punct(ctx)
+		default:
+			v = l.unary(ctx)
+		}
+
+		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+
+		g.elems = append(g.elems, v)
+	}
+	return
+}
+
+func is_perc_term(t token) (_ bool) {
+	switch t {
+	case COMMA,COLON,DOLON,LPAREN,RPAREN,LBRACK,RBRACK,LBRACE,PCON,SEMICOLON,SPACE,LINEND:
+		return true
+	}
+	return
+}
+
+func (l ul) perc(ctx Context, x Value) Value {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "perc")) }
+
+	ctx = p_perc{ctx}
+
+	var y Value
+	var pos = l.p.pos
+
+	l.p.step(ctx)
+
+	if pos+1 == l.p.pos && !is_perc_term(l.p.tok) { // joint, e.g. '%.o', but skip '% .o'
+		switch l.p.tok {
+		case PERC: // %%
+			l.p.step(ctx) // consume the second %
+			perc := makePercpat(l.p.pos, nil, nil)
+			if pos+2 == l.p.pos && !is_perc_term(l.p.tok) {
+				switch l.p.tok {
+				case PERC: // %%%
+					debug(ctx, "too many %", trace{})
+				default:
+					switch perc.Suffix = l.expr(ctx); perc.Suffix.(type) {
+					case *argumented, *path:
+						debug(ctx, "incorrect: %v %v", x, ts(perc.Suffix), trace{})
+					}
+				}
+			}
+			y = perc
+		default:
+			y = l.unary(ctx)//expr(ctx)
+		}
+	}
+	return makePercpat(pos, x, y)
+}
+
+type regex_subexp_auto struct{ *regexp.Regexp }
+
+func (l ul) regex(ctx Context) (_ Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "regex")) }
+
+	var rx string
+	var pos = l.p.pos
+
+	ctx = p_regex{ctx}
+
+	if !l.p.scanner.bits.isBrace() {
+		debug(ctx, "wrong scan state: %v", l.p.scanner.scanstate, trace{})
+	}
+	if !l.p.scanner.bits.isBraceRaw() {
+		debug(ctx, "wrong scan state: %v", l.p.scanner.scanstate, trace{})
+	}
+
+rxloop:
+	for ; l.p.tok != RBRACE && l.p.tok != EOF; l.p.scan(ctx) {
+		if l.p.tok == ESCAPE { rx += "\\" }
+		switch l.p.tok {
+		case CLOSURE, DELEGATE:
+			if v := l.calling(ctx); v != nil {
+				rx += __string(ctx, v)
+				if l.p.tok == RBRACE { break rxloop }
+			} else {
+				debug(pc(ctx,l.p), "bad closure: %v", l.p.tok)
+			}
+		}
+		if l.p.lit == "" {
+			rx += l.p.tok.String()
+		} else {
+			rx += l.p.lit
+		}
+	}
+
+	l.p.expect(ctx, RBRACE)
+
+	var err error
+	var x = &regexpat{valbase{pos}, nil} // TODO: correct regexp pattern value
+	if x.Regexp, err = regexp.Compile(rx); err != nil {
+		debug(pc(ctx,l.p), "regex: %v", err, trace{})
+	} else {
+		do(ctx, regex_subexp_auto{x.Regexp})
+	}
+	return x
+}
+
+func (l ul) flag(ctx Context) flag {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "flag")) }
+
+	l.p.step(ctx) // skip dash '-'
+
+	// exclude "-)" "-]" "-}" "-\n", "-=", "-:", etc.
+	if l.p.is_end_of_line() || l.p.is_list_term(ctx) || l.p.tok == SPACE || l.p.tok == RECIPE {
+		return flag{&valbase{l.p.pos}}
+	}
+
+	var x = l.unary(ctx)
+
+composeloop:
+	for l.p.tok != EOF {
+		p := l.p.pos
+		switch l.p.tok {
+		case DOT:
+			x = l.dot(ctx, x)
+		case CLOSURE, DELEGATE, MINUS:
+			x = prefix(ctx, x, l.unary(ctx))
+		case PCON:
+			break composeloop //x = l.path(ctx, x)
+		default:
+			if l.p.tok.is_closure() || l.p.tok.is_delegate() {
+				x = prefix(ctx, x, l.unary(ctx))
+			} else {
+				break composeloop
+			}
+		}
+		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+	}
+
+	if x == nil {
+		debug(ctx, "nil flag name", trace{})
+	}
+	return flag{x}
+}
+
+func (l ul) negative(ctx Context) negative {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "negative")) }
+	l.p.expect(ctx, EXC)
+	return negative{l.expr(ctx)}
+}
+
+func (l ul) punct(ctx Context) *punct {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "punctuation")) }
+	p := &punct{l.p.valbase(ctx), l.p.tok}
+	l.p.step(ctx)
+	return p
+}
+
+func (l ul) escape(ctx Context) *escaped {
+	v := &escaped{l.p.valbase(ctx), l.p.lit}
+	l.p.expect(ctx, ESCAPE)
+	return v
+}
+
+func (l ul) literal(ctx Context) (_ Value) {
+	tok, lit, pos := l.p.tok, l.p.lit, l.p.pos
+
+	l.p.step(ctx)
+
+	// ESCAPE is handled in value.EscapeChar
+	switch tok {
+	case BAR: debug(ctx, "`|` is deprecated, change the modifiers!", trace{})
+	case BINARY:      return ParseBinary(pos, lit)
+	case OCTAL:       return ParseOctal(pos, lit)
+	case INTEGER:     return ParseDecimal(pos, lit)
+	case HEXADECIMAL: return ParseHexadecimal(pos, lit)
+	case DATETIME:    return ParseDateTime(pos, lit)
+	case DATE:        return ParseDate(pos, lit)
+	case TIME:        return ParseTime(pos, lit)
+	case URL:         return ParseURL(pos, lit)
+	case FLOATING:    return parseFloat(pos, lit)
+	case WORD:        return _word(pos, lit)
+	case RAW:         return _raw(pos, lit)
+	case STRING:      return _strlit(pos, lit)
+	}
+
+	unreachable()
+	return
+}
+
+func (l ul) strcomp(ctx Context) *strcomp {
+	var elems []Value
+
+	l.p.step(ctx)
+
+	for l.p.tok != EOF && l.p.tok != COMPOSED && l.p.tok != LINEND {
+		var p = l.p.pos
+		if l.p.tok == RAW {
+			elems = append(elems, l.literal(ctx))
+		} else {
+			elems = append(elems, l.expr(p_strcomp{ctx}))
+		}
+		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+	}
+
+	l.p.expect(ctx, COMPOSED)
+
+	return _strcomp(elems...)
+}
+
+func (p *parser) is_dot_term(ctx Context) bool {
+	// Expressions like `FOO.BAR(xxx)` does not count.
+	switch p.tok {
+	case SPACE, LPAREN, COLON, PCON, ASSIGN: fallthrough
+	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+		if true || truly(ctx, can_select{}) { return true }
+	}
+	return p.is_end_of_line() || p.is_list_term(ctx)
+}
+
+// Parses dot composing expressions (e.g., .foo, foo.bar.baz, 1.10.1)
+func (l ul) dot(ctx Context, x Value) (_ Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
+
+	var q *qualword
+	if t, ok := x.(*qualword); ok {
+		q = t
+	} else {
+		q = &qualword{}
+		if x == nil {
+			// Leading dot (e.g., .foo): append an empty raw string to preserve semantic structure
+			q.elems = append(q.elems, &valbase{l.p.pos})
+		} else {
+			q.elems = append(q.elems, x)
+		}
+	}
+
+	ctx = aware(ctx, DOT)
+	l.p.step(ctx) // skips the initial '.'
+
+	var trailingDot = true
+
+	for !l.p.is_dot_term(ctx) {
+		p := l.p.pos
+		y := l.unary(ctx)
+
+		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+
+		// Flatten nested qualwords if they emerge from evaluation
+		if subQ, ok := y.(*qualword); ok {
+			q.elems = append(q.elems, subQ.elems...)
+		} else if y != nil {
+			q.elems = append(q.elems, y)
+		}
+
+		if l.p.tok == DOT {
+			trailingDot = true
+			l.p.step(ctx) // skips '.'
+		} else {
+			trailingDot = false
+			break
+		}
+	}
+
+	if trailingDot {
+		// Trailing dot (e.g., foo.): append an empty raw string
+		q.elems = append(q.elems, &valbase{l.p.pos})
+	}
+
+	return q
+}
+
+func (l ul) path(ctx Context, start Value) (res *path) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "path")) }
+	if start == nil { debug(ctx, "nil path starter", trace{}) }
+
+	ctx = p_path{ctx}
+
+	switch t := start.(type) {
+	case *path: res = t
+	case *strlit:
+		res = makePath(splitPathStr(pc(ctx,t.pos), t.s)...)
+	case *strcomp:
+		res = makePath(splitPathStr(pc(ctx,t.Pos()), __string(ctx, t))...) // FIXME: dont final here
+	default:
+		res = makePath(start)
+	}
+
+	for l.p.tok == PCON {
+		for l.p.step(ctx); l.p.tok == PCON; l.p.step(ctx) {} // repeated '/'
+
+		switch l.p.tok {
+		case LPAREN, LBRACE, RPAREN, RBRACE, COMMA, SPACE, LINEND:
+			res.elems = append(res.elems, &punct{l.p.valbase(ctx),PTAIL}) // after the last '/'
+			return
+		}
+
+		var p = l.p.pos
+		var elem = l.unary(ctx)
+		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+		if x, y := elem.(*list); false && y && x.len() == 1 { elem = x.elems[0] }
+
+		switch l.p.tok {
+		case DOT: // .
+			elem = l.dot(ctx, elem)
+		case SAST, DAST, ASTQ, QUE, LBRACK: // * ** ? [
+			elem = l.glob(ctx, elem)
+		case PERC: // %
+			elem = l.perc(ctx, elem)
+		}
+
+		if x, y := elem.(*path); y {
+			res.elems = append(res.elems, x.elems...)
+		} else {
+			res.elems = append(res.elems, elem)
+		}
+
+		if l.p.tok == SPACE || l.p.is_end_of_line() { return }
+	}
+	return
+}
+
+func isKnownURLScheme(s string) (result bool) {
+	switch strings.ToLower(s) {
+	case "file", "http", "https", "ftp", "ftps", "mailto":
+		result = true
+	}
+	return
+}
+
+type is_url          struct{}
+type is_url_query    struct{}
+type is_url_fragment struct{}
+type url_encoding struct{ Context }
+type url_query    struct{ Context }
+type url_fragment struct{ Context }
+
+func (u url_encoding) cast(t reflect.Type) Context { return icast(u,t) }
+func (u url_encoding) inner() Context { return u.Context }
+func (u url_encoding) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_url: return true
+	}
+	return u.Context.do(ctx, op)
+}
+
+func (u url_query) cast(t reflect.Type) Context { return icast(u,t) }
+func (u url_query) inner() Context { return u.Context }
+func (u url_query) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_url_query: return true
+	}
+	return u.Context.do(ctx, op)
+}
+
+func (u url_fragment) cast(t reflect.Type) Context { return icast(u,t) }
+func (u url_fragment) inner() Context { return u.Context }
+func (u url_fragment) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+	case is_url_fragment: return true
+	}
+	return u.Context.do(ctx, op)
+}
+
+func (l ul) url(ctx Context, scheme Value) (res Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "url")) }
+
+	var u = &url{Scheme:scheme}
+
+	l.p.expect(ctx, COLON) // consumes ':'
+	l.p.expect(ctx, PCON) // the first '/'
+	l.p.expect(ctx, PCON) // the second '/'
+
+	ctx = url_encoding{ctx}
+
+	var x = l.unary(ctx)
+
+	switch l.p.tok {
+	case AT:
+		u.Username = x
+		x = l.unary(ctx)
+	case COLON:
+		u.Username = x
+		l.p.step(ctx) // ':'
+		u.Password = l.unary(ctx)
+		l.p.expect(ctx, AT)
+		x = l.unary(ctx)
+	case LINEND, EOF:
+		u.Host = x
+		return u
+	}
+
+	var h *qualword
+	var p *path
+
+hostloop:
+	for l.p.tok == DOT {
+		if h == nil { 
+			h = &qualword{}
+			if q, ok := x.(*qualword); ok {
+				h.elems = append(h.elems, q.elems...)
+			} else {
+				h.elems = append(h.elems, x)
+			}
+		}
+
+		l.p.step(ctx) // '.'
+
+		switch x = l.unary(ctx); l.p.tok {
+		case PCON, QUE, HASH:
+			h.elems = append(h.elems, x)
+			break hostloop
+		case LINEND, EOF:
+			h.elems = append(h.elems, x)
+			u.Host = h
+			return u
+		default:
+			h.elems = append(h.elems, x)
+		}
+	}
+
+	if h == nil {
+		u.Host = x
+	} else {
+		u.Host = h
+	}
+
+pathloop:
+	for l.p.tok == PCON {
+		if p == nil { p = makePath(&punct{l.p.valbase(ctx),PROOT}) }
+
+		l.p.step(ctx) // '/'
+
+		switch l.p.tok {
+		case QUE, HASH:
+			break pathloop
+		default:
+			x = l.unary(ctx)
+			p.elems = append(p.elems, x)
+		}
+	}
+	if p != nil {
+		u.Path = p
+	}
+
+	// scan '#' differently to comments
+	defer l.p.scanner.setBits(l.p.scanner.commentsOff())
+
+	if l.p.tok == QUE {
+		l.p.step(ctx) // '?'
+
+	queryloop:
+		for {
+			switch l.p.tok {
+			case HASH, LINEND, EOF:
+				break queryloop
+			}
+
+			x = l.unary(url_query{ctx})
+
+			if l.p.tok == ASSIGN {
+				l.p.step(ctx) // '='
+				x = &pair{ x, l.unary(url_query{ctx}) }
+			}
+
+			u.Query = append(u.Query, x)
+
+			if l.p.tok == CLOSURE {
+				l.p.step(ctx) // '&'
+			} else if l.p.tok == PERC {
+				debug(ctx, "unexpected %v in url", l.p.tok, trace{})
+			}
+		}
+	}
+
+	if l.p.tok == HASH {
+		l.p.step(ctx) // '#'
+		u.Fragment = l.unary(url_fragment{ctx})
+	}
+
+	return u
+}
+
+func (l ul) promptConfigurationLoads(ctx Context) bool { return __true(ctx, l.resolve(ctx, nil, "prompt-configuration-loads")) }
+func (l ul) promptCachedConfigs(ctx Context) bool { return __true(ctx, l.resolve(ctx, nil, "prompt-cached-configs")) }
+func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
+	var pos Pos
+	if name != nil { pos = name.Pos() }
+	if !pos.IsValid() { pos = l.p.pos }
+	if !pos.IsValid() { pos = _pos(ctx) }
+	if str == "" {
+		debug(ctx, "resolve no-name : %v", ts(name), trace{})
+	}
+
+	if d := auto_find(ctx, str); d != nil {
+		return d
+	}
+
+	var o object
+	var s = _scope(ctx)
+
+	if name != nil { defer func() {
+		switch x := o.(type) {
+		case *builtin:
+			t := *x
+			t.pos = name.Pos()
+			result = &t
+		}
+	}()}
+
+	if l.project == nil || s != l.project.scope {
+		if _, o = s.find(str); o != nil { return o }
+	}
+	if l.project != nil {
+		if o = l.project.resolve(ctx, str); o != nil { return o }
+	}
+
+	// CRITICAL FIX: Rule-specific auto delegates (like $@, $<, $*...) AND 
+	// numeric arguments ($1, $2...) MUST be globally parseable so they can be 
+	// embedded in reusable global macros or late-bound templates.
+	_, isRuleAuto := rule_autos[str]
+
+	switch {
+	case isRuleAuto || IsDigits(str) || truly(ctx, is_auto{str}):
+		// ZERO-ALLOCATION FIX: Do not permanently inject autos into the scope map! 
+		// An auto is just a late-binding placeholder. Create and return it natively.
+		return &auto{knownobject{objbase{valbase{pos}, s}, str}}
+	case truly(ctx, is_config_mode{}):
+		return s.def(ctx, defVoid, str)
+	}	
+
+	if l.project != nil {
+		if c := l.project.configure; c != nil {
+			return c.resolve(ctx, str)
+		}
+	}
+    return
+}
+
+func (l ul) identity(ctx Context, tok token, name Value) (obj Value, str string, opts []Value) {
+	var ic *ident_ctx
+
+	ic, ctx = identity_ctx(ctx)
+
+	switch x := name.(type) {
+	case object:
+		obj, str = x, ident(ctx, x)
+		return
+	case *argumented:
+		obj, str, opts = l.identity(ctx, tok, x.Value)
+		opts = append(opts, merge(x.args...)...)
+		return
+	}
+
+	if str = ident(ctx, name); ic.nil > 0 {
+		obj = name
+		return
+	} else if str == "" {
+		if truly(ctx, opt_ident{}) {
+			obj = name
+			return
+		}
+
+		debug(pc(ctx,name), "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name,ctx), trace{})
+	}
+
+	switch tok {
+	case LPAREN:
+		if obj = l.resolve(ctx, name, str); obj != nil {
+			return
+		} else if truly(ctx, opt_ident{}) {
+			obj = name
+			return
+		}
+	case LBRACE:
+		if e := l.project.entry(ctx, name); e == nil {
+			debug(pc(ctx,name), "resolved nil: %s", ts(name,ctx), trace{})
+		} else if _, ok := e.(object); !ok {
+			debug(pc(ctx,name), "not an object: %v: %s", name, ts(e,ctx), trace{})
+		} else {
+			obj = name
+			return
+		}
+	}
+
+	debug(pc(ctx,name), "undefined %v → %v : %s", name, str, ts(name,ctx), callstack{num:32}, trace{})
+	return
+}
+
+func (l ul) calling(ctx Context) (result Value) {
+	var tok token
+	var str string
+	var name, obj Value
+	var args, opts []Value
+	var pos = l.p.pos
+	var closure = l.p.tok.is_closure()
+
+	// CRITICAL FIX: Suspend string modes so bare variables (like $1, $@) scan normally
+	suspended := l.p.scanner.bits & (isStrcompLine | isStrcompString | isBracedPlain | isBraceRaw)
+	if suspended != 0 {
+		l.p.scanner.bits &^= suspended
+	}
+
+	l.p.step(ctx) // skips $ or &
+
+	// Restore string modes after the variable's leading token has been safely consumed
+	if suspended != 0 {
+		l.p.scanner.bits |= suspended
+	}
+
+	switch l.p.tok {
+	case LPAREN, LBRACE: // $(...), ${...}
+		tok = l.p.tok // use LPAREN, LBRACE
+		l.p.step(ctx) // skips LPAREN, LBRACE
+
+		if l.p.tok == SPACE { debug(pc(ctx,l.p.pos), "unexpected spaces", trace{}) }
+
+		name = l.expr(selection{ctx})
+
+		if closure || optional(name) {
+			obj, str, opts = l.identity(optional_ident(ctx), tok, name)
+		} else {
+			obj, str, opts = l.identity(ctx, tok, name)
+		}
+
+		if (tok == LPAREN && l.p.tok != RPAREN) || (tok == LBRACE && l.p.tok != RBRACE) {
+			var cc Context = aware(ctx, COMMA)
+			switch str {
+			case "":
+				l.p.spaces(cc)
+				args = append(args, _list(l.values(cc)...))
+			case "auto":
+				if !closure { cc = p_auto_ctx{cc} }
+				args = append(args, _list(l.values(cc)...))
+			case "and", "or":
+				cc = optional_ident(cc)
+				args = append(args, _list(l.values(cc)...))
+			case "case":
+				args = append(args, _list(l.values(cc)...))
+				cc = optional_ident(cc)
+			case "foreach":
+				a := &auto{knownobject{objbase{l.p.valbase(ctx),l.scope()},"_"}}
+				args = append(args, _list(l.values(cc)...))
+				cc = &foreach_txt{cc, a}
+			case "grep":
+				cc = &grep_txt{cc, objbase{l.p.valbase(ctx), l.scope()}, nil}
+				args = append(args, _list(l.values(cc)...))
+			default:
+				args = append(args, _list(l.values(cc)...))
+			}
+			for l.p.tok == COMMA {
+				l.p.next(cc, true) // consumes comma
+				args = append(args, _list(l.values(cc)...))
+			}
+		}
+
+		switch tok {
+		case LPAREN: l.p.expect(ctx, RPAREN)
+		case LBRACE: l.p.expect(ctx, RBRACE)
+		}
+
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING:
+		tok = l.p.tok
+		name = l.literal(ctx) // $0, $1, $1.2, $0x1...
+		str = name.String()
+
+		// Safety trim: If it evaluated to a float, strip the trailing decimal to get the variable name
+		// str = strings.TrimSuffix(str, ".")
+
+		obj = l.resolve(ctx, name, str)
+
+	case STRING:
+		tok = l.p.tok
+		name = l.literal(ctx) // $'xxxx'
+		obj, str, opts = l.identity(ctx, tok, name)
+
+	case STRCOMP:
+		tok = l.p.tok
+		name = l.strcomp(ctx) // $"xxxx"
+		obj, str, opts = l.identity(ctx, tok, name)
+
+	case WORD:
+		switch l.p.lit {
+		case "_":
+			tok, str = UNDERLINE, l.p.lit
+			name = &punct{l.p.valbase(ctx),tok}
+			obj = l.resolve(ctx, name, str)
+			l.p.step(ctx)
+
+		default:
+			debug(pc(ctx,l.p.pos), _f("unexpects %v", l.p.lit), trace{})
+		}
+
+	default: // case AT, BAR, DOT, SAST, QUE, MINUS, PLUS, PCON:
+		tok = l.p.tok
+		str = l.p.tok.String()
+		
+		// Fallback guard: In the rare case a RAW token still leaks through, intercept it.
+		if tok == RAW {
+			name = _raw(l.p.pos, l.p.lit)
+			str = l.p.lit
+			l.p.step(ctx)
+		} else {
+			name = l.punct(ctx) // $@, $?, $*, $/...
+		}
+		
+		if obj = l.resolve(ctx, name, str); obj == nil {
+			debug(pc(ctx, name.Pos()),
+				_f("unexpected: tok=%v str=%v name=%v dialect=%v", tok, str, name, l.p.dialect),
+				trace{})
+		}
+	}
+
+	if obj == nil && str != "" {
+		if l.project.ext.Plugin != nil {
+			if t, e := l.project.ext.Lookup(str); e == nil && t != nil {
+				debug(pc(ctx, name.Pos()),
+					_f("unexpected: tok=%v str=%v name=%v dialect=%v", tok, str, name, l.p.dialect),
+					trace{})
+			}
+		}
+	}
+
+	if obj == nil {
+		debug(pc(ctx, name.Pos()),
+			_f("nil symbol; tok=%v str=%v name=%v", tok, str, name),
+			callstack{num:32}, trace{})
+	}
+
+	if closure {
+		return makeClosure(pos, tok, obj, opts, args...)
+	}
+
+	if x, y := obj.(*def); y && x.o == defStatic {
+		if !truly(ctx, is_auto_preserved{x.name}) {
+			return _loc(x.value, name.Pos())
+		}
+	}
+	return makeDelegate(pos, tok, obj, opts, args...)
+}
+
+func (l ul) unary(ctx Context) (x Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "unary")) }
+
+	pos := l.p.pos
+
+	defer func() {
+		if pos == l.p.pos && x != nil {
+			if z, y := x.(*punct); !y || z.token != PROOT {
+				debug(pc(ctx,x), "syntax error: %v", ts(x), trace{})
+			}
+		}
+	} ()
+
+	switch l.p.tok {
+	case ASSIGN: // example: '=xxx'
+		if !truly(ctx, left_hand_side{}) {
+			var x = &valbase{l.p.pos}
+			if l.p.step(ctx); l.p.is_list_term(ctx) {
+				return &pair{x, &valbase{l.p.pos}}
+			} else {
+				return &pair{x, l.expr(ctx)}
+			}
+		}
+
+	case WORD:
+		if x = l.p.bare(ctx) ; l.p.tok == PERC && truly(ctx, is_url_query{}) {
+			var comp = _compound(x)
+			for l.p.tok == PERC {
+				comp.elems = append(comp.elems, l.punct(ctx))
+
+				// See https://en.wikipedia.org/wiki/Query_string#URL_encoding
+				// It should be decoded as '%HH' here, but we just treat it as a literal.
+			urlpercloop:
+				for l.p.tok != PERC {
+					switch l.p.tok {
+					case BINARY, OCTAL, INTEGER, HEXADECIMAL, WORD:
+						comp.elems = append(comp.elems, l.literal(ctx))
+					case HASH:
+						break urlpercloop
+					default:
+						debug(ctx, "bad url token: %v %v", l.p.tok, l.p.lit, trace{})
+					}
+				}
+			}
+			x = comp
+		}
+		return
+
+	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URL, STRING/*, RAW*/:
+		return l.literal(ctx)
+
+	case STRCOMP:
+		return l.strcomp(ctx)
+
+	case ESCAPE: // \
+		return l.escape(ctx)
+
+	case LPAREN: // (
+		return l.group(ctx)
+
+	case LBRACE: // {
+		return l.braced(ctx)
+
+	case Lbot_corner, Ltop_corner: // ⌜a b c⌟  ⌞a b c⌝
+		return l.corner_list(ctx)
+
+	case LANGLE, RANGLE: // < >
+		return l.punct(ctx)
+
+	case CLOSURE, DELEGATE:
+		return l.calling(ctx)
+
+ 	case COMMA:
+		if !truly(ctx, aware_token{COMMA}) {
+			return l.punct(ctx)
+		}
+
+	case AT, BAR, PLUS, SEMICOLON:
+		return l.punct(ctx)
+
+	case PERC: // %bar (no prefix)
+		if truly(ctx, is_url_query{}) {
+			return l.punct(ctx)
+		} else {
+			return l.perc(ctx, nil)
+		}
+
+	case SAST, DAST, ASTQ, QUE, LBRACK: // * ** *? ? [    -- NOTE: ? is an exception
+		return l.glob(ctx, nil)
+
+	case MINUS:
+		return l.flag(ctx)
+
+	case EXC:
+		return l.negative(ctx)
+
+	case PCON: // The root of the path
+		return &punct{l.p.valbase(ctx),PROOT}
+
+	case TILDE: // ~
+		return l.punct(ctx)
+
+	case DOT: // .
+		return l.dot(ctx, nil)
+
+	case DOTDOT: // . ..
+		tok, pos := l.p.tok, l.p.pos
+		if l.p.step(ctx) ; l.p.tok == PCON {
+			return &punct{l.p.valbase(ctx),tok}
+		} else {
+			return &punct{valbase{pos}, tok}
+		}
+
+	default:
+		if l.p.tok.is_keyword() { // keywords here are words
+			return l.p.bare(ctx)
+		}
+	}
+
+	if l.p.tok != EOF {
+		debug(pc(ctx, l.p.loc(pos)),
+			_f("unexpected %v '%s'", l.p.tok, l.p.lit),
+			_f("x: %v %v", x, ts(x)),
+			_f("scanstate: %v", l.p.scanner.scanstate),
+			callstack{num:16}, trace{})
+	}
+
+	if l.p.lineComment != nil {
+		for _, c := range l.p.lineComment.comments {
+			debug(ctx, "# %s", c.string, trace{})
+		}
+	}
+	return
+}
+
+func (l ul) composite(ctx Context) (x Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "composite")) }
+
+	x = l.unary(ctx)
+
+	switch l.p.tok { // check composible expressions
+	case PERC: // foo%bar ; FIXME: %/foo/bar -> {=path % foo bar}
+		// Block punctuation from becoming the prefix of a pattern
+		if _, isPunct := x.(*punct); isPunct {
+			return x // Fall back to expr() composeloop!
+		}
+		return l.perc(ctx, x)
+
+	case DOT: // foo.bar.baz.o ; FIXME: push bits when parsing $(...)
+		return l.dot(ctx, x)
+
+	case QUE: // ?
+		return l.glob(ctx, x)
+
+	case COLON:
+		if truly(ctx, is_recipe{false}) || !truly(ctx, left_hand_side{}) {
+			if w, y := x.(*word); y && isKnownURLScheme(w.s) {
+				return l.url(ctx, x)
+			}
+		}
+	}
+	return
+}
+
+func (l ul) expr(ctx Context) (x Value) {
+	if false && l_traverse.enabled { defer un(l_trace(l_traverse, "expr")) }
+	if false { defer func() { debug(pc(ctx,l.p), "%s", ts(x)) } () }
+
+	x = l.composite(ctx)
+
+	if truly(ctx, left_hand_side{}) && l.p.tok.is_assign() { return }
+	if truly(ctx, p_is_glob{}) { return }
+	if truly(ctx, p_is_params{}) {
+		if g, y := x.(*group); y && g.len() == 1 {
+			if _, y = g.elems[0].(*group); y { return }
+		}
+	}
+
+	var n int
+
+composeloop: // parses right-fixes
+	switch l.p.tok {
+	case COLON, COMPOSED, RPAREN, RBRACK, RBRACE, Rbot_corner, Rtop_corner, Rchevron, RAW, SPACE, SEMICOLON, LINEND, EOF:
+		return
+
+	case COMMA:
+		if truly(ctx, aware_token{COMMA}) { return }
+
+	case ASSIGN: // example: key=value
+		if !truly(ctx, left_hand_side{}) {
+			if l.p.step(ctx); l.p.is_list_term(ctx) {
+				return &pair{x, &valbase{l.p.pos}}
+			} else {
+				return &pair{x, l.expr(ctx)}
+			}
+		}
+
+	case LPAREN:
+		if !truly(ctx, p_no_argumented{}) {
+			x = l.argumented(ctx, x)
+			goto composeloop
+		}
+
+	case PCON: // path, except -I/path/to/include
+		if !truly(ctx, p_no_path{}) {
+			x = l.path(ctx, x)
+			goto composeloop
+		}
+
+	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+		if truly(ctx, can_select{}) {
+			x = l.arrow(ctx, x)
+			goto composeloop
+		}
+
+	case QUE: // ?
+		x = l.glob(ctx, x)
+		goto composeloop
+	}
+
+	if truly(ctx, p_is_strcomp{}) { return }
+
+	var p = l.p.pos
+	var y = l.unary(ctx)// NOTE: it's unary, not composite
+	if l.p.pos == p {
+		debug(ctx, "syntax error: %v (%v %v %v)", x, ts(x), ts(y), l.p.tok, trace{})
+	}
+
+	x = prefix(ctx, x, y) // ⇒ xy
+
+	switch l.p.tok { case COMMENT, SPACE, LINEND, EOF: return }
+
+	if 9999 < n { debug(ctx, "too many compose: %v (%d)", x, n, trace{}) }
+
+	n += 1; goto composeloop // compose as many as possible
+}
+
+func (l ul) braced_and(ctx Context) (res Value) {
+	var vs []Value
+
+	l.p.expect(ctx, AND) // consumes `and`
+
+andloop:
+	for {
+		switch l.p.spaces(ctx); l.p.tok {
+		case COMMA: l.p.step(ctx); continue andloop
+		case RBRACE, EOF: break andloop
+		}
+
+		v := l.expr(aware(ctx,COMMA))
+		vs = append(vs, merge(expand(_final(pc(ctx, v)), v))...)
+	}
+
+	l.p.expect(ctx, RBRACE)
+
+	for _, a := range vs { if __true(ctx, a) { res = a } else { return nil } }
+	return
+}
+
+func (l ul) braced_or(ctx Context) (_ Value) {
+	l.p.expect(ctx, OR) // consumes `or`
+
+	var va []Value
+
+orloop:
+	for l.p.tok != EOF {
+		switch l.p.spaces(ctx); l.p.tok {
+		case  COMMA: l.p.step(ctx); continue orloop
+		case RBRACE:                   break orloop
+		}
+
+		v := l.expr(aware(ctx,COMMA))
+		w := expand(_final(pc(ctx, v)),v)
+		va = append(va, merge(w)...)
+	}
+
+	l.p.expect(ctx, RBRACE)
+
+	for _, a := range va {
+		if __true(ctx, a) { return a }
+	}
+	return
+}
+
+func (l ul) braced_for(ctx Context) (res Value) {
+	l.p.expect(ctx, FOR) // consumes `for`
+
+	debug(ctx, "TODO: {=for ...}", trace{})
+
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+type foreach_text struct{ Context }
+func (f foreach_text) inner() Context { return f.Context }
+func (f foreach_text) cast(t reflect.Type) Context { return icast(f, t) }
+func (f foreach_text) do(c Context, o any) (_ any) {
+    switch t := o.(type) {
+    case find_auto:
+		if t.s == "_" {
+			var a *automatic
+			switch t := f.Context.(type) {
+			case *automatic: a = t
+			case *__foreach: a = &t.automatic
+			}
+			if a != nil {
+				if _, y := a.defs[t.s]; !y {
+					return
+				}
+			}
+		}
+    }
+	return f.Context.do(c, o)
+}
+
+func (l ul) braced_foreach(ctx Context) Value {
+	pos := l.p.pos
+	l.p.expect(ctx, FOREACH)
+	l.p.spaces(ctx)
+
+	var vals []Value
+
+valsloop:
+	for {
+		switch l.p.tok {
+		case COMMA, RBRACE, LINEND, END:
+			break valsloop
+		}
+
+		ac := aware(ctx,COMMA)
+		vals = append(vals, l.expr(ac))
+		l.p.spaces(ac)
+	}
+
+	cc := automatic{ Context:ctx, defs:make(def_map) }
+	cc.set(ctx, defVoid, "_", nil)
+
+	var temps []Value
+	switch l.p.spaces(ctx); l.p.tok {
+	case RBRACE: return _null(l.p.pos)
+	case COMMA:
+		for l.p.step(ctx); l.p.tok != RBRACE; {
+			l.p.spaces(ctx)
+			if v := l.expr(foreach_text{&cc}); v != nil {
+				temps = append(temps, v)
+			} else {
+				debug(ctx, "nil ; %v", l.p.tok, trace{})
+			}
+		}
+	}
+
+	l.p.expect(ctx, RBRACE)
+
+	var va []Value
+	var recipe_start = truly(ctx, is_recipe_start{})
+	for _, val := range vals {
+		for _, elem := range merge(expand(_final(ctx),val)) {
+			if isEmpty(elem) { continue }
+			if /* indeterminate(ctx, elem) */true { elem = &disjunction{valbase{pos},elem} }
+
+			// NOTE: don't use defStatic, it's for codeblock auto only
+			cc.set(ctx, defVoid, "_", elem)
+
+			var a = xmerge(_final(foreach_text{&cc}), temps...)
+			if recipe_start && l.p.tok == LINEND {
+				do(ctx, add_recipe_line{a})
+			} else {
+				va = append(va, a...)
+			}
+		}
+	}
+	return ease(ctx, va)
+}
+
+func (l ul) braced_str(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'str'
+
+	var pos = l.p.pos
+	var elems = expands(_final(ctx), l.braced_elems(ctx)...)
+
+	if /* indeterminate(ctx, elems...) */true {
+		return &strval{valbase{pos}, elems}
+	}
+
+	var s string
+	for i, v := range elems {
+		if s != "" && 0 < i { s += " " }
+		s += __string(ctx, v)
+	}
+	return &strlit{valbase{pos}, s}
+}
+
+func (l ul) braced_quote(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'quote'
+    return &quote{list{elements{l.braced_elems(ctx)}}}
+}
+
+func (l ul) braced_word(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'word'
+
+	var pos = l.p.pos
+	var elems = expands(_final(ctx), l.braced_elems(ctx)...)
+
+	var s string
+	for i, v := range elems {
+		if s != "" && 0 < i { s += " " }
+		s += __string(ctx, v)
+	}
+	return &word{valbase{pos}, s}
+}
+
+type defcapture struct{ name string ; value Value }
+type defcaps struct{ Value ; caps []*defcapture }
+func (dc *defcaps) String() (s string) {
+	s = "{=defcapture "+dc.Value.String()
+	for _, cap := range dc.caps {
+		s += " {"+cap.name+":"+cap.value.String()+"}"
+	}
+	s += "}"
+	return
+}
+
+func (l ul) braced_defs(ctx Context) (res Value) {
+	var capture []string
+
+	l.p.step(ctx) // resumes 'defs'
+
+	if l.p.tok == LPAREN {
+		l.p.next(ctx, true) // resumes '('
+		for l.p.tok != RPAREN && l.p.tok != EOF {
+			switch l.p.tok {
+			case COMMA:
+			case INTEGER, WORD:
+				capture = append(capture, l.p.lit)
+			default:
+				debug(pc(ctx,l.p), "unexpected %v '%s'", l.p.tok, l.p.lit, trace{})
+			}
+			l.p.next(ctx, true)
+		}
+		l.p.expect(ctx, RPAREN)
+	}
+
+	l.p.spaces(ctx)
+
+	var pats = expands(_final(ctx), l.braced_elems(ctx)...)
+	var ac = _automatic(ctx)
+	var vals []Value
+
+defsloop:
+	for _k, _ := range l.project.elems {
+		for _, pat := range pats {
+			var pos = pat.Pos()
+			var name = _raw(pos, _k)
+			var neg bool
+			if x, y := pat.(negative); y { pat, neg = x.Value, y }
+
+			a, _, _, c := match(pc(ctx, pat), pat, name)
+			if a && neg { continue defsloop }
+			if a || neg {
+				var main Value = name
+				var caps []*defcapture
+
+				// Always capture $0 as the full name
+				caps = append(caps, &defcapture{"0", main})
+
+				if len(capture) == 0 {
+					// Auto-numbered captures from stems: $1, $2...
+					for i, stem := range c {
+						s := strconv.Itoa(i+1)
+						caps = append(caps, &defcapture{s, _raw(pos, __string(ctx, stem))})
+					}
+				} else {
+					// Named captures
+					// If specifically one numeric capture requested, use that as the main result value
+					if len(capture) == 1 {
+						if i, e := strconv.Atoi(capture[0]); e == nil && 0 < i && i <= len(c) {
+							main = c[i-1]
+						}
+					}
+
+					for i, name := range capture {
+						var val Value
+						if i < len(c) {
+							val = _raw(pos, __string(ctx, c[i]))
+						} else {
+							val = &valbase{pos}
+						}
+						caps = append(caps, &defcapture{name, val})
+					}
+				}
+
+				dc := &defcaps{main, caps}
+				if ac != nil {
+					for _, cap := range caps {
+						ac.set(ctx, defStatic, cap.name, cap.value)
+					}
+				}
+				vals = append(vals, dc)
+				break // matched this name
+			}
+		}
+	}
+	return ease(ctx, vals)
+}
+
+func (l ul) braced_file(ctx Context) (res Value) {
+	l.p.next(ctx, true)
+
+	var elems []Value
+
+	for _, elem := range l.braced_elems(ctx) {
+		if f := l.project.file(pc(ctx,elem), elem); f != nil {
+			elems = append(elems, f)
+			continue
+		} else {
+			var s = __string(ctx, elem)
+			var a = []any{stat_nonexist{true}}
+			if !isAbsOrRel(s) {
+				a = append(a, stat_dir{l.project.absPath})
+			}
+			if f = _stat(ctx, s, a...); f != nil {
+				elems = append(elems, f)
+				continue
+			}
+		}
+		debug(pc(ctx,elem), "not a file: %v", ts(elem), trace{})
+	}
+
+	res = ease(ctx, elems)
+
+	l.p.spaces(ctx)
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+func (l ul) braced_fullname(ctx Context) (res Value) {
+	l.p.next(ctx, true) // resumes 'fullname'
+
+	var elems []Value
+	for _, elem := range l.braced_elems(ctx) {
+		// CRITICAL FIX: Do not expand eagerly at parse time! 
+		// Preserve variables like $1 by just building the AST node.
+		elems = append(elems, fullname{elem})
+	}
+	return ease(ctx, elems)
+}
+
+func (l ul) braced_plain(ctx Context) (elems []Value) {
+	l.p.scanner.push(isBracedPlain)
+	l.p.next(ctx, true) // aka LBRACE
+	if l.p.tok == RAW { l.p.lit = trimLeftSpaces(l.p.lit) }
+	elems = l.braced_elems(ctx)
+	l.p.scanner.pop(isBracedPlain)
+	return
+}
+
+func (l ul) braced_type(ctx Context, tok token) (x Value) {
+	l.p.next(ctx, true)
+
+	var n any
+	var pos = l.p.pos
+	if tok == BOOLEAN { tok = BOOL }
+	if l.p.spaces(ctx); l.p.tok != RBRACE {
+		switch tok {
+		case ANSWER, BOOL:
+			switch l.p.tok {
+			case  TRUE, YES,  ON: n = true
+			case FALSE,  NO, OFF: n = false
+			default:
+				debug(ctx, "unexpected token: %v", l.p.tok, trace{})
+			}
+			l.p.next(ctx, true)
+		case FLOAT:
+			n = __float(ctx, l.expr(ctx))
+		default:
+			n = __int(ctx, l.expr(ctx))
+		}
+	}
+
+	switch tok {
+	case ANSWER: x = _answer(pos,      n.(bool))
+	case   BOOL: x = _boolean(pos,     n.(bool))
+	case    BIN: x = _binary(pos,      n.(int64))
+	case    OCT: x = _octal(pos,       n.(int64))
+	case    INT: x = _decimal(pos,     n.(int64))
+	case    HEX: x = _hexadecimal(pos, n.(int64))
+	case  FLOAT: x = _float(pos,       n.(float64))
+	}
+
+	if x == nil {
+		debug(pc(ctx,l.p), "nil const, %v, %v %v", tok, l.p.tok, l.p.lit, trace{})
+	}
+
+	l.p.spaces(ctx)
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+func (l ul) braced_const(ctx Context, tok token) (x Value) {
+	l.p.next(ctx, true)
+
+	var pos = l.p.pos
+
+	if l.p.spaces(ctx); l.p.tok != RBRACE {
+		debug(pc(ctx,l.p), "expecting right-brace, %v %v", l.p.tok, l.p.lit, trace{})
+	}
+
+	switch tok {
+	case   YES: x = _answer(pos, true)
+	case    NO: x = _answer(pos, false)
+	case  TRUE: x = _boolean(pos, true)
+	case FALSE: x = _boolean(pos, false)
+	case    ON: x = _option(pos, true)
+	case   OFF: x = _option(pos, false)
+	}
+
+	if x == nil {
+		debug(pc(ctx,l.p), "nil const, %v, %v %v", tok, l.p.tok, l.p.lit, trace{})
+	}
+
+	l.p.spaces(ctx)
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+func (l ul) braced_none(ctx Context) (x Value) {
+	l.p.next(ctx, true)
+
+	var v Value
+	var pos = l.p.pos
+	for ; l.p.tok != RBRACE && l.p.tok != EOF; l.p.spaces(ctx) {
+		if t := l.expr(ctx); v == nil {
+			v = t
+		} else if x, y := v.(*list); y {
+			x.elems = append(x.elems, t)
+		} else {
+			v = &list{elements{[]Value{v, t}}}
+		}
+	}
+
+	x = &none{valbase{pos}/*,v*/}
+	l.p.spaces(ctx)
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+func (l ul) braced_null(ctx Context) (x Value) {
+	l.p.next(ctx, true)
+
+	x = &null{l.p.valbase(ctx)}
+	l.p.spaces(ctx)
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+func (l ul) braced_path(ctx Context) (x Value) {
+	l.p.next(ctx, true)
+	if v := l.expr(ctx); v != nil {
+		if t, y := v.(*path); !y {
+			x = l.path(ctx, v)
+		} else {
+			x = t
+		}
+	}
+	l.p.spaces(ctx)
+	l.p.expect(ctx, RBRACE)
+	return
+}
+
+func (l ul) braced_project(ctx Context) (_ *project) {
+	name := l.expr(ctx)
+	str := __string(ctx, name)
+	if str == "" {
+		debug(ctx, "empty name : %s : %s", ts(name), str, trace{})
+	}
+
+	if /* self && */ l.project.name == str {
+		return l.project
+	} else if o := l.resolve(ctx, name, str); o == nil {
+		debug(pc(ctx,l.p), "%s : undefined %s : %v", l.project, str, ts(name), trace{})
+		return
+	} else if x, y := o.(*project); !y && x != nil {
+		debug(pc(ctx,l.p), "%s : %v is not a project", l.project, ts(o), trace{})
+		return
+	} else {
+		return x
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Clauses & Declarations
+
+type clause_opts struct{
+	general_opts
+
+    keyword token // e.g. use, files, eval, etc.
+
+    skip bool // e.g. -cond({=false}), -if({=no})
+
+	conds []Value `if,cond,where`
+
+    values, remainder, spec []Value // all values (unparsed) and remainder
+}
+
+type parseSpecFunc func(Context, *commentgroup, *clause_opts, int)
+
+func isValidImport(lit string) bool {
+	const illegalChars = `!"#$%&'()*,:;<=>?[\]^{|}` + "`\uFFFD"
+	s, _ := strconv.Unquote(lit) // go/scanner returns a legal string literal
+	for _, r := range s {
+		if !unicode.IsGraphic(r) || unicode.IsSpace(r) || strings.ContainsRune(illegalChars, r) {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func (p *parser) _parseUseSpecProps(ctx Context, props []Value) (opts useopts, params []Value, err error) {
+    // Supported parameter forms:
+    //      -param
+    //      -param(value)
+    //      -param=value
+    var useList []Value // TODO: apply useList
+    for _, prop := range props {
+        var s string
+        switch t := prop.(type) {
+        case flag:
+            switch s = __string(ctx, t.Value); s {
+            //case "nouse", "unuse": opts.unuse = true
+            case "reuse": opts.reuse = true
+            default: params = append(params, prop)
+            }
+        case *pair: // -param=value
+            switch tt := t.key.(type) {
+            case flag:
+                switch s = __string(ctx, tt.Value); s {
+                case "use": useList = append(useList, t.val)
+                default: params = append(params, prop)
+                }
+            default:
+                debug(ctx, "parameter `%v' unsupported `%T`", prop, prop)
+            }
+        case *argumented: // -param(value)
+            switch tt := t.Value.(type) {
+            case flag:
+                switch s = __string(ctx, tt.Value); s {
+                case "use": useList = append(useList, t.args...)
+                default: params = append(params, prop)
+                }
+            default:
+                debug(ctx, "parameter `%v' unsupported `%T`", prop, prop)
+            }
+        default:
+            debug(ctx, "parameter `%v` unsupported `%T`", prop, prop)
+        }
+    }
+    return
+}
+
+func (l ul) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+	if l.p.imports = append(l.p.imports, &use_spec{g.spec}); g.skip {
+		// TODO: maybe give some information
+		return
+	}
+
+	var specVal0 Value
+	switch v := g.spec[0].(type) {
+    case *pair:
+        var s string
+        if f, y := v.key.(flag); !y {
+            debug(ctx, "'%v' invalid use spec", v.key)
+        } else if s = __string(ctx, f.Value); s != "list" {
+            debug(ctx, "'%v' invalid use spec, do you mean -list?", v.key)
+        }
+		specVal0 = v.val
+	case *argumented:
+		specVal0, ctx = v.Value, v.ctx(ctx)
+	default:
+		specVal0 = v
+    }
+
+	var specVals []Value
+	for _, val := range xmerge(ctx, specVal0) {
+		if !isTrivial(val) { specVals = append(specVals, val) }
+	}
+	if len(specVals) == 0 {
+        debug(pc(ctx,g.spec), "empty use spec: %v", ts(g.spec[0]), trace{})
+    }
+
+	var opts useopts
+	var args = parseOpts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
+	for _, a := range args {
+		if _, y := a.(flag); y {
+			debug(pc(ctx,a), "unkown use opts: %v", ts(a), trace{})
+		}
+	}
+
+	for _, specVal := range specVals {
+		l.use_spec(ctx, opts, specVal, args...)
+	}
+	return
+}
+
+func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+	// CRITICAL FIX: Prevent index out of bounds panic!
+	if len(g.spec) == 0 {
+		debug(ctx, "missing file specification properties", trace{})
+		return // Halt immediately
+	} else if len(g.spec) > 1 {
+		debug(ctx, "too many properties: %v", g.spec, trace{})
+	}
+
+	var p Value
+	var patts, paths []Value
+
+	if l.p.tok == SELECT_PROG1 { // e.g., '=>' or '⇒'
+		l.p.next(ctx, true) // step forward with spaces skipped
+		if l.p.tok == LINEND || l.p.lineComment != nil {
+			debug(ctx, "expecting files path after '⇒'", trace{})
+		}
+		p = l.expr(ctx)
+	}
+
+	l.p.spaces(ctx)
+
+	if g.skip { return }
+
+	if t := parseOpts(ctx, &g.general_opts, g.remainder...); t != nil {
+		debug(ctx, "unsupported opts: %v", t, trace{})
+	}
+
+	// Expand the left-hand side (Patterns) eagerly
+	if t := expand(original{ctx,defExpand1}, g.spec[0]); t == nil {
+		debug(ctx, "nil file pattern: %v", g.spec[0], trace{})
+	} else if x, y := t.(*group); y {
+		patts = merge(x.elems...)
+	} else {
+		patts = merge(t)
+	}
+
+	if p == nil {
+		if len(patts) == 1 {
+			if x, y := patts[0].(*argumented); y {
+				if f, y := x.Value.(flag); y {
+					switch __string(ctx, f.Value) {
+					default: // TODO: parse files options
+						debug(ctx, "invalid files flag: %v", trace{})
+					}
+				}
+			}
+		}
+	} else {
+		if len(patts) == 1 {
+			if f, y := patts[0].(flag); y {
+				switch __string(ctx, f.Value) {
+				default: // TODO: parse files options
+					debug(ctx, "invalid files flag: %v", trace{})
+				}
+			}
+		}
+		
+		// Expand the right-hand side (Paths) eagerly
+		switch x := expand(original{ctx,defExpand1}, p).(type) {
+		case *group: 
+			paths = x.elems
+		default: 
+			// CRITICAL FIX: Prevent appending nil to paths
+			if x != nil {
+				paths = []Value{ x }
+			}
+		}
+	}
+
+	// Route into the Virtual File System
+	map_files(ctx, l.project, patts, paths)
+}
+
+func (p *parser) assert(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+	if !g.skip { call(ctx, "assert", g.remainder, g.spec...) }
+}
+
+func (p *parser) append(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+	if !g.skip { call(ctx, "append", g.remainder, g.spec...) }
+}
+
+func (l ul) clear_locals() {
+	// l.project.mutex.Lock()
+	for i := len(l.p.locals)-1; 0 <= i; i -= 1 {
+		for s, d := range l.p.locals[i] {
+			if d == nil {
+				delete(l.project.elems, s)
+			} else if o := l.project.Lookup(s); o != nil {
+				if x, y := o.(*def); y { *x = *d }
+			}
+		}
+	}
+	// l.project.mutex.Unlock()
+	l.p.locals = nil
+}
+
+func (l ul) local(ctx Context, _ *commentgroup, g *clause_opts, _ int) {
+	var local map[string]*def
+	var vals = xmerge(_final(ctx), append(g.remainder, g.spec...)...)
+
+	for _, a := range vals {
+		if x, y := a.(flag); y {
+			switch s := __string(ctx, x.Value); s {
+			case "clear":
+				l.clear_locals()
+			case "pop":
+				if i := len(l.p.locals); 0 < i {
+					var last = l.p.locals[i-1]
+					l.p.locals = l.p.locals[:i-1]
+					// l.project.mutex.Lock()
+					for s, d := range last {
+						if d == nil {
+							delete(l.project.elems, s)
+						} else if false {
+							l.project.elems[s] = d
+						} else if o := l.project.Lookup(s); o != nil {
+							if x, y := o.(*def); y { *x = *d }
+						}
+					}
+					// l.project.mutex.Unlock()
+				}
+			default:
+				debug(ctx, "unsupported flag: %v", ts(a), trace{})
+			}
+			continue
+		}
+
+		var s = __string(ctx, a)
+		if s == "" {
+			debug(ctx, "empty local: %v", ts(a), trace{})
+		}
+
+		if local == nil { local = make(map[string]*def) }
+
+		var t *def
+		if o := l.project.Lookup(s); o != nil {
+			if x, y := o.(*def); y { t = new(def); *t = *x }
+		}
+		local[s] = t
+	}
+
+	if local != nil { l.p.locals = append(l.p.locals, local) }
+}
+
+func (l ul) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+	if g.skip { return }
+	if g.spec == nil {
+		var opts struct{
+			optimize Value `opt,optimize`
+		}
+		for _, op := range parseOpts(_final(ctx), &opts, g.values...) {
+			var val Value
+			if v, y := op.(*pair); y { op, val = v.key, v.val }
+			debug(ctx, "unsupport flag: %v (%v)", ts(op), val, trace{})
+		}
+		return
+	}
+
+	prop0 := g.spec[0]
+	if isTrivial(prop0) {
+		debug(pc(ctx,l.p), "illegal", trace{})
+	}
+
+	var name string
+	var opts []Value
+	if a, y := prop0.(*argumented); y { prop0, opts = a.Value, a.args }
+	switch t := prop0.(type) {
+	case *delegate:
+		for i, x := range merge(expand(_final(ctx),t)) {
+			switch t := x.(type) {
+			case *pair:
+				debug(pc(ctx,l.p), "%v → %v", t.key, t.val)
+			case *word:
+				if name != "" {
+					debug(pc(ctx,l.p), "%v → %d. %v", prop0, i, x, trace{})
+				} else {
+					name = t.s
+				}
+			default:
+				debug(pc(ctx,l.p), "%v → %d. %v", prop0, i, ts(x), trace{})
+			}
+		}
+		return
+	case *pair:
+		debug(pc(ctx,l.p), "%v → %v", t.key, t.val)
+	default:
+		name = __string(ctx, t)
+	}
+
+	switch name {
+	case "-configuration", "configuration":
+		debug(pc(ctx,l.p), "configuration is done at parse time", trace{})
+	case "":
+		debug(pc(ctx,l.p), "empty eval command", trace{})
+	}
+
+	resolved := l.resolve(ctx, prop0, name)
+	switch x := resolved.(type) {
+	case evaler: x.eval(ctx, opts, expands(_final(ctx), g.spec[1:]...))
+	case *builtin:
+		switch x.name {
+		case "plain": evoke(ctx, x, opts, g.spec[1:])
+		}
+	default:
+		debug(pc(ctx,l.p), "resolved '%s' is not evaler: %v → %s", typeof(resolved), prop0, name, trace{})
+	}
+
+	// TODO: if c, y := res.(code); y { ... }
+}
+
+func (l ul) directive(ctx Context) (props []Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "spec")) }
+
+paramsloop:
+	for l.p.tok != EOF {
+		l.p.spaces(ctx)
+
+		if l.p.lineComment != nil {
+			// TODO: comment = p.lineComment
+			break
+		}
+
+		switch l.p.tok {
+		case COLON, COMMA, RPAREN, RBRACE, LINEND: break paramsloop
+		case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+			if /* truly(ctx, can_select{}) */true { break paramsloop }
+		}
+
+		props = append(props, l.expr(ctx))
+	}
+	return
+}
+
+func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "spec("+keyword.String()+")")) }
+
+	var opts = clause_opts{ keyword: keyword }
+	for l.p.spaces(ctx); l.p.tok == MINUS; l.p.spaces(ctx) {
+		opts.values = append(opts.values, l.expr(ctx))
+	}
+
+	opts.remainder = parseOpts(ctx, &opts, opts.values...)
+
+	for _, cond := range opts.conds {
+		if t := __true(ctx, cond); !t {
+			opts.skip = true
+			break
+		}
+	}
+
+	l.p.spaces(ctx)
+	ctx = pc(ctx, l.p.pos)
+
+	switch l.p.tok {
+	case LINEND:
+		switch keyword {
+		case EVAL, LOCAL:
+			f(ctx, nil, &opts, 0)
+			return
+		}
+
+		debug(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder, trace{})
+
+	case LPAREN:
+		l.p.next(ctx, true)
+		for iota := 0; l.p.tok != RPAREN && l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop); iota++ {
+			// TODO: collect documentation comments
+			for l.p.tok == SPACE || l.p.tok == LINEND { l.p.next(ctx, true) }
+			if l.p.tok == RPAREN || l.p.tok == EOF { break  }
+
+			opts.spec = l.directive(ctx)
+
+			f(ctx, l.p.leadComment, &opts, iota)
+
+			if l.p.tok == COMMA || l.p.tok == LINEND { l.p.next(ctx, true) }
+		}
+		l.p.expect(ctx, RPAREN)
+		l.p.spaces(ctx)
+		if l.p.tok != EOF { l.p.linend(ctx) }
+		return
+	}
+
+	if l.p.tok != LINEND && l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop) {
+		opts.spec = l.directive(ctx)
+
+		f(ctx, nil, &opts, 0)
+
+		if l.p.tok == COMMA { l.p.next(ctx, true) }
+	}
+
+	if l.p.tok != EOF && (l.p.stop == 0 || l.p.pos < l.p.stop) {
+		if l.p.spaces(ctx); l.p.lineComment == nil { l.p.linend(ctx) }
+	}
+}
+
+func forid_elems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
+    for i, elem := range elems {
+		if x, y := elem.(*argumented); y {
+			var prefix, suffix = elems[:i], elems[i+1:]
+			forids(ctx, x, func(ident Value, stems2 []Value) {
+				var head   = append(prefix, ident)
+				var stems3 = append(stems , stems2...)
+				forid_elems(ctx, suffix, stems3, func(elems, stems []Value) {
+					f(append(head, elems...), stems)
+				})
+			})
+			return
+		}
+	}
+    f(elems, stems)
+}
+
+func forids(ctx Context, idents Value, f func(Value, []Value)) {
+    switch t := idents.(type) {
+    case *argumented:
+        var args = xmerge(ctx, t.args...)
+		forids(ctx, t.Value, func(ident Value, stems []Value) {
+			for _, arg := range args {
+				if !isTrivial(arg) {
+					f(prefix(ctx, ident, arg), append(stems, arg))
+				}
+			}
+		})
+    case *compound:
+        forid_elems(ctx, t.elems, nil, func(elems, stems []Value) {
+            if len(stems) == 0 {
+				f(t, stems)
+			} else {
+                f(_compound(elems...), stems)
+            }
+        })
+    default:
+        f(t, nil)
+    }
+}
+
+func (l ul) assign(ctx Context, idents []Value) (res []*def) {
+	if l_traverse.enabled || debugSyntax(ctx, "assign") {
+		defer un(l_trace(l_traverse, fmt.Sprintf("assign(%s)", idents)))
+	}
+
+	ids := []Value{}
+	for _, v := range idents {
+		// CRITICAL FIX: Use def_name{_final(ctx)} to prevent evaluating 
+		// the variable to its value when resolving the LHS identifier!
+		forids(ctx, expand(def_name{_final(ctx)}, v), func(v Value, _ []Value) { ids = append(ids, v) })
+	}
+
+	pos, tok := l.p.pos, l.p.tok
+	l.p.next(ctx, true) // the assign token
+
+	// CRITICAL FIX: Parse the RHS exactly once! This prevents parser stream desynchronization 
+	// when multiple variables are assigned, or when `?=` skips assignment for already-defined variables.
+	rhsVals := l.values(ctx)
+
+	for _, id := range ids {
+		var alt object
+		var d *def
+
+		switch t := id.(type) {
+		case *argumented:
+			debug(ctx, "multiple defs: %v, args=%v", t.Value, t.args, trace{})
+
+		case *group:
+			debug(ctx, "multiple defs: %v", t.elems, trace{})
+
+		case *arrow:
+			if v := expand(_final(ctx), t); v == nil {
+				debug(ctx, "%v is nil", ts(t), trace{})
+			} else if x, y := v.(*def); !y {
+				debug(ctx, "%v is not a def: %v", ts(t), ts(v), trace{})
+			} else {
+				d = x
+			}
+
+		default: // *word, *compound, *qualword, *path, flag:
+			// CRITICAL FIX: Apply def_name{ctx} to the expansion here as well
+			name := ident(def_name{ctx}, expand(def_name{ctx}, t))
+
+			if name == "" {
+				debug(pc(ctx,t), "empty name: %s: `%v`", typeof(id), id, callstack{num:32}, trace{})
+			} else if _, y := builtins[name]; y {
+				debug(pc(ctx,t), "`%v` is a builtin name (%v)", ident, name, trace{})
+			}
+			if checkpoints { if illegal_name_prefix.MatchString(name) {
+				debug(pc(ctx,t), "illegal name: %v", name, callstack{num:32}, trace{})
+			}}
+
+			prev := l.project.resolve(ctx, name)
+
+			var isNew bool
+			d, isNew = l.project._def(ctx, defInvalid, name)
+			if isNew { d.pos = pos } // ensure def pos is correct
+
+			if prev == nil || d == nil {
+				// no derived value
+			} else if x, y := prev.(*def); !y {
+				// not a def
+			} else if x == nil {
+				debug(ctx, "prev def '%s' is nil", name, trace{})
+			} else if x != d && x.scope != d.scope && alt == nil {
+				switch tok {
+				case ASSIGN_ADD, ASSIGN_SHI:
+					if d.o == defVoid && d.o != x.o { d.origin(ctx, x.o) }
+					if !isTrivial(x.value) { d.append(ctx, x.value) }
+				}
+			}
+		}
+
+		if d == nil {
+			debug(ctx, "def is nil: %v", ts(ident), trace{})
+		}
+
+		_ctx := defval{original{ctx, 0}, d}
+
+		if !d.pos.IsValid() { d.pos = l.p.pos }
+
+		switch tok {
+		case ASSIGN_EXC: // !=
+			d.pos, _ctx.o = pos, defExecute
+			d.origin(ctx, _ctx.o)
+			d.val(_ctx, rhsVals)
+		case ASSIGN: // =
+			d.pos, _ctx.o = pos, defExpand0
+			d.origin(ctx, _ctx.o)
+			d.val(_ctx, rhsVals)
+		case ASSIGN_CO1: // :=
+			d.pos, _ctx.o = pos, defExpand1
+			d.origin(ctx, _ctx.o)
+			d.val(_ctx, expands(_ctx, rhsVals...))
+		case ASSIGN_CO2: // ::=
+			d.pos, _ctx.o = pos, defExpand2
+			d.origin(ctx, _ctx.o)
+			d.val(_ctx, expands(_ctx, rhsVals...))
+		case ASSIGN_CO3: // ;:=
+			d.pos, _ctx.o = pos, defExpand3
+			d.origin(ctx, _ctx.o)
+			d.val(_ctx, expands(_ctx, rhsVals...))
+		case ASSIGN_QUE: // ?=
+			if d.o == defInvalid {
+				d.pos, _ctx.o = pos, defAssign0
+				d.origin(ctx, defExpand0)
+				d.val(_ctx, rhsVals)
+			}
+		case ASSIGN_ADD: // +=
+			if d.o == defInvalid { d.o = defExpand0 }
+			switch _ctx.o = d.o|defAssign1; {
+			case d.o&defExpand0 != 0:
+				d.set(_ctx, nil, rhsVals...)
+			case d.o&(defVoid|defExpand0|defExpand1|defExpand2|defExpand3) != 0:
+				d.set(_ctx, nil, expands(_ctx, rhsVals...)...)
+			default:
+				debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+			}
+		case ASSIGN_SHI: // =+
+			if d.o == defInvalid { d.o = defExpand0 }
+			switch _ctx.o = d.o|defAssign2; {
+			case d.o&defExpand0 != 0:
+				d.val(_ctx, append(rhsVals, d.value))
+			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
+				d.val(_ctx, append(expands(_ctx, rhsVals...), d.value))
+			default:
+				debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+			}
+		case ASSIGN_SUB: // -=
+			if d.o == defInvalid { d.o = defExpand0 }
+			if d.value != nil {
+				if dv := merge(d.value); len(dv) > 0 {
+					var vals, _vals []Value
+					switch _ctx.o = d.o|defAssign3; {
+					case d.o&defExpand0 != 0:
+						vals = rhsVals
+					case d.o&(defExpand1|defExpand2|defExpand3) != 0:
+						vals = expands(_ctx, rhsVals...)
+					default:
+						debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+					}
+				outer1:
+					for _, v := range dv {
+						for _, s := range vals {
+							if cmp(ctx, v, s) == cmpEqual { continue outer1 }
+						}
+						_vals = append(_vals, v)
+					}
+					d.value = ease(ctx, _vals)
+				}
+			}
+		case ASSIGN_SAD, ASSIGN_SSH: // -+=, -=+
+			var vals, _vals []Value
+			if d.o == defInvalid { d.o = defExpand0 }
+			if tok == ASSIGN_SAD {
+				_ctx.o = d.o|defAssign4
+			} else {
+				_ctx.o = d.o|defAssign5
+			}
+			switch {
+			case d.o&defExpand0 != 0:
+				vals = rhsVals
+			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
+				vals = expands(_ctx, rhsVals...)
+			default:
+				debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+			}
+			if d.value != nil {
+				if dv := merge(d.value); len(dv) > 0 {
+				outer2:
+					for _, v := range dv {
+						for _, sv := range vals {
+							if cmp(ctx, v, sv) == cmpEqual { continue outer2 }
+						}
+						_vals = append(_vals, v)
+					}
+				}
+			}
+			switch tok {
+			case ASSIGN_SAD: _vals = append(_vals, vals...) // -+=
+			case ASSIGN_SSH: _vals = append(vals, _vals...) // -=+
+			}
+			d.value = ease(ctx, _vals)
+		default:
+			debug(ctx, "unknown: %v %v %v", _ctx.o, d.name, tok, trace{})
+		}
+
+		l.p.lineComment = nil
+
+		res = append(res, d)
+	}
+	return
+}
+
+func (l ul) recipe(ctx Context) (recipes []Value) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "recipe")) }
+
+	// TODO: comment *commentgroup
+	// TODO: doc = p.leadComment
+	var p Pos
+	var elems []Value
+	var isList, isPlainline bool
+
+	switch l.p.dialect {
+	case "value", "":
+		l.p.scanner.pop(isStrcompLine)
+		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		if p, isList = l.p.pos, true; !l.p.is_end_of_line() {
+			var c = p_recipe{ctx, true, nil, nil} // builtin value recipe
+			for l.p.tok != EOF && l.p.tok != SEMICOLON && l.p.tok != LINEND && l.p.lineComment == nil {
+				elems = append(elems, l.expr(&c))
+				if l.p.spaces(ctx); l.p.lineComment != nil { break }
+			}
+		}
+
+	case "eval":
+		l.p.scanner.pop(isStrcompLine)
+		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		if p, isList = l.p.pos, true; !l.p.is_end_of_line() {
+			var x = l.expr(ctx) // parse first expr of recipe
+
+			var a *argumented
+			if a, _ = x.(*argumented); a != nil { x = a.Value }
+			if x == nil {
+				debug(pc(ctx,p), "parsed nil value, dialect=%s", l.p.dialect, trace{})
+			}
+
+			if l.p.dialect == "value" {
+				// no resolving commands
+			} else if t, y := x.(*word); !y {
+				// does nothing
+			} else if s := l.resolve(ctx, t, t.s); isTrivial(s) {
+				debug(pc(ctx,p), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), l.p.dialect, trace{})
+			} else if _, y := s.(*builtin); !y {
+				debug(pc(ctx,p), "'%s' is not a command (%s)", t.s, typeof(s), trace{})
+			} else {
+				x = s
+			}
+
+			if a != nil {
+				elems, a.Value = append(elems, a), x
+			} else {
+				elems = append(elems, x)
+			}
+
+			var cmdargs []Value
+			var c = p_recipe{ctx, true, nil, nil} // builtin recipe
+
+			for l.p.tok != EOF && l.p.tok != SEMICOLON && l.p.tok != LINEND && l.p.lineComment == nil {
+				if l.p.spaces(ctx); l.p.lineComment != nil { break }
+				if !l.p.tok.is_rule_delim() {
+					x = l.expr(&c)
+				} else {
+					debug(ctx, "unsupported token: %s, %v", l.p.tok, elems, trace{})
+				}
+				if cmdargs = append(cmdargs, x); l.p.tok == COMMA {
+					l.p.next(ctx, true)
+					elems = append(elems, _list(cmdargs...))
+					cmdargs = []Value{}
+				}
+				if l.p.lineComment != nil { break }
+			}
+
+			elems = append(elems, _list(cmdargs...))
+		}
+
+	default:
+		l.p.scanner.push(isStrcompLine) // NOTE: scanner does not set isStrcompLine correctly, fixit here
+		l.p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in line-string mode
+		p = l.p.pos
+
+		switch l.p.dialect { case "plain", "text": isPlainline = true }
+
+		var c = p_recipe{ctx, false, nil, nil} // builtin text
+		for !l.p.is_end_of_line() {
+			var x Value
+			if l.p.tok == RAW {
+				x = l.literal(&c)
+			} else {
+				x = l.expr(&c)
+			}
+			if c.lines == nil {
+				c.elems = append(c.elems, x)
+			}
+		}
+		l.p.scanner.pop(isStrcompLine)
+
+		if c.lines != nil {
+			if c.elems != nil {
+				debug(ctx, "%v %v", c.elems, c.lines, trace{})
+			}
+			for _, a := range c.lines {
+				recipes = append(recipes, &plainline{elements{merge(a...)}})
+			}
+			return
+		}
+
+		elems = c.elems
+	}
+
+	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
+
+    if len(elems) == 0 {
+        return []Value{ _none(p) }
+    } else if isList {
+        return []Value{ _list(elems...) }
+	} else if isPlainline {
+		return []Value{ &plainline{elements{merge(elems...)}} }
+	} else {
+		return []Value{ &recipe{strcomp{elements{elems}}} }
+    }
+}
+
+// Parsing (var a=xxx,b=yyy) definitions
+func (p *parser) var_modifier(ctx Context, args ...Value) (err error) {
+	for _, elem := range args {
+		var kv, y = elem.(*pair)
+		if !y || kv == nil {
+			debug(ctx, "bad var form (%v)", ts(elem), trace{})
+		}
+
+		var v = kv.val
+		if x, y := v.(*group); y { v = x.list() }
+
+		_scope(ctx).def(ctx, defVoid, kv.key, v)
+	}
+	return
+}
+
+func (l ul) define_configs(ctx Context) {
+	for _, t := range l.p.targets {
+		l.project.def(ctx, defConfig, t)
+	}
+}
+
+func (l ul) modifier(ctx Context) (res *modifier) {
+	l.p.spaces(ctx)
+
+	pos := l.p.pos
+	l.p.expect(ctx, LPAREN)
+	l.p.spaces(ctx)
+
+	var elems []Value
+	var val = l.expr(ctx)
+	var name = __string(ctx, val)
+	if name == "" {
+		debug(pc(ctx,val), "unsupported modifier: %s", ts(name), trace{})
+	} else if _, y := dialects[name]; y {
+		if l.p.dialect == "" { l.p.dialect = name } else {
+			debug(pc(ctx,l.p), "multi-dialects unsupported, already defined '%s'", l.p.dialect, trace{})
+		}
+	} else if _, y = modifiers[name]; !y {
+		debug(pc(ctx,l.p), "no such dialect or modifier: %s", name, trace{})
+	}
+
+	for l.p.tok != RPAREN && l.p.tok != EOF {
+		l.p.spaces(ctx)
+
+		pos := l.p.pos
+
+		if va := l.values(ctx); name == "var" {
+			l.p.var_modifier(ctx, va...)
+		} else if n := len(va); n == 1 {
+			elems = append(elems, va[0])
+		} else if n > 1 {
+			elems = append(elems, &list{elements{va}})
+		} else {
+			elems = append(elems, &null{l.p.valbase(ctx)})
+		}
+
+		if l.p.tok == COMMA { l.p.next(ctx, true) }
+		if l.p.pos == pos {
+			debug(pc(ctx,l.p), "unsupported modifier arg: %v '%v'", l.p.tok, l.p.lit, trace{})
+		}
+	}
+
+	l.p.expect(ctx, RPAREN)
+
+	if val == nil && len(elems) == 0 {
+		debug(pc(ctx,l.p), "empty modifier", trace{})
+	}
+
+	res = new(modifier)
+	res.pos, res.elems = pos, append([]Value{val}, elems...)
+	return
+}
+
+// example: {(modifier ...)}
+func (l ul) modification(ctx Context) *modification {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "modification")) }
+
+	var vb = l.p.valbase(ctx)
+	var elems []*modifier
+	for l.p.tok != EOF && l.p.tok != LINEND && l.p.tok != RBRACE {
+		if m := l.modifier(ctx); m != nil { elems = append(elems, m) }
+	}
+
+	// l.p.expect(ctx, /* RBRACK */RBRACE)
+
+	if len(elems) == 0 {
+		debug(ctx, "empty modifier group", trace{})
+	}
+	if l.p.tok == COLON {
+		debug(ctx, "unexpected colon after modifer", trace{})
+	}
+    return &modification{vb, elems}
+}
+
+// 
+// $@      The file name of the target of the rule. If the target is an archive member, then ‘$@’ is the name of the archive file. In a pattern rule that has multiple targets (see Introduction to Pattern Rules), ‘$@’ is the name of whichever target caused the rule’s recipe to be run.
+// $%      The target member name, when the target is an archive member. See Archives. For example, if the target is foo.a(bar.o) then ‘$%’ is bar.o and ‘$@’ is foo.a. ‘$%’ is empty when the target is not an archive member.
+// $<      The name of the first prerequisite. If the target got its recipe from an implicit rule, this will be the first prerequisite added by the implicit rule (see Implicit Rules).
+// $?      The names of all the prerequisites that are newer than the target, with spaces between them. For prerequisites which are archive members, only the named member is used (see Archives).
+// $^      The names of all the prerequisites, with spaces between them. For prerequisites which are archive members, only the named member is used (see Archives). A target has only one prerequisite on each other file it depends on, no matter how many times each file is listed as a prerequisite. So if you list a prerequisite more than once for a target, the value of $^ contains just one copy of the name. This list does not contain any of the order-only prerequisites; for those see the ‘$|’ variable, below.
+// $+      This is like ‘$^’, but prerequisites listed more than once are duplicated in the order they were listed in the makefile. This is primarily useful for use in linking commands where it is meaningful to repeat library file names in a particular order.
+// $|      The names of all the order-only prerequisites, with spaces between them.
+//         Order-only prerequisites can be specified by placing a pipe symbol (|) in the prerequisites list: any prerequisites to the left of the pipe symbol are normal; any prerequisites to the right are order-only.
+// $*      The stem with which an implicit rule matches (see How Patterns Match). If the target is dir/a.foo.b and the target pattern is a.%.b then the stem is dir/foo. The stem is useful for constructing names of related files.
+//         In a static pattern rule, the stem is part of the file name that matched the ‘%’ in the target pattern.
+//         In an explicit rule, there is no stem; so ‘$*’ cannot be determined in that way. Instead, if the target name ends with a recognized suffix (see Old-Fashioned Suffix Rules), ‘$*’ is set to the target name minus the suffix. For example, if the target name is ‘foo.c’, then ‘$*’ is set to ‘foo’, since ‘.c’ is a suffix. GNU make does this bizarre thing only for compatibility with other implementations of make. You should generally avoid using ‘$*’ except in implicit rules or static pattern rules.
+//         If the target name in an explicit rule does not end with a recognized suffix, ‘$*’ is set to the empty string for that rule.
+//
+// $-      the execution result
+// $~      the grep modifier result
+// $/      the current absolute path
+// $.      the current relative path
+// $,      the current temporary path
+//
+// Similar to makefile automatic variables, see
+//   * https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
+var rule_autos = map[string]struct{}{
+	"@" :struct{}{}, "%" :struct{}{}, "<" :struct{}{}, ">" :struct{}{}, "^" :struct{}{},
+	"@D":struct{}{}, "%D":struct{}{}, "<D":struct{}{}, ">D":struct{}{}, "^D":struct{}{},
+	"@F":struct{}{}, "%F":struct{}{}, "<F":struct{}{}, ">F":struct{}{}, "^F":struct{}{},
+	"@'":struct{}{}, "%'":struct{}{}, "<'":struct{}{}, ">'":struct{}{}, "^'":struct{}{},
+	"?" :struct{}{}, "+" :struct{}{}, "|" :struct{}{}, "*" :struct{}{},
+	"?D":struct{}{}, "+D":struct{}{}, "|D":struct{}{}, "*D":struct{}{},
+	"?F":struct{}{}, "+F":struct{}{}, "|F":struct{}{}, "*F":struct{}{},
+	"?'":struct{}{}, "+'":struct{}{}, "|'":struct{}{}, "*'":struct{}{},
+	"-" :struct{}{}, "~" :struct{}{}, // "<-":struct{}{}, "->":struct{}{},
+}
+
+func (l ul) rule(ctx Context, targets []Value) (result Value) {
+	if l_traverse.enabled || debugSyntax(ctx, "rule") { defer un(l_trace(l_traverse, "rule")) }
+
+	ctx = p_rule_ctx{ctx, l.p}
+
+    if l.project != _scope(ctx).project {
+		debug(ctx, "mismatched project/scope : %v", targets, trace{})
+	}
+
+	// TODO: doc = p.leadComment
+	var depends, ordered, recipes []Value
+	defer l.closescope(l.openscope(ts(targets)))
+	defer func() { l.p.dialect, l.p.ruparas = "", nil } ()
+
+	l.p.dialect = ""
+	l.p.ruparas = nil
+
+	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
+	// project.entry while matching for entry looked up if not expanded right now.
+	targets = expands(_final(ctx), targets...)
+
+	defer func(t []Value) { l.p.targets = t } (l.p.targets)
+	l.p.targets = targets // save targets for later refering
+	l.p.next(ctx, true) // skip rule delimeters and spaces
+
+	if l.p.tok != SEMICOLON && l.p.tok != BAR && !l.p.is_end_of_line() {
+		depends = l.depends(ctx, true)
+	}
+	if l.p.tok == BAR { // '|' starts the ordered prerequisites
+		l.p.next(ctx, true)
+		if l.p.tok != SEMICOLON && !l.p.is_end_of_line() {
+			ordered = l.depends(ctx, false)
+		}
+	}
+
+	if l.p.tok == SEMICOLON { // ;
+		// Parse inline recipe in the program scope.
+		recipes = append(recipes, l.recipe(ctx)...)
+	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
+		// Parse recipes in the program scope.
+		l.p.scanner.recipes(true) // Turn on recipes before LINEND.
+		if l.p.linend(ctx) { // Take the new line.
+			for l.p.recipe_start() {
+				recipes = append(recipes, l.recipe(ctx)...)
+			}
+		}
+		l.p.scanner.recipes(false)
+	}
+
+	var prog = program{
+		pos: targets[0].Pos(),
+		language:  l.p.dialect,
+		params:    l.p.ruparas,
+		project:   l.project,
+		depends:   depends,
+		ordered:   ordered,
+		recipes:   recipes,
+	}
+
+	if res := l.entries(ctx, &prog, targets); 1 == len(res) {
+		return res[0]
+	} else if 1 < len(res) {
+		return list_t[entry](res...)
+	} else {
+		return _null(prog.pos)
+	}
+}
+
+func (l ul) entries(ctx Context, prog *program, targets []Value) (res []entry) {
+	for _, target := range targets {
+        if isTrivial(target) { continue }
+
+		// CRITICAL FIX: Route pattern rules to the patterns slice, NOT the valcache!
+		if patterned(ctx, target) {
+			r := &rule{target: target, program: []*program{prog}}
+			prog.project.patterns = append(prog.project.patterns, r)
+			res = append(res, r)
+			continue
+		}
+
+        var entry = map_entry(pc(ctx,target), prog.project, target, prog)
+        if entry == nil {
+            debug(ctx, "creating entry failed for %v", target, trace{})
+        }
+
+		res = append(res, entry)
+
+        if x, y := entry.destiny().(flag); y && x.Value != nil {
+			if prog.project.name != "~" {
+				var s = __string(ctx, x.Value)
+				l.globe.AddFlagEntry(s, entry)
+			}
+        }
+    }
+    return
+}
+
+func (l ul) def_end(ctx Context) {
+	p := l.p
+	p.spaces(ctx)
+	p.expect(ctx, DEF)
+	p.spaces(ctx)
+
+	var args []Value
+	var name = l.expr(ctx)
+	if a, y := name.(*argumented); y { name, args = a.Value, a.args }
+
+	t := &template{
+		pos: p.pos, tok: p.tok, lit: p.lit,
+		state: p.scanner.scanstate,
+		name: name, params: args,
+	}
+
+	p.spaces(ctx)
+	p.linend(ctx)
+
+	var linend = true
+	var nested = 0
+	for { switch p.tok {
+	default:
+		linend = false
+		p.next(ctx, true)
+
+	case LINEND:
+		linend = true
+		p.next(ctx, true)
+
+	case DEF:
+		if linend { nested += 1 }
+		linend = false
+		p.next(ctx, true)
+
+	case END:
+		if !linend || 0 < nested {
+			if linend { nested -= 1 }
+			linend = false
+			p.next(ctx, true)
+			continue
+		}
+
+		pos := p.pos
+		p.next(ctx, true)
+		p.linend(ctx)
+
+		state := p.scanner.scanstate
+		t.end, t.endPos = &state, pos
+		p.templates = append(p.templates, t)
+		return
+
+	case EOF:
+		return
+	}}
+}
+
+func (l ul) foreach_done(ctx Context) {
+	if l.p.spaces(ctx); l.p.tok == LINEND {
+		debug(ctx, "unexpected end of line", trace{})
+	}
+
+	l.p.expect(ctx, FOREACH)
+	l.p.spaces(ctx)
+
+	var vals = merge(expands(_final(ctx), l.values(ctx)...)...)
+	var t = &template{
+		pos:l.p.pos, tok:l.p.tok, lit:l.p.lit, state:l.p.scanner.scanstate,
+	}
+
+	l.p.spaces(ctx)
+	l.p.linend(ctx)
+
+	var nested = 0
+	for l.p.tok != EOF {
+		switch pos := l.p.pos; l.p.tok {
+		case LINEND:
+			l.p.next(ctx, true)
+
+		case FOREACH, FOR:
+			nested += 1
+			for l.p.tok != EOF {
+				if  l.p.next(ctx, true) ; l.p.tok == LINEND {
+					l.p.next(ctx, true) ; break
+				}
+			}
+
+		case DONE:
+			if nested > 0 {
+				nested -= 1
+				for l.p.tok != EOF {
+					if  l.p.next(ctx, true) ; l.p.tok == LINEND {
+						l.p.next(ctx, true) ; break
+					}
+				}
+				continue
+			}
+
+			l.p.next(ctx, true) // done
+			l.p.linend(ctx)
+
+			state := l.p.scanner.scanstate
+			t.end, t.endPos = &state, pos
+
+			defer func(s Pos) { l.p.stop = s } (l.p.stop)
+			l.p.stop = t.endPos
+
+			ac := automatic{Context:ctx, defs:make(def_map)}
+			for _, val := range vals {
+				if !isTrivial(val) {
+					if x, y := val.(*defcaps); y {
+						ac.set(&ac, defStatic, "_", x.Value)
+						for _, c := range x.caps {
+							ac.set(&ac, defStatic, c.name, c.value)
+						}
+					} else {
+						ac.set(&ac, defStatic, "_", val)
+					}
+					l.codeblock(&ac, FOREACH, t)
+				}
+			}
+			return
+
+		default:
+			for l.p.tok != EOF {
+				if  l.p.next(ctx, true) ; l.p.tok == LINEND {
+					l.p.next(ctx, true) ; break
+				}
+			}
+		}
+	}
+}
+
+func (l ul) for_done(ctx Context) {
+	if l.p.spaces(ctx); l.p.tok == LINEND {
+		debug(ctx, "unexpected end-of-line", trace{})
+	}
+
+	var opts struct{
+		skipNil bool `skip-nil,skip-null,skipnil,skipnull,no-nil,no-null`
+	}
+	if  l.p.expect(ctx, FOR) ; l.p.tok == LPAREN {
+		l.p.next(ctx, true) // LPAREN
+		if vals := parseOpts(ctx, &opts, l.values(ctx)...); vals != nil {
+			debug(ctx, "unexpected opts: %v", vals, trace{})
+		}
+		l.p.expect(ctx, RPAREN)
+	}
+
+	l.p.spaces(ctx)
+
+	type  param struct{ name string ; elems []Value }
+	type nparam struct{ p Pos ; a []*param ; n int }
+
+	var params []*nparam
+	var ac = automatic{Context:ctx, defs:make(def_map)}
+	for l.p.spaces(ctx); l.p.tok != EOF && !l.p.is_end_of_line(); l.p.spaces(ctx) {
+		if l.p.tok == AND && params == nil {
+			debug(pc(ctx,l.p), "unexpected 'and'", trace{})
+		} else if l.p.tok == AND || params == nil {
+			params = append(params, &nparam{p:l.p.pos})
+			if l.p.tok == AND { l.p.next(ctx, true); continue }
+		}
+
+		var pars = make(map[string]*param)
+		var p = params[len(params)-1]
+		for i, a := range merge(expand(&ac, l.expr(&ac))) {
+			switch x := unbox(a).(type) {
+			case *null: continue
+			case *pair:
+				// CRITICAL FIX: Extract the iterator name safely without expanding its value
+				var name = ident(def_name{ctx}, expand(def_name{ctx}, x.key))
+				if name == "" {
+					debug(pc(ctx,a), "empty key %v", ts(x.key), trace{})
+				}
+
+				var par *param
+				if pt, ok := pars[name]; ok {
+					par = pt
+				} else {
+					par = new(param)
+					par.name = name
+					p.a = append(p.a, par)
+					pars[name] = par
+				}
+
+				if g, y := x.val.(*group); y {
+					par.elems = append(par.elems, merge(g.elems...)...)
+				} else {
+					par.elems = append(par.elems, merge(x.val)...)
+				}
+
+				if n := len(par.elems); n > p.n { p.n = n }
+				if _, y := ac.defs[par.name]; !y { ac.set(&ac, defStatic, par.name, nil) }
+
+			case *defcaps:
+				for _, cap := range x.caps {
+					if t, y := pars[cap.name]; y {
+						t.elems = append(t.elems, cap.value)
+					} else {
+						t = &param{cap.name, []Value{cap.value}}
+						p.a = append(p.a, t)
+						pars[cap.name] = t
+					}
+					// CRITICAL FIX: Ensure p.n is updated for captured regex groups!
+					if n := len(pars[cap.name].elems); n > p.n { p.n = n }
+				}
+
+			default:
+				debug(pc(ctx,a), "unexpected %v ; %d. %v", ts(a), i, ac.defs, trace{})
+			}
+		}
+	}
+
+	var t = &template{pos:l.p.pos, tok:l.p.tok, lit:l.p.lit, state:l.p.scanner.scanstate}
+
+	l.p.spaces(ctx)
+	l.p.linend(ctx)
+
+	var nested = 0
+	for l.p.tok != EOF {
+		switch pos := l.p.pos; l.p.tok {
+		case LINEND:
+			l.p.next(ctx, true) 
+
+		case FOR, FOREACH:
+			nested += 1
+			for l.p.tok != EOF {
+				if  l.p.next(ctx, true) ; l.p.tok == LINEND {
+					l.p.next(ctx, true) ; break
+				}
+			}
+
+		case DONE:
+			if nested > 0 {
+				nested -= 1
+				for l.p.tok != EOF {
+					if  l.p.next(ctx, true) ; l.p.tok == LINEND {
+						l.p.next(ctx, true) ; break
+					}
+				}
+				continue
+			}
+
+			l.p.next(ctx, true) // done
+			l.p.linend(ctx)
+
+			defer func(s Pos) { l.p.stop = s } (l.p.stop)
+
+			t.end, t.endPos, l.p.stop = &l.p.scanner.scanstate, pos, pos
+
+			var num int
+			for _, _p := range params {
+				if _p.n > 0 {
+					if num == 0 {
+						num = _p.n
+					} else {
+						num *= _p.n
+					}
+				}
+			}
+
+		outer:
+			for n := 0; n < num; n += 1 {
+				for _i, _p := range params {
+					var i = n
+
+					if _p.n == 0 {
+						continue outer
+					}
+
+					for k := len(params) - 1; k > _i; k-- {
+						if params[k].n > 0 {
+							i /= params[k].n
+						}
+					}
+					i %= _p.n
+
+					for _, a := range _p.a {
+						if i < len(a.elems) {
+							ac.set(&ac, defStatic, a.name, a.elems[i])
+						} else if opts.skipNil {
+							continue outer
+						} else {
+							ac.set(&ac, defStatic, a.name, &null{valbase{_p.p}})
+						}
+					}
+				}
+
+				var _trivial = len(ac.defs) == 0
+				if !_trivial {
+					for _, d := range ac.defs {
+						if _trivial = isTrivial(d.value); !_trivial { break }
+					}
+				}
+				if !_trivial {
+					l.codeblock(&ac, FOR, t)
+				}
+			}
+			return
+
+		default:
+			for l.p.tok != EOF {
+				if  l.p.next(ctx, true) ; l.p.tok == LINEND {
+					l.p.next(ctx, true) ; break
+				}
+			}
+		}
+	}
+}
+
+var pprofCounter int
+
+func (l ul) codeblock(ctx *automatic, op token, t *template) {
+	l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = t.pos, t.tok, t.lit, t.state
+
+	if false && checkpoints {
+		pprofCounter += 1
+		defer cpu_profile(ctx, fmt.Sprintf("template-%05d.prof", pprofCounter), true)()
+	}
+
+	if !(l.p.pos < l.p.stop) {
+		debug(ctx, "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name, trace{})
+	}
+
+	var c = codeblock{ctx, op}
+
+	d_variant_target = false//strings.HasSuffix(l.project.spec, "modules/variant/.target")
+	for l.p.tok != EOF && l.p.pos < l.p.stop {
+		if l.p.tok == SPACE || l.p.tok == LINEND || (l.p.tok == COMMENT && l.p.lineComment != nil) {
+			l.p.next(ctx, true)
+		} else {
+			if d_variant_target {
+				if t.name != nil {
+					prompt(ctx, "%s: codeblock: %v: %v\n", l.p.pos, t.name, l.p.lit)
+				} else if l.p.tok == FOR {
+					prompt(ctx, "%s: codeblock: %v\n", l.p.pos, l.p.lit)
+				}
+			}
+			l.clause(&c)
+		}
+	}
+	d_variant_target = false
+}
+
+func (l ul) repeat(ctx Context, t *template, params []Value) {
+	if false {
+		pprofCounter += 1
+
+		var (
+			profCpu = fmt.Sprintf("template-%05d.cpu.prof", pprofCounter)
+			profMem = fmt.Sprintf("template-%05d.mem.prof", pprofCounter)
+			fCpu *os.File
+			e error
+		)
+		if fCpu, e = os.Create(profCpu); e != nil {
+			debug(ctx, "%v", ts(e), trace{})
+		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
+			fCpu.Close()
+			debug(ctx, "%v: %v", profCpu, e, trace{})
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			fCpu.Close()
+
+			var fMem, e = os.Create(profMem)
+			if e != nil {
+				debug(ctx, "%v", e, trace{})
+			}
+
+			runtime.GC() // update memory statistics
+			e = pprof.WriteHeapProfile(fMem)
+			fMem.Close()
+
+			if e != nil {
+				debug(ctx, "%v: %v", profMem, e, trace{})
+			}
+		} ()
+	}
+
+	defer func(t time.Time, pos Pos, tok token, lit string, state scanstate) {
+		l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, state
+	} (time.Now(), l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate)
+
+	var ac = automatic{Context:ctx, defs:make(def_map)}
+
+	for i, v := range t.params {
+		if s := __string(ctx, v); s != "" {
+			if i < len(params) {
+				v = params[i]
+			} else {
+				v = _null(v.Pos())
+			}
+			ac.set(&ac, defStatic, s, v)
+		} else {
+			debug(ctx, "empty template param name: %v", ts(v), trace{})
+		}
+	}
+
+	l.codeblock(&ac, LPAREN, t)
+}
+
+func (l ul) call(ctx Context, name Value, args []Value) (result bool) {
+	for _, t := range l.p.templates {
+		if t.name != nil && eq(ctx, t.name, name) {
+			stop := l.p.stop
+			l.p.stop = t.endPos
+			l.repeat(ctx, t, args)
+			l.p.stop = stop
+			return true
+		}
+	}
+
+	debug(ctx, "undefined template: %v", name, trace{})
+	return
+}
+
+func (l ul) saveConfiguration(ctx Context) {
+	if l.project == nil { debug(ctx, "nil project", callstack{num:32}, trace{}) }
+
+	var configs = l.project.configs
+	if configs == nil { return }
+
+	var f = l.project.configuration_sm(ctx)
+
+	// =========================================================
+	// I/O OPTIMIZATION & STATE ENFORCEMENT
+	// =========================================================
+	if f != nil && f.filebase != nil {
+		if f._dirty == 0 && f.exists() {
+			// Enforce strict state transitions: Catch unwarranted saves!
+			// debug(pc(ctx,f.fullname()), "%s: conflicted configuration.sm", l.project.name, trace{})
+		}
+		if !f._updated && f.exists() {
+			return // Cache is in perfect sync with disk. Bail out instantly!
+		}
+	}
+
+	if l.promptEnteringDirectory { 
+		l.promptEnteringDirectory = false
+		promptLeavingDirectory(ctx, l.project.absPath)
+		flush(ctx)
+	}
+
+	var fn = f.fullname()
+
+	if checkpoints {
+		if c := l.project.configuration; c != nil && c.fullname() != fn {
+			debug(pc(pc(ctx,fn),c.fullname()), "%s: configuration already loaded", l.project.name, trace{})
+		}
+	}
+
+	if e := os.MkdirAll(filepath.Dir(fn), os.FileMode(0755)); e != nil {
+		debug(pc(ctx,fn), "make path %s failed: %v", filepath.Dir(fn), e, trace{})
+	}
+
+	// =========================================================
+	// ATOMIC WRITE: Protect against concurrent '1:1: syntax error'
+	// =========================================================
+	var tmpFn = fn + ".tmp"
+	var o, e = os.OpenFile(tmpFn, os.O_RDWR | os.O_CREATE | os.O_TRUNC, os.FileMode(0600))
+	if e != nil {
+		debug(pc(ctx,fn), "%s: %v", l.project.name, e, trace{})
+		return
+	}
+	defer func() {
+		o.Close() // Must close before rename/remove
+		if 0 < diagCount(ctx, diagError) {
+			os.Remove(tmpFn)
+		} else {
+			// Instantly swap the file. Readers NEVER see a truncated/empty file!
+			os.Rename(tmpFn, fn)
+		}
+	} ()
+
+	fmt.Fprintf(o, "# %s (%s)\n", l.project.name, l.project.spec)
+
+	for _, c := range configs {
+		fmt.Fprintf(o, "configure %s =", c.name)
+		
+		// =========================================================
+		// SAFE SERIALIZATION: Prevent `{}` and `[]` parsing crashes
+		// =========================================================
+		if c.value != nil && !isTrivial(c.value) {
+			if s := c.value.String(); s != "" && s != "{}" && s != "[]" {
+				fmt.Fprintf(o, " %s", s)
+			}
+		}
+		fmt.Fprintf(o, "\n")
+	}
+
+	fmt.Fprintf(o, "\n# %d configs.\n", len(configs))
+
+	// Reset the flags now that it's successfully flushed to disk!
+	if f.filebase != nil { 
+		f._updated = false 
+		f._dirty = 0 // Or false, depending on your dirty type
+	}
+
+	l.project.configuration = f // saved configuration.sm
+}
+
+func (l ul) configure_set(ctx Context, name string, vals ...Value) (d *def, isNew bool) {
+	if d, isNew = l.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
+		l.project.configs = append(l.project.configs, d)
+	}
+	return
+}
+
+func promptEnteringDirectory(ctx Context, s string) *diagpoint {
+	return prompt(ctx, "smake: Entering directory '%s'\n", s)
+}
+
+func promptLeavingDirectory(ctx Context, s string) *diagpoint {
+	return prompt(ctx, "smake: Leaving directory '%s'\n", s)
+}
+
+var rxConfigRuleHeaders  = regexp.MustCompile(`^\-headers\-`)
+var rxConfigRuleFunction = regexp.MustCompile(`^\-function\-`)
+var rxConfigRuleSymbol   = regexp.MustCompile(`^\-symbol\-`)
+var rxConfigIgnoreErrors_function = []*regexp.Regexp{
+	regexp.MustCompile(`call to undeclared library function '(.+?)' with type '(.+?)'; *(.+)`),
+	regexp.MustCompile(`use of undeclared identifier '(.+?)'`),
+}
+
+func configure_ignore(ctx Context, rx *regexp.Regexp, s [][]byte) (_ bool) {
+	switch rx {
+	case rxCodeLinePanic:
+		for _, t := range rxConfigIgnoreErrors_function {
+			if t.Match(s[5]) { return true }
+		}
+		debug(ctx, "%s %s", rx, do(ctx, is_rule{rxConfigRuleFunction}))
+	case rxIgnoringDirectory, rxLdManyMinVersions:
+		if false { debug(pc(ctx,s[2]), "%s", s[1]) }
+		return true
+	}
+	if false {
+		debug(ctx, "%s %s", rx, s[0])
+	}
+	return
+}
+
+func (l ul) configure_par(ctx Context, _op Value) (op Value, par map[string]Value) {
+	var args []Value
+
+	op, par = _op, make(map[string]Value)
+
+	if x, y := op.(*argumented); y {
+		if f, y := x.Value.(flag); y {
+			op = f.Value
+		} else {
+			debug(pc(ctx,x.Value), "wrong configure word: %v", ts(x.Value), trace{})
+		}
+		args = xmerge(_final(ctx), x.args...)
+	}
+
+	for _, arg := range args {
+		switch t := arg.(type) {
+		case *pair:
+			par[__string(ctx, t.key)] = t
+		case *raw, *strlit, *strval, *strcomp:
+			par["INFO"] = &pair{_word(t.Pos(),"INFO"), t}
+		default:
+			if !isTrivial(arg) {
+				debug(pc(ctx,arg), "wrong arg: %s", ts(arg), trace{})
+			}
+		}
+	}
+	return
+}
+
+type is_configure struct{}
+type is_configure_ignore struct{ rx *regexp.Regexp ; s [][]byte }
+type p_configure struct{ Context }
+func (p p_configure) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_configure) inner() Context { return p.Context }
+func (p p_configure) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case is_configure: return true
+	case is_configure_ignore:
+		if configure_ignore(ctx, t.rx, t.s) { return true }
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Value) (res Value) {
+	var x, y = op.(*word)
+	if !y {
+		debug(pc(ctx,_op), "wrong configure word: %v %v %v", ts(_op), ts(op), ts(val), trace{})
+	}
+
+	switch x.s {
+	case "answer":
+		if val == nil { return _answer(op.Pos(), false) }
+		return _answer(val.Pos(), __true(ctx, val))
+	case "bool", "boolean":
+		if val == nil { return _boolean(op.Pos(), false) }
+		return _boolean(val.Pos(), __true(ctx, val))
+	case "value":
+		if val == nil { return _null(op.Pos()) }
+		return expand(_final(ctx),val)
+	}
+
+	if l.project.configure == nil {
+		debug(pc(ctx,op), "wrong configure: %v %v", ts(op), ts(val), trace{})
+	}
+
+	var ops = l.project.configure._entries(ctx, _op, false)
+	if ops == nil {
+		debug(pc(ctx,_op), "no configure ops: %v", _op, trace{})
+	}
+
+	var vals []Value
+	for _, ent := range ops {
+		var params []Value
+		for _, prog := range ent.programs() {
+			for _, p := range prog.params {
+				w := _word(p.Pos(), ident(ctx, p))
+				if x, y := par[w.s]; y {
+					params = append(params, x)
+				} else {
+					switch w.s {
+					case "TARGET": params = append(params, &pair{w, auto_get(ctx, "@")})
+					case "VALUE":  params = append(params, &pair{w, val})
+					case "LANG", "LANGUAGE":
+						if ctx.language != "" {
+							params = append(params, &pair{w, _word(w.pos, ctx.language)})
+						}
+					}
+				}
+			}
+		}
+		vals = append(vals, ent.execute(p_configure{ctx}, params...)...)
+	}
+	return ease(ctx, vals)
+}
+
+func (l ul) configure(ctx Context) {
+	l.p.next(ctx, true) // aka CONFIGURE
+	if l.p.tok == LPAREN {
+		l.p.next(ctx, true)
+		
+		for l.p.tok != EOF {
+			l.p.spaces(ctx)
+			
+			for l.p.tok == LINEND || l.p.lineComment != nil {
+				l.p.linend(ctx)
+				l.p.spaces(ctx)
+			}
+			
+			if l.p.tok == RPAREN {
+				l.p.next(ctx, true)
+				break
+			}
+
+			l.configure1(ctx)
+			
+			l.p.spaces(ctx)
+			if l.p.tok == RPAREN {
+				l.p.next(ctx, true)
+				break
+			}
+			
+			if l.p.tok == LINEND || l.p.lineComment != nil {
+				l.p.linend(ctx)
+			}
+		}
+	} else {
+		l.configure1(ctx)
+	}
+}
+
+func (l ul) configure1(ctx Context) {
+	ids := []Value{}
+	for _, v := range merge(l.expr(ctx)) {
+		// CRITICAL FIX: Protect LHS configuration variables from early evaluation
+		forids(ctx, expand(def_name{_final(ctx)}, v), func(v Value, _ []Value) { ids = append(ids, v) })
+	}
+
+	l.p.spaces(ctx)
+
+	var _op Value
+	var _no_cond bool
+minusloop:
+	for l.p.tok == MINUS {
+		t := l.expr(ctx)
+		l.p.spaces(ctx)
+
+		switch t := t.(type) {
+		case *argumented:
+			if x, y := t.Value.(flag); y {
+				switch x.Value.String() {
+				case "cond":
+					for _, a := range xmerge(_final(ctx), t.args...) {
+						if !__true(ctx, a) {
+							_no_cond = true
+							break
+						}
+					}
+					continue minusloop
+				}
+			}
+		case flag:
+			if t.Value.String() == "cond" {
+				debug(pc(ctx,t), "needs cond value", trace{})
+			}
+		}
+
+		if _op != nil {
+			debug(pc(ctx,t), "configure op already defined: %v", _op, trace{})
+		}
+
+		_op = t
+		break
+	}
+
+	op, par := l.configure_par(ctx, _op)
+	exe := execution{
+		automatic:automatic{Context:pc(ctx,op), defs:make(def_map)},
+		start:time.Now(), proj:l.project,
+	}
+
+	if l.p.tok == ASSIGN || l.p.tok == SEMICOLON { 
+		l.p.next(ctx, true) // skips the '=' or ';' token
+
+		pos, tok, lit, sst := l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate
+		for _, id := range ids {
+			d, _ := exe.set(&exe, defVoid, "@", id)
+			d.pos = id.Pos()
+
+			d, isNew := l.configure_set(ctx, __string(ctx, id)) // aka. l.project.set
+			d.pos = id.Pos()
+
+			isCached := !isNew && d.value != nil
+			if isCached && isTrivial(d.value) {
+				isCached = false // Force the engine to re-execute the recipe.
+				d.value = nil // Safe override! Clear the failed state.
+			}
+
+			cc := defval{original{&exe, defConfig|defExpand1}, d}
+			l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, sst
+			l.p.dialect = ""
+
+			var vals []Value
+			newVal := ease(ctx, expands(cc, l.values(cc)...))
+
+			// Force type conversion before caching check (e.g. {=true} -> {=yes})
+			if op != nil { newVal = l.configure_val(&exe, _op, op, newVal, par) }
+
+			// =========================================================
+			// CRITICAL FIX: Safe Cache Bypass!
+			// =========================================================
+			if isCached && equal(ctx, d.value, newVal) {
+				if l.promptCachedConfigs(ctx) {
+					prompt(ctx, "%v:info: cached %v\n", do(ctx, get_fatpos{d.pos}), d)
+					flush(ctx)
+				}
+				l.p.lineComment = nil
+				continue // Match found! Bypass prompt and execution completely.
+			}
+
+			if x, y := par["INFO"]; y {
+				if !l.promptEnteringDirectory {
+					l.promptEnteringDirectory = true
+					promptEnteringDirectory(ctx, l.project.absPath)
+				}
+
+				var s string
+				if p, y := x.(*pair); y {
+					s = __string(ctx, p.val)
+				} else {
+					s = __string(ctx, x)
+				}
+
+				a := prompt(pc(ctx,op), "%s …", s)
+				defer func(i int) {
+					if diagCount(ctx, diagInfo, diagWarn, diagError) <= i {
+						s = __string(ctx, ease(ctx, vals))
+						s = strings.Replace(s, "\n", "\\n", -1)
+
+						b := prompt(ctx, "… %s\n", s)
+						flush(ctx)
+
+						if checkpoints { l.configure_val_check(&exe, d.name, op, vals, a, b) }
+					}
+				} (diagCount(ctx, diagInfo, diagWarn, diagError))
+			}
+
+			if newVal != nil { vals = append(vals, newVal) }
+
+			// CRITICAL FIX: Empty the config value before setting to avoid panic on stale cache overwrite!
+			d.value = nil 
+			d.set(ctx, newVal)
+
+			if f := l.project.configuration_sm(ctx); f.filebase != nil && d.value != nil {
+				f._updated = true
+				f._dirty += 1
+			}
+
+			l.p.lineComment = nil
+		}
+		return
+	} else if l.p.tok == COLON || l.p.is_end_of_line() {
+		if l.p.tok == COLON { l.p.next(ctx, true) }
+
+		pos, tok, lit, sst := l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate
+		for _, id := range ids {
+			d, _ := exe.set(&exe, defVoid, "@", id)
+			d.pos = id.Pos()
+
+			d, isNew := l.configure_set(ctx, __string(ctx, id)) // aka. l.project.set
+			d.pos = id.Pos()
+
+			isCached := !isNew && d.value != nil
+			if isCached && isTrivial(d.value) {
+				isCached = false // Force the engine to re-execute the recipe.
+				d.value = nil // Safe override! Clear the failed state.
+			}
+
+			cc := defval{original{&exe, defConfig|defExpand1}, d}
+			l.p.pos, l.p.tok, l.p.lit, l.p.scanner.scanstate = pos, tok, lit, sst
+			l.p.dialect = ""
+
+			var deps, vals []Value
+
+		depsloop:
+			for {
+				switch l.p.tok { case SEMICOLON, LINEND, EOF: break depsloop }
+				deps = append(deps, l.expr(cc)) ; l.p.spaces(ctx)
+				exe.set(&exe, defVoid, "<", deps[0])
+				exe.set(&exe, defVoid, ">", deps[len(deps)-1])
+				exe.set(&exe, defVoid, "^", ease(ctx, deps))
+			}
+
+			exe.language = l.p.dialect
+
+			if l.p.tok == SEMICOLON { // ;
+				exe.recipes = append(exe.recipes, l.recipe(cc)...)
+			} else {
+				l.p.scanner.recipes(true) // turn on recipes before LINEND.
+				if l.p.linend(ctx) { // take the new line.
+					for l.p.recipe_start() {
+						exe.recipes = append(exe.recipes, l.recipe(cc)...)
+					}
+				}
+				l.p.scanner.recipes(false)
+			}
+
+			// Bypass Prompt & Recipes if valid cached value exists
+			if isCached {
+				if l.promptCachedConfigs(ctx) {
+					prompt(ctx, "%v:info: cached %v\n", do(ctx, get_fatpos{d.pos}), d)
+					flush(ctx)
+				}
+				continue 
+			}
+
+			if x, y := par["INFO"]; y {
+				if !l.promptEnteringDirectory {
+					l.promptEnteringDirectory = true
+					promptEnteringDirectory(ctx, l.project.absPath)
+				}
+
+				var s string
+				if p, y := x.(*pair); y {
+					s = __string(ctx, p.val)
+				} else {
+					s = __string(ctx, x)
+				}
+
+				a := prompt(pc(ctx,op), "%s …", s)
+				defer func(i int) {
+					if diagCount(ctx, diagInfo, diagWarn, diagError) <= i {
+						s = __string(ctx, ease(ctx, vals))
+						s = strings.Replace(s, "\n", "\\n", -1)
+
+						b := prompt(ctx, "… %s\n", s)
+						flush(ctx)
+
+						if checkpoints { l.configure_val_check(&exe, d.name, op, vals, a, b) }
+					}
+				} (diagCount(ctx, diagInfo, diagWarn, diagError))
+			}
+
+			if _no_cond {
+				d.set(cc, _null(id.Pos()))
+				continue
+			}
+
+			for _, exe.prerequisite = range deps { traverse(&exe, exe.prerequisite) }
+
+			var val = auto_get(&exe, "-")
+			if val == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
+				if x, y := dialects[""]; y && x != nil {
+					val = exe.interpret(cc, x, nil)
+				}
+			}
+
+			if op != nil { val = l.configure_val(&exe, _op, op, val, par) }
+			if val != nil { vals = append(vals, val) }
+
+			for _, a := range exe.defers {
+				if x, y := a.(*group); y {
+					modify(ctx, x, true)
+				} else {
+					debug(pc(ctx,a), "defer: not a modifier: %s", ts(a), trace{})
+				}
+			}
+
+			// Empty the config value before setting to avoid panic on stale cache overwrite!
+			d.value = nil 
+			d.set(cc, ease(ctx, vals))
+
+			if f := l.project.configuration_sm(ctx); f.filebase != nil && d.value != nil {
+				f._updated = true
+				f._dirty += 1
+			}
+		}
+		return
+	} else {
+		debug(pc(ctx,l.p), "%v: wrong configure", op, trace{})
+	}
+}
+
+var d_variant_target bool
+func (l ul) clause(ctx Context) {
+	if l_traverse.enabled {
+		defer un(l_tracef(l_traverse, "clause(%v, %v)", l.p.tok, l.p.pos))
+	}
+
+	l.p.spaces(ctx)
+
+	if l.p.tok == LINEND || (l.p.tok == COMMENT && l.p.lineComment != nil) {
+		l.p.next(ctx, true)
+		return // noop clause
+	}
+
+	switch t := l.p.tok ; t {
+	case   INCLUDE: l.spec(ctx, t, l.p.expect(ctx, t), l.include) ; return
+	case    ASSERT: l.spec(ctx, t, l.p.expect(ctx, t), l.p.assert); return
+	case    APPEND: l.spec(ctx, t, l.p.expect(ctx, t), l.p.append); return
+	case     FILES: l.spec(ctx, t, l.p.expect(ctx, t), l.files)   ; return
+	case     LOCAL: l.spec(ctx, t, l.p.expect(ctx, t), l.local)   ; return
+	case      EVAL: l.spec(ctx, t, l.p.expect(ctx, t), l.eval)    ; return
+	case       DEF: l.def_end(ctx)     ; return
+	case       FOR: l.for_done(ctx)    ; return
+	case   FOREACH: l.foreach_done(ctx); return
+	case CONFIGURE: l.configure(ctx)   ; return
+	case USE, TEMPLATE:
+		debug(ctx, "unexpected %v", t, trace{})
+	}
+
+	var vals []Value
+
+	for l.p.tok != LINEND && l.p.tok != EOF {
+		var x = l.expr(left_side{ctx})
+
+		l.p.spaces(ctx)
+
+		vals = append(vals, x)
+		if d_variant_target {
+			prompt(ctx, "%s: clause: %v %v\n", l.p.pos, x, l.p.tok)
+		}
+
+		if l.p.tok.is_assign() {
+			l.assign(ctx, vals)
+			return
+		}
+
+		if l.p.tok.is_rule_delim() {
+			l.rule(ctx, vals)
+			return
+		}
+	}
+
+	for _, v := range vals {
+		if x, y := v.(*argumented); y {
+			l.call(ctx, x.Value, x.args)
+		}
+	}
+}
+
+type project_opts struct{
+	configure Value `configure` // detects dot_configure if empty
+	traveUseLoop bool `break,loop` // don't recursively use this project
+	multiUseAllowed bool `multi`  // this project is used multiple times
+}
+
+// project returns a new project for the given project path and name;
+// the name must not be the blank identifier.
+// The project is not complete and contains no explicit imports.
+func (l ul) declareNew(ctx Context, pos Pos, name, filename string, opts *project_opts) (d *declare) {
+	if x, y := l.declares[name]; y { return x }
+
+	var sco = l.scope()
+	var relPath = __string(ctx, sco.finddef(".")) // CRD
+	var tmpPath = __string(ctx, sco.finddef(",")) // CTD
+	var absPath string
+	if x, y := do(ctx, abs_path{}).(string); y {
+		absPath = x
+	} else {
+		absPath = __string(ctx, sco.finddef("/"))
+	}
+
+	var spec, _ = filepath.Rel(workBaseDir, absPath)
+
+	if l.declares == nil { l.declares = make(map[string]*declare) }
+
+	d = &declare{
+		project: &project{
+			pos: pos,
+			absPath:  absPath,
+			tmpPath:  tmpPath,
+			rel:      relPath,
+			spec:     spec,
+			name:     name,
+			opt:      *opts,
+			use:      new(uselist),
+		},
+	}
+
+	l.declares[name]  = d
+	l.globe.loaded[d.absPath] = d.project
+
+	// CRITICAL: Bubble up the declaration to parent{...} wrappers!
+	do(ctx, declared_project{d.project})
+	
+	d.p = l.p
+	d.s = l.loader.scope
+
+	// CRITICAL: The scope must be initialized so valcache and wildcard work!
+	d.scope = newscope(sco, d.project, name)
+	d.scope.elems[".self"] = self{d.project}
+	d.scope.elems[".usee"] = d.use
+	d.use.owner_ = d.project
+	d.use.scope = d.scope
+	d.use.name = "usee"
+
+	if l.globe.main == nil && spec != "" && name != "@" && name != "~" {
+		for sco != nil && sco != l.globe.scope {
+			if p := sco.project; p != nil && d.name == "@" {
+				return
+			}
+			sco = sco.outer
+		}
+		l.globe.main = d.project
+	}
+	return
+}
+
+func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *project_opts) bool {
+	if name == "@" {
+		debug(ctx, "deprecated project name: @", trace{})
+	}
+
+	if _, o := l.find(name); o != nil { switch o.(type) {
+	case *builtin: debug(ctx, "%v is a builtin, can't be project name", o, trace{})
+	}}
+
+	var prev = l.loader // nil if newly declared
+	var dec = l.declareNew(ctx, ident.Pos(), name, filename, declOpts)
+	if prev == nil || dec.project != prev.project {
+		if prev != nil && prev.project != nil && prev.project != dec.project {
+			if prev.project.name == dec.project.name {
+				debug(ctx, "%s", prev.project.name, trace{})
+			}
+		}
+		l.project, l.loader.scope = dec.project, dec.scope
+	}
+
+	if ll := _loader(l.loader.Context); ll != l.loader && ll == prev {
+		if _, a := ll.project.projectname(ctx, name, dec.project); a != nil {
+			if x, y := a.(*project); !y || x != dec.project {
+				debug(ctx, "%v: name already taken : %v", name, ts(a), trace{})
+			}
+		}
+	}
+
+    if l.globe.main != nil && l.globe.main == l.project && l.project.name != "~" {
+        for _, t := range l.globe.pairs {
+            switch k := t.key.(type) {
+            case *word, *compound:
+                l.scope().def(ctx, defDecl, k, t.val)
+            case flag:
+                if false { debug(ctx, "unknown flag : %v", t) }
+            default:
+                debug(ctx, "unknown target : %v", ts(t))
+            }
+        }
+    }
+
+	if x := try[[]Value](ctx,get_args{}); len(x) != 0 {
+		for _, arg := range merge(x...) {
+			switch t := arg.(type) {
+			case *pair:
+				switch k := t.key.(type) {
+				case *word, *compound:
+					l.scope().def(ctx, defDecl, k, t.val)
+				case flag:
+					if false { debug(ctx, "unknown flag : %v", t) }
+				default:
+					debug(ctx, "unknown target : %v", ts(t))
+				}
+			}
+		}
+	}
+
+    if err := l.loadPlugin(ctx); err != nil {
+        debug(ctx, "load plugin failed: %v", err, trace{})
+    }
+    return l.project != nil
+}
+
+func (l ul) pre_project(ctx Context, op string, args ...Value) (_ bool) {
+	switch op {
+	case "set":
+		l.pre_project_set(ctx, merge(args...)...)
+		return true
+	}
+	return
+}
+
+func (l ul) pre_project_set(ctx Context, args ...Value) {
+	var s = l.scope()
+	for _, a := range args {
+		switch t := a.(type) {
+		case *pair:
+			s.def(ctx, defVoid, t.key, t.val)
+		default:
+			debug(ctx, "unknown set: %v", ts(a), trace{})
+		}
+	}
+}
+
+type declared_project struct{ *project }
+
+type parent struct{ Context ; *project }
+func (p parent) cast(t reflect.Type) Context { return icast(p,t) }
+func (p parent) inner() Context { return p.Context }
+func (p parent) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case declared_project:
+		if t.has_base(p.project) {
+			if true { return }
+
+			prompt(ctx, "%s: %s : %s\n", p.absPath, p.project, t.loop_base_path(ctx, p.project, ""))
+			if true {
+				debug(ctx, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project))
+				return
+			} else {
+				debug(ctx, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project), trace{})
+			}
+		}
+
+		if p.has_base(p.project) {
+			debug(ctx, "duplication derivation: %v ⇔ %v", ts(p.project), ts(t.project), trace{})
+		}
+
+		if len(p.bases) == 0 {
+			p.projectname(ctx, ".base", t.project)
+		}
+
+		p.bases = append(p.bases, t.project)
+		return
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (l ul) projectStart(ctx Context, filename string, isMainFile bool) (_ Value, _ string, _ bool) {
+	l.p.next(ctx, true) // aka. the keyword
+
+	var vals []Value
+	for l.p.tok == MINUS {
+		val := l.expr(ctx)
+		l.p.spaces(ctx)
+
+		if a, y := val.(*argumented); y {
+			if f, y := a.Value.(flag); y {
+				if w, y := f.Value.(*word); y {
+					l.pre_project(ctx, w.s, a.args...)
+					continue
+				}
+			}
+		}
+
+		vals = append(vals, val)
+	}
+
+	var opts project_opts
+	if a := parseOpts(ctx, &opts, vals...); len(a) > 0 {
+		debug(pc(ctx,filename), "unknown project option %v", ts(a), trace{})
+	}
+
+	var ident Value
+	var implicitBase string // aka. foo.bar.Baz implicitly load base 'foo/bar'
+
+	if l.p.tok == LPAREN || l.p.is_end_of_line() {
+		var dir = filepath.Dir(filename)
+		if l.project != nil && l.project.absPath == dir {
+			ident = _word(l.p.pos, l.project.name)
+		} else if s := filepath.Base(filename); s == dot_base || s == dot_configure {
+			// NOTE: loading the .base or .configure file
+			ident = _word(l.p.pos, s)
+		} else if s := filepath.Base(dir); s != "" {
+			// TODO: validate basename as a valid identifier
+			ident = _word(l.p.pos, s)
+		} else {
+			debug(ctx, "invalid file: %v", filename, trace{})
+		}
+	} else if l.p.tok == TILDE { // `project ~`
+		if ext := filepath.Ext(filename); ext != ".smart" {
+			debug(ctx, "`%v` not a smart file", filepath.Base(filename), trace{})
+		} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s == "" {
+			debug(ctx, "`%v` not tilde name", filepath.Base(filename), trace{})
+		} else {
+			ident = _word(l.p.pos, s)
+		}
+		l.p.next(ctx, true) // skip tilde
+	} else { // bare `project`
+		base, qw := makePath(), &qualword{}
+
+		for l.p.tok != EOF && l.p.tok != SPACE {
+			var w = l.p.bare(ctx)
+			qw.elems = append(qw.elems, w)
+			if l.p.tok == DOT {
+				l.p.step(ctx) // skips '.'
+				base.elems = append(base.elems, w)
+			} else {
+				break
+			}
+		}
+
+		l.p.spaces(ctx)
+
+		switch qw.len() {
+		case 0:
+			debug(pc(ctx,qw), "package name is empty (tok=%v)", l.p.tok, trace{})
+		case 1:
+			ident = qw.elems[0]
+		default:
+			ident = qw
+		}
+
+		if 0 < base.len() {
+			implicitBase = __string(ctx, base)
+		}
+	}
+
+	var name = __string(ctx, ident)
+
+	if name == "-" || name == "_" {
+		debug(ctx, "package name '%s' is preserved", name, trace{})
+	}
+
+	if p := l.project; p != nil && p.name != name {
+		debug(ctx, "%v: multiple projects in the directory : %v", p, ident, trace{})
+	}
+
+	var _, prevDeclared = l.declares[name]
+	if l.declare(ctx, ident, name, filename, &opts) {
+		isMainFile = isMainFile && !prevDeclared;
+	}
+
+	if cc := (parent{ctx, l.project}); l.p.tok != LPAREN {
+		l.bases(cc, implicitBase) // for special bases, e.g. .base
+	} else {
+		var cc0 = p_group_ctx{aware(ctx,COMMA)}
+		for l.p.tok != EOF {
+			for l.p.next(ctx, true); !l.p.is_list_term(ctx); l.p.spaces(ctx) {
+				l.bases(cc, "", merge(l.expr(cc0))...)
+			}
+			if l.p.tok != COMMA { break }
+		}
+		l.p.expect(ctx, RPAREN)
+	}
+
+	if l.p.spaces(ctx) ; l.p.tok != EOF { l.p.linend(ctx) }
+
+	if isMainFile {
+		l.configuration(ctx, ident, name)
+		l.container(ctx, ident, name)
+	}
+	return ident, name, isMainFile
+}
+
+func (l ul) close_project(ctx Context, name string) {
+    var x, y = l.declares[name]
+
+	if !y || x == nil {
+		debug(ctx, "undeclared project: %v", name, trace{})
+	}
+
+    if l.project == nil {
+        debug(ctx, "current project unset", trace{})
+    }
+
+    if l.project.name != name {
+        debug(ctx, "current project is %s, not %s", l.project, name, trace{})
+    }
+
+    if l.project != x.project {
+        debug(ctx, "project conflicts (%v, %v)", l.project, x.project, trace{})
+    }
+
+    l.p, l.loader.scope = x.p, x.s
+}
+
+func (l ul) parse(ctx Context, filename string) (_ bool) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "file '"+filename+"'")) }
+	if l.traceLaunch { defer un(l_trace(l_launch, "parse_file")) }
+	if checkpoints {
+		if s := l.p.scanner.file.Name(); filename != s {
+			debug(ctx, "%v: %s != %s", l.project, filename, s, trace{})
+		}
+	}
+
+	if l.p.tok == EOF {
+		debug(pc(ctx,l.p), "early end of file", callstack{num:64}, trace{})
+		return
+	}
+
+	var abs string
+	var isMainFile bool // aka do.smart, build.smart
+	var flatmode = truly(ctx, is_flat_mode{})
+
+	if flatmode {
+		if l.project == nil {
+			debug(pc(ctx,filename), "nil project", callstack{num:64}, trace{})
+		} else {
+			abs = l.project.absPath
+		}
+	} else {
+		switch filepath.Base(filename) {
+		case dot_base, dot_configure:
+			abs = filename
+		case mainFileName, deprFileName:
+			abs = filepath.Dir(filename); isMainFile = true
+		default:
+			abs = filepath.Dir(filename)
+		}
+	}
+
+	ctx = pc(ctx, filename, 1, 1)
+
+	var rel, _ = filepath.Rel(l.workdir, abs)
+	var tmp    = joinTmpPath(ctx, l.workdir, rel)
+
+	if s := l.scope(); /* p == nil || */ s == nil {
+		debug(ctx, "%v: nil scope: %v", l.project, s, trace{})
+	}
+
+	defer l.closescope(l.openscope(bases(2, filename, true)))
+
+	if flatmode {
+		if l.p.tok == PROJECT {
+			debug(pc(ctx,l.p), "project is forbidden in flat file", trace{})
+		}
+	} else {
+		// CWD: Current Work Directory,     TODO: use $:cwd:
+		// CTD: Current Temp Directory,     TODO: use $:ctd:
+		// CRD: Current Relative Directory, TODO: use $:crd:
+		var s = l.scope()
+		if d := s.def(ctx, defVoid, "/", _pathStr(ctx, abs)); d != nil { s.alias(ctx, d, "CWD") }
+		if d := s.def(ctx, defVoid, ".", _pathStr(ctx, rel)); d != nil { s.alias(ctx, d, "CRD") }
+		if d := s.def(ctx, defVoid, ",", _pathStr(ctx, tmp)); d != nil { s.alias(ctx, d, "CTD") }
+		if l.p.tok == PROJECT {
+			var name string
+			var prev = l.project
+			_, name, isMainFile = l.projectStart(ctx, filename, isMainFile)
+			if prev != l.project { defer l.close_project(ctx, name) }
+		} else {
+			debug(pc(ctx,l.p), "expect keyword 'project', not %v", l.p.tok, trace{})
+		}
+	}
+
+	var autoload = !flatmode && isMainFile
+	if  autoload { l.autoload(ctx, "declared") }
+
+	if l.mode&ModuleClauseOnly == 0 {
+		if !flatmode {
+		declaration:
+			for l.p.tok != EOF {
+				switch t := l.p.tok ; t {
+				case LINEND, SPACE: l.p.next(ctx, true)
+				case USE: l.spec(ctx, t, l.p.expect(ctx, t), l.use)
+				case APPEND, ASSERT, EVAL, FILES, INCLUDE: l.clause(ctx)
+				default: break declaration
+				}
+			}
+		}
+
+		if false && autoload { l.autoload(ctx, "amid") }
+
+		if l.mode&ImportsOnly == 0 {
+			for l.p.tok != EOF { l.clause(ctx) }
+		}
+	}
+
+	if autoload { l.autoload(ctx, "appendix") }
+
+	l.clear_locals()
+
+	return l.mode&ImportsOnly != 0 || l.p.tok == EOF
+}
+
+type get_parser struct{}
+
+type is_implicit_load struct{}
+
+// implicit load, e.g. via foo.bar.Baz (implicitly loads foo/bar for base of Baz)
+type load_implicit struct{ Context }
+func (p load_implicit) cast(t reflect.Type) Context { return icast(p,t) }
+func (p load_implicit) inner() Context { return p.Context }
+func (p load_implicit) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_implicit_load: return true
+    }
+    return p.Context.do(ctx, op)
+}
+
+type abs_path struct{}
+type abs_ctx struct{ Context ; abs string }
+func (p *abs_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p *abs_ctx) inner() Context { return p.Context }
+func (p *abs_ctx) ts(string) string { return "{"+posstr(p.abs)+" "+ts(p.Context)+"}" }
+func (p *abs_ctx) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case abs_path: return p.abs
+    case get_position:
+        var pos, _ = p.Context.do(ctx, op).(Position)
+        if !pos.valid() { pos.Filename, pos.Line = p.abs, 1 }
+        return pos
+    }
+    return p.Context.do(ctx, op)
+}
+
+func _abs_ctx(ctx Context, abs string) Context {
+    if do(ctx, abs_path{}) == abs { return ctx }
+    return &abs_ctx{ctx, abs}
+}
+
+type declare struct {
+    *project  // save loader.project -- the active project being loading
+    p *parser // save loader.p
+    s *scope  // save loader.term.s
+}
+
+func _loader(c Context) *loader { return cast[*loader](c) }
+
+type loader struct {
+    term             // .s -> declare.s
+    p *parser        // -> declare.p
+    project *project // -> declare.project -- the current project
+    promptEnteringDirectory bool
+
+    declares map[string]*declare
+
+    mode Mode
+
+    verpre string // verbose prefix
+}
+func (l *loader) inner() Context { return &l.term }
+func (l *loader) cast(t reflect.Type) Context {
+    if reflect.TypeOf(l) == t { return l }
+    return l.term.cast(t)
+}
+func (l *loader) ts(string) (s string) {
+    s = "{=loader"
+    if l.project != nil { s += " " + l.project.name }
+    if l.Context != nil { s += " " + ts(l.Context) }
+    s += "}"
+    return
+}
+func (l *loader) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_implicit_load: return false
+    case get_parser:  return l.p
+    case get_project: return l.project
+	case get_position: if l.p != nil { return l.p.pos } // CRITICAL FIX: Return compact Pos!
+    case get_scope: if false { return l.project.scope }
+    case get_closure_scopes:
+        var t, _ = l.term.do(ctx, op).([]*scope)
+        return append(t, l.project.scope)
+    }
+	return l.term.do(ctx, op)
+}
+
+type ul struct{ *universe ; *loader }
+
+type useopts struct {
+	noUse  bool `nu,nouse,uu,unuse` // TODO
+    noVars bool `nv,novars,no-vars`
+	files  bool `f,files` // NOTE: see also '-import(xxxx)'
+	reuse  bool `r,ru,reuse,reusing`
+    vars []Value `var,vars`
+}
+
+type usevar struct {
+    unique bool `uni,uniq,unique`
+    remainder []Value // will be opts for unique
+}
+func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
+    var vals []Value
+    for _, u := range u {
+        for _, v := range merge(u.value) {
+            if t, y := v.(*def); y && t != nil {
+                vals = append(vals, merge(t.value)...)
+            } else {
+                vals = append(vals, v)
+            }
+        }
+    }
+    if len(vals) == 0 {
+        return
+    }
+    if d.append(ctx, vals...); uo.unique {
+        d.value = call(ctx, "unique", uo.remainder, merge(d.value)...)
+    }
+}
+func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
+    if o := user.resolve(ctx, "use.*"); o != nil {
+        if d, y := o.(*def); y && d != nil {
+            for _, spec := range merge(d.value) {
+                var op usevar
+                var val = spec
+                if x, y := spec.(*argumented); y {
+                    val = x.Value
+                    op.remainder = parseOpts(_final(ctx), &op, x.args...)
+                }
+                if name := __string(ctx, val); name == "" {
+                    if c := user.configure; c != nil {
+                        note(ctx, "%v", ts(c.resolve(ctx, "use.*")))
+                    }
+                    debug(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec), trace{})
+                } else {
+                    f(op, spec, val, name)
+                }
+            }
+        }
+    }
+}
+func (l ul) usevars(ctx Context, user, usee *project) {
+	usefor(ctx, user, func(op usevar, spec, val Value, name string) {
+		var prefix string
+		if m := name_prefix.FindStringSubmatch(name); m != nil {
+			prefix, name = m[1], m[3]
+		}
+
+		var useDef *def
+		if o := usee.Lookup(prefix + "use." + name); o != nil {
+			if d, y := o.(*def); y && d != nil {
+				useDef = d
+			} else {
+				debug(ctx, "use.%s: nil def: %T %v", name, o, o, trace{})
+			}
+		}
+		if useDef == nil {
+			return
+		}
+
+		var dd []*def
+
+		// 1. use.XXX += $(use.XXX)
+		{
+			d, isNewDef := user._def(ctx, defVoid, useDef.ident(ctx))
+			if isNewDef || isTrivial(d.value) {
+				dd = append(dd, nonTrivialDefsFromBase(ctx, user, useDef.ident(ctx))...)
+			}
+			op.apply(closure_with(ctx, usee.scope), d, append(dd, useDef)...)
+		}
+
+		if useDef.value == nil || isTrivial(useDef.value) {
+			return
+		}
+
+		// 2. XXX += $(use.XXX)
+		{
+			d, isNewDef := user._def(ctx, defVoid, name)
+			if isNewDef && false {
+				if dd == nil {
+					dd = append(dd, nonTrivialDefsFromBase(ctx, user, useDef.ident(ctx))...)
+				}
+				dd = append(dd, nonTrivialDefsFromBase(ctx, user, name)...)
+			}
+			op.apply(closure_with(ctx, user.scope), d, append(dd, useDef)...)
+		}
+	})
+}
+
+func nonTrivialDefsFromBase(ctx Context, p *project, name string) (dd []*def) {
+    for _, base := range p.bases {
+        d, y := base.resolve(ctx, name).(*def)
+        if y && d != nil && !isTrivial(d.value) {
+            dd = append(dd, d)
+        }
+    }
+    return
+}
+
+func (l ul) scope() *scope { return l.loader.scope }
+func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
+    if checkpoints && l.project != nil && l.project.name == "variant.bootstrap" {
+        defer func() {
+            if absPath == "" {
+                debug(ctx, "%v → %s %v", spec, absPath, isDir)
+            }
+        } ()
+    }
+
+    if spec == "." {
+        debug(ctx, "self-search is not possible", trace{})
+    } else if filepath.IsAbs(spec) {
+        var s = spec
+        if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
+
+        s = spec + ".smart"
+        if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
+
+        s = spec + ".sm"
+        if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
+    } else if spec == "~" || strings.HasPrefix(spec, "~") {
+        debug(ctx, "%v : wrong spec : %s (tilde not allowed)", l.project, spec, trace{})
+    } else if spec == ".." || has_prefix(spec, "."+pathSep, ".."+pathSep) {
+        var s = spec
+        var sx string
+
+        if t := l.project.absPath; t != "" {
+            if x, e := os.Stat(t); e != nil {
+                debug(ctx, "%v", e, trace{})
+            } else if !x.IsDir() {
+                t = filepath.Dir(t)
+            }
+
+            sx = filepath.Join(t, s)
+
+            if x, e := filepath.Abs(sx); e != nil {
+                debug(ctx, "%v", e, trace{})
+            } else {
+                s = x
+            }
+        }
+
+        if x, e := os.Stat(s); e == nil { return s, x.IsDir() }
+
+        sx = s + ".smart"
+        if x, e := os.Stat(sx); e == nil { return sx, x.IsDir() }
+
+        sx = s + ".sm"
+        if x, e := os.Stat(sx); e == nil { return sx, x.IsDir() }
+    } else {
+        for _, base := range l.paths {
+            var s = filepath.Join(base, spec)
+            if !filepath.IsAbs(base) { s = filepath.Join(l.workdir, s) }
+            if x, e := os.Stat(s); e == nil { return s, x.IsDir() }
+        }
+    }
+    return
+}
+
+func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) (loaded *project) {
+    var absPath, spec string
+    var isDir, traveUseLoop bool
+    if x, y := specVal.(*project); y {
+        loaded = x
+    } else if spec = __string(ctx, specVal); spec == "" {
+        debug(pc(ctx,specVal), "empty spec: %v", ts(specVal), trace{})
+    } else if absPath, isDir = l.search(ctx, spec); absPath == "" {
+        debug(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths, trace{})
+    } else {
+        loaded, y = l.globe.loaded[absPath]
+
+        for ll := _loader(l.loader.Context); ll != nil; ll = _loader(ll.Context) {
+            if ll.project.absPath == absPath {
+                debug(pc(ctx,specVal), "%s: loop detected", l.project, trace{})
+            }
+        }
+    }
+
+    defer func() {
+        if loaded == nil {
+            if false {
+                debug(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir, trace{})
+            }
+            return
+        }
+
+        var scope = l.project.scope
+        if p, _ := scope.Lookup(loaded.name).(*project); p == nil {
+            if _, alt := scope.projectname(ctx, loaded.name, loaded); alt != nil {
+                if p, y := alt.(*project); !y || p == nil {
+                    debug(ctx, "%s: name already taken : %s", loaded.name, ts(alt), trace{})
+                }
+            }
+        }
+    } ()
+
+    if l.verboseImport {
+        if /* len(l.loadStack) > 1 */ false {
+            defer func(s string) { l.verpre = s } (l.verpre)
+            l.verpre += "│"
+        }
+        if opts.reuse {
+            prompt(ctx, "%s├┬→\"%s\" (reuse, %s)\n", l.verpre, spec, absPath)
+        } else {
+            prompt(ctx, "%s├┬→\"%s\" (%s)\n", l.verpre, spec, absPath)
+        }
+        defer func(t time.Time) {
+            var name string
+            var d = time.Now().Sub(t)//*time.Millisecond // µs, ms, s
+            var ds = fmt.Sprintf("(%s)", d)
+            if d>=1*time.Second { ds = fmt.Sprintf("▶%s◀",ds) }
+            if loaded != nil { name = loaded.name }
+            prompt(ctx, "%s├┴─\"%s\" ⇢ %s %s\n", l.verpre, spec, name, ds)
+        } (time.Now())
+    }
+
+    if loaded != nil && !(/*opts.noVars || */opts.reuse) {
+        if proj, res, isb := l.project.has_loaded(ctx, loaded, traveUseLoop) ; isb {
+            // NOTE: proj could be nil
+            prompt(ctx, "%v: %v is already a base\n", l.project, spec)
+            debug(ctx, "`%s` is already a base (proj=%s)", spec, proj)
+            debug(ctx, "%v", ctx, trace{})
+        } else if res {
+            // NOTE: proj could be nil
+            prompt(ctx, "%v: %v already imported by %v\n", l.project, spec, proj)
+            debug(ctx, "'%s' already imported by '%s'", spec, proj)
+            debug(ctx, "%v", ctx, trace{})
+        }
+    }
+
+    var prev = l.project
+
+    if loaded == nil {
+        if cc := pc(ctx, specVal); isDir {
+            l.directory(cc, spec, absPath, nil)
+        } else {
+            l.file(cc, spec, absPath, nil)
+        }
+        if loaded, _ = l.globe.loaded[absPath]; loaded == nil {
+            debug(ctx, "%s not loaded (%s)", spec, absPath, trace{})
+        }
+        if loaded == l.project {
+            debug(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir, trace{})
+        }
+    }
+
+    if checkpoints && prev != l.project {
+        debug(ctx, "active project changed: %v → %v, use %v", prev, l.project, loaded, trace{})
+    }
+
+    // Check against the current load list before appending loaded.
+    for _, use := range l.project.use.list {
+        var up = use.project
+        if loaded == up {
+            if !opts.noVars && !opts.files {
+                debug(ctx, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list, trace{})
+            }
+            return
+        }
+
+        var proj *project
+        var res, isb bool
+        if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
+            if !l.project.has_base(up) {
+                debug(ctx, "`%s` is already a base", spec, trace{})
+            }
+        } else if res && !use.opts.reuse && !up.opt.multiUseAllowed && !loaded.opt.multiUseAllowed {
+            warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, up, proj)
+            if loaded != up { warn(ctx, "project %s", loaded) }
+            if proj != up { warn(ctx, "project %s", proj) }
+            debug(ctx, "project %s", up)
+        }
+
+        if proj, res, isb = up.has_loaded(ctx, loaded, traveUseLoop); isb {
+            debug(ctx, "`%s` is already base of `%s` (%s)", loaded, up, proj)
+        } else if res && !use.opts.reuse && !loaded.opt.multiUseAllowed {
+            warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
+            debug(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
+        }
+    }
+
+    if l.verboseImport {
+        defer func(t time.Time) {
+            prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", l.verpre, l.project, spec, time.Since(t))
+        } (time.Now()) //*time.Millisecond // µs, ms, s ┼
+    }
+
+    l.useProj(ctx, opts, loaded, params...)
+    return
+}
+
+const pluginDifferentVersionError = `plugin was built with a different version of package`
+var numUpdatedPlugins = 0
+
+func (l ul) buildPlugin(ctx Context, s, src string) (err error) {
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.buildPlugin")) }
+
+    prompt(ctx, "smart: Build %v …", src)
+    dir, _ := filepath.Split(src)
+    o := &bytes.Buffer{}
+    c := exec.Command("go", "build", "-buildmode=plugin", "-o", s)
+    c.Stdout, c.Stderr, c.Dir = o, o, dir
+    if err = c.Run(); err == nil {
+        numUpdatedPlugins += 1
+        prompt(ctx, "… ok\n")
+        prompt(ctx, "smart: Plugin updated, please relaunch.\n")
+        os.Exit(0)
+    } else {
+        prompt(ctx, "… error\n")
+        prompt(ctx, "%s", o)
+    }
+    return
+}
+
+func (l ul) loadPlugin(ctx Context) (err error) {
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.loadPlugin")) }
+    if l.project == nil {
+        debug(ctx, "current project is nil", trace{})
+    }
+
+    var g = _stat(ctx, "smart.go", l.project)
+    if g == nil { return /* smart.go was not presented */ }
+
+    var src = __string(ctx, g)
+    s := strings.Replace(l.project.rel, "..", "_", -1)
+    s = filepath.Join(filepath.Dir(joinTmpPath(ctx, "", "")), "plugins", s)
+
+    var build = true
+
+    so := _stat(ctx, /*l.project.name*/"plugin", stat_dir{s}, stat_nonexist{true})
+    if s = so.fullname(); s == "" {
+        debug(ctx, "file '%v' has empty fullname", so)
+    } else if so.exists() && !l.buildPlugins {
+        if so.info.ModTime().After(g.info.ModTime()) {
+            build = false // Plugin already updated.
+        }
+    }
+    if build { err = l.buildPlugin(ctx, s, src) }
+    if err != nil { return }
+
+    // Once plugin is opened, there's no need/way to close it.
+    if l.project.ext.Plugin, err = plugin.Open(s); err == nil {
+        var sym plugin.Symbol
+        if sym, err = l.project.ext.Lookup("Init"); err != nil {
+            debug(ctx, "nil plugin symbol Init", trace{})
+        }
+        if sym == nil {
+            return // no initialization (optional)
+        }
+        switch init := sym.(type) {
+        case func(Context) (error):
+            if err = init(ctx); err == nil {
+                return
+            } else {
+                debug(ctx, "plugin Init: %v", err, trace{})
+            }
+        default:
+            debug(ctx, "wrong plugin Init: %T", sym, trace{})
+        }
+    } else if strings.Contains(err.Error(), pluginDifferentVersionError) {
+        err = l.buildPlugin(ctx, s, src)
+    }
+    return
+}
+
+func (l ul) useProj(ctx Context, opts useopts, proj *project, params ...Value) (err error) {
+    if l.verboseUsing {
+        defer func(t time.Time) {
+            var d = time.Now().Sub(t)
+            prompt(ctx, "use(%15s) %s ⇒ %v\n", d, l.project, l.project.use)
+        } (time.Now())
+    }
+
+    if proj == l.project {
+        debug(ctx, "%v: cannot use itself", proj, trace{})
+    }
+
+    if l.project.isUsingDirectly(proj) {
+        return
+    }
+
+    // Add to the project using list, so that the use path is correct.
+    if l.project.use.append(ctx, proj, params, opts); !opts.noVars {
+        // aka.     XXX += $(use.XXX)
+        // aka. use.XXX += $(use.XXX)
+        l.usevars(ctx, l.project, proj)
+        if 0 < len(opts.vars) {
+            for _, v := range opts.vars {
+                warn(ctx, "var: %T %v", v, v)
+            }
+            debug(ctx, "TODO: %d vars to import", len(opts.vars))
+        }
+    }
+    return
+}
+
+func (l ul) spec_file(ctx Context, specVal Value) (res *file, spec, fullname string) {
+    switch t := specVal.(type) {
+    case *file:
+        if !t.exists() { _ = t.stat(ctx) }
+        return t, ident(ctx,t), t.fullname()
+    default:
+        if spec = __string(ctx, specVal) ; spec == "" {
+            debug(ctx, "empty string: %v", ts(specVal), trace{})
+        }
+
+        var f = l.project.file(ctx, specVal)
+        if f == nil {
+            if filepath.IsAbs(spec) {
+                f = _stat(ctx, spec)
+            } else {
+                var d string
+                var ll = _loader(l.loader.Context)
+                if ll != nil { d = ll.project.absPath } else { d = l.project.absPath }
+                f = _stat(ctx, spec, stat_dir{d})
+            }
+        } else if !f.exists() {
+            _ = f.stat(ctx)
+        }
+
+        if f != nil {
+            res, fullname = f, f.fullname()
+        }
+        return
+    }
+}
+
+type get_include_opts struct{}
+type get_include_spec struct{}
+type is_flat_mode struct{}
+
+type include_opts struct { *clause_opts
+    ifExists bool `if-exists,ifexists`
+}
+
+type p_include struct {
+    Context
+    o include_opts
+    p Pos
+    spec string
+}
+func (p p_include) cast(t reflect.Type) Context { return icast(p,t) }
+func (p p_include) inner() Context { return p.Context }
+func (p p_include) ts(t string) string { return "{="+t+" "+p.spec+" "+ts(p.Context)+"}" }
+func (p p_include) do(ctx Context, op any) (_ any) {
+	switch op.(type) {
+    case get_position: if p.p.IsValid() { return p.p }
+	case get_include_opts: return &p.o
+    case get_include_spec: return p.spec
+	case is_flat_mode    : return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (l ul) include(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
+
+	var opts = include_opts{ clause_opts: g }
+	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
+		debug(ctx, "unknown opts: %v", va[0], callstack{num:5}, trace{})
+	}
+	if len(g.spec) < 1 {
+		debug(ctx, "expect include file: %v", g.spec, callstack{num:5}, trace{})
+	}
+
+	var val = expand(_final(ctx), g.spec[0])
+
+	if l.p.spaces(ctx); l.p.tok == COLON {
+		switch val.(type) {
+		case *file, *strlit, *strcomp: // escape from file searching
+		default: if f := l.project.file(ctx, val); f != nil { val = f }
+		}
+		val = l.rule(ctx, []Value{val}) // this should return a Rule
+	}
+
+    if g.skip { return }
+
+    ctx = pc(ctx, g.spec[0])
+
+    // Execute the rule entry to update include source.
+    if x, y := val.(*rule); y && x != nil {
+        if z, y := execute_entry(ctx, x); !y {
+            debug(ctx, "%v: include entry failed : %s", x, ts(z), trace{})
+        }
+
+        val = x.target
+    }
+
+    var f, spec, fullname = l.spec_file(ctx, val)
+    if (f == nil || !f.exists()) && opts.ifExists {
+        return // ignore non-exists files
+    }
+
+    if spec == "" || fullname == "" {
+        debug(ctx, "empty string: %v", ts(val), trace{})
+    } else {
+        var p, s = val.Pos(), l.trimSpecPath(ctx, spec)
+        l.source(p_include{ctx, opts, p, s}, fullname, nil)
+    }
+    return
+}
+
+func (l ul) openscope(comment string) *scope {
+    if false && l.traceLaunch { defer un(l_trace(l_launch, "openscope")) }
+
+    var t = &term{} ; *t = l.term
+    l.term = term{t, newscope(l.scope(), l.project, comment)}
+    return t.scope
+}
+
+func (l ul) closescope(s *scope) {
+    if false && l.traceLaunch { defer un(l_trace(l_launch, "closescope")) }
+    if x, y := l.term.Context.(*term); y {
+        var ctx Context = l.loader
+        if l.p != nil { ctx = pc(l.loader, l.p.pos) }
+        if x == &l.term {
+            debug(ctx, "conflict term: %s", x.comment, trace{})
+        }
+        if x.scope != s {
+            debug(ctx, "conflict scope: %s != %s", x.comment, s.comment, trace{})
+        }
+        l.term = *x
+    }
+}
+
+// project example (base(var=value))
+func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.bases")) }
+
+    // For &(foobar) set from command line args
+    if true { ctx = closure_with(ctx, l.scope) }
+
+    var implicitBases []Value
+
+    if f := _stat(ctx, dot_base, l.project) ; f != nil {
+        if !f.info.IsDir() && (l.project.spec == dot_base /*|| l.project.spec == dot_configure*/) {
+            // skip the regular file .base to avoid self loading recursively
+        } else {
+            implicitBases = append(implicitBases, f)
+        }
+    }
+
+    if ss := strings.Split(l.project.name, ".") ; len(ss) > 2 && ss[len(ss)-1] == "base" {
+        var numBaseParams int
+        for _, elem := range params {
+            if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
+            if x, y := elem.(*argumented); y { elem = x.Value }
+            if _, y := elem.(*pair); y { continue }
+            numBaseParams += 1
+        }
+        if numBaseParams == 0 {
+            var segs []Value
+            for _, s := range ss[:len(ss)-2] {
+                segs = append(segs, _word(_pos(ctx), s))
+            }
+            implicitBases = append(implicitBases, makePath(segs...))
+            implicitBase = "" // discard the implicit base
+        }
+    }
+
+    var implicitIndex int
+    if  implicitBase != ""  {
+        implicitIndex = len(implicitBases)
+        implicitBases = append(implicitBases, _pathStr(ctx, implicitBase))
+    }
+
+paramsloop:
+    for i, elem := range append(implicitBases, params...) {
+        if x, y := elem.(*list); y && len(x.elems) == 1 {
+            elem = x.elems[0]
+        }
+        if x, y := elem.(*argumented); y {
+            elem, ctx = x.Value, x.ctx(ctx)
+        }
+        if x, y := elem.(*pair); y {
+            debug(pc(ctx,x), "use -set(%v) instead", x, trace{})
+        }
+
+        var spec string
+        var specVal Value
+        if specVal = expand(_final(ctx), elem); specVal == nil { specVal = elem }
+
+        if spec = __string(ctx, specVal) ; spec == "" {
+            debug(ctx, "%v: empty base name: %v", l.project, ts(specVal), trace{})
+        } else if strings.Contains(spec, "//") {
+            note(ctx, "%v: invalid spec: %v → %v", l.project, elem, specVal)
+            note(ctx, "%v: invalid spec: %v → %v", l.project, elem, spec)
+            debug(ctx, trace{})
+        } else if implicitBase != "" && spec == implicitBase {
+            if i == implicitIndex {
+                ctx = load_implicit{ctx}
+            } else {
+                debug(ctx, "%v: implicit base '%v' already loaded", l.project, elem, trace{})
+            }
+        }
+
+        var abs string
+        var isDir bool
+
+        if x, y := to_file(elem); y && x.info != nil {
+            abs, isDir = x.fullname(), x.info.IsDir()
+        } else {
+            abs, isDir = l.search(ctx, spec)
+        }
+
+        for _, base := range l.project.bases {
+            if base.absPath == abs {
+                debug(ctx, "duplicated base: %v : %v → %v (in %v)", base, elem, spec, trace{})
+                continue paramsloop
+            }
+        }
+
+        if cc := _abs_ctx(ctx, abs); isDir {
+            l.directory(cc, spec, abs, nil)
+        } else {
+            l.file(cc, spec, abs, nil)
+        }
+    }
+
+	usefor(ctx, l.project, func(op usevar, _, _ Value, name string) {
+		var prefix string
+		if m := name_prefix.FindStringSubmatch(name); m != nil {
+			prefix, name = m[1], m[3]
+		}
+
+		var us = prefix + "use." + name
+		d := l.project.def(ctx, defVoid, us)
+		op.apply(closure_with(ctx, l.project.scope), d, nonTrivialDefsFromBase(ctx, l.project, us)...)
+	})
+	return
+}
+
+func filespec(workdir, filename string) (spec string) {
+    switch dir, base := filepath.Split(filename); base {
+    case dot_base, dot_configure: spec = base
+    default: spec, _ = filepath.Rel(workdir, dir)
+    }
+    return
+}
+
+func (l ul) dot_container(ctx Context, ident Value, identStr string, f *file) {
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.dot_container")) }
+
+    if s := f.fullname(); f.info == nil {
+        debug(ctx, "%s: file not exists: %s", ident, s, trace{})
+    } else if cc := pc(ctx, ident); f.info.IsDir() {
+        l.directory(cc, dot_container, s, nil)
+    } else {
+        l.file(cc, filespec(l.workdir, s), s, nil)
+    }
+
+    if x, y := l.globe.loaded[f.fullname()]; y && x != nil {
+        if name, _ := l.scope().Lookup(x.name).(*project) ; name == nil {
+            debug(ctx, "%v: %v: `dock` is not a project", l.project.name, f, trace{})
+        }
+
+        var opts useopts
+        // TODO: parse the useopts
+        l.useProj(ctx, opts, x)
+    }
+    return
+}
+
+func is_configure_project(proj *project) bool {
+    return proj == nil ||
+        proj.name == dot_configure ||
+        proj.name == "configure" ||
+        proj.name == "configure.base"
+}
+
+type l_filename string
+type is_autoload struct{ string }
+
+type p_autoload struct{
+    Context
+    p Pos
+    v Value
+    l []string
+}
+func (a *p_autoload) cast(t reflect.Type) Context { return icast(a,t) }
+func (a *p_autoload) inner() Context { return a.Context }
+func (a *p_autoload) ts(t string) string {
+    return "{="+t+" "+bases(2,a.v.String(),true)+" "+ts(a.Context)+"}"
+}
+func (a *p_autoload) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+    case get_position: if a.p.IsValid() { return a.p }
+    case is_flat_mode: return true
+    case is_autoload:
+        if t.string == "" { return true }
+        return strings.HasSuffix(__string(ctx, a.v), t.string)
+    case l_filename:
+        if t == "" || t == "?" {
+            // noop
+        } else if t == "-" {
+            a.l = nil
+        } else {
+            a.l = append(a.l, string(t))
+        }
+        return a.l
+    }
+    return a.Context.do(ctx, op)
+}
+
+func (l ul) autoload(ctx Context, tag string) {
+    if !is_configure_project(l.project) {
+        if d := l.project.resolveDef(ctx, ".autoload."+tag); d != nil && d.value != nil {
+            for _, v := range merge(expand(_final(ctx),d.value)) {
+                if isTrivial(v) {
+                    continue
+                } else if f, s, t := l.spec_file(ctx, v); f == nil || !f.exists() {
+                    continue//debug(ctx, "no such source file: %v → %v", ts(d.value), ts(v), trace{})
+                } else if s == "" || t == "" {
+                    continue//debug(ctx, "empty string: %v → %v", ts(d.value), ts(v), trace{})
+                } else {
+                    l.source(&p_autoload{ctx,l.p.pos,v,nil}, t, nil)
+                }
+            }
+        }
+    }
+}
+
+type is_config_mode struct{}
+
+type configure_ctx struct {
+    Context
+    abs, configure string
+    local, isDir bool
+    configuration *file // configuration.sm
+    declared *project
+}
+func (cc *configure_ctx) cast(t reflect.Type) Context { return icast(cc,t) }
+func (cc *configure_ctx) inner() Context { return cc.Context }
+func (cc *configure_ctx) do(ctx Context, op any) (_ any) {
+    switch t := op.(type) {
+	case is_config_mode: if cc.configuration != nil { return true }
+	case is_flat_mode: if cc.configuration != nil { return true }
+    case abs_path: return cc.abs
+    case declared_project:
+        if t.absPath == cc.abs {
+            cc.declared = t.project
+            return
+        }
+    }
+    return cc.Context.do(ctx, op)
+}
+
+func (l ul) configuration(ctx Context, ident Value, _ string) {
+	if false { defer un(l_tracef(l_traverse, "configuration(%v)", ident)) }
+	if l.project.name == dot_configure { return }
+
+	const cs = "configure"
+
+	var cc = configure_ctx{Context:ctx}
+	var f *file
+
+	if v := l.project.opt.configure; v != nil {
+		if x, y := v.(*boolean); y {
+			if !x.bool { return }
+			cc.configure = cs 
+		} else {
+			cc.configure = __string(ctx, v)
+			if cc.configure == "" {
+				debug(ctx, "empty configure spec: %v", ts(v), trace{})
+			} else if cc.configure == "." {
+				cc.configure, cc.local = cs, true
+			}
+		}
+	} else if f = _stat(ctx, cs, l.project); f != nil {
+		cc.configure, cc.local = cs, true
+	} else if f = _stat(ctx, dot_configure, l.project); f != nil {
+		cc.configure, cc.local = dot_configure, true
+	}
+
+	if f == nil && cc.configure != "" {
+		if filepath.IsAbs(cc.configure) {
+			f = _stat(ctx, cc.configure)
+		} else {
+			f = _stat(ctx, cc.configure, l.project)
+		}
+	}
+
+	if f != nil && f.exists() {
+		cc.abs, cc.isDir = f.fullname(), f.info.IsDir()
+	}
+
+	if cc.abs == "" && l.project.opt.configure != nil {
+		if !cc.local { cc.abs, cc.isDir = l.search(ctx, cc.configure) }
+		if cc.abs == "" {
+			debug(ctx, "%v: no such project: %s", l.project, cc.configure, trace{})
+		}
+	}
+
+	if cc.abs == "" {
+		if l.project.opt.configure != nil {
+			debug(ctx, "%v: missing the default .configure", l.project, trace{})
+		}
+		if l.project.configure == nil { l.project.configure = l.project }
+		return
+	}
+
+	// =========================================================
+	// 1. Parse the `.configure` sandbox FIRST using clean `cc`
+	// Ensures `is_flat_mode` evaluates to false so the sandbox
+	// parses smoothly and `projectStart` initializes it properly.
+	// =========================================================
+	if cc.Context = pc(cc.Context, ident); cc.isDir {
+		l.directory(&cc, cc.configure, cc.abs, nil)
+	} else {
+		l.file(&cc, filespec(l.workdir, cc.abs), cc.abs, nil)
+	}
+
+	if cc.declared == nil {
+		debug(ctx, "%s not loaded", cc.configure, trace{})
+	}
+
+	if x, y := l.project.Lookup(dot_configure).(*project); !y || x == nil {
+		if _, alt := l.project.projectname(ctx, dot_configure, cc.declared); alt != nil {
+			if p, y := alt.(*project); !y || p == nil {
+				debug(ctx, "name `%s' already taken: %s", cc.declared.name, typeof(alt), trace{})
+			}
+		}
+	}
+
+	if c := l.project.configure; c != cc.declared {
+		if c != nil && c != l.project {
+			debug(ctx, "%s already specified", dot_configure, trace{})
+		} else {
+			l.project.configure = cc.declared
+		}
+	}
+
+	// =========================================================
+	// 2. Load Cache securely AFTER sandbox evaluation
+	// Sets cc.configuration so `is_flat_mode` protects the parse.
+	// =========================================================
+	var c = l.project.configuration
+	if c == nil { c = l.project.configuration_sm(ctx) }
+
+	if c != nil && c.exists() && c.stat(ctx) != nil {
+		if l.promptConfigurationLoads(ctx) {
+			debug(pc(ctx, c), "cached configuration")
+		}
+		cc.configuration = c
+		l.source(&cc, c.fullname(), nil) // Populates local definitions correctly
+		l.project.configuration = c
+	}
+
+	for _, proj := range cc.declared.usees(true, false, false, false) {
+		if e := l.useProj(ctx, useopts{}, proj); e != nil { 
+			debug(ctx, "failed to use %v : %v", proj, e, trace{})
+		}
+	}
+}
+
+func (l ul) container(ctx Context, ident Value, identStr string) {
+    if l.project.name != dot_container {
+        if _, e := os.Stat(filepath.Join(l.project.absPath, ".dock")); e == nil {
+            debug(ctx, "must rename .dock into .container !", trace{})
+        }
+
+        // Looking for project specific .container module
+        if f := _stat(ctx, dot_container, l.project); f != nil && f.exists() {
+            l.dot_container(ctx, ident, identStr, f)
+            return
+        }
+
+        // Looking for .smart/.container
+        walkSmartBaseDirs(ctx, l.project.absPath, func(s string) bool {
+            d := stat_dir{filepath.Join(s, ".smart")}
+            f := _stat(ctx, dot_container, d)
+            if f != nil && f.exists() {
+                l.dot_container(ctx, ident, identStr, f)
+            }
+            return false
+        })
+    }
+    return
+}
+
+// If src != nil, load_source_bytes converts src to a []byte if possible;
+// otherwise it returns an error. If src == nil, load_source_bytes returns
+// the result of reading the file specified by filename.
+func load_source_bytes(ctx Context, opts *include_opts, filename string, source ...any) (_ []byte) {
+    if 0 < len(source) {
+        var n int
+        var buf bytes.Buffer
+        for _, src := range source {
+            if src == nil { continue } else { n += 1 }
+
+            var e error
+            switch s := src.(type) {
+            case        string: _, e = buf.Write([]byte(s))
+            case        []byte: _, e = buf.Write(s)
+            case *bytes.Buffer: _, e = buf.Write(s.Bytes())
+            case     io.Reader: _, e = io.Copy(&buf, s)
+            default:
+                debug(pc(ctx,filename), "invalid source : %v", ts(src), trace{})
+            }
+
+            if e != nil {
+                debug(pc(ctx,filename), "copy bytes (%s) failed : %v", typeof(src), e, trace{})
+            }
+        }
+        if 0 < n { return buf.Bytes() }
+    }
+    if t, e := ioutil.ReadFile(filename); e == nil {
+        return t
+    } else if _, y := e.(*fs.PathError); y {
+        if (opts != nil && !opts.ifExists) {
+            debug(pc(ctx,filename), "no such source file", trace{})
+        }
+        return
+    } else {
+        debug(pc(ctx,filename), "%v", e, trace{})
+        return
+    }
+}
+
+func (l ul) source(ctx Context, filename string, a_src any) (res Value) {
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.source")) }
+
+    defer func(p *parser) {
+        if l.p == nil { debug(ctx, "nil parser", trace{}) }
+        l.p = p
+    } (l.p)
+
+    var opts, _ = do(ctx, get_include_opts{}).(*include_opts)
+	var text = load_source_bytes(ctx, opts, filename, a_src)
+    if text == nil { return }
+
+    l.p = &parser{}
+    l.p.scanner.init(ctx, l.fset.AddFile(filename, -1, len(text)), text, 0)
+	l.p.next(ctx, true) // starts scanning
+
+    if truly(ctx, is_text{}) {
+        return ease(ctx, l.values(ctx))
+    }
+
+    l.parse(src(ctx,nil), filename)
+
+    if truly(ctx, is_flat_mode{}) {
+        return
+    } else {
+        return l.project
+    }
+}
+
+// parseConfigDir parses a configuration directory, where
+//     * pathname - is the original pathname (symlink or 'configure' smart file)
+//     * linked - is the destination directory pathname to be really iterated
+func (l ul) parseConfigDir(ctx Context, pathname, linked string) (err error) {
+    var fd *os.File // Directory of the destination.
+    if fd, err = os.Open(linked); err != nil {
+        debug(ctx, "%v", err, trace{})
+        return
+    }
+
+    defer fd.Close()
+
+    var fs []os.FileInfo
+    if fs, err = fd.Readdir(-1); err != nil || len(fs) == 0 { return }
+
+    var ident = filepath.Base(pathname)
+    if ident == "_" {
+        debug(ctx, "invalid package name %s", ident, trace{})
+    }
+
+	var sof, _ = filepath.Rel(workBaseDir, pathname)
+    defer l.closescope(l.openscope(bases(2, sof, true)))
+
+    var scope = l.scope()
+
+    for _, f := range fs {
+        var name = f.Name()
+        if has_prefix(name, "~") || has_suffix(name, ".#", ".smart", ".sm") {
+            continue
+        }
+
+        var fullname = filepath.Join(linked, name)
+        if f.Mode()&os.ModeSymlink != 0 {
+            var ( l string; t os.FileInfo )
+            if l, err = os.Readlink(fullname); err != nil { continue }
+            if !filepath.IsAbs(l) { l = filepath.Join(linked, l) }
+            if t, err = os.Stat(l); err != nil { continue }
+            if t.IsDir() { continue }
+        }
+
+        if f.IsDir() {
+            if err = l.parseConfigDir(ctx, filepath.Join(pathname, name), fullname); err != nil {
+                debug(ctx, "parse config failed: %v", err, trace{})
+            }
+            if 0 < flush(ctx) { return } else { continue }
+        }
+
+        d := scope.def(ctx, defConfig, name)
+        if d == nil {
+            debug(ctx, "%v", name, trace{})
+        }
+
+        var v []byte
+        if v, err = ioutil.ReadFile(fullname); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+
+        var s = string(v)
+        if !utf8.ValidString(s) {
+            debug(ctx, "%s: invalid UTF8 content", fullname)
+        }
+
+        d.set(ctx, _raw(l.p.pos, s))
+    }
+    return
+}
+
+func nonsource(name string, mo os.FileMode) (_ bool) {
+    if  !mo.IsRegular() || name == "" || name == configuration_sm || strings.HasPrefix(name, ".#") ||
+        !(strings.HasSuffix(name, ".smart") || strings.HasSuffix(name, ".sm")) { return true }
+    return
+}
+
+func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (sources []string) {
+    fd, err := os.Open(path)
+    if err != nil {
+        debug(ctx, "%v", err, trace{})
+    }
+
+    defer fd.Close()
+
+    fis, err := fd.Readdir(-1)
+    if err != nil {
+        debug(ctx, "readdir: %v", err, trace{})
+    }
+    if len(fis) == 0 {
+        debug(ctx, "no files underneath: %s", path, trace{})
+    }
+
+    var first = fis[0]
+	for i := 1; i < len(fis); i += 1 {
+		var s = fis[i].Name()
+		if s == mainFileName || (s == deprFileName && first.Name() != mainFileName) {
+			fis[0], fis[i] = fis[i], first
+		}
+	}
+
+    for _, d := range fis {
+        var name, mo = d.Name(), d.Mode()
+        if nonsource(name, mo) || filter != nil && filter(d) { continue }
+
+        var filename = filepath.Join(path, name)
+        var linked,_ = _readlink(ctx, filename, d)
+
+        if false && (name == "configure.smart" || name == "configure.sm") && (linked != "" || mo.IsDir()) {
+            if l.parseConfigDir(ctx, filepath.Dir(filename), linked) != nil { return }
+            continue
+        }
+
+        sources = append(sources, filename)
+    }
+    return
+}
+
+// ul.load loads script from a file or source code
+func (l ul) file(ctx Context, spec, absPath string, source any) {
+    if l.traceLaunch { defer un(l_trace(l_launch, "ul.load")) }
+
+    if absPath == "" {
+        debug(pc(ctx,l.p), "%v: no such base: %v", l.project.name, spec, trace{})
+    } else if !filepath.IsAbs(absPath) {
+        debug(pc(ctx,l.p), "%v: not absolute path: %v", l.project.name, spec, trace{})
+    }
+
+    // Check loaded project.
+    if p, y := l.globe.loaded[absPath]; y {
+        if _, a := l.scope().projectname(ctx, p.name, p); a != nil {
+            if x, y := a.(*project); !y || x == nil {
+                debug(ctx, "name already taken: %v (%s).", p, typeof(a), trace{})
+            }
+        }
+        do(ctx, declared_project{p})
+        return
+    }
+
+    var lo = l
+    if l.project != nil {
+        lo.loader = &loader{term:term{ctx, l.scope()}}
+        ctx = lo.loader
+    }
+
+    lo.source(ctx, absPath, source)
+	lo.saveConfiguration(ctx)
+    return
+}
+
+func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo) bool) {
+    if absDir == "" {
+        debug(ctx, "%v: no such base: %v", l.project, spec, trace{})
+    } else if !filepath.IsAbs(absDir) {
+        debug(ctx, "%v: not absolute path: %v", l.project, spec, trace{})
+    }
+
+    var okay bool
+    var loaded *project
+    defer func(t time.Time, proj *project) {
+        if spec == "." { spec = absDir }
+        if loaded == nil { return }
+        if l.globe.main == nil { l.globe.main = loaded }
+        if proj != nil {
+            if d := proj.resolveDef(ctx, loaded.name); d != nil {
+                c := pc(ctx, d.value)
+                note(c, "conflicts project name %v", ts(d))
+                note(c, "conflicts project name %v", loaded)
+                debug(c, "%v %v", d, loaded, trace{})
+            }
+        }
+        if l.project != nil {
+            if p, _ := l.project.Lookup(loaded.name).(*project); p == nil {
+                if _, alt := l.project.projectname(ctx, loaded.name, loaded); alt != nil {
+                    if x, y := alt.(*project); !y || x == nil {
+                        debug(ctx, "`%s' already taken: %s", loaded.name, alt, trace{})
+                    }
+                }
+            }
+        }
+    } (time.Now(), l.project)
+
+    // Check previously loaded project.
+    if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
+        do(ctx, declared_project{loaded})
+        return
+    }
+
+    var lo = l
+    if l.project != nil {
+        lo.loader = &loader{term:term{ctx,nil}}
+        ctx = lo.loader
+    }
+
+	var sof, _ = filepath.Rel(workBaseDir, absDir)
+    defer lo.closescope(lo.openscope(bases(2, sof, true)))
+    defer lo.saveConfiguration(ctx)
+
+    // Use globe outer scope to avoid conflicting with other unrelated projects.
+    lo.scope().outer = lo.globe.scope
+
+    var cc = _abs_ctx(ctx, absDir)
+    for _, s := range lo.sources(cc, absDir, filter) { lo.source(cc, s, nil) }
+
+    if len(lo.declares) == 0 && filepath.Base(spec) != "@" {
+        if truly(ctx, is_implicit_load{}) {
+            debug(ctx, "%s not loaded (as %s, implicitly)", spec, absDir)
+            return // okay for implicit loading
+        }
+
+        for s, m := range l.globe.loaded { debug(ctx, "%v: %v", s, m) }
+        debug(ctx, "%s not loaded (as %s)", spec, absDir, trace{})
+    }
+
+    if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
+        return // Good!
+    }
+
+    if filepath.Base(spec) == "@" {
+        return // Okay!
+    }
+
+    debug(ctx, "%s not loaded", spec, trace{})
+    return
+}
+
+type is_text struct{}
+type loadtext_ctx struct{ Context }
+func (p loadtext_ctx) cast(t reflect.Type) Context { return icast(p,t) }
+func (p loadtext_ctx) inner() Context { return p.Context }
+func (p loadtext_ctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case is_text: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (l ul) text(ctx Context, filename string, text string) Value {
+    if l.globe.main == nil {
+        l.loader.scope = l.globe.os.scope
+    } else {
+        l.loader.scope = l.globe.main.scope
+    }
+    return l.source(loadtext_ctx{ctx}, filename, text)
+}
+
+
+// NOTE: all single character opt names/shortcuts should be preserved for general purposes.
+type general_opts struct {
+    debug    int  `db,dbg,debug` // NOTE: compatible with 'bool'
+    stack    int  `stack,stack-number`
+    fail     bool `fail` // fail on errors
+    fullname bool `full,fullname,fullfile`
+    silent   bool `silent` // force silent, contrast 'verbose'
+    timing   bool `time,timing`
+    verbose  bool `verb,verbose` // prompts more information
+    warning  bool `warn,warning` // prompts more warnings
+}
+
+type modifier_ struct { Context ; general_opts }
+type modifier_v interface{ v(...Value) any }
+type modifier_x interface{ x(...Value) any }
+type modifier_y interface{ x(*execution, ...Value) any }
+
+var modifier_v_t = reflect.TypeOf((*modifier_v)(nil)).Elem()
+var modifier_x_t = reflect.TypeOf((*modifier_x)(nil)).Elem()
+var modifier_y_t = reflect.TypeOf((*modifier_y)(nil)).Elem()
+var (
+    modifiers = map[string]reflect.Type{
+        `debug`:        reflect.TypeOf((*modifier_debug)(nil)).Elem(),
+        `print`:        reflect.TypeOf((*modifier_print)(nil)).Elem(),
+        `prompt`:       reflect.TypeOf((*modifier_prompt)(nil)).Elem(),
+
+        `preserve`:     reflect.TypeOf((*modifier_preserve)(nil)).Elem(),
+        `expand`:       reflect.TypeOf((*modifier_expand)(nil)).Elem(),
+        `plain`:        reflect.TypeOf((*modifier_plain)(nil)).Elem(),
+        `stringify`:    reflect.TypeOf((*modifier_stringify)(nil)).Elem(),
+        `reveal`:       reflect.TypeOf((*modifier_reveal)(nil)).Elem(),
+        `disclose`:     reflect.TypeOf((*modifier_disclose)(nil)).Elem(),
+
+        `select`:       reflect.TypeOf((*modifier_select)(nil)).Elem(),
+
+        `env`:          reflect.TypeOf((*modifier_env)(nil)).Elem(), // interpreter environments
+        `var`:          reflect.TypeOf((*modifier_var)(nil)).Elem(),
+        `set`:          reflect.TypeOf((*modifier_set)(nil)).Elem(),
+        `defer`:        reflect.TypeOf((*modifier_defer)(nil)).Elem(),
+
+        `closure`:      reflect.TypeOf((*modifier_closure)(nil)).Elem(),
+
+        `cd`:           reflect.TypeOf((*modifier_cd)(nil)).Elem(),
+        `mkdir`:        reflect.TypeOf((*modifier_mkdir)(nil)).Elem(),
+
+        `sudo`:         reflect.TypeOf((*modifier_sudo)(nil)).Elem(),
+
+        `touch`:        reflect.TypeOf((*modifier_touch)(nil)).Elem(),
+        `grep`:         reflect.TypeOf((*modifier_grep)(nil)).Elem(),
+        `deps`:         reflect.TypeOf((*modifier_deps)(nil)).Elem(),
+
+        `copy-file`:       reflect.TypeOf((*modifier_copyfile)(nil)).Elem(),
+        `write-file`:      reflect.TypeOf((*modifier_writefile)(nil)).Elem(),
+        `read-file`:       reflect.TypeOf((*modifier_readfile)(nil)).Elem(),
+        `update-file`:     reflect.TypeOf((*modifier_updatefile)(nil)).Elem(),
+        `configure-input`: reflect.TypeOf((*modifier_configureinput)(nil)).Elem(),
+        `configure-file`:  reflect.TypeOf((*modifier_configurefile)(nil)).Elem(),
+        // `configure`:       reflect.TypeOf((*modifier_configure)(nil)).Elem(),
+
+        `wait`:         reflect.TypeOf((*modifier_wait)(nil)).Elem(),
+        `stamp`:        reflect.TypeOf((*modifier_stamp)(nil)).Elem(),
+
+        `check`:        reflect.TypeOf((*modifier_check)(nil)).Elem(),
+        `assert`:       reflect.TypeOf((*modifier_assert)(nil)).Elem(),
+        `case`:         reflect.TypeOf((*modifier_case)(nil)).Elem(),
+        `cond`:         reflect.TypeOf((*modifier_cond)(nil)).Elem(),
+        `if`:           reflect.TypeOf((*modifier_cond)(nil)).Elem(),
+        `where`:        reflect.TypeOf((*modifier_cond)(nil)).Elem(),
+
+        `once`:         reflect.TypeOf((*modifier_once)(nil)).Elem(),
+
+        `fork`:         reflect.TypeOf((*modifier_fork)(nil)).Elem(),
+
+        `git-ahead`:    reflect.TypeOf((*modifier_gitahead)(nil)).Elem(),
+        `git-modified`: reflect.TypeOf((*modifier_gitmodified)(nil)).Elem(),
+
+        `by`:           reflect.TypeOf((*modifier_setDirtyPats)(nil)).Elem(),
+        `dirty`:        reflect.TypeOf((*modifier_predictDirty)(nil)).Elem(),
+    }
+
+    crc64Table = crc64.MakeTable(crc64.ECMA)//crc64.ISO
+)
+
+type is_modify struct{}
+type    modify_ctx struct{ Context }
+func (c modify_ctx) inner() Context { return c.Context }
+func (c modify_ctx) cast(t reflect.Type) Context { return icast(c,t) }
+func (c modify_ctx) do(ctx Context, op any) any {
+    switch op.(type) {
+    case is_modify: return true
+    }
+    return c.Context.do(ctx, op)
+}
+
+func modify(ctx Context, g *group, hyphen bool) (res Value) {
+    var name = __string(ctx, g.elems[0])
+    var args = g.elems[1:]
+
+    if t, y := modifiers[name]; !y {
+        var _, e, _ = entryIndicator(ctx, _entry(ctx))
+        prompt(ctx, "%v: %s failed for %s\n", e, name, _project(ctx))
+        debug(ctx, "unknown modifier: %s (args=%v)", name, args, trace{})
+    } else {
+        var exe = _execution(ctx)
+        var mv = reflect.New(t)
+        var mi = mv.Interface()
+
+        var fv modifier_v
+        var fx modifier_x
+        var fy modifier_y
+        if !hyphen {
+            if fv, _ = mi.(modifier_v); fv == nil {
+                debug(ctx, "%v: no method: (*%s).v(...)", name, typeof(mi), trace{})
+            }
+        } else if fx, _ = mi.(modifier_x); fx == nil {
+            if fy, _ = mi.(modifier_y); fy == nil {
+                debug(ctx, "%v: no method: (*%s).x(...)", name, typeof(mi), trace{})
+            } else if exe == nil {
+                debug(ctx, "%v: nil execution: (*%s).x(...)", name, typeof(mi), trace{})
+            }
+        }
+
+        if c := mv.Elem().FieldByName("Context"); c.IsValid() {
+            c.Set(reflect.ValueOf(modify_ctx{pc(ctx, g)})) // c.Type().String() == "smart.Context"
+        } else {
+            debug(ctx, "%v: no field: %s.Context", name, typeof(mi), trace{})
+        }
+
+        args = _opts(ctx, mv, args)
+
+        if fv != nil {
+            res = ease(ctx, fv.v(args...))
+        } else if fx != nil {
+            res = ease(ctx, fx.x(args...))
+        } else if fy != nil {
+            res = ease(ctx, fy.x(exe, args...))
+        }
+    }
+
+    if !hyphen {
+        // $- remains
+    } else if res == nil {
+        res = _null(g.pos) // $- remains too
+    } else if name == "defer" || name == "set" || name == "var" {
+        debug(ctx, "invalid result: (set ...) ⇒ %v", res, trace{})
+    } else if a := _automatic(ctx); a != nil {
+        a.amend(ctx, "-", res)
+    }
+    return
+}
+
+type modifier struct { group }
+func (m *modifier) kind() Kind { return m.group.kind()|KindModifier }
+func (m *modifier) _cmp(ctx Context, v Value) (_ cmpres) {
+    if x, y := v.(*modifier); y { return cmp(ctx, &m.group, &x.group) }
+    return
+}
+
+type modification struct { valbase ; list []*modifier }
+func (_ *modification) kind() Kind { return KindModification }
+func (g *modification) _cmp(ctx Context, v Value) (res cmpres) {
+    if o, y := v.(*modification); y && len(g.list) == len(o.list) {
+        for i, m := range g.list {
+            if t := cmp(ctx, m, o.list[i]); t != cmpEqual { return t }
+        }
+        res = cmpEqual
+    }
+    return
+}
+func (g *modification) String() (s string) {
+    s = "{"
+    for i, m := range g.list {
+        if i > 0 { s += " " }
+        if m != nil { s += m.String() }
+    }
+    s += "}"
+    return
+}
+
+func getGroupElem(value Value, n int, v Value) Value {
+    if g, y := value.(*group); y {
+        if elem := g.at(n); elem != nil {
+            v = elem
+        }
+    }
+    return v
+}
+
+func promptShellResult(ctx Context, value Value, n int) {
+    if g, y := value.(*group); y && g != nil {
+        if elem := g.at(0); elem != nil {
+            if str := __string(ctx, elem); str == "shell" {
+                if elem = g.at(n); elem != nil {
+                    if str = __string(ctx, elem); strings.HasSuffix(str, "\n") {
+                        prompt(ctx, "%s", str)
+                    } else if str != "" {
+                        prompt(ctx, "%s\n", str)
+                    }
+                }
+            }
+        }
+    }
+    return
+}
+
+type modifier_debug struct { modifier_
+    cond   Value `if,cond,where,when`
+    info []Value `info`
+    warn []Value `warn`
+    erro []Value `err,erro,error`
+    checkOutdated bool `dirty,checkdirty,check-dirty,check-outdated`
+    trave int `tr,trave,traverse`
+    s int `stack,stack-number`
+    n int `count,num,call-number`
+}
+func (ctx *modifier_debug) x(args ...Value) (result any) {
+    if ctx.cond != nil && !__true(ctx, ctx.cond) { return }
+    if ctx.s == 0 && ctx.stack > 0 { ctx.s = ctx.stack }
+    if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
+    for _, v := range ctx.info { info(ctx, "%s", __string(ctx, v)) }
+    for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
+    for _, v := range ctx.erro { debug(ctx, "%s", __string(ctx, v), trace{}) }
+
+    var (
+        target  = auto_get(ctx, "@")
+        depends = auto_get(ctx, "^")
+    )
+    if ctx.checkOutdated && target != nil {
+        var (
+            ordered = auto_get(ctx, "|")
+            grepped = auto_get(ctx, "~")
+            tt = statFile(ctx, target).mod()
+        )
+        if tt.IsZero() {
+            debug(ctx, "target not exists: %v", target)
+            return
+        }
+        for _, dep := range merge(depends, ordered, grepped) {
+            if dt := statFile(ctx, dep).mod(); dt.After(tt) {
+                debug(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
+            }
+        }
+    }
+    // if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
+    //     var ( p = _position(ctx) ; s = _stems(ctx) ; m diagtracer )
+    //     if len(args) == 0 {
+    //         m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
+    //     } else if ctx.verbose {
+    //         m = prompt(ctx, "%v: target=%v stems=%v depends=%v ; %v\n", p, target, s, depends, args)
+    //     } else if len(args) == 1 {
+    //         m = prompt(ctx, "%v: %v (%T)\n", p, args[0], args[0])
+    //     } else {
+    //         m = prompt(ctx, "%v: %v\n", p, args)
+    //     }
+    //     if ctx.s > 0 { m = infostack(ctx, ctx.s) }
+    //     if ctx.n > 0 { m.debug(ctx.n) }
+    // }
+    return
+}
+
+type modifier_print struct { modifier_
+    stdout bool `o,stdout`
+    stderr bool `e,stderr` // TODO: = true
+    reset  bool `r,reset`
+}
+func (ctx *modifier_print) x(args ...Value) (result any) {
+    var content string
+    if val := auto_get(ctx, "-"); val != nil { content = __string(ctx, val) }
+    if ctx.stdout { fmt.Fprint(stdout, content) }
+    if ctx.stderr { fmt.Fprint(stderr, content) }
+    if ctx.reset  { auto_set(ctx, defVoid, "-", _none(_pos(ctx))) }
+    return
+}
+
+type modifier_prompt struct { modifier_ }
+func (ctx *modifier_prompt) x(args ...Value) (result any) {
+    if len(args) == 0 {
+        if h := auto_get(ctx, "-"); h != nil {
+            prompt(ctx, "%s\n", __string(ctx, h))
+        }
+    } else {
+        for _, a := range args { prompt(ctx, "%s\n", __string(ctx, a)) }
+    }
+    return
+}
+
+type modifier_preserve struct { modifier_ }
+func (ctx *modifier_preserve) v(args ...Value) (result any) {
+    return args
+}
+
+type modifier_expand struct { modifier_ }
+func (ctx *modifier_expand) v(args ...Value) (result any) {
+    result = expands(ctx, args...)
+    return
+}
+
+type modifier_plain struct { modifier_ }
+func (ctx *modifier_plain) v(args ...Value) (result any) {
+    result = expands(_final(ctx), args...)
+    return
+}
+
+type modifier_stringify struct { modifier_ }
+func (ctx *modifier_stringify) v(args ...Value) (result any) {
+    result = expands(_final(ctx), args...)
+    return
+}
+
+type modifier_reveal struct { modifier_ }
+func (ctx *modifier_reveal) v(args ...Value) (result any) {
+    result = expands(original{ctx,defExpand1}, args...)
+    return
+}
+
+type modifier_disclose struct { modifier_ }
+func (ctx *modifier_disclose) v(args ...Value) (result any) {
+    result = expands(original{ctx,defExpand2}, args...)
+    return
+}
+
+// select element by index from group result: (select 0)
+type modifier_select struct { modifier_ }
+func (ctx *modifier_select) x(args ...Value) (_ any) {
+    if h := auto_get(ctx, "-"); h == nil {
+        debug(ctx, "no pipe value $-", trace{})
+    } else if x, y := h.(*group); y {
+        var vals []Value
+        for _, a := range xmerge(ctx, args...) {
+            vals = append(vals, x.at(int(__int(ctx, a))))
+        }
+        return vals
+    }
+    return
+}
+
+type modifier_env struct { modifier_ }
+func (ctx *modifier_env) x(args ...Value) (result any) {
+    args = xmerge(ctx, args...)
+
+    if exe := _execution(ctx); exe != nil {
+        for _, a := range args {
+            if p, y := a.(*pair); y {
+                exe._env = append(exe._env, p)
+            } else {
+                debug(ctx, "env: not a pair value: %s", ts(a), trace{})
+            }
+        }
+    }
+    return
+}
+
+type modifier_var struct { modifier_ }
+func (ctx *modifier_var) x(args ...Value) (_ any) {
+    if checkpoints {
+        if args != nil {
+            debug(ctx, "%v", args, trace{})
+        }
+        switch p := _project(ctx); p.name {
+        case "configure.base":
+        }
+    }
+    return // no-op
+}
+
+// examples:
+//     [(set name=value)]    set $(name) to 'value'
+//     [(set name)]          clear $(name)
+//     [(set -)]             clear $-
+type modifier_set struct { modifier_ }
+func (ctx *modifier_set) x(args ...Value) (_ any) {
+    for _, arg := range args {
+        var name string
+        var value Value
+        switch a := arg.(type) {
+        case *word: name = a.s
+        case *pair: // NOTE: pair.Value is not expanded, need to do it again.
+            name, value = __string(ctx, a.key), expand(_final(ctx),a.val)
+            if value == nil { value = a.val }
+        case flag:
+            name, value = __string(ctx, a.Value), _null(a.Pos())
+            if name == "" { name = "-" }
+        default:
+            debug(ctx, "%v is unsupported (try: foo=value)", ts(arg), trace{})
+        }
+
+        var d, _ = auto_set(ctx, defVoid, name, value)
+        if d == nil {
+            debug(ctx, "no auto set: %v : %v", name, ts(ctx), trace{})
+        }
+
+        if name == "@" {
+            var f, s, _ = as_fullname_file(ctx, value)
+            if ctx.verbose {
+                var ts = trimPromptString(s)
+                prompt(ctx, "%s …… traversed (%d)\n", ts, f._traved)
+            }
+        }
+    }
+    return
+}
+
+type modifier_defer struct { modifier_ }
+func (ctx *modifier_defer) x(a ...Value) (_ any) {
+    if x := _execution(ctx); x != nil { x.defers = append(x.defers, a...) }
+    return
+}
+
+type modifier_setDirtyPats struct { modifier_
+    pats []Value
+}
+func (ctx *modifier_setDirtyPats) x(args ...Value) (result any) {
+    var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
+    if y { ctx.pats = parseOpts(_final(ctx), opts, args...) }
+    return
+}
+
+// create closure context for the traversal
+type modifier_closure struct { modifier_
+    target Value `@,target`
+    // depFirst bool `<,dep-first` // TODO: -<=value
+    // depLast  bool `>,dep-last` // TODO: ->=value
+}
+func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
+    // Closure the caller program, the context will be restored when execution is finished.
+    var cc = exe.Context
+    exe.Context = closure_with(cc)
+
+    if false && cast[*term](ctx) != exe.Context {
+        debug(ctx, "wrong closure_with", trace{})
+    }
+
+    var proj = _project(ctx)
+    var set = func(name string, val Value) (t Value) {
+        var noop bool
+        if v, y := val.(*boolean); y {
+            if !v.bool { noop = true }
+        } else if isTrivial(val) {
+            debug(ctx, "trivial target: %T %v", val, val, trace{})
+        } else if true {
+            t = expand(ctx,val) //, plain
+        } else {
+            t = val
+        }
+
+        if l, y := t.(*list); y && len(l.elems) == 1 { t = l.elems[0] }
+        if !noop && isTrivial(t) { t = auto_get(ctx, name)  }
+
+        if t != nil {
+            auto_set(ctx, defVoid, name, t) // aka (set @=&@)
+        } else if !noop {
+            debug(ctx, "%v: %s is nil", proj, name, trace{})
+        }
+        return
+    }
+
+    var target Value
+    if ctx.target != nil {
+        if target = expand(ctx,ctx.target); target == ctx.target {
+            if t := auto_get(cc, "@"); t != nil {
+                target = t
+            }
+        }
+    }
+    if ctx.verbose { var t = target
+        debug(ctx, "%v: @: %v ⇒ %v %v", proj, ctx.target, typeof(t), t)
+    }
+    if target != nil {
+        var ( t = set("@", target) ; f *file ; s string ; y bool ; n int )
+        if f, s, y = as_fullname_file(ctx, t); !y {
+            s = __string(ctx, t)
+        } else {
+            n = f._traved
+        }
+
+        if n > 1 {
+            if ctx.verbose {
+                var ts = trimPromptString(s)
+                prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n)
+                if false { debug(ctx, "%v, %v, (%d)", f, s, n) }
+            }
+            return
+        }
+
+        // FIXME: if isInnerauto_get(ctx, t.Value) {
+        //     debug(ctx, "loop: %v", t, trace{})
+        //     return
+        // }
+    }
+
+    if proj == nil {
+        debug(ctx, "%T: nil project in the context", ctx, trace{})
+    } else if scope := proj.scope; scope == nil {
+        debug(ctx, "empty closure context", trace{})
+    } else if def := scope.finddef("/"); def == nil {
+        debug(ctx, "&/ is undefined", trace{})
+    } else if dir := __string(ctx, def.value); dir == "" {
+        debug(ctx, "&/ is empty", trace{})
+    } else if !filepath.IsAbs(dir) {
+        debug(ctx, "&/ is relative", trace{})
+    } else /* if err := enter(ctx, dir); err == nil */ {
+        exe.changedWD = dir
+    }
+    return
+}
+
+type modifier_cd struct{ modifier_
+    path bool `path`
+    printEnter bool `print-enter`
+    printLeave bool `print-leave`
+}
+func (ctx *modifier_cd) x(args ...Value) (result any) {
+    if (ctx.printEnter || ctx.printLeave) && len(args) == 0 { return }
+    if len(args) == 1 {
+        var dir = __string(ctx, args[0])
+        if dir == "" {
+            // TODO: do something special
+            return
+        }
+
+        var proj = _project(ctx)
+        if !filepath.IsAbs(dir) { dir = filepath.Join(proj.absPath, dir) }
+        if ctx.path && dir != "." && dir != ".." && dir != pathSep {// mkdir -p
+            if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                debug(ctx, "make path '%s' failed: %v", dir, err)
+            }
+        }
+        if exe := _execution(ctx); exe != nil { exe.changedWD = dir }
+    } else {
+        debug(ctx, "wrong number of cd args: %v", args, trace{})
+    }
+    return
+}
+
+type modifier_mkdir struct { modifier_
+    mode os.FileMode `mode`
+}
+func (ctx *modifier_mkdir) x(args ...Value) (result any) {
+    if ctx.mode == 0 {
+        ctx.mode = os.FileMode(0755)
+    } else {
+        ctx.mode |= os.FileMode(0111)
+    }
+    if len(args) == 0 {
+        if v := auto_get(ctx, "@"); !isTrivial(v) { args = append(args, v) }
+    }
+    for _, a := range xmerge(_final(ctx), args...) {
+        var s string
+        if x, y := a.(*file); y {
+            s = x.fullname()
+        } else {
+            s = __string(ctx, a)
+        }
+        if strings.Contains(s, " /") || strings.Contains(s, " ./") || strings.Contains(s, " ../") {
+            debug(ctx, "multiple paths (%v): '%v'", typeof(a), s, trace{})
+        } else if strings.Contains(s, " ") {
+            debug(ctx, "path containing spaces (%v): '%v'", typeof(a), s)
+        }
+        if e := os.MkdirAll(s, ctx.mode); e != nil {
+            debug(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, e, trace{})
+        }
+    }
+    return
+}
+
+type modifier_sudo struct { modifier_ }
+func (ctx *modifier_sudo) x(args ...Value) (result any) {
+    debug(ctx, "TODO: sudo modifier is not implemented yet", trace{})
+    return
+}
+
+func parseDependList(ctx Context, dependList *list) (depends *list) {
+    depends = new(list)
+    for _, depend := range dependList.elems {
+        switch d := depend.(type) {
+        case *list:
+            if dl := parseDependList(ctx, d); dl != nil {
+                depends.elems = append(depends.elems, dl.elems...)
+            }
+        case *exec_result:
+            if d.Status != 0 {
+                debug(ctx, "bad status %v", d.Status, trace{})
+            } else {
+                depends.append(d)
+            }
+        case *rule, *strlit, *file:
+            depends.append(d)
+        default:
+            debug(ctx, "unsupported entry depend `%v' (%v)", depend, _program(ctx).depends, trace{})
+        }
+    }
+    return
+}
+
+type langInfoT struct {
+    rxs []*regexp.Regexp
+    sys []*regexp.Regexp
+}
+
+var langInfos = map[string]*langInfoT{
+    "asm": &langInfoT{
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*"(.+)".*$`),
+        },
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*<(.+)>.*$`),
+        },
+    },
+    "c": &langInfoT{
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*"(.+)".*$`),
+        },
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*#\s*include\s*<(.+)>.*$`),
+        },
+    },
+    "i": &langInfoT{
+        []*regexp.Regexp{
+            regexp.MustCompile(`^\s*include\s*"(.+)".*$`),
+        },
+        []*regexp.Regexp{
+        },
+    },
+}
+
+func init () {
+    if info, ok := langInfos["c"]; ok {
+        langInfos["c++"] = info
+        langInfos["clang"] = info
+        langInfos["objc"] = info
+        langInfos["objc++"] = info
+    }
+    if info, ok := langInfos["i"]; ok {
+        langInfos["include"] = info
+        langInfos["TableGen"] = info
+        langInfos["td"] = info
+    }
+}
+
+var grepCacheFilebase = make(map[*filebase]*grepCacheFiles)
+type grepCacheFiles struct {
+    file *file
+    list []*file
+}
+type greptouch struct {
+    files []Value
+    target Value
+    targetInfo os.FileInfo
+    targetDir string // see splitTargetFileName
+    targetFullName string // see splitTargetFileName
+}
+type grepctx struct {
+    *modifier_grep
+    greptouch
+    report bool // discard or report missing greps
+    rxs []*greprex
+    done map[string]int
+    savedGrepFileName string
+    savedGrepFile *file
+    save *bufio.Writer
+}
+type greprex struct{ bool ; *regexp.Regexp }
+func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
+    if g.targetInfo == nil {
+        debug(ctx, "'%v' not exists", g.target, trace{})
+    }
+    var tt time.Time = g.targetInfo.ModTime()
+    for _, val := range g.files {
+        var file *file
+        if file, _ = to_file(val); file == nil {
+            debug(ctx, "'%v' is not file (%T)", val, val, trace{})
+        }
+        if file.info == nil && !file.isSysFile() {
+            if file.info, _ = os.Stat(__string(ctx, file)); file.info == nil { continue }
+            if gc.debug>0 { warn(ctx, "'%v' info is nil (%s)", file, file.fullname()) }
+        }
+        if file.info == nil {/* ... */} else
+        if t := file.info.ModTime(); t.After(tt) {
+            if gc.debug>0 { warn(ctx, "touch %v → %v (%v)", g.target, file, t) }
+            if tt != t { tt = t }
+        }
+    }
+    if tt.After(g.targetInfo.ModTime()) {
+        if err = os.Chtimes(g.targetFullName, tt, tt); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    }
+    return
+}
+func (g *grepctx) isTargetFile(ctx Context, file *file) (res bool) {
+    if file == nil {
+        // ...
+    } else if g.target == file {
+        res = true
+    } else if s, _ := as_fullname_string(ctx, g.target); s == g.targetFullName {
+        res = true
+    } else if f, y := to_file(g.target); y && ident(ctx,f) == ident(ctx,file) {
+        res = true
+    }
+    return
+}
+
+var grepcache = make(map[string][]Value)
+var grepcacheM sync.Mutex // avoid fatal error: concurrent map writes
+
+func loadGrepCache(ctx Context) {
+    s := joinTmpPath(ctx, "", "cache")
+    f, err := os.Open(s)
+    if err != nil { return } else { defer f.Close() }
+    var ( list []Value ; k string )
+    scanner := bufio.NewScanner(f)
+	// Allocate a 64KB initial buffer, but allow it to grow up to 10MB per line!
+    const maxCapacity = 10 * 1024 * 1024 
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, maxCapacity)
+    scanner.Split(bufio.ScanLines)
+    for scanner.Scan() {
+        s = scanner.Text()
+        if strings.HasPrefix(s, ":") { //
+            if k != "" && len(list) > 0 {
+                grepcache[k] = list
+            }
+            if len(list) > 0 { list = list[:0] }
+            k = s[1:]
+        } else {
+            a := strings.Split(s, "|")
+            if len(a) == 3 {
+                file := _stat(ctx, a[0], stat_sub{a[1]}, stat_dir{a[2]})
+                if file != nil {
+                    list = append(list, file)
+                }
+            }
+        }
+    }
+}
+
+func saveGrepCache(ctx Context) {
+    s := joinTmpPath(ctx, "", "cache")
+    f, err := os.OpenFile(s, os.O_RDWR|os.O_CREATE, 0666)
+    if err != nil { return } else { defer f.Close() }
+    var w = bufio.NewWriter(f)    ; defer w.Flush()
+    grepcacheM.Lock(); defer grepcacheM.Unlock()
+    for k, l := range grepcache {
+        if len(l) == 0 { continue }
+        fmt.Fprintf(w, ":%s\n", k)
+        for _, v := range l {
+            var file, ok = to_file(v)
+            if !ok { continue }
+            fmt.Fprintf(w, "%s|%s|%s\n", ident(ctx,file), file.sub, file.dir)
+        }
+    }
+}
+
+func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (res *file) {
+    var isAbs, isRel bool
+    if isAbs = filepath.IsAbs(name); isAbs {
+        res = _stat(ctx, name, stat_nonexist{true})
+    } else if isRel = isRelPath(name); isRel { // relative to targetDir
+        res = _stat(ctx, name, stat_dir{gc.targetDir}, stat_nonexist{true})
+    } else if res = findfile(ctx, name); res != nil && res.exists() {
+        return // found existed file
+    }
+
+    // System files are not treated as missing nor collected
+    // for further updating, just discard them immediately.
+    if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
+        // system files defined by `files ((foo.xxx) ⇒ -)`
+        if f, ok := res.filemap.paths[0].(flag); ok {
+            sys = isNone(f.Value) || isNull(f.Value)
+        }
+    }
+    if !sys && gc.debug>0 {
+        debug(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
+            _entry(ctx), gc.target, name, res.exists(), sys, _project(ctx),
+			callstack{num:gc.debug})
+    }
+    if sys || res.exists() { return }
+
+    // relative to target directory
+    var alt = _stat(ctx, name, stat_dir{gc.targetDir})
+    if alt != nil { res = alt; return }
+
+    // Check for bare non-system sub-paths:
+    //   foo/bar/name.xxx
+    // We search base name 'name.xxx' again:
+    var s = filepath.Dir(name) // e.g: foo/bar
+
+    // Search 'name.xxx' and check dir for
+    // 'foo/bar' suffix. We use it if found.
+    alt = findfile(ctx, filepath.Base(name))
+    if alt != nil && strings.HasSuffix(alt.dir, pathSep+s) {
+        dir := strings.TrimSuffix(alt.dir, pathSep+s)
+        ok1 := alt.change(dir, s, ident(ctx,alt)) // <dir>, foo/bar, name.xxx
+        ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
+        res  = alt
+        if enable_assertions {
+            assert(ok1, "unchanged: %s %s %s", dir, s, ident(ctx,alt))
+            assert(ok2, "unchanged: %s %s", dir, ident(ctx,alt))
+        }
+    } else if res == nil {
+        for _, inc := range gc.incs {
+            if res = _stat(ctx, name, stat_dir{__string(ctx, inc)}); res != nil {
+                if false { debug(ctx, "%v in %v", res, inc) }
+                return
+            }
+        }
+        if res == nil { res = _stat(ctx, name, stat_nonexist{true}) }
+        debug(ctx, _f("'%s' not found in %v", name, _project(ctx)),
+			_f("grepped '%s' has no target dir in %v", name, _project(ctx)),
+			_f("from project %v (for %v)", _project(ctx), name))
+    }
+    return
+}
+
+func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string) (file *file, err error) {
+    if file = searchGreppedName(ctx, gp, gc, sys, name); file == nil {
+        // The 'name' is not matching the files database.
+        if gc.discard { return }
+        // FIXME: missing-file error
+    } else if gc.isTargetFile(ctx, file) {
+        return
+    } else if !file.exists() && gc.discard {
+        return
+    } else if gc.files = append(gc.files, file); false && gc.touch {
+        var tt = gc.targetInfo.ModTime()
+        if file.info == nil && !file.isSysFile() {
+            if file.info, err = os.Stat(__string(ctx, file)); err != nil {
+                debug(ctx, "%v", err, trace{})
+            }
+            if false || gc.debug>0 {
+                debug(ctx, "'%v' info is nil (%s)", file, file.fullname(), callstack{num:gc.debug})
+            }
+        }
+        if file.info == nil {/* ... */} else
+        if tv := file.info.ModTime(); tv.After(tt) {
+            if true || gc.debug>0 {
+                debug(ctx, "touch %v → %v (%v)", gc.target, file, tv, callstack{num:gc.debug})
+            }
+            tv = launchTime //time.Now() // ...
+            if err, tt = os.Chtimes(gc.targetFullName, tv, tv), tv; err != nil {
+                debug(ctx, "chtimes failed: %v", err, trace{})
+            }
+        }
+    }
+
+    // Report missing files, but system files are not treated as missing.
+    if !gc.report {
+        // ...
+    } else if file == nil {
+        info(ctx, "%s: `%s` not found", _project(ctx).name, name)
+    } else if !file.exists() {
+        info(ctx, "%s: `%s` file not existed", _project(ctx).name, name)
+    }
+    return
+}
+
+func tempfile(ctx Context, prefix, hashee0 string, hasheeN... any) (file *file, err error) {
+    var nameHash = sha256.New() // HashByte -> [sha256.Size]byte
+    if _, err = fmt.Fprint(nameHash, prefix, hashee0); err != nil {
+        debug(ctx, "hashing failed: %v", err, trace{})
+    } else if _, err = fmt.Fprint(nameHash, hasheeN...); err != nil {
+        debug(ctx, "hashing failed: %v", err, trace{})
+    } else if nameSum := nameHash.Sum(nil); len(nameSum) != nameHash.Size() {
+        debug(ctx, "hash sum invalid: %v", len(nameSum), trace{})
+    } else if project := _project(ctx); project == nil {
+        debug(ctx, "current project is nil: %v", ctx, trace{})
+    } else {
+        // Make names like .deps/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
+        // .deps/??/??/????????????????????????????????????????????????????????????
+        // .grep/??/??/????????????????????????????????????????????????????????????
+        // .cache/??/??/????????????????????????????????????????????????????????????
+        file = project.tempfile(ctx, filepath.Join(prefix, // e.g. ".deps", ".grep"
+            fmt.Sprintf("%x", nameSum[ :1]),
+            fmt.Sprintf("%x", nameSum[1:2]),
+            fmt.Sprintf("%x", nameSum[2: ]),
+        ))
+    }
+    return
+}
+
+func removeTempDirs(ctx Context, cleanDirs ...string) {
+    var uni = _universe(ctx)
+    if len(cleanDirs) == 0 {
+        var clean =  uni.cleanTmpDirs
+        if  clean || uni.cleanDotCache { cleanDirs = append(cleanDirs, ".cache") }
+        if  clean || uni.cleanDotDeps  { cleanDirs = append(cleanDirs, ".deps") }
+        if  clean || uni.cleanDotGrep  { cleanDirs = append(cleanDirs, ".grep") }
+    }
+    for _, dir := range cleanDirs {
+        if file, err := tempfile(ctx, dir, ""); err != nil {
+            debug(ctx, "%v", err, trace{})
+        } else if s := file.fullname(); s == "" {
+            debug(ctx, `"%v" has no fullname`, file, trace{})
+        } else if s = filepath.Dir(filepath.Dir(filepath.Dir(s))); s == "" {
+            debug(ctx, `"%v" is invalid temp dir`, file.fullname(), trace{})
+        } else if err = os.RemoveAll(s); err != nil {
+            debug(ctx, "%v", err, trace{})
+        } else if false {
+            debug(ctx, "%s: removed %v", _project(ctx), s)
+        } else {
+            prompt(ctx, "%s: removed %v\n", _project(ctx), s)
+        }
+    }
+}
+
+func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (filename string, err error) {
+    var ( file *file; hashees []any )
+    for _, s := range strs { hashees = append(hashees, s) }
+    if file, err = tempfile(ctx, ".deps", targetFullName, hashees...); err != nil {
+        debug(ctx, "get .deps temp file failed: %v", err, trace{})
+    } else {
+        filename, _ = as_fullname_string(ctx, file)
+    }
+    return
+}
+
+func getSavedGrepFileName(ctx Context, targetFullName string) (filename string, err error) {
+    var ( file *file )
+    if file, err = tempfile(ctx, ".grep", targetFullName); err != nil {
+        debug(ctx, "get .grep temp file failed: %v", err, trace{})
+    } else {
+        filename, _ = as_fullname_string(ctx, file)
+    }
+    return
+}
+
+func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
+    if gc.savedGrepFileName, err = getSavedGrepFileName(ctx, gc.targetFullName); err != nil {
+        debug(ctx, "get saved grep filename failed: %v", err, trace{})
+    } else if gc.savedGrepFile = _stat(ctx, gc.savedGrepFileName); gc.savedGrepFile == nil {
+        return // No saved grepfile yet!
+    }
+
+    var f, ok = to_file(gc.target)
+    if !ok {
+        f = _stat(ctx, gc.targetFullName)
+        if f != nil { gc.target = f }
+    }
+    if f != nil && f.info != nil {
+        // Check previously saved grep file into.
+        if f.info.ModTime().After(gc.savedGrepFile.info.ModTime()) {
+            return
+        }
+    }
+
+    var savedGrepOSFile *os.File
+    if savedGrepOSFile, err = os.Open(gc.savedGrepFileName); err != nil {
+        debug(ctx, "open saved grep filename failed: %v", err, trace{})
+    }
+    defer savedGrepOSFile.Close()
+
+    var gp Position
+    gp.Filename = gc.targetFullName // gc.savedGrepFileName
+
+    scanner := bufio.NewScanner(savedGrepOSFile)
+	// Allocate a 64KB initial buffer, but allow it to grow up to 10MB per line!
+    const maxCapacity = 10 * 1024 * 1024 
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, maxCapacity)
+    scanner.Split(bufio.ScanLines)
+    for scanner.Scan() {
+        var s = scanner.Text() //gp.Line += 1
+        var ( sys int; name string )
+        if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &gp.Line, &gp.Column, &name); e == nil && n == 4 {
+            var f *file
+            if f, err = searchGrepped(ctx, gp, gc, sys == 1, name); err != nil {
+                debug(ctx, "search grepped filename failed: %v", err, trace{})
+            } else if f != nil {
+                if /* f.pos = gp */; gc.isTargetFile(ctx, f) { continue }
+            } else if sys != 1 && !gc.discard {
+                debug(ctx,
+					_f("%s is nil file", name),
+					_f("grepped %s is nil", name),
+					_f("from project %v", _project(ctx)))
+            }
+        }
+    }
+    if gc.savedGrepFile.info, err = savedGrepOSFile.Stat(); err != nil {
+        debug(ctx, "stat saved grep filename error: %v", err, trace{})
+    } else { okay = true }
+    return
+}
+
+func grepTargetFile(ctx Context, gc *grepctx) (err error) {
+    var ( f *os.File )
+    if f, err = os.Open(gc.targetFullName); err != nil {
+        debug(ctx, "%v", err, trace{})
+    } else { defer func() { err = f.Close() } () }
+
+    var gp Position
+    gp.Filename = gc.targetFullName
+
+    scanner := bufio.NewScanner(f)
+	// Allocate a 64KB initial buffer, but allow it to grow up to 10MB per line!
+    const maxCapacity = 10 * 1024 * 1024 
+    buf := make([]byte, 0, 64*1024)
+    scanner.Buffer(buf, maxCapacity)
+    scanner.Split(bufio.ScanLines)
+ForScan:
+    for scanner.Scan() {
+        var s = scanner.Text(); gp.Line += 1
+        for _, x := range gc.rxs {
+            if sm := x.FindStringSubmatch(s); len(sm) > 1 && sm[1] != "" {
+                var ( f *file ; name = sm[1]; sys = x.bool ) //strings.IndexFunc(s, isNotSpace)
+                if gp.Column = strings.Index(s, name); gc.save != nil {
+                    var d = 0 ; if sys { d = 1 } // system files
+                    fmt.Fprintf(gc.save, "%d %d %d %s\n", d, gp.Line, gp.Column, name)
+                }
+                if f, err = searchGrepped(ctx, gp, gc, sys, name); err != nil {
+                    debug(ctx, "search grepped '%s' failed: %v", name, err, trace{})
+                } else if f != nil {
+                    if /* f.pos = gp */; gc.isTargetFile(ctx, f) { continue }
+                } else if !sys && !gc.discard {
+                    debug(ctx,
+						_f("%s is nil file", name),
+						_f("grepped %s is nil", name),
+						_f("from project %v", _project(ctx)))
+                }
+                continue ForScan // found one
+            }
+        }
+    }
+    return
+}
+
+func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() to replace grepctx
+    var targetName string
+    switch v := gc.target.(type) {
+    case *file:
+        targetName = ident(ctx,v)
+        gc.targetInfo = v.info
+        gc.targetFullName = v.fullname()
+        gc.targetDir = filepath.Dir(gc.targetFullName)
+        if v.isSysFile() { return }
+    default:
+        gc.targetDir = _project(ctx).absPath
+        targetName = __string(ctx, v)
+        if filepath.IsAbs(targetName) {
+            gc.targetFullName = targetName
+        } else {
+            gc.targetFullName = filepath.Join(gc.targetDir, targetName)
+        }
+        if file := _stat(ctx, gc.targetFullName); file == nil {
+            debug(ctx, "grep: '%s' not found (%v)", gc.targetFullName, gc.target, trace{})
+        } else {
+            gc.targetInfo = file.info
+        }
+    }
+    if err != nil {
+        debug(ctx, "grep target %s: %v", targetName, err, trace{})
+    }
+
+    if gc.targetInfo == nil { return }
+    if gc.done == nil { gc.done = make(map[string]int) }
+    if !filepath.IsAbs(gc.targetFullName) {
+        debug(ctx, "grep: '%s' is not abs", gc.targetFullName, trace{})
+    } else {
+        gc.done[gc.targetFullName] += 1
+    }
+    if n, done := gc.done[gc.targetFullName]; done && n > 1 {
+        if gc.debug>0 {
+            debug(ctx, "%v (done %v)", gc.targetFullName, n, trace{})
+        }
+        return
+    }
+
+    //var infos = strings.Contains(gc.targetFullName, "...")
+    const infos = false
+
+    if false { defer un(tt(l_traverse, _execution(ctx), gc.target)) }
+
+    defer func(restore []Value) {
+        var t = _execution(ctx)
+        var touch = gc.greptouch // copy greptouch value
+        if len(touch.files) > 0 {
+            grepcacheM.Lock()
+            grepcache[gc.targetFullName] = touch.files
+            grepcacheM.Unlock()
+        } else if false {
+            var gp Position
+            gp.Filename, gp.Line = gc.targetFullName, 1
+            debug(ctx, "grebbed zero files: %v", gc.targetFullName)
+        }
+        gc.files = restore
+        if gc.debug>0 {
+            debug(ctx, "grepped: %s → %v (grepped=%v) (saved=%s)\n",
+                gc.target, touch.files, len(t.grepped), gc.savedGrepFile,
+				callstack{num:gc.debug})
+        }
+        for _, gc.target = range touch.files {
+            if t.grepped = append(t.grepped, gc.target); !gc.recursive {
+                continue
+            } else if err = grep(ctx, gc); err != nil {
+                debug(ctx, "grep files (deferred): %v", err, trace{})
+            }
+        }
+        if err == nil && gc.touch {
+            if err = touch.work(ctx, gc); err != nil {
+                debug(ctx, "grep touch failed: %v", err, trace{})
+            }
+        }
+    } (gc.files)
+
+    gc.files = nil
+
+    var (
+        cached bool
+        savedGrepFile *os.File
+        savedGrepFileLoaded bool
+    )
+    {
+        grepcacheM.Lock()
+        gc.files, cached = grepcache[gc.targetFullName]
+        grepcacheM.Unlock()
+    }
+    if cached && len(gc.files) > 0 {
+        if gc.debug>0 {
+            debug(ctx, "grepcache: %v → %v", gc.targetFullName, gc.files, trace{})
+        }
+        return
+    } else if infos {
+        debug(ctx, "grepcache: %s files=%d", gc.targetFullName, len(gc.files))
+    }
+
+    if savedGrepFileLoaded, err = loadSavedGrepFile(ctx, gc); err != nil {
+        debug(ctx, "load saved grepfile failed: %v", err, trace{})
+    } else if savedGrepFileLoaded && len(gc.files) > 0 {
+        if infos {
+            debug(ctx, "loadSavedGrepFile: %v files=%d grepped=%d",
+				gc.targetFullName, len(gc.files), len(_execution(ctx).grepped))
+        }
+        return
+    }
+    if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
+        if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+            debug(ctx, "make grep dir failed: %v", err, trace{})
+        }
+    }
+
+    var uni = _universe(ctx)
+    if uni.saveGrepSource {
+        var (
+            perm = os.FileMode(0600)
+            data = []byte(gc.targetFullName)
+            name = gc.savedGrepFileName + ".src"
+        )
+        if err = ioutil.WriteFile(name, data, perm); err != nil {
+            debug(ctx, "grep write file: %v", err, trace{})
+        } else if false {
+            debug(ctx, "saved grep %s", name)
+        }
+    }
+    if savedGrepFile, err = os.Create(gc.savedGrepFileName); err != nil {
+        debug(ctx, "grep create %s: %v", gc.savedGrepFileName, err, trace{})
+    }
+
+    gc.save = bufio.NewWriter(savedGrepFile)
+    defer func() {
+        gc.save.Flush()
+        savedGrepFile.Close()
+    } ()
+
+    if err = grepTargetFile(ctx, gc); err != nil && !gc.discard {
+        debug(ctx, "grep target file: %v", err, trace{})
+    } else {
+        err = nil // discard any errors
+    }
+    return
+}
+
+var stopgrep = 0
+
+// grep - grep files from target, example usage:
+//
+//      (grep -file -x='\s*#\s*include\s*<(.*)>')
+//
+// https://github.com/google/re2/wiki/Syntax
+type modifier_grep struct { modifier_
+    discard bool `c,cast;dc,discard;dm,discard-missing;im,ignore-missing`
+    fileinc bool `f,file;f,files` // work with the 'incs' field TODO: = true
+    langs []string `l,lang;lan,language`
+    sys []string `s,sys;ss,system`        // matching system includes
+    reg []string `re,reg;regx,regex;x,rx` // matching user includes
+    incs []Value `i,inc;i,include` // include search paths, also 'fileinc' field
+    touch bool `t,touch;t,touch-outdate;t,touch-outdated`
+    recursive bool `a,all;r,recur;rr,recursive`
+    noTraverse bool `n,notraverse;nt,no-traverse;go,grep-only`
+}
+func (ctx *modifier_grep) x(args ...Value) (result any) {
+    var uni = _universe(ctx)
+    if false && uni.noDepsGrep || uni.noGrep { return }
+
+    var gc = grepctx{ modifier_grep:ctx }
+    // gc.fileinc = true // grep files by default
+    gc.incs = xmerge(ctx, gc.incs...)//, plain
+    for _, s := range gc.sys { gc.rxs = append(gc.rxs, &greprex{true , regexp.MustCompile(s)}) }
+    for _, s := range gc.reg { gc.rxs = append(gc.rxs, &greprex{false, regexp.MustCompile(s)}) }
+    for _, s := range gc.langs {
+        if info, ok := langInfos[s]; ok && info != nil {
+            for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{false, re}) }
+            for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{true , re}) }
+        } else {
+            debug(ctx, "lang '%s' is unknown", s, trace{})
+        }
+    }
+    if len(gc.rxs) == 0 {
+        debug(ctx, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args, trace{})
+    }
+
+    var (
+        target = auto_get(ctx, "@")
+        targets = args
+        grepped = _execution(ctx).grepped
+    )
+    if len(targets) == 0 {
+        if target == nil || isNull(target) || isNone(target) {
+            debug(ctx, "no grep target", trace{})
+        } else {
+            targets = append(targets, target)
+        }
+    }
+
+    if gc.debug > 0 {
+        debug(ctx, "grep files: %v %v %v\n", target, gc.rxs, args, callstack{num:gc.debug})
+    }
+    if gc.verbose {
+        defer func(ts time.Time) {
+            var s string
+            if len(targets) == 1 { s = targets[0].String() } else {
+                for _, v := range targets {
+                    if s != "" { s += ", " }
+                    if len(s) > 32 { s += "..."; break } else {
+                        s += v.String()
+                    }
+                }
+            }
+            debug(ctx, "Grep %v …… (%d files in %v)\n", s, len(grepped), time.Now().Sub(ts))
+        } (time.Now())
+    }
+
+    var pc = _execution(ctx)
+    var tar = target
+    defer func(v bool) { pc.grepping = v } (pc.grepping)
+    pc.grepping = true
+
+    for _, target := range targets {
+        if isNull(target) {
+            debug(ctx, "found nil grep target for %v", tar, trace{})
+        }
+        if isNone(target) {
+            debug(ctx, "grep target '%v' is none for %v", target, tar, trace{})
+        }
+
+        gc.target, pc.grepped = target, nil
+        if err := grep(ctx, &gc); err != nil {
+            debug(ctx, "grep files from %v failed: %v", target, err, trace{})
+        } else if gc.noTraverse {
+            // does nothing
+        } else if len(pc.grepped) > 0 {
+            for _, val := range pc.grepped {
+                traverse(ctx, val)
+            }
+        }
+        grepped = append(grepped, pc.grepped...)
+    }
+    pc.grepped = grepped
+
+    if !gc.noTraverse {
+        auto_set(ctx.Context, defVoid, "~", _none(_pos(ctx)))
+        pc.grepped = nil
+    } else {
+        result = ease(ctx, pc.grepped)
+    }
+    return
+}
+
+type dep_context struct { diagnostic }
+func (ctx *dep_context) inner() Context { return &ctx.diagnostic }
+func (ctx *dep_context) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.diagnostic.cast(t)
+}
+
+func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *file, savedDepsFileName, deps string) (files []Value) {
+    var (
+        proj = _project(ctx)
+        targetFullName, _ = as_fullname_string(ctx, targetVal)
+        filesMux sync.Mutex
+        firstWord string
+        err error
+    )
+    var findDepFile = func(name string) (file *file) {
+        if filepath.IsAbs(name) {
+            file = _stat(ctx, name, stat_nonexist{true})
+        } else if file = proj.file(ctx, name); file != nil && file.exists() {
+            // good!
+        } else {
+            // fail!
+        }
+        return
+    }
+    var ignored = func(fullname string) (res bool) {
+        if fullname == targetFullName { return true }
+        return
+    }
+    var addFile = func(file *file) {
+        filesMux.Lock()
+        files = append(files, file)
+        filesMux.Unlock()
+    }
+    var (
+        missing = make(map[string]Position)
+        missMux sync.Mutex
+    )
+
+    var depFile = func(ctx Context, depPos Position, word string) {
+        var dc = dep_context{diagnostic{ Context: ctx }}
+
+        ctx = &dc
+
+        if i := strings.Index(word, " "); i > 0 {
+            debug(ctx, "ignore dep with spaces: %v", word)
+        } else if file := findDepFile(word); file == nil {
+            prompt(ctx, "%v: unknown dep\n", file)
+            if savedDepsFile != nil {
+                warn(ctx, "unknown dep '%v' for '%v'", word, firstWord)
+                warn(ctx, "from here: %s", word)
+                if filepath.IsAbs(firstWord) {
+                    var wp Position
+                    wp.Filename, wp.Line = firstWord, 1
+                    warn(ctx, "in here: %v", word)
+                }
+                debug(ctx, "for project %v", proj)
+            } else {
+                debug(ctx, "unknown dep '%v' for '%v'", word, firstWord)
+                debug(ctx, "from here: %s", word)
+                if filepath.IsAbs(firstWord) {
+                    var wp Position
+                    wp.Filename, wp.Line = firstWord, 1
+                    debug(ctx, "in here: %v", word)
+                }
+                debug(ctx, "for project %v", proj)
+            }
+        } else if ignored(file.fullname()) {
+            //continue // dep is the target itself
+        } else {
+            traverse(ctx, file)
+            addFile(file)
+        }
+
+        var n int
+        if savedDepsFile == nil {
+            if n = flush(dc.Context); n > 0 { // aka. dc.points = nil
+                var s = trimPromptString(targetVal.String())
+                prompt(ctx, "%v: %d errors counted\n", word, n)
+                debug(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
+                debug(ctx, `%v: %v`, ctx, trace{})
+            }
+        } else {
+            if n = diagCount(dc.Context, diagError); n > 0 {
+                // reset to reduce diags as we wish to continue with the errors
+                dc.points, dc.erros = nil, 0
+                debug(ctx, "%v: %d errors counted\n", word, n)
+            }
+        }
+        if n > 0 {
+            missMux.Lock()
+            missing[word] = depPos
+            missMux.Unlock()
+        }
+        return
+    }
+
+    var (
+        wordRecs = make(map[string]int)
+        firstDep string
+        depPos Position
+    )
+    depPos.Filename = savedDepsFileName
+    for l, line := range strings.Split(deps, "\n") {
+        var words = line
+        if i := strings.Index(words, ":"); i > 0 { words = strings.TrimSpace(words[i+1:]) }
+        if words = strings.TrimSpace(strings.TrimRight(words, "\\\r\t ")); words == "" {
+            continue // empty line
+        }
+        for _, word := range strings.Fields(words) {
+            depPos.Line, depPos.Column = l + 1, strings.Index(line, word) + 1
+            if /*l == 1 && w == 0 &&*/firstWord == "" { firstWord = word }
+            if wordRecs[word] += 1; wordRecs[word] == 1 {
+                if firstDep != "" {
+                    // keep going...
+                } else if firstDep = word; savedDepsFile == nil {
+                    // no need to compare
+                } else if firstDepFile := _stat(ctx, firstDep); firstDepFile == nil {
+                    return nil // requests to update savedDepsFile
+                } else if firstDepFile.info.ModTime().After(savedDepsFile.info.ModTime()) {
+                    return nil // requests to update savedDepsFile
+                }
+				depFile(ctx, depPos, word)
+            }
+        }
+    }
+    if len(missing) > 0 {
+        prompt(ctx, "%v: %d deps missing, removing deps file\n", savedDepsFileName, len(missing))
+        if savedDepsFile == nil || savedDepsFileName == "" {
+            // deps files not saved yet
+        } else if err = os.Remove(savedDepsFileName); err != nil {
+            for s, _ := range missing { debug(ctx, `missing "%v"`, s) }
+            debug(ctx, `%v: "%v" %d deps missing in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
+            debug(ctx, "%s", ts(ctx), trace{})
+        } else {
+            for s, _ := range missing { warn(ctx, `missing "%v"`, s) }
+            debug(ctx, `%v: "%v" missing %d deps (%v in total)`, proj, targetVal, len(missing), len(files))
+            files = nil // To update savedDepsFileName
+        }
+    }
+    return
+}
+
+func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileName string, files []Value) {
+    var (
+        savedDepsBytes []byte
+        err error
+    )
+    if targetVal, targetStr := auto_target_valstr(ctx); targetVal == nil {
+        debug(ctx, "target is nil", trace{})
+    } else if targetStr == "" {
+        debug(ctx, "target '%v' is empty", targetVal, trace{})
+    } else if savedDepsFileName, err = getSavedDepsFileName(ctx, targetStr, args); err != nil {
+        debug(ctx, "get saved deps filename failed: %v", err, trace{})
+    } else if savedDepsFileName == "" {
+        debug(ctx, "empty saved deps filename", savedDepsFileName, trace{})
+    } else if savedDepsFile := _stat(ctx, savedDepsFileName); savedDepsFile == nil {
+        // no saved deps file
+    } else if savedDepsBytes, err = ioutil.ReadFile(savedDepsFileName); err != nil {
+        debug(ctx, "can'ctx open saved deps file: %v", savedDepsFileName, err, trace{})
+    } else if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, string(savedDepsBytes)); len(files) > 0 {
+        if false { debug(ctx, "loaded deps %s (%d files)", savedDepsFileName, len(files)) }
+        var savedDepsFileModTime = savedDepsFile.info.ModTime()
+        for _, val := range files { if file, ok := to_file(val); !ok {
+            // ignore
+        } else if file.info.ModTime().After(savedDepsFileModTime) {
+            files = nil // need to reload if outdated
+            return
+        }}
+    }
+    return
+}
+
+func traverseMissingDep(ctx Context, dep string) (res bool) {
+    if proj := _project(ctx); proj == nil {
+        prompt(ctx, "%s: traverse dep failed, project %v\n", dep, proj)
+        debug(ctx, "%s: no current project for dep", dep)
+        debug(ctx, trace{})
+    } else if f := proj.file(ctx, dep); f == nil {
+        prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
+        debug(ctx, "%v: %s is unknown file", proj, dep)
+        debug(ctx, trace{})
+    } else {
+        traverse(ctx, f)
+    }
+    return true
+}
+
+func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool, tried string) {
+    const promptErrors bool = false
+    const promptBeforeTraverse bool = promptErrors && true
+    for _, m := range rxFileNotFound.FindAllSubmatch(errBytes, -1) {
+        if promptBeforeTraverse { prompt(ctx, "%s\n", m[0]) }
+        if dep := string(m[4]); dep == lastTry {
+            return false, ""
+        } else if res = traverseMissingDep(ctx, dep); !res {
+            prompt(ctx, "%s: dep missing, project %v\n", m[4], _project(ctx))
+            prompt(ctx, "%s\n", m[0]) // prompt the entire error line
+            debug(ctx, "%v", ctx, trace{})
+        } else if tried == "" { tried = dep }
+    }
+    return
+}
+
+type modifier_deps struct { modifier_
+    useClang bool `cl,clang`
+    useGcc bool `gcc`
+    addMissing bool `am,add-missing,mg,missing-goal`
+    lang string `lang,language`
+    flags []Value `flags,opts`
+    cc string `cc,compiler`
+}
+func (ctx *modifier_deps) x(args ...Value) (result any) {
+    var uni = _universe(ctx)
+    if uni.noDepsGrep || uni.noDeps { return }
+
+    // NOTE: parse opts for (deps) before expanding the args, because we share args
+    //       with the compilers!
+    var err error
+    var targetVal Value
+    var targetStr string
+    if targetVal, targetStr = auto_target_valstr(ctx); targetVal == nil {
+        debug(ctx, "target is nil", trace{})
+    } else if targetStr == "" {
+        debug(ctx, "target '%v' is empty", targetVal, trace{})
+    }
+
+    var files []Value
+    if ctx.verbose {
+        defer func(ts time.Time) {
+            var s string
+            if val := auto_get(ctx, "@"); val != nil { s = val.String() }
+            prompt(ctx, "Deps %v …… (%d files in %v)\n", s, len(files), time.Now().Sub(ts))
+        } (time.Now())
+    }
+
+CorrectCC:
+    switch ctx.cc {
+    case "cl"   : ctx.cc = "clang"; goto CorrectCC
+    case "gc"   : ctx.cc = "gcc"  ; goto CorrectCC
+    case "clang": ctx.useClang = true
+    case "gcc"  : ctx.useGcc   = true
+    case "":
+        if ctx.useGcc   { ctx.cc = "gcc" }
+        if ctx.useClang { ctx.cc = "clang" }
+    default:
+        if base := filepath.Base(ctx.cc); base == "" {
+            debug(ctx, "unsupported cc: %v", ctx.cc, trace{})
+        } else if strings.HasPrefix(base, "clang") { ctx.useClang = true
+        } else if strings.HasPrefix(base, "gcc")   { ctx.useGcc   = true }
+    }
+
+    var _MM, _MG bool
+    var ca []string
+    var flags = xmerge(_final(ctx), ctx.flags...)
+    for _, f := range flags {
+        switch s := strings.TrimSpace(__string(ctx, f)); s {
+        case "-MM": ca, _MM = append(ca, s), true // only user headers
+        case "-MD": break // discard, use -M or -MM instead
+        case "-MP": break // discard, not creating phony target
+        case "-MV": break // discard, not using NMake/Jom format
+        case "-MG": break // discard, add later for missing headers
+        case "-M" : break // discard, add later for both user and system headers
+        case "-c" : break // discard, compile flag
+        case ""   : break // discard, empty string
+        default: ca = append(ca, s)
+        }
+    }
+    if !_MM { ca = append(ca, "-M")  } // both user and system headers
+    if !_MG && ctx.addMissing { ca = append(ca, "-MG") } // add missing headers
+    for _, a := range args {
+        var s, y = as_fullname_string(ctx, a)
+        if y { s = strings.TrimSpace(s) }
+        switch s {
+        case "-M", "-MM", "-MG", "-MD", "-MV", "-MP", "-Os", "-O1", "-O2", "-O3",
+            "-c", "-shared", "-static", "-fPIC", "-fvisibility-inlines-hidden",
+            "-fcxx-modules", "-fmodules", "-fmodules-ts", "":
+            break // discard unused args
+        default: ca = append(ca, s)
+        }
+    }
+
+    var proj = _project(ctx)
+
+    savedDepsFileName, files := loadSavedDepsAndCheckOutdated(ctx, ca)
+
+    if len(files) == 0 {
+        var (
+            cc = exec.Command(ctx.cc, ca...)
+            stdout bytes.Buffer
+            stderr bytes.Buffer
+            retried string
+        )
+    retryCC:
+        cc.Stdout, cc.Stderr = &stdout, &stderr
+        if err = cc.Run(); err != nil {
+            var okay = false
+            if okay, retried = traverseMissingDeps(ctx, retried, stderr.Bytes()); okay {
+                cc = exec.Command(ctx.cc, ca...)
+                stdout.Reset()
+                stderr.Reset()
+                goto retryCC
+            }
+            prompt(ctx, "%v: failed command '%s':\n", proj, ctx.cc)
+            prompt(ctx, "%s \\\n  %s\n----------\n", cc.Path, strings.Join(ca, " \\\n  "))
+            prompt(ctx, "%s\n----------\n%s----------\n", &stdout, &stderr)
+            debug(ctx, "%s: %s deps failed: %v", proj, filepath.Base(ctx.cc), err)
+            debug(ctx, "%s: %v", proj, ctx, trace{})
+        }
+        if stderr.Reset(); savedDepsFileName == "" {
+            stdout.Reset()
+            debug(ctx, "empty saved deps file name: %v", savedDepsFileName, trace{})
+        }
+
+        var savedDepsFile *file = nil//_stat(ctx, savedDepsFileName)
+        if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, stdout.String()); len(files) == 0 {
+            debug(ctx, "parse deps file failed") // not saving if failed
+        } else if err = os.MkdirAll(filepath.Dir(savedDepsFileName), os.FileMode(0755)); err != nil {
+            debug(ctx, "make path '%s' failed: %v", filepath.Dir(savedDepsFileName), err, trace{})
+        } else if err = ioutil.WriteFile(savedDepsFileName, stdout.Bytes(), os.FileMode(0666)); err != nil {
+            debug(ctx, "save deps file failed: %v", err, trace{})
+        }
+        stdout.Reset() // release buffers (optional)
+    }
+
+    if t := _execution(ctx); t != nil && len(files) > 0 {
+        t.grepped = append(t.grepped, files...)
+    }
+    return
+}
+
+type modifier_touch struct { modifier_
+    path bool `p,path`
+    mode os.FileMode `m,mode`
+}
+func (ctx *modifier_touch) x(args ...Value) (result any) {
+    if len(args) == 0 { if val := auto_get(ctx, "@"); val != nil { args = append(args, val) }}
+
+    var files []*file
+    for _, arg := range args {
+        if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
+            debug(ctx, "touch '%v' failed: %v", arg, err, trace{})
+        } else {
+            files = append(files, stampFile(must_files_stamp{ctx}, arg)...)
+        }
+    }
+
+    var p = _program(ctx)
+    if false && ctx.verbose { reportFileUpdates(ctx, files) }
+    if len(p.getModifiers(ctx, "stamp")) > 0 {
+        debug(ctx, "no need to use a (stamp) after (touch)")
+    }
+    return
+}
+
+// (check status=1 stdout="foobar" stderr="")
+// (check file=filename.txt)
+// (check dir=directory)
+// (check var=(NAME,VALUE))
+type modifier_check struct { modifier_
+    trim bool `trim,trim-string`
+    answer bool `answer`
+    boolean bool `bool,boolean,res,result`
+    silent bool `slient`
+    exists bool `exist,exists`
+    regular bool `reg,regular`
+    isdir bool `isdir,is-dir`
+    good bool `good`
+    file Value `file`
+    dir Value `dir`
+}
+
+func (ctx *modifier_check) x(args ...Value) (_ any) {
+    var pos = _pos(ctx)
+    var makeResult func(bool) Value // returns results only if non-nil
+    if ctx.answer {
+        makeResult = func(v bool) Value { return _answer(pos, v) }
+    } else if ctx.boolean ||
+        (ctx.file != nil && (ctx.exists || ctx.regular || ctx.isdir)) ||
+        (ctx.dir  != nil && (ctx.exists || ctx.regular || ctx.isdir)) {
+        makeResult = func(v bool) Value { return _boolean(pos, v) }
+    }
+
+    var res bool
+    var values []Value
+    var checkfile = func (val Value, dir bool) {
+        if val == nil {
+            debug(pc(ctx, val), "nil file value to check", trace{})
+        } else if x, y := val.(*boolean); y {
+            if x.bool { val = auto_get(ctx, "@") } else { val = nil }
+        }
+
+        var s string
+        var f *file
+        if f, res = to_file(val); res {
+            // best case
+        } else if s = __string(ctx, val); filepath.IsAbs(s) {
+            if f = _stat(ctx, s); f != nil { res = true }
+        } else if f = findfile(ctx, s); f != nil { res = true }
+
+        if f != nil {
+            if !dir || ctx.regular {
+                res = f.exists()
+            } else if dir || ctx.isdir {
+                res = f.info != nil && f.info.Mode().IsDir()
+            } else if ctx.exists {
+                res = f.exists()
+            }
+        }
+
+        if makeResult != nil {
+            values = append(values, makeResult(res))
+        } else if !res {
+            debug(pc(ctx, val), "'%v' is not file", val, trace{})
+        }
+    }
+
+    if ctx.file != nil { checkfile(ctx.file, false) }
+    if ctx.dir  != nil { checkfile(ctx.dir, true) }
+
+    var program = _program(ctx)
+    var value = auto_get(ctx, "-")
+
+argsloop:
+    for _, arg := range args {
+        var p, y = arg.(*pair)
+        if !y {
+            if res = __true(ctx, arg); makeResult != nil {
+                values = append(values, makeResult(res))
+            } else {
+                debug(ctx, "value '%v' is false", arg, trace{})
+            }
+            continue
+        }
+
+        var key, str string
+        switch key = __string(ctx, p.key); key {
+        case "status":
+            var exeres, _ = value.(*exec_result)
+            if exeres == nil {
+                debug(ctx, "not exec result: %v ", ts(value), trace{})
+            }
+
+            var num = __int(ctx, p.val)
+            if ctx.verbose {
+                prompt(ctx, "checking status ")
+                if num != 0 { prompt(ctx, "== %d ", num) }
+                prompt(ctx, "…")
+            }
+
+            var good = exeres.Status == int(num)
+            if ctx.verbose {
+                var s string
+                if good { s = "yes" } else { s = "no" }
+                prompt(ctx, "… %s (%d)\n", s, exeres.Status)
+            }
+
+            if ctx.debug > 0 {
+                var tar = auto_get(ctx, "@")
+                var val = auto_get(ctx, "-")
+                debug(ctx,
+					_f("%v: %v", _entry(ctx), tar),
+					_f("hyphen=%v", val),
+					_f("status=%v", exeres.Status))
+            }
+
+            if makeResult != nil {
+                values = append(values, makeResult(good))
+            } else if !good {
+                debug(ctx, "bad status (%v) (expects %v)", exeres.Status, p.val, trace{})
+                break argsloop
+            }
+        case "stdout", "stderr":
+            var exeres, _ = value.(*exec_result)
+            if exeres == nil {
+                debug(ctx, "value '%v' (%T) is not exec result", value, value, trace{})
+            } else { /*exeres.wg.Wait()*/ }
+
+            if ctx.verbose {
+                prompt(ctx, "checking %s (status=%d) … ", key, exeres.Status)
+            }
+
+            if 0 < ctx.debug {
+                var tar = auto_get(ctx, "@")
+                var val = auto_get(ctx, "-")
+                debug(ctx,
+					_f("%v: %v", _entry(ctx), tar),
+					_f("hyphen=%v", val),
+					_f("status=%v", exeres.Status),
+					callstack{num:ctx.debug})
+            }
+
+            var v *bytes.Buffer
+            switch key {
+            case "stdout": v = exeres.Stdout.Buf
+            case "stderr": v = exeres.Stderr.Buf
+            default: unreachable()
+            }
+
+            if v == nil {
+                debug(ctx, "bad %s (expects %v)", key, p.val, trace{})
+                break argsloop
+            }
+
+            str = __string(ctx, p.val)
+            if ctx.trim { str = strings.TrimSpace(str) }
+
+            if res := v.String() == str; makeResult != nil {
+                values = append(values, makeResult(res))
+            } else if !res {
+                debug(ctx, "bad %s (%v) (expects %v)", key, v, p.val, trace{})
+                break argsloop
+            }
+        case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
+            var ( f *file; res bool )
+            if f, res = to_file(p.val); res {
+                // ok
+            } else if str = __string(ctx, p.val); filepath.IsAbs(str) {
+                if f = _stat(ctx, str); f != nil {
+                    // ok
+                }
+            } else if f = findfile(ctx, str); f != nil {
+                // ok
+            }
+            switch key {
+            case "file": res = f.info != nil && !f.info.Mode().IsDir()//.IsRegular()
+            case "dir":  res = f.info != nil &&  f.info.Mode().IsDir()
+            default: unreachable()
+            }
+            if makeResult != nil {
+                values = append(values, makeResult(res))
+            } else if !res {
+                debug(ctx, "`%v` is not %s", p.val, key, trace{})
+                break argsloop
+            }
+        case "var":
+            var g, ok = p.val.(*group)
+            if !ok {
+                debug(ctx, "`%v` is not a group value", p.val, trace{})
+                break argsloop
+            }
+            for _, elem := range g.elems {
+                switch p := elem.(type) {
+                case *pair:
+                    var a, b string
+                    var k = __string(ctx, p.key)
+                    var def = program.project.finddef(k)
+                    if def != nil {
+                        a = __string(ctx, p.val)
+                        b = __string(ctx, def.value)
+                        if res := a != b; makeResult != nil {
+                            values = append(values, makeResult(res))
+                        } else if !res {
+                            debug(ctx, "`%v` != `%v`", p.key, p.val, trace{})
+                            break argsloop
+                        }
+                    } else if makeResult != nil {
+                        values = append(values, makeResult(false))
+                    } else {
+                        debug(ctx, "`%v` is not defined", k, trace{})
+                        break argsloop
+                    }
+                default:
+                    debug(ctx, "`%v` unsupported checks", elem, trace{})
+                    break argsloop
+                }
+            }
+        default:
+            debug(ctx, "unknown check for %v → %v", p.key, p.val, trace{})
+            break argsloop
+        }
+    }
+    return values
+}
+
+type copyopts struct {
+    program *program
+    path, update bool
+    mode os.FileMode
+    head Value
+    foot Value
+    files, copied int
+    bytes int64
+}
+
+func copyRegular(ctx Context, src, dst string, opts *copyopts) (err error) {
+    var def1 = auto_find(ctx, "1")
+    var def2 = auto_find(ctx, "2")
+    defer func(v1, v2 Value) { def1.value, def2.value = v1, v2 } (def1.value, def2.value)
+
+    var pos = _pos(ctx)
+    def1.value = _strlit(pos, dst)
+    def2.value = _strlit(pos, src)
+
+    var head, foot string
+    if opts.head != nil { head = __string(ctx, opts.head) }
+    if opts.foot != nil { foot = __string(ctx, opts.foot) }
+
+    // Compare mod time for update mode
+    if opts.files += 1; opts.update {
+        if st2, e := os.Stat(dst); e == nil && st2 != nil {
+            var st1 os.FileInfo
+            if st1, err = os.Stat(src); err != nil { debug(ctx, "%v", err); return }
+            if st1 != nil && (st1.Size()+int64(len(head))+int64(len(foot))) == st2.Size() {
+                if st2.ModTime().After(st1.ModTime()) { return }
+            }
+            if false { prompt(ctx, "%s: %s (%v,%v)\n", pos, dst, st1.Size(), st2.Size()) }
+        }
+    }
+
+    var srcFile, dstFile *os.File
+    if srcFile, err = os.Open(src); err != nil { debug(ctx, "%v", err); return } else {
+        defer srcFile.Close()
+    }
+
+    // sys default file mode is 0666
+    if opts.path { // Make path (mkdir -p)
+        if p := filepath.Dir(dst); p != "." && p != "/" {
+            err = os.MkdirAll(p, os.FileMode(0755))
+            if err != nil { debug(ctx, "%v", err); return }
+        }
+    }
+
+    if opts.mode == 0 { opts.mode = os.FileMode(0640) }
+
+    dstFile, err = os.OpenFile(dst, os.O_CREATE|os.O_RDWR|os.O_TRUNC, opts.mode)
+    if err != nil { debug(ctx, "%v", err); return } else { defer dstFile.Close() }
+
+    srcBuf := bufio.NewReader(srcFile)
+    dstBuf := bufio.NewWriter(dstFile)
+    if head != "" {
+        var n int
+        if n, err = dstBuf.WriteString(head); err != nil { debug(ctx, "%v", err); return }
+        opts.bytes += int64(n)
+    }
+
+    var n int64
+    if n, err = io.Copy(dstBuf, srcBuf); err != nil { debug(ctx, "%v", err); } else {
+        if opts.bytes += n; foot != "" {
+            var n int
+            if n, err = dstBuf.WriteString(foot); err != nil { debug(ctx, "%v", err); return }
+            opts.bytes += int64(n)
+        }
+        if err == nil {
+			if err = dstBuf.Flush(); err != nil {
+                debug(ctx, "flush failed during copy: %v", err)
+                return 
+            }
+            opts.copied += 1
+        }
+    }
+    return
+}
+
+func copySymlink(ctx Context, src, dst string, opts *copyopts) (err error) {
+    err = errors.New("copy symlink unimplemented")
+    return
+}
+
+func copyDir(ctx Context, src, dst string, opts *copyopts) (err error) {
+    if dst != "." && dst != "/" { // Make path (mkdir -p)
+        err = os.MkdirAll(dst, os.FileMode(0755))
+        if err != nil { return }
+    }
+
+    var fis []os.FileInfo
+    if fis, err = ioutil.ReadDir(src); err != nil {
+        return
+    }
+    for _, fi := range fis {
+        ss := filepath.Join(src, fi.Name())
+        sd := filepath.Join(dst, fi.Name())
+        err = copyFile(ctx, fi, ss, sd, opts)
+        if err != nil { break }
+    }
+    return
+}
+
+func copyFile(ctx Context, srcFi os.FileInfo, src, dst string, opts *copyopts) (err error) {
+    if m := srcFi.Mode(); m&os.ModeSymlink != 0 {
+        if opts.mode == 0 { opts.mode = srcFi.Mode() }
+        err = copySymlink(ctx, src, dst, opts)
+    } else if srcFi.IsDir() {
+        err = copyDir(ctx, src, dst, opts)
+    } else if m.IsRegular() {
+        if opts.mode == 0 { opts.mode = srcFi.Mode() }
+        err = copyRegular(ctx, src, dst, opts)
+    } else {
+        err = fmt.Errorf("copying non-regular files/dirs (%s)", src)
+    }
+    return
+}
+
+// (copy-file -p)
+// (copy-file -p,filename)
+// (copy-file -p,filename,source)
+type modifier_copyfile struct { modifier_
+    path bool "p,path"
+    recursive bool "r,recursive"
+    override bool "o,override"
+    update bool "u,update"
+    quick bool "q,quick"
+    mode os.FileMode "m,mode"
+    head Value "h,head"
+    foot Value "f,foot"
+}
+func (ctx *modifier_copyfile) x(args ...Value) (result any) {
+    var target Value
+    var source Value
+    if len(args) > 0 {
+        target = args[0]
+    } else {
+        target = auto_get(ctx, "@")
+    }
+    if len(args) > 1 {
+        source = args[1]
+    } else {
+        source = auto_get(ctx, "<")
+    }
+
+    // Get target filename
+    var (
+        project = _project(ctx)
+        filename, srcname string
+        filetime, srctime time.Time
+    )
+    switch tv := target.(type) {
+    case *file:
+        if filename = tv.fullname(); tv.info != nil {
+            filetime = tv.info.ModTime()
+        }
+    default:
+        filename = __string(ctx, target)
+        if file := project.file(ctx, filename); file != nil {
+            target, filename = file, file.fullname()
+            if file.info != nil {
+                filetime = file.info.ModTime()
+            }
+        }
+    }
+    switch tv := source.(type) {
+    case *file:
+        if srcname = tv.fullname(); tv.info != nil {
+            srctime = tv.info.ModTime()
+        }
+    default:
+        srcname = __string(ctx, source)
+        if file := project.file(ctx, srcname); file != nil {
+            source, srcname = file, file.fullname()
+            if file.info != nil { srctime = file.info.ModTime() }
+        }
+    }
+
+    if !filetime.IsZero() && filetime.After(srctime) {
+        if ctx.update {
+            if ctx.verbose { prompt(ctx, "update %v …", target) }
+        } else if ctx.override {
+            if ctx.verbose { prompt(ctx, "override %v …", target) }
+        } else {
+            if ctx.verbose { prompt(ctx, "copy %v …… already existed!\n", target) }
+            if !ctx.silent { debug(ctx, "file already existed (%s)", target, trace{}) }
+            return
+        }
+    } else if ctx.verbose {
+        if ctx.update {
+            prompt(ctx, "Checking %v …", target)
+        } else {
+            prompt(ctx, "Copy %v …", target)
+        }
+    }
+
+    if ctx.quick {
+        var file = _stat(ctx,filename, stat_nonexist{true})
+        if file == nil || file.info != nil {
+            if ctx.verbose { prompt(ctx, "… Good\n") }
+            return
+        }
+    }
+
+    var program = _program(ctx)
+    var copts = &copyopts{
+        program, ctx.path||ctx.recursive,
+        ctx.update, ctx.mode, ctx.head, ctx.foot,
+        0, 0, 0,
+    }
+    var file *file
+    if file = _stat(ctx,srcname, stat_nonexist{true}); file == nil || file.info == nil {
+        debug(ctx, "'%s' source file not found", srcname, trace{})
+    } else if !file.info.IsDir() {
+        if ctx.mode == 0 { ctx.mode = file.info.Mode() }
+        if err := copyFile(ctx, file.info, srcname, filename, copts); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    } else if ctx.recursive {
+        if err := copyDir(ctx, srcname, filename, copts); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    } else {
+        debug(ctx, "`%v` is a directory (use -r to solve it)", source, trace{})
+    }
+
+    if ctx.verbose {
+        if copts.copied == 0 {
+            prompt(ctx, "… Good (%d files)\n", copts.files)
+        } else if copts.copied == 1 {
+            prompt(ctx, "… Copied %d bytes\n", copts.bytes)
+        } else {
+            prompt(ctx, "… Copied %d bytes (%d/%d)\n", copts.bytes, copts.copied, copts.files)
+        }
+    }
+    return
+}
+
+type modifier_writefile struct { modifier_ }
+func (ctx *modifier_writefile) x(args ...Value) (result any) {
+    args = xmerge(ctx, args...) //, plain
+
+    var (
+        target = auto_get(ctx, "@")
+        filename, str string
+        f *os.File
+    )
+    if target == nil {
+        debug(ctx, "target is undefined", trace{})
+    }
+
+    defer func() {
+        if filename != "" { os.Remove(filename); f = nil }
+        if f == nil {
+            debug(ctx, "file %s not generated", target, trace{})
+        }
+    } ()
+
+    filename, _ = as_fullname_string(ctx, target)
+
+    if h := auto_get(ctx, "-"); h == nil {
+        debug(ctx, "buffer value is nil", trace{})
+    } else {
+        str = __string(ctx, h)
+    }
+
+    var err error
+    if f, err = os.Create(filename); err != nil {
+        debug(ctx, "%v", err, trace{})
+    } else if _, err = f.WriteString(str); err != nil {
+        f.Close()
+        debug(ctx, "%v", err, trace{})
+    } else {
+        result = _stat(ctx, filename)
+        f.Close()
+    }
+    return
+}
+
+type modifier_readfile struct { modifier_
+    head Value "h,head"
+    foot Value "f,foot"
+}
+func (ctx *modifier_readfile) x(args ...Value) (result any) {
+    var (
+        filename string
+        file *file
+        target Value
+    )
+    if n := len(args); n > 1 {
+        debug(ctx, "too many files: %v", args, trace{})
+    } else if n == 1 {
+        target = args[0]
+    } else {
+        target = auto_get(ctx, "@")
+    }
+
+    if isTrivial(target) {
+        debug(ctx, "target for reading is invalid (%T) (%v)", target, args, trace{})
+    } else if file, filename, _ = as_fullname_file(ctx, target); file == nil {
+        if val := auto_get(ctx, ">"); val != nil {
+            panic(traveTargetNotDefinedFile)
+        } else if true {
+            debug(ctx, "not a file: %v (%T)", target, target)
+            debug(ctx, trace{})
+        }
+        return
+    } else if filename == "" {
+        debug(ctx, "%v: empty fullname", target, trace{})
+    }
+
+    var ( bytes []byte ; err error )
+    if bytes, err = ioutil.ReadFile(filename); err == nil {
+		var b strings.Builder
+        
+        // Pre-grow the buffer to exactly the size we need to prevent re-allocations
+        headStr, footStr := "", ""
+        if ctx.head != nil { headStr = __string(ctx, ctx.head) }
+        if ctx.foot != nil { footStr = __string(ctx, ctx.foot) }
+
+        b.Grow(len(headStr) + len(bytes) + len(footStr))
+        b.WriteString(headStr)
+        b.Write(bytes) // Writes the byte slice directly, no string cast needed!
+        b.WriteString(footStr)
+		
+        auto_set(ctx.Context, defVoid, "-", _raw(_pos(ctx), b.String()))
+        auto_set(ctx.Context, defVoid, "-file", file)
+    } else {
+        debug(ctx, "%v", err, trace{})
+    }
+    if 0 < ctx.debug && err != nil {
+        debug(ctx, "%v: %v ; stems=%v\n", target, err, _stems(ctx))
+    }
+    return
+}
+
+func crc64CheckFileModeContent(ctx Context, filename string, content []byte, perm os.FileMode) (same bool, err error) {
+    var f *os.File
+    if f, err = os.Open(filename); err == nil && f != nil {
+        defer f.Close()
+
+        var s os.FileInfo
+        if s, err = f.Stat(); err != nil { return false, err }
+
+        // Fast Path: If sizes differ, they cannot be the same. Skip hashing!
+        if s.Size() != int64(len(content)) {
+            return false, nil
+        }
+
+        if perm != 0 && s.Mode().Perm() != perm {
+            if err = f.Chmod(perm); err != nil { return }
+        }
+
+        w1 := crc64.New(crc64Table)
+        w2 := crc64.New(crc64Table)
+        if _, err = io.Copy(w1, f); err != nil { return }
+        if _, err = w2.Write(content); err != nil { return }
+        if w1.Sum64() == w2.Sum64() { same = true }
+    }
+    return
+}
+
+func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bool, err error) {
+    var s []byte
+    if s, err = ioutil.ReadFile(filename1); err != nil {
+        debug(ctx, "%v", err, trace{})
+        return
+    }
+    return crc64CheckFileModeContent(ctx, filename2, s, 0)
+}
+
+type modifier_updatefile struct { modifier_
+    verbFilename bool `verbfile,verb-filename`
+    path   bool `p,path,makedir,make-dir,makepath,make-path`
+    zero   bool `zero,empty,allow-zero,allow-empty`
+    keep   bool `keep,keep-file`
+    append bool `app,append,append-content`
+    mode os.FileMode "mode"
+}
+func (ctx *modifier_updatefile) x(args ...Value) (result any) {
+    assert(ctx.mode != 0, "zero file mode")
+
+    var target Value
+    var content string
+    var filename string
+    if len(args) > 0 { target = args[0] }
+
+    if isTrivial(target) { target = auto_get(ctx, "@") }
+    if isTrivial(target) {
+        debug(ctx, "update-file: no file target", trace{})
+    } else if t := as_fullname(ctx, target); t.Value == nil {
+        debug(ctx, "update-file: not a file: %v", ts(target), trace{})
+    } else if filename = __string(ctx, t); filename == "" {
+        debug(ctx, "update-file: empty fullname: %v", ts(target), trace{})
+    }
+
+    if checkpoints {
+        defer func() {
+            ctx.x_check(target, filename, content, args, result)
+        } ()
+    }
+
+    if ctx.path { // Make path (mkdir -p)
+        if p := filepath.Dir(filename); p != "." && p != "/" {
+            if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
+                if e := os.Remove(p); e != nil {
+                    debug(ctx, "%v (%v)", e, ts(target), trace{})
+                }
+            }
+            if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
+                if proj := _project(ctx); proj != nil {
+                    info(ctx, "%v: %v %v", filename, proj, unmap_files(ctx, proj, _pathStr(ctx, filename), nil))
+                    info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
+                    debug(ctx, "%v: %v (%v)", filename, e, ts(target), trace{})
+                }
+                return
+            }
+        }
+    }
+
+    // Check existed file content checksum
+    var exeres *exec_result
+    if val := auto_get(ctx, "-"); val == nil {
+        // no buffer value
+    } else if content = __string(ctx, val); false && strings.Contains(content, `"\"`) {
+        prompt(ctx, "%v: %T\n", filename, val)
+        panic(_failure(ctx, "%s", filename))
+    } else {
+        exeres, _ = val.(*exec_result)
+    }
+
+    if content != "" {
+        // good to go
+    } else if ctx.zero {
+        if ctx.verbose || ctx.debug > 0 {
+            debug(ctx, "empty content for '%v'", target, callstack{num:ctx.debug})
+        }
+    } else {
+        if ctx.keep {
+            // keep file
+        } else if file := _stat(ctx, filename); file != nil && file.info != nil && file.info.Size() == 0 {
+            file.info = nil
+            if err := os.Remove(filename); err != nil {
+                debug(ctx, "remove file failed: %v", err, trace{})
+            }
+        }
+        if exeres != nil {
+            if exeres.Stdout.log != nil {
+                var pos Position
+                pos.Filename = exeres.Stdout.log.filename
+                pos.Line = exeres.Stdout.log.lines + 1
+                debug(ctx, "empty stdout")
+            }
+            if exeres.Stderr.log != nil && exeres.Stdout.log != exeres.Stderr.log {
+                var pos Position
+                pos.Filename = exeres.Stderr.log.filename
+                pos.Line = exeres.Stderr.log.lines + 1
+                debug(ctx, "empty stderr")
+            }
+        }
+
+        if v := auto_get(ctx, "-"); v == nil {
+            prompt(ctx, "%s:1: empty content\n", filename)
+        } else {
+            prompt(ctx, "%s:1: empty content: %v\n", filename, v)
+        }
+        debug(ctx, "empty content for '%v'", target, trace{})
+    }
+
+    var (
+        wrote int
+        same bool
+        err error
+    )
+    if ctx.verbose {
+        defer func(st time.Time) {
+            var f string
+            if ctx.verbFilename {
+                f = trimPromptString(filename)
+            } else {
+                f = trimPromptString(target.String())
+            }
+
+            var s string
+            if err != nil { s = err.Error() } else if same {
+                if true { return } else { s = "unchanged" }
+            } else if ctx.debug > 0 {
+                s = fmt.Sprintf("changed (%d bytes, %s)", wrote, filename)
+            } else {
+                s = fmt.Sprintf("changed (%d bytes)", wrote)
+            }
+            prompt(ctx, "update %v …… %s (in %v)\n", f, s, time.Now().Sub(st))
+        } (time.Now())
+    }
+
+    if same, err = crc64CheckFileModeContent(ctx, filename, []byte(content), ctx.mode); err != nil {
+        if _, ok := err.(*os.PathError); ok {
+            err = nil // discard path error (e.g. no such file or directory)
+        } else {
+            debug(ctx, "crc64 checksum failed: %v", err, trace{})
+        }
+    } else if same {
+        //removeCallerUpdated(ctx, target) // remove timestamp updated
+        result = _stat(ctx, filename)
+        return
+    }
+
+    // Create or update the file with new content
+
+    var f *os.File
+    var m = os.O_RDWR | os.O_CREATE
+    if ctx.append { m |= os.O_APPEND } else { m |= os.O_TRUNC }
+    if f, err = os.OpenFile(filename, m, ctx.mode); err != nil {
+        debug(ctx, "open file failed: %v", err, trace{})
+    } else if f != nil {
+        defer func() {
+            if err = f.Close(); err != nil {
+                os.Remove(filename)
+                debug(ctx, "close file '%s' failed: %v", filename, err, trace{})
+            }
+
+            if t := _stat(ctx, filename); t == nil {
+                prompt(ctx, "%s: invalid file\n", filename)
+                debug(ctx, "%v: invalid file '%s'", _project(ctx), filename, trace{})
+            } else {
+                var fs = t.stamp(must_files_stamp{ctx})
+                if false && ctx.verbose { reportFileUpdates(ctx, fs) }
+                result = t // resulting the updated file
+            }
+        } ()
+        if wrote, err = f.WriteString(content); err != nil {
+            debug(ctx, "write content failed: %v", err, trace{})
+        }
+    } else {
+        debug(ctx, "%v not updated", target, trace{})
+    }
+    return
+}
+
+type modifier_wait struct { modifier_
+    stdout   bool "o,stdout"
+    stderr   bool "e,stderr"
+    status   bool "s,status"
+    trim     bool "t,trim" // trim heading and tailing spaces of the result
+    execRes  bool "x,exec"
+    noTarget bool `nt,no-target`
+    asType string "a,as"
+}
+func (ctx *modifier_wait) x(args ...Value) (result any) {
+    var (
+        waitForExecResult = ctx.stdout || ctx.stderr || ctx.status || ctx.execRes
+        stampCurrentTarget = !ctx.noTarget
+        target Value = auto_get(ctx, "@")
+        execRes *exec_result
+        err error
+    )
+    if ctx.verbose {
+        defer func (st time.Time) {
+            var s string; if err != nil { s = "fail" } else { s = "done" }
+            prompt(ctx, "Wait %v …… %s, result=%v\n", target, s, execRes)
+            if ctx.debug>0 { debug(ctx, "%v", execRes) }
+        } (time.Now())
+    }
+
+    // Wait for prerequisites and/or execution
+    _, _, execRes = wait(ctx, waitopts{ctx.verbose, waitForExecResult, stampCurrentTarget})
+    if execRes == nil { return }
+
+    var (
+        pos = _pos(ctx)
+        a []Value
+        s string
+        v Value
+    )
+    if ctx.stdout {
+        // TODO: warn(ctx, "deprecated (wait -stdout), use (shell -stdout) instead; %v", execRes).debug()
+        if b := execRes.Stdout.Buf; b != nil { s = b.String() }
+        if ctx.trim { s = strings.TrimSpace(s) }
+        switch ctx.asType {
+        case "answer": v = _answer (pos,(s == "yes"))
+        case "bool":   v = _boolean(pos,(s == "true"))
+        default:       v = _strlit(pos,s)
+        }
+        a = append(a, v)
+    }
+    if ctx.stderr {
+        // TODO: warn(ctx, "deprecated (wait -stderr), use (shell -stderr) instead; %v", execRes).debug()
+        if b := execRes.Stderr.Buf; b != nil { s = b.String() }
+        if ctx.trim { s = strings.TrimSpace(s) }
+        switch ctx.asType {
+        case "answer": v = _answer (pos,(s == "yes"))
+        case "bool":   v = _boolean(pos,(s == "true"))
+        default:       v = _strlit(pos,s)
+        }
+        a = append(a, v)
+    }
+    if ctx.status {
+        // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug()
+        a = append(a, _decimal(pos,int64(execRes.Status)))
+    }
+
+    if len(a) > 0 { result = ease(ctx, a) }
+    return
+}
+
+func reportFileUpdates(ctx Context, fs []*file) {
+    var start = _execution(ctx).start
+    for _, f := range fs {
+        var mod = f.info.ModTime()
+        var d = time.Now().Sub(start)
+        if mod.After(start) {
+            prompt(ctx, "Updated %v (%v)\n", f.name, d)
+        } else {
+            prompt(ctx, "File %v not changed (%v, ModTime=%v)\n", f, d, mod)
+            warn(ctx, "incorrect timestamp: %v (JobTime=%v, ModTime=%v)", f, start, mod)
+            warn(ctx, "the target path name is: %v", f.fullname())
+            warn(ctx, "try 'touch' the target %v if the path name and command are correct", f)
+            info(ctx, "you may ignore the warnings if all correct")
+        }
+    }
+}
+
+type modifier_stamp struct { modifier_
+    prompt bool "prompt"
+    next   bool "nxt,next"  // traveNext if failed to stamp
+    error  bool "err,error" // traveErro if failed to stamp
+}
+func (ctx *modifier_stamp) x(args ...Value) (result any) {
+    var target = auto_target_value(ctx)
+
+    if isNull(target) {
+        prompt(ctx, "%v\n", _project(ctx))
+        debug(ctx, "stamp(%v) failed", target, trace{})
+    }
+
+    var v = stampFile(must_files_stamp{ctx}, target)
+    if v != nil { return /* Done! */ }
+
+    prompt(ctx, "%v: %v\n", target, _project(ctx))
+    if ctx.next {
+        panic(traverse_state{_position(ctx),traverse_next})
+    } else if ctx.error {
+        debug(ctx, "stamp(%v) error", trace{})
+    } else {
+        if f, y := target.(*file); y {
+            debug(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info, trace{})
+        } else {
+            debug(ctx, "failed stamp(%v) (%T)", target, target, trace{})
+        }
+    }
+    return
+}
+
+type modifier_assert struct { modifier_
+    msg string `msg,message`
+}
+func (ctx *modifier_assert) v(args ...Value) (_ any) { ctx.z(args...) ; return }
+func (ctx *modifier_assert) x(args ...Value) (_ any) { ctx.z(args...) ; return }
+func (ctx *modifier_assert) z(args ...Value) (_ any) {
+    var u = _universe(ctx)
+    for _, a := range args {
+        if a == nil {
+            debug(ctx, "assert: nil", trace{})
+        }
+
+        if _, y := a.(*punct); y { continue }
+
+        v := expand(_final(ctx),a)
+        b := v != nil && __true(ctx, v)
+        f := u.hooks.assert
+
+        if (f != nil && f(ctx, v, b)) || b {
+            continue
+        } else if ctx.msg == "" {
+            var s string
+            if v != nil { s = __string(ctx, v) }
+            debug(pc(ctx,a), "assert: %v → %v → '%s'", a, v, s, trace{})
+        } else {
+            debug(pc(ctx,a), "assert: %v → %v: %s", a, v, ctx.msg, trace{})
+        }
+    }
+    return
+}
+
+type modifier_cond struct { modifier_ }
+func (ctx *modifier_cond) x(args ...Value) (result any) {
+    // TODO: make it lisp-like (cond), e.g.:
+    //     (cond
+    //       ((condition) ...)
+    //       (true{} ...))
+    for _, a := range args {
+        if a == nil { debug(ctx, "nil arg") }
+        if a == nil || !__true(ctx.Context, a) {
+            panic(traverse_state{_position(ctx),traverse_done})
+        }
+    }
+    return _boolean(_pos(ctx), true)
+}
+
+type modifier_case struct { modifier_ }
+func (ctx *modifier_case) x(args ...Value) (result any) {
+    for _, a := range args {
+        if __true(ctx.Context, a) {
+            panic(traverse_state{_position(ctx),traverse_case})
+        }
+    }
+
+    if ctx.verbose { prompt(ctx, "%v", auto_get(ctx, "@")) }
+    panic(traverse_state{_position(ctx),traverse_next})
+    return
+}
+
+type modifier_predictDirty struct { modifier_ }
+func (ctx *modifier_predictDirty) x(args ...Value) (result any) {
+    if res := _execution(ctx).dirty(ctx, args...); res {
+        return makePrediction(_pos(ctx), res, "")
+    } else {
+        panic(traverse_state{_pos(ctx), traverse_done})
+    }
+}
+
+type modifier_fork struct { modifier_
+    wd string `workdir,work-dir`
+}
+func (ctx *modifier_fork) _x(args ...Value) (result Value) {
+    var (
+        attr syscall.ProcAttr
+        argv []string
+        prog = _program(ctx)
+    )
+    for _, a := range args { argv = append(argv, __string(ctx, a)) }
+
+    if ctx.wd != "" {
+        attr.Dir = ctx.wd
+    } else if attr.Dir = prog.workdir(ctx); attr.Dir == "" {
+        debug(ctx, "empty workdir", trace{})
+    }
+
+    attr.Env, _ = _execution(ctx).env(ctx)
+    attr.Files = []uintptr{ // FIXME: see Cmd.Start() for files pipes
+        os.Stdin .Fd(),
+        os.Stdout.Fd(),
+        os.Stderr.Fd(),
+    }
+
+    if exe, err := os.Executable(); err != nil {
+        debug(ctx, "fork: %v: %v", os.Args[0], err, trace{})
+    } else if pid, err := syscall.ForkExec(exe, argv, &attr); err != nil {
+        debug(ctx, "fork: %v: %v", exe, err, trace{})
+    } else if pid == 0 {
+        debug(ctx, "fork: pid is zero", trace{})
+    } else {
+        // TODO: status code, etc.
+    }
+    return
+}
+func (ctx *modifier_fork) x(args ...Value) (result any) {
+    var (
+        prog = _program(ctx)
+        argv []string
+        wd string
+    )
+    for _, a := range args { argv = append(argv, __string(ctx, a)) }
+
+    if ctx.wd != "" {
+        wd = ctx.wd
+    } else if wd = prog.workdir(ctx); wd == "" {
+        debug(ctx, "empty workdir", trace{})
+    }
+
+    var exe, err = os.Executable()
+    if err != nil {
+        debug(ctx, "fork: %v: %v", os.Args[0], err, trace{})
+    }
+
+    var cmd = exec.Command(exe, argv...)
+    cmd.Stdout, cmd.Stderr = stdout, stderr
+    cmd.Env, _ = _execution(ctx).env(ctx)
+
+    if err = cmd.Run(); err != nil {
+        debug(ctx, "fork: %v: %v", exe, err, trace{})
+    } else {
+        // TODO: status code, etc.
+    }
+    return
+}
+
+type modifier_gitmodified struct { modifier_ }
+func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
+    var out = new(bytes.Buffer)
+    var git = exec.Command("git", "status")
+    git.Stdout, git.Stderr = out, os.Stderr
+    if err := git.Run(); err != nil {
+        debug(ctx, "git failed: %v", err, trace{})
+    }
+
+    // TODO: check also for `Changes not staged for commit:`
+
+    var rx = regexp.MustCompile(`\n\tmodified:[\ctx ]*(.+?)\n`)
+    var sm = rx.FindAllSubmatch(out.Bytes(), -1)
+    if len(sm) > 0 {
+        var pos = _pos(ctx)
+        var pred = makePrediction(pos, false, "")
+        if result = pred; len(args) == 0 {
+            pred.bool, pred.s = true, "modified"
+            return
+        }
+        for _, a := range args {
+            var s = __string(ctx, a)
+            for _, v := range sm {
+                if false { prompt(ctx, "%s: %s\n%v\n", pos, s, v[1]) }
+                if s == string(v[1]) {
+                    pred.bool, pred.s = true, "modified: "+s
+                    return
+                }
+            }
+        }
+    }
+    return
+}
+
+type modifier_gitahead struct { modifier_ }
+func (ctx *modifier_gitahead) x(args ...Value) (result any) {
+    var out = new(bytes.Buffer)
+    var git = exec.Command("git", "status")
+    git.Stdout, git.Stderr = out, os.Stderr
+    if err := git.Run(); err != nil {
+        debug(ctx, "git: %v", err, trace{})
+    }
+
+    // TODO: check also for `Changes not staged for commit:`
+
+    var rx = regexp.MustCompile(`\nYour branch is ahead of '(.+?)' by`)
+    var sm = rx.FindAllSubmatch(out.Bytes(), 1)
+    if len(sm) > 0 {
+        result = makePrediction(_pos(ctx), true, "Work branch has new commits to push")
+    }
+    return
+}
+
+var (
+    onceMutex sync.Mutex
+    onceCache0 map[entry]map[Value]int
+    onceCache1 map[*program]map[Value]int
+    onceSHA256Mutex sync.Mutex
+    onceSHA256Cache = make(map[hashbytes]int,64)
+)
+
+func onceCacheTest0(ctx Context, target Value) (n int) {
+    var rec map[Value]int
+    var ent = _entry(ctx)
+    if x, y := ent.(*stemmed_rule); y { ent = x.rule }
+
+    onceMutex.Lock(); defer onceMutex.Unlock()
+    if onceCache0 == nil { onceCache0 = make(map[entry]map[Value]int, 64) }
+    if rec, _ = onceCache0[ent]; rec == nil {
+        rec = make(map[Value]int)
+        onceCache0[ent] = rec
+    }
+
+    rec[target] += 1
+    n = rec[target]
+    return
+}
+
+func onceCacheTest1(ctx Context, target Value) (n int) {
+    var (
+        prog = _program(ctx)
+        rec map[Value]int
+    )
+
+    onceMutex.Lock(); defer onceMutex.Unlock()
+    if onceCache1 == nil { onceCache1 = make(map[*program]map[Value]int,64) }
+    if rec, _ = onceCache1[prog]; rec == nil { rec = make(map[Value]int)
+        onceCache1[prog] = rec
+    }
+
+    rec[target] += 1
+    n = rec[target]
+    return
+}
+
+func onceCacheTest2(ctx Context, target Value) (n int) {
+    var (
+        program = _program(ctx)
+        h = sha256.New()
+        entry = _entry(ctx)
+    )
+    if stemmed, ok := entry.(*stemmed_rule); ok {
+        entry = stemmed.rule
+    }
+
+    // NOTE: ensure 'entry', 'program' and 'target' are unique.
+    if true {
+        fmt.Fprintf(h, "%p", program)
+    } else if false {
+        // // FIXME: not unique combination
+        // fmt.Fprintf(h, "%p", entry)
+        fmt.Fprintf(h, "%T%p", entry, entry)
+    } else {
+        // // FIXME: not unique combination
+        // fmt.Fprintf(h, "%p%p", entry, program)
+        fmt.Fprintf(h, "%T%p%p", entry, entry, program)
+    }
+
+    for _, t := range merge(target) {
+        if f, ok := to_file(t); ok {
+            fmt.Fprintf(h, "%s", f.fullname())
+        } else {
+            fmt.Fprintf(h, "%s", __string(ctx, t))
+        }
+    }
+
+    var sum hashbytes
+    copy(sum[:], h.Sum(nil))
+    return onceSHA256Test(ctx, sum)
+}
+
+func onceSHA256Test(ctx Context, sum hashbytes) (n int) {
+    onceSHA256Mutex.Lock()
+    n = onceSHA256Cache[sum]+1
+    onceSHA256Cache[sum] = n
+    onceSHA256Mutex.Unlock()
+    return
+}
+
+func onceSHA256(ctx *modifier_once, target Value, args ...Value) (n int) {
+    var (
+        program = _program(ctx)
+        entry = _entry(ctx)
+        h = sha256.New()
+    )
+    if stemmed, ok := entry.(*stemmed_rule); ok {
+        entry = stemmed.rule
+    }
+
+    if true {
+        // // NOTE: entry and program are unique, since (once) is for runtime, we use their addresses.
+        // fmt.Fprintf(h, "%p%p", entry, program)
+        fmt.Fprintf(h, "%T%p%p", entry, entry, program)
+    } else {
+        fmt.Fprintf(h, "%v%v", _position(ctx), program.pos)
+    }
+
+    for _, a := range args {
+        s, _ := as_fullname_string(ctx, a)
+        fmt.Fprintf(h, "%s", s)
+    }
+
+    var sum hashbytes
+    copy(sum[:], h.Sum(nil))
+    return onceSHA256Test(ctx, sum)
+}
+
+type modifier_once struct { modifier_
+    checksum bool `cs,checksum,sha,sha256,sum,hash`
+    forval Value `for` // TODO: (once -for=$@)
+}
+func (ctx *modifier_once) x(args ...Value) (result any) {
+    // TODO: (once)           --> once for the Rule, aka entry.doneOnce = true
+    // TODO: (once -for=$@)   --> once for $@, aka entry.onces[$(expand $@)] = true
+    var target Value = auto_get(ctx, "@")
+
+    const onceAlgo = 2 // avaialbe: 0, 1, 2
+
+    if isTrivial(target) {
+        debug(ctx, "once: no target $@, %v", args, trace{})
+    } else if ctx.checksum {
+        onceSHA256(ctx, target, append([]Value{target}, args...)...)
+    } else if onceAlgo == 2 {
+        onceCacheTest2(ctx, target)
+    } else if onceAlgo == 1 {
+        onceCacheTest1(ctx, target)
+    } else {
+        onceCacheTest0(ctx, target)
+    }
+    return
+}
+
+const benchmark = true
+const (
+    builtinCallable uint = 0
+    builtinCommand       = 1<<(iota-1)
+    builtinForce
+)
+
+type builtincalls struct{}
+func _builtincalls(ctx Context) (_ string) {
+    if s, y := do(ctx, builtincalls{}).(string); y {
+        return strings.Replace(s, "(%s)", "", -1)
+    }
+    return
+}
+
+type builtinbase struct{ *evocation ; general_opts }
+func (c *builtinbase) inner() Context { return c.evocation }
+func (c *builtinbase) cast(t reflect.Type) Context {
+    if reflect.TypeOf((*builtinbase)(nil)) == t { return c }
+    if reflect.TypeOf(c) == t { return c }
+    return c.evocation.cast(t)
+}
+func (c *builtinbase) do(ctx Context, op any) (_ any) {
+    switch op.(type) {
+    case builtincalls:
+        var s = c.x.String()+"(%s)"
+        if x, y := c.evocation.do(ctx, op).(string); y && x != "" {
+            s = fmt.Sprintf(x, s)
+        }
+        return s
+    }
+    return c.evocation.do(ctx, op)
+}
+func (c *builtinbase) ts(string) string {
+    if true {
+        var s = c.defs.String()
+        if s != "" { s += " " }
+        return "{="+c.x.String()+" "+s+ts(c.Context)+"}"
+    } else if false {
+        return "{="+c.x.String()+" "+ts(c.evocation)+"}"
+    } else {
+        return "{="+c.x.String()+" "+ts(c.Context)+"}"
+    }
+}
+func (c *builtinbase) _a(force bool) (skip bool) {
+    c.evocation.a = expands(c, c.evocation.a...)
+    return
+}
+
+type builtin_x interface{ x() any }
+var builtin_x_t = reflect.TypeOf((*builtin_x)(nil)).Elem()
+var builtins = map[string]reflect.Type {
+	`typeof`:    reflect.TypeOf((*__typeof)(nil)).Elem(),
+	`origin`:    reflect.TypeOf((*__origin)(nil)).Elem(),
+	`defined`:   reflect.TypeOf((*__defined)(nil)).Elem(),
+
+	`position`:  reflect.TypeOf((*__position)(nil)).Elem(),
+	`date`:      reflect.TypeOf((*__date)(nil)).Elem(),
+
+	`debug`:     reflect.TypeOf((*__debug)(nil)).Elem(),
+	`error`:     reflect.TypeOf((*__error)(nil)).Elem(),
+	`warning`:   reflect.TypeOf((*__warning)(nil)).Elem(),
+	`assert`:    reflect.TypeOf((*__assert)(nil)).Elem(),
+	`sure`:      reflect.TypeOf((*__sure)(nil)).Elem(),
+	`trace`:     reflect.TypeOf((*__trace)(nil)).Elem(),
+
+	`defor`:     reflect.TypeOf((*__defor)(nil)).Elem(), // $(defor $(x),$(y),$(z))  <=>  $(ifdef x,$(y),$(z))
+    `or`:        reflect.TypeOf((*__or)(nil)).Elem(),
+    `and`:       reflect.TypeOf((*__and)(nil)).Elem(),
+    `not`:       reflect.TypeOf((*__not)(nil)).Elem(),
+    `xor`:       reflect.TypeOf((*__xor)(nil)).Elem(),
+
+    `equal`:     reflect.TypeOf((*__equal)(nil)).Elem(),
+    `ne`:        reflect.TypeOf((*__unequal)(nil)).Elem(),
+    `not-equal`: reflect.TypeOf((*__unequal)(nil)).Elem(),
+    `match`:     reflect.TypeOf((*__match)(nil)).Elem(),
+
+    `greater`:   reflect.TypeOf((*__greater)(nil)).Elem(),
+    `less`:      reflect.TypeOf((*__less)(nil)).Elem(),
+
+    `case`:      reflect.TypeOf((*__case)(nil)).Elem(),
+    `if`:        reflect.TypeOf((*__if)(nil)).Elem(),
+    `ifeq`:      reflect.TypeOf((*__ifeq)(nil)).Elem(),
+    `ifne`:      reflect.TypeOf((*__ifne)(nil)).Elem(),
+    `ifarg`:     reflect.TypeOf((*__ifarg)(nil)).Elem(),
+    `ifdef`:     reflect.TypeOf((*__ifdef)(nil)).Elem(),
+
+    `for`:       reflect.TypeOf((*__for)(nil)).Elem(),
+    `foreach`:   reflect.TypeOf((*__foreach)(nil)).Elem(),
+    `count`:     reflect.TypeOf((*__count)(nil)).Elem(),
+
+    `auto`:      reflect.TypeOf((*__auto)(nil)).Elem(),
+    // `var`:       reflect.TypeOf((*__var)(nil)).Elem(),
+
+    `call`:      reflect.TypeOf((*__call)(nil)).Elem(),
+    `defs`:      reflect.TypeOf((*__defs)(nil)).Elem(),
+
+    `value`:     reflect.TypeOf((*__value)(nil)).Elem(),
+    `list`:      reflect.TypeOf((*__list)(nil)).Elem(),
+    `env`:       reflect.TypeOf((*__env)(nil)).Elem(),
+
+    `shell`:     reflect.TypeOf((*__shell)(nil)).Elem(),
+    `which`:     reflect.TypeOf((*__which)(nil)).Elem(),
+
+    `plus`:      reflect.TypeOf((*__plus)(nil)).Elem(),
+    `minus`:     reflect.TypeOf((*__minus)(nil)).Elem(),
+    `multiply`:  reflect.TypeOf((*__multiply)(nil)).Elem(),
+    `mul`:       reflect.TypeOf((*__multiply)(nil)).Elem(),
+    `divide`:    reflect.TypeOf((*__divide)(nil)).Elem(),
+    `div`:       reflect.TypeOf((*__divide)(nil)).Elem(),
+
+    `join`:       reflect.TypeOf((*__join)(nil)).Elem(),
+    `conjunct`:   reflect.TypeOf((*__conjunct)(nil)).Elem(), // concat
+    `quote`:      reflect.TypeOf((*__quote)(nil)).Elem(),
+    `unique`:     reflect.TypeOf((*__unique)(nil)).Elem(),
+
+    `split`:            reflect.TypeOf((*__split)(nil)).Elem(),
+    `split-quote`:      reflect.TypeOf((*__splitquote)(nil)).Elem(),
+    `split-quote-join`: reflect.TypeOf((*__splitquotejoin)(nil)).Elem(),
+    `split-join-quote`: reflect.TypeOf((*__splitjoinquote)(nil)).Elem(),
+
+    `element`:      reflect.TypeOf((*__element)(nil)).Elem(),
+    `field`:        reflect.TypeOf((*__field)(nil)).Elem(),
+    `fields`:       reflect.TypeOf((*__fields)(nil)).Elem(),
+
+    // `usee`:         reflect.TypeOf((*__usee)(nil)).Elem(),
+    `uses`:         reflect.TypeOf((*__uses)(nil)).Elem(),
+
+    `bare`:         reflect.TypeOf((*__bare)(nil)).Elem(),
+    `path`:         reflect.TypeOf((*__path)(nil)).Elem(),
+    `word`:         reflect.TypeOf((*__word)(nil)).Elem(),
+    `finalize`:     reflect.TypeOf((*__finalize)(nil)).Elem(),
+    `resolve`:      reflect.TypeOf((*__resolve)(nil)).Elem(),
+    `strip`:        reflect.TypeOf((*__trim)(nil)).Elem(),
+    `trim`:         reflect.TypeOf((*__trim)(nil)).Elem(),
+    `trim-left`:    reflect.TypeOf((*__trimleft)(nil)).Elem(),
+    `trim-right`:   reflect.TypeOf((*__trimright)(nil)).Elem(),
+    `trim-prefix`:  reflect.TypeOf((*__trimprefix)(nil)).Elem(),
+    `trim-suffix`:  reflect.TypeOf((*__trimsuffix)(nil)).Elem(),
+    `trim-ext`:     reflect.TypeOf((*__trimext)(nil)).Elem(),
+
+    `gitdir`:       reflect.TypeOf((*__gitdir)(nil)).Elem(),
+
+    `addprefix`:    reflect.TypeOf((*__addprefix)(nil)).Elem(),
+    `addsuffix`:    reflect.TypeOf((*__addsuffix)(nil)).Elem(),
+
+    `title`:        reflect.TypeOf((*__title)(nil)).Elem(),
+    `indent`:       reflect.TypeOf((*__indent)(nil)).Elem(),
+    `substring`:    reflect.TypeOf((*__substring)(nil)).Elem(),
+    `uppercase`:    reflect.TypeOf((*__uppercase)(nil)).Elem(),
+    `lowercase`:    reflect.TypeOf((*__lowercase)(nil)).Elem(),
+
+    // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
+    `subst`:        reflect.TypeOf((*__subst)(nil)).Elem(),
+    `patsubst`:     reflect.TypeOf((*__patsubst)(nil)).Elem(),
+
+    `contains`:     reflect.TypeOf((*__contains)(nil)).Elem(),
+    `filter`:       reflect.TypeOf((*__filter)(nil)).Elem(),
+    `filter-out`:   reflect.TypeOf((*__filterout)(nil)).Elem(),
+
+    `decode-base64`: reflect.TypeOf((*__decodebase64)(nil)).Elem(),
+    `encode-base64`: reflect.TypeOf((*__encodebase64)(nil)).Elem(),
+    /* TODO:
+    `encode-base32`
+    `decode-base32`
+    `encode-json`
+    `decode-json`
+    `encode-xml`
+    `decode-xml`
+    `encode-hex`
+    `decode-hex`
+    `encode-csv`
+    `decode-csv` */
+
+    `ext`:        reflect.TypeOf((*__ext)(nil)).Elem(),
+
+    `base` :      reflect.TypeOf((*__base1)(nil)).Elem(),
+    `base2`:      reflect.TypeOf((*__base2)(nil)).Elem(),
+    `base3`:      reflect.TypeOf((*__base3)(nil)).Elem(),
+    `base4`:      reflect.TypeOf((*__base4)(nil)).Elem(),
+    `base5`:      reflect.TypeOf((*__base5)(nil)).Elem(),
+    `base6`:      reflect.TypeOf((*__base6)(nil)).Elem(),
+    `base7`:      reflect.TypeOf((*__base7)(nil)).Elem(),
+    `base8`:      reflect.TypeOf((*__base8)(nil)).Elem(),
+    `base9`:      reflect.TypeOf((*__base9)(nil)).Elem(),
+    `bases`:      reflect.TypeOf((*__bases)(nil)).Elem(),
+
+    `chopdir`:    reflect.TypeOf((*__chopdir)(nil)).Elem(),
+
+    `dir`:        reflect.TypeOf((*__dir)(nil)).Elem(),
+    `dir2`:       reflect.TypeOf((*__dir2)(nil)).Elem(),
+    `dir3`:       reflect.TypeOf((*__dir3)(nil)).Elem(),
+    `dir4`:       reflect.TypeOf((*__dir4)(nil)).Elem(),
+    `dir5`:       reflect.TypeOf((*__dir5)(nil)).Elem(),
+    `dir6`:       reflect.TypeOf((*__dir6)(nil)).Elem(),
+    `dir7`:       reflect.TypeOf((*__dir7)(nil)).Elem(),
+    `dir8`:       reflect.TypeOf((*__dir8)(nil)).Elem(),
+    `dir9`:       reflect.TypeOf((*__dir9)(nil)).Elem(),
+    `dirs`:       reflect.TypeOf((*__dirs)(nil)).Elem(),
+
+    `undir`:      reflect.TypeOf((*__undir1)(nil)).Elem(),
+    `undir2`:     reflect.TypeOf((*__undir2)(nil)).Elem(),
+    `undir3`:     reflect.TypeOf((*__undir3)(nil)).Elem(),
+    `undir4`:     reflect.TypeOf((*__undir4)(nil)).Elem(),
+    `undir5`:     reflect.TypeOf((*__undir5)(nil)).Elem(),
+    `undir6`:     reflect.TypeOf((*__undir6)(nil)).Elem(),
+    `undir7`:     reflect.TypeOf((*__undir7)(nil)).Elem(),
+    `undir8`:     reflect.TypeOf((*__undir8)(nil)).Elem(),
+    `undir9`:     reflect.TypeOf((*__undir9)(nil)).Elem(),
+    `undirs`:     reflect.TypeOf((*__undirs)(nil)).Elem(),
+
+    `reldir`:       reflect.TypeOf((*__reldir)(nil)).Elem(),
+    `relative-dir`: reflect.TypeOf((*__reldir)(nil)).Elem(),
+
+    `file`:         reflect.TypeOf((*__file)(nil)).Elem(),
+    `stat`:         reflect.TypeOf((*__stat)(nil)).Elem(),// stat (deprecates file-exists)
+    `glob`:         reflect.TypeOf((*__glob)(nil)).Elem(),
+    `wildcard`:     reflect.TypeOf((*__wildcard)(nil)).Elem(),
+
+    `read-dir`:     reflect.TypeOf((*__readdir)(nil)).Elem(),  // io/ioutil/ioutil.go
+    `read-file`:    reflect.TypeOf((*__readfile)(nil)).Elem(), // io/ioutil/ioutil.go
+
+    `grep`:         reflect.TypeOf((*__grep)(nil)).Elem(),
+
+    // commands ------------------------------------------------------------------
+    `print`:        reflect.TypeOf((*__print)(nil)).Elem(),
+    `printf`:       reflect.TypeOf((*__printf)(nil)).Elem(),
+
+    `plain`:        reflect.TypeOf((*__plain)(nil)).Elem(),
+
+    `append`:       reflect.TypeOf((*__append)(nil)).Elem(),
+    // `unshift`:      reflect.TypeOf((*__unshift)(nil)).Elem(),
+    // `pop`:          reflect.TypeOf((*__pop)(nil)).Elem(),
+
+    `write-file`:   reflect.TypeOf((*__writefile)(nil)).Elem(), // io/ioutil/ioutil.go
+    `touch-file`:   reflect.TypeOf((*__readfile)(nil)).Elem(),  // io/ioutil/ioutil.go
+
+    `mkdir`:        reflect.TypeOf((*__mkdir)(nil)).Elem(),     // os/file.go
+    `chdir`:        reflect.TypeOf((*__chdir)(nil)).Elem(),     // os/file.go
+    `rename`:       reflect.TypeOf((*__rename)(nil)).Elem(),    // os/file.go
+    `remove`:       reflect.TypeOf((*__remove)(nil)).Elem(),    // os/file_*.go
+    `link`:         reflect.TypeOf((*__link)(nil)).Elem(),      // os/file_*.go
+    `symlink`:      reflect.TypeOf((*__symlink)(nil)).Elem(),   // os/file_*.go
+    `truncate`:     reflect.TypeOf((*__truncate)(nil)).Elem(),  // os/file_*.go
+
+    `return`:       reflect.TypeOf((*__return)(nil)).Elem(),
+    `serve-http`:   reflect.TypeOf((*__servehttp)(nil)).Elem(),
+}
+
+func escapedString(ctx Context, v Value) (s string) {
+    if p, ok := v.(*strlit); ok {
+        s = strings.Replace(__string(ctx, p), "\\'", "'", -1)
+    } else {
+        s = __string(ctx, v)
+    }
+    return
+}
+
+func isNotSpace(r rune) bool {
+    return !unicode.IsSpace(r)
+}
+
+func isRelPath(filename string) (res bool) {
+    // This implementation replaces:
+    //      strings.HasPrefix(filename, "."+pathSep)
+    //      strings.HasPrefix(filename, ".."+pathSep)
+    var ( s = "."+pathSep ; n = len(filename) )
+    if n > 1 && filename[0] == s[0] {
+        if filename[1] == s[0] && n > 2 {
+            res = filename[2] == s[1]
+        } else if filename[1] == s[1] {
+            res = true
+        }
+    }
+    return
+}
+
+func isAbsOrRel(filename string) bool {
+    return filepath.IsAbs(filename) || isRelPath(filename)
+}
+
+func trimLeftSpaces(s string) string {
+    return strings.TrimLeftFunc(s, unicode.IsSpace)
+}
+
+func trimRightSpaces(s string) string {
+    return strings.TrimRightFunc(s, unicode.IsSpace)
+}
+
+func _set(ctx Context, val reflect.Value, v Value) {
+    switch val.Kind() {
+    case reflect.Bool:
+        val.SetBool(__true(ctx, v))
+    case reflect.Float32, reflect.Float64:
+        val.SetFloat(__float(ctx, v))
+    case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+        val.SetInt(__int(ctx, v))
+    case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+        val.SetUint(uint64(__int(ctx, v)))
+    case reflect.String:
+        val.SetString(__string(ctx, v))
+    case reflect.Slice:
+        if p := reflect.New(val.Type().Elem()); p.Kind() == reflect.Ptr {
+            var t = p.Elem()
+            _set(ctx, t, v)
+            val.Set(reflect.Append(val, t))
+        }
+    case reflect.Interface:
+        switch val.Type().String() {
+        case "smart.Value":
+            val.Set(reflect.ValueOf(v))
+        default:
+            debug(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type(), trace{})
+        }
+    case reflect.Ptr:
+        switch val.Type().Elem().String() {
+        case "smart.fullname":
+            if t := as_fullname(fullfile_ctx{ctx}, v); t.Value != nil {
+                val.Set(reflect.ValueOf(&t))
+            } else {
+                debug(pc(ctx,v), _f("%v → %v", v, as_file(ctx, v)),
+					_f("not a file: %v → %s", ts(v), ts(expand(ctx, v))), trace{})
+            }
+        case "smart.file":
+            if t := as_file(ctx, v); t != nil {
+                val.Set(reflect.ValueOf(t))
+            } else {
+                debug(pc(ctx,v), _f("not a file: %v → %s", ts(v), ts(expand(ctx, v))), trace{})
+            }
+        case "regexp.Regexp":
+            if rx, e := regexp.Compile(__string(ctx, v)); e == nil {
+                val.Set(reflect.ValueOf(rx))
+            } else {
+                debug(pc(ctx,v), "wrong regexp: %v: %v", ts(v), e, trace{})
+            }
+        default:
+            debug(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Elem().Kind(), val.Type().Elem(), trace{})
+        }
+    default:
+        switch val.Type().String() {
+        case "fs.FileMode", "os.FileMode": // aka. reflect.Uint32
+            var t = __int(ctx, v)
+            if t == 0 { debug(pc(ctx,v), "zero file mode") }
+            val.SetUint(uint64(t))
+        case "regexp.Regexp": // aka. reflect.Ptr
+            debug(pc(ctx,v), "TODO: regexp: %v → %v, %v", ts(v), val.Kind(), val.Type(), trace{})
+        default:
+            debug(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type(), trace{})
+        }
+    }
+}
+
+func _opt(ctx Context, tag reflect.StructTag, field reflect.Value, args ...Value) (rest []Value) {
+    var val = reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+    var opts []string // opt names
+
+    if tag == "" { return args }
+    if t := string(tag)[:]; t != "" {
+        for {
+            if i := strings.IndexAny(t, ";, "); 0 <= i {
+                opts = append(opts, t[:i])
+                t = t[i+1:]
+            } else {
+                opts = append(opts, t)
+                break
+            }
+        }
+    }
+
+outer:
+    for _, arg := range args {
+        var y bool
+        var f flag
+        var value Value
+
+        // 1. Extract the flag identity safely FIRST
+        switch t := arg.(type) {
+        case        flag: f, y = t, true; value = _boolean(t.Pos(), true)
+        case       *pair: if f, y = t.key.(flag);   y { value = t.val }
+        case *argumented: if f, y = t.Value.(flag); y { value = ease(ctx, t.args) }
+        }
+
+        // 2. CRITICAL FIX: Only skip if the flag name ITSELF is a pattern (e.g. -I%), 
+        // DO NOT skip if only the arguments contain patterns (like -cond($(depfiles?)))
+        if y && !patterned(ctx, f) {
+            for i := 0; i < len(opts); i += 1 {
+                if _, match := f.opt(ctx, opts[i]); match {
+                    _set(ctx, val, value)
+                    continue outer
+                }
+            }
+        }
+
+        rest = append(rest, arg)
+    }
+
+    switch val.Type().String() {
+    case "fs.FileMode", "os.FileMode":
+        if val.Uint() == 0 { val.SetUint(0640) }
+    }
+    return
+}
+
+func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
+    if args == nil { return }
+
+    if opts.Kind() != reflect.Ptr {
+        debug(ctx, "opts must be ptr: %v", opts.Kind(), trace{})
+    } else if opts = opts.Elem(); opts.Kind() != reflect.Struct {
+        debug(ctx, "opts is not ptr of struct: %v", opts.Kind(), trace{})
+    }
+
+    rest = merge(args...)
+
+    var builtin, general, modifier, clause, dots reflect.Value
+    var ot = opts.Type()
+    for i := 0; i < ot.NumField(); i += 1 {
+        var ft, fv = ot.Field(i), opts.Field(i)
+        if ft.Tag == "..." {
+            dots = fv
+        } else if t := fv.Type(); fv.Kind() != reflect.Struct {
+            if ft.Anonymous && ft.Name == "Context" && t.String() == "smart.Context" {
+				continue
+            }
+
+			// CRITICAL FIX: Intercept embedded *clause_opts (Pointer)
+            if ft.Anonymous && ft.Name == "clause_opts" && fv.Kind() == reflect.Ptr {
+                if !fv.IsNil() { clause = fv }
+                continue
+            }
+			
+            rest = _opt(ctx, ft.Tag, fv, rest...)
+        } else if !ft.Anonymous {
+            continue
+        } else if ft.Name == "general_opts" {
+            general = fv.Addr()
+		} else if ft.Name == "clause_opts" {
+			clause = fv.Addr() // Support if it was embedded by value instead of pointer
+        } else if strings.HasPrefix(ft.Name, "__") {
+            if builtin.IsValid() { debug(ctx, "embedded multiple builtins: %v", ft) }
+            builtin = fv.Addr()
+        } else if strings.HasPrefix(ft.Name, "modifier_") {
+            if modifier.IsValid() { debug(ctx, "embedded multiple modifiers: %v", ft) }
+            modifier = fv.Addr()
+        }
+    }
+    if  general.IsValid() { rest = _opts(ctx,  general, rest) }
+	if   clause.IsValid() { rest = _opts(ctx,   clause, rest) } // Inherit clause_opts!
+    if  builtin.IsValid() { rest = _opts(ctx,  builtin, rest) }
+    if modifier.IsValid() { rest = _opts(ctx, modifier, rest) }
+    if dots.IsValid() && rest != nil {
+        _set(ctx, dots, ease(ctx, rest))
+        rest = nil
+    }
+    return
+}
+func parseOpts(ctx Context, store any, vals ...Value) []Value {
+    return _opts(ctx, reflect.ValueOf(store), vals)
+}
+
+// see https://go.dev/doc/tutorial/generics
+func _opts_[Opts any](ctx Context, args ...Value) (opts Opts, res []Value) {
+    res = parseOpts(ctx, &opts, args...)
+    return
+}
+
+func _parseHeadArgs(ctx Context, store any, args ...Value) (head, rest []Value) {
+    if len(args) == 0 {
+        // zero args
+    } else if head = parseOpts(ctx, store, args[0]); len(head) > 0 {
+        rest = args[1:] //xmerge(ctx, args[1:]...)
+    } else if len(args) == 1 {
+        // done
+    } else if head = xmerge(ctx, args[1]); len(args) > 2 {
+        rest = args[2:] //xmerge(ctx, args[2:]...)
+    }
+    return
+}
+
+func _parseHeadArgsMerge(ctx Context, store any, args ...Value) (res []Value) {
+    var head, rest = _parseHeadArgs(ctx, store, args...)
+    res = append(head, rest...)
+    return
+}
+
+func _parseHeadArgsRequired(ctx Context, store any, args ...Value) (head, rest []Value) {
+    head, rest = _parseHeadArgs(ctx, store, args...)
+    if len(head) == 0 || len(rest) == 0 {
+        debug(ctx, "insufficient number of arguments", trace{})
+    }
+    return
+}
+
+type __noop struct { builtinbase }
+func (ctx *__noop) inner() Context { return &ctx.builtinbase }
+func (ctx *__noop) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__noop) x() (_ any) { return }
+
+type __typeof struct { builtinbase }
+func (ctx *__typeof) inner() Context { return &ctx.builtinbase }
+func (ctx *__typeof) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__typeof) x() (res any) {
+    var vals []Value
+    for _, a := range ctx.a {
+        // Arguments are passed in a list:
+        //   $(fun abc)             args: (abc)
+        //   $(fun a,b,c)           args: (a),(b),(c)
+        //   $(fun a b c,1 2 3)     args: (a b c),(1 2 3)
+        vals = append(vals, _word(a.Pos(), typeof(a)))
+    }
+    return vals
+}
+
+type __origin struct { builtinbase }
+func (ctx *__origin) inner() Context { return &ctx.builtinbase }
+func (ctx *__origin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__origin) x() (res any) {
+    var vals []Value
+    var scope = _scope(ctx)
+    for _, a := range ctx.a {
+        if s := __string(ctx, a); s == "" {
+            vals = append(vals, _null(a.Pos()))
+        } else if d := scope.finddef(s); d != nil {
+            vals = append(vals, _word(a.Pos(), d.o.String()))
+        } else {
+            vals = append(vals, _null(a.Pos()))
+        }
+    }
+    return vals
+}
+
+type __defined struct { builtinbase }
+func (ctx *__defined) inner() Context { return &ctx.builtinbase }
+func (ctx *__defined) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__defined) x() (_ any) {
+    var scope = _scope(ctx)
+    for _, arg := range ctx.a {
+        if d := scope.finddef(__string(ctx, arg)); d != nil && !isTrivial(d.value) {
+            return true
+        }
+    }
+    return
+}
+
+type __position struct { builtinbase
+    filename bool `filename`
+    filenameQuoted bool `quote-filename,quoted-filename`
+    line bool `ln,line`
+    column bool `col,column`
+    addLine int `add,add-line`
+    addColumn int `add-column`
+}
+func (ctx *__position) inner() Context { return &ctx.builtinbase }
+func (ctx *__position) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__position) x() (res any) {
+	var vals []Value
+	var pos = _position(ctx.Context) // Fat Position for string formatting
+	var p = _pos(ctx.Context)        // Compact Pos for AST construction
+	
+	if ctx.filename {
+		vals = append(vals, _raw(p, pos.Filename))
+	} else if ctx.filenameQuoted {
+		vals = append(vals, _raw(p, "\""+pos.Filename+"\""))
+	}
+
+	if ctx.line   { vals = append(vals, _decimal(p, int64(pos.Line + ctx.addLine))) }
+	if ctx.column { vals = append(vals, _decimal(p, int64(pos.Column + ctx.addColumn))) }
+
+	if len(vals) == 0 { return _raw(p, pos.String()) }
+	if len(vals) == 1 { return vals[0] }
+	return vals
+}
+
+type __date struct { builtinbase
+    time bool `time,now`
+}
+func (ctx *__date) inner() Context { return &ctx.builtinbase }
+func (ctx *__date) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__date) x() (res any) {
+    if t := time.Now(); len(ctx.a) > 0 {
+        var vals []Value
+        for _, a := range ctx.a {
+            var s string
+            if s = __string(ctx, a); s == "" {
+                s = t.String()
+            } else if s = t.Format(s); s == "" {
+                s = fmt.Sprintf("%v", t)
+            }
+            vals = append(vals, _strlit(a.Pos(), s))
+        }
+        return vals
+    } else if ctx.time {
+        res = makeTime(_pos(ctx), t)
+    } else {
+        res = makeDate(_pos(ctx), t)
+    }
+    return
+}
+
+type __debug struct { builtinbase
+    s int `stack`
+    n int `num`
+}
+func (ctx *__debug) inner() Context { return &ctx.builtinbase }
+func (ctx *__debug) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__debug) x() (res any) {
+    var s bytes.Buffer
+	for i, a := range ctx.a { if i > 0 { fmt.Fprintf(&s, " ") }
+		fmt.Fprintf(&s, "%v", __string(ctx, a))
+	}
+    if hook := _universe(ctx).hooks.debug; hook != nil {
+        hook(ctx, s.String(), ctx.a)
+    } else if true {
+		prompt(ctx, "%s: %s\n", _position(ctx), s.String()); flush(ctx)
+	} else {
+        debug(ctx, "%s", s, callstack{num:ctx.n})
+    }
+    return
+}
+
+type __error struct { builtinbase }
+func (ctx *__error) inner() Context { return &ctx.builtinbase }
+func (ctx *__error) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__error) x() (res any) {
+    var s bytes.Buffer
+	for i, a := range ctx.a { if i > 0 { fmt.Fprintf(&s, " ") }
+		fmt.Fprintf(&s, "%v", __string(ctx, a))
+	}
+    if hook := _universe(ctx).hooks.error; hook != nil {
+        hook(ctx, s.String(), ctx.a)
+	} else {
+        erro(ctx, "%s", s)
+    }
+    return
+}
+
+type __warning struct { builtinbase }
+func (ctx *__warning) inner() Context { return &ctx.builtinbase }
+func (ctx *__warning) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__warning) x() (res any) {
+    var s bytes.Buffer
+    for i, a := range ctx.a {
+        if i > 0 { fmt.Fprintf(&s, " ") }
+        fmt.Fprintf(&s, "%s", __string(ctx, a))
+    }
+    debug(ctx, "%s", s.String())
+    return
+}
+
+type __assert struct { builtinbase ; msg string `msg,message` }
+func (ctx *__assert) inner() Context { return &ctx.builtinbase }
+func (ctx *__assert) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__assert) x() (res any) {
+    var d = ctx.debug ; if d < 1 { d = 1 }
+    var s = ctx.stack ; if s < 1 { s = 1 }
+    var t = diagError ; if ctx.warning { t = diagWarn }
+    var hook = _universe(ctx).hooks.assert
+
+    if ctx.a == nil && hook != nil && !hook(ctx, nil, false) {
+        prompt(ctx, "assert: %v\n", ctx.a)
+        debug(ctx, s, t, callstack{num:d})
+    }
+
+    for _, a := range expands(ctx, ctx.a...) {
+        if a == nil {
+            debug(ctx, "nil argument", trace{})
+            continue
+        }
+
+        var c = pc(ctx, a)
+        var y = __true(c, a)
+        if hook != nil && hook(c, a, y) || y {
+            continue
+        }
+
+        debug(c, s, t, "%v ⇒ '%s'", ts(a), __string(c, a), callstack{num:d})
+    }
+
+    if ctx.fail { panic(_failure(ctx)) }
+    return
+}
+
+type __sure struct { builtinbase }
+func (ctx *__sure) inner() Context { return &ctx.builtinbase }
+func (ctx *__sure) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__sure) x() (res any) {
+    for _, a := range ctx.a {
+        if !__true(ctx, a) {
+            debug(ctx, "assert: %v", ts(a), trace{})
+        }
+    }
+    return ctx.a
+}
+
+type __trace struct { builtinbase }
+func (ctx *__trace) inner() Context { return &ctx.builtinbase }
+func (ctx *__trace) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trace) x() (res any) {
+    for _, a := range ctx.a {
+        note(ctx, "%v", ts(a), trace{})
+    }
+    return
+}
+
+// $(defor $(x),$(y),$(z)) is identical to $(if $(defined $(x)),$(x),...)
+type __defor struct { builtinbase } // aka. defined-or
+func (ctx *__defor) inner() Context { return &ctx.builtinbase }
+func (ctx *__defor) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__defor) x() (res any) {
+    for _, a := range merge(ctx.a...) {
+        debug(ctx, "TODO: %v", ts(a), trace{})
+
+        var unres bool
+        if unres {
+            continue
+        } else {
+            res = a
+            break
+        }
+    }
+    return
+}
+
+type __or struct { builtinbase }
+func (ctx *__or) inner() Context { return &ctx.builtinbase }
+func (ctx *__or) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__or) x() (res any) {
+	for _, a := range merge(ctx.a...) {
+		if a = expand(ctx, a); __true(ctx, a) { return a }
+	}
+	return
+}
+
+type __and struct { builtinbase }
+func (ctx *__and) inner() Context { return &ctx.builtinbase }
+func (ctx *__and) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__and) x() (res any) {
+    for _, a := range merge(ctx.a...) {
+        if a = expand(ctx, a); __true(ctx, a) { res = a } else { return nil }
+    }
+    return
+}
+
+// $(not x y z) ⇒ (not (or x y z))
+// $(not x,y,z) ⇒ (and (not x) (not y) (not z))
+type __not struct { builtinbase }
+func (ctx *__not) inner() Context { return &ctx.builtinbase }
+func (ctx *__not) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__not) x() (res any) {
+    var t bool
+    for _, a := range ctx.a { if t = __true(ctx, expand(ctx, a)); t { break } }
+    return !t
+}
+
+type __xor struct { builtinbase }
+func (ctx *__xor) inner() Context { return &ctx.builtinbase }
+func (ctx *__xor) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__xor) x() (res any) {
+    if vals := merge(ctx.a...); len(vals) > 1 {
+        var t = __true(ctx, expand(ctx, vals[0]))
+        for _, a := range vals[1:] {
+            if __true(ctx, expand(ctx, a)) != t {
+                return _boolean(a.Pos(), true)
+            }
+        }
+    }
+    return
+}
+
+type __unequal struct { builtinbase }
+func (ctx *__unequal) inner() Context { return &ctx.builtinbase }
+func (ctx *__unequal) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__unequal) x() (_ any) {
+    if len(ctx.a) != 2 {
+        debug(ctx, _f("unequal: wrong number of arguments: %v", ctx.a),
+			_f("try: $(unequal <value-list>,<value-list>)"), trace{})
+    }
+
+    var a = expand(_final(ctx), ctx.a[0])
+    var b = expand(_final(ctx), ctx.a[1])
+    var t = cmp(ctx, a, b) != cmpEqual
+
+    if t {
+        return _boolean(_pos(ctx), true)
+    } else if n := ctx.debug; n>0 {
+        if l, y := a.(*list); y {
+            var v = l.elems[0]
+            warn(ctx, "unequal: a: %T(len=%d), %T %v", a, len(l.elems), v, v)
+        } else {
+            warn(ctx, "unequal: a: %T %v", a, a)
+        }
+        if l, y := b.(*list); y {
+            var v = l.elems[0]
+            warn(ctx, "unequal: b: %T(len=%d), %T %v", b, len(l.elems), v, v)
+        } else {
+            warn(ctx, "unequal: b: %T %v", b, b)
+        }
+        debug(ctx, "unequal: %v", t, callstack{num:n})
+    } else if len(ctx.a)>2 {
+        debug(ctx, "unequal: extra args specified: %v", ctx.a[2])
+    }
+    return
+}
+
+type __equal struct { builtinbase; str bool `str,string` }
+func (ctx *__equal) inner() Context { return &ctx.builtinbase }
+func (ctx *__equal) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__equal) x() (_ any) {
+    if len(ctx.a) != 2 {
+        debug(ctx, "wrong number of arguments: %v", ctx.a)
+        note(ctx, "try: $(equal <value-list>,<value-list>)", trace{})
+    }
+
+    args := expands(ctx, ctx.a...)
+
+    if a, b := args[0], args[1]; ctx.str {
+        return __string(ctx, a) == __string(ctx, b)
+    } else {
+        return cmp(ctx, a, b) == cmpEqual
+    }
+}
+
+type __greater struct { builtinbase; str bool `str,string` }
+func (ctx *__greater) inner() Context { return &ctx.builtinbase }
+func (ctx *__greater) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__greater) x() (res any) {
+    if len(ctx.a) != 2 {
+        debug(ctx, "wrong number of arguments: %v", ctx.a)
+        note(ctx, "try: $(greater <value-list>,<value-list>)", trace{})
+    }
+
+    args := expands(ctx, ctx.a...)
+
+    if a, b := args[0], args[1]; ctx.str {
+        if __string(ctx, a) > __string(ctx, b) { return true }
+    } else {
+        if cmp(ctx, a, b) == cmpGreater { return true }
+    }
+    return
+}
+
+type __less struct { builtinbase; str bool `str,string` }
+func (ctx *__less) inner() Context { return &ctx.builtinbase }
+func (ctx *__less) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__less) x() (res any) {
+    if len(ctx.a) != 2 {
+        debug(ctx, "wrong number of arguments: %v", ctx.a)
+        note(ctx, "try: $(greater <value-list>,<value-list>)", trace{})
+    }
+
+    args := expands(ctx, ctx.a...)
+
+    if a, b := args[0], args[1]; ctx.str {
+        if __string(ctx, a) < __string(ctx, b) { return true }
+    } else {
+        if cmp(ctx, a, b) == cmpSmaller { return true }
+    }
+    return
+}
+
+// $(match val1 val2 val3, a b c d...)
+// $(match -rx=r1 -rx=r2 -rx=r3, a b c d...)
+type __match struct { builtinbase
+    regexps []*regexp.Regexp //`re,rx,reg,regex,regexp`
+    negated bool `ne,neg,negated,negative,not`
+	shallow bool `shallow` // TODO: shallow match without expand $(xx) or &(yy)
+    all bool `all`
+}
+func (ctx *__match) inner() Context { return &ctx.builtinbase }
+func (ctx *__match) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__match) x() (result any) {
+    if n := len(ctx.a); n < 2 {
+        debug(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)", trace{})
+    }
+
+    var leftList, rightList []Value
+
+    if true {
+        leftList, rightList = xmerge(ctx, ctx.a[0]), xmerge(ctx, ctx.a[1:]...)
+    } else {
+        leftList, rightList = merge(ctx.a[0]), merge(ctx.a[1:]...)
+    }
+
+    var res *boolean
+
+    if ctx.negated {
+        defer func() {
+            if res != nil {
+                res.bool = !res.bool
+            } else {
+                result = _boolean(_pos(ctx), true)
+            }
+        } ()
+    }
+
+    for _, left := range leftList {
+        for _, right := range rightList {
+            var matched bool
+            if !patterned(ctx, left) && patterned(ctx, right) {
+                matched, _, _, _ = match(ctx, right, left)
+            } else {
+                matched, _, _, _ = match(ctx, left, right)
+            }
+            if matched {
+                if res == nil { res = _boolean(_pos(ctx), true) }
+                if !ctx.all { return res }
+            } else if ctx.all {
+                res = nil
+                return res
+            }
+        }
+    }
+
+    if res != nil { result = res }
+    return
+}
+func (ctx *__match) _x() (res any) {
+    var patList, valList []Value
+    if n := len(ctx.a); n < 1 {
+        debug(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)", trace{})
+    }
+
+    if len(ctx.a) > 1 {
+        patList = merge(ctx.a[0])
+        valList = merge(ctx.a[1:]...)
+    } else {
+        valList = merge(ctx.a[0])
+    }
+    if ctx.debug > 0 {
+        var ( n = len(ctx.a) ; d = ctx.debug )
+        debug(ctx, "match: %v %v %v, %d", ctx.regexps, patList, valList, n, callstack{num:d})
+    }
+
+    var pos = _pos(ctx)
+ForValList:
+    for _, val := range valList {
+        if isTrivial(val) { continue ForValList }
+
+        var str = __string(ctx, val)
+        for _, rx := range ctx.regexps {
+            var matched = rx.MatchString(str);
+            if ctx.negated { matched = !matched }
+            if matched {
+                if ctx.all {
+                    if res == nil { res = _boolean(pos, true) }
+                } else {
+                    return _boolean(pos, true)
+                }
+            } else if ctx.all {
+                return nil
+            }
+        }
+        for _, pat := range patList {
+            var matched, _, _, _ = match(ctx, pat, val)
+            if ctx.negated { matched = !matched }
+            if matched {
+                if ctx.all {
+                    if res == nil { res = _boolean(pos, true) }
+                } else {
+                    return _boolean(pos, true)
+                }
+            } else if ctx.all {
+                return nil
+            }
+        }
+
+        if ctx.debug > 0 {
+            debug(ctx, _f("match: %v", str), _f("match: %v %T", val, val))
+        }
+    }
+    return
+}
+
+// 1: $(case     (a 'xxx') (b 'yyy') (c 'zzz') (yes 'else'))
+// 2: $(case val (a 'xxx') (b 'yyy') (c 'zzz') ('if none or nil'))
+// 3: $(case val (a 'xxx') (b 'yyy') (c 'zzz') (- 'if none or nil'))
+// 4: $(case val (a 'xxx') (b 'yyy') (c -) (- -))
+type __case struct { builtinbase }
+func (ctx *__case) inner() Context { return &ctx.builtinbase }
+func (ctx *__case) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__case) x() (res any) {
+    var val Value
+    var args = merge(ctx.a...)
+    if len(args) == 0 {
+        return
+    }
+    if _, y := args[0].(*group); !y {
+        val = expand(ctx, args[0])
+        args = args[1:]
+    }
+
+    var def []Value
+    for _, arg := range args { if g, y := arg.(*group); y && len(g.elems)>0 {
+        if n := len(g.elems); val != nil && isNone(val) && n == 1 {
+            return g.elems[0]
+        } else if n == 1 {
+            def = append(def, g.elems[0])
+            continue
+        }
+
+        var collect bool
+        var v = expand(ctx, g.elems[0])
+        if val == nil && v != nil && __true(ctx, v) {
+            collect = true
+        } else if val != nil && isTrivial(val) {
+            if isTrivial(v) {
+                collect = true
+            } else if f, y := v.(flag); y && isNull(f.Value) {
+                collect = true
+            }
+        } else if val != nil && cmp(ctx, val, v) == cmpEqual {
+            collect = true
+        }
+        if !collect { continue }
+
+        var vals []Value
+        for _, v := range g.elems[1:] {
+            if f, y := v.(flag); !y || isNull(f.Value) {
+                vals = append(vals, v)
+            }
+        }
+        return vals
+    } else {
+        debug(pc(ctx,arg), "unexpected case: %v", ts(arg), trace{})
+    }}
+    return
+}
+
+type __if struct { builtinbase }
+func (ctx *__if) inner() Context { return &ctx.builtinbase }
+func (ctx *__if) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__if) ts(string) string {
+    if n := len(ctx.a); n > 0 {
+        var s = ctx.a[0].String()
+        if n > 1 { s += ","+ctx.a[1].String() }
+        if n > 2 { s += ","+ctx.a[2].String() }
+        if n > 3 { s += ","+ctx.a[3].String() }
+        if s != "" { s += " " }
+        return "{=if "+s+ts(ctx.Context)+"}"
+    } else {
+        return "{=if "+ts(ctx.Context)+"}"
+    }
+}
+func (ctx *__if) x() (res any) {
+	if 1 < len(ctx.a) {
+		if __true(ctx, expand(ctx, ctx.a[0])) {
+			return expand(ctx, ctx.a[1])
+		} else {
+			return expands(ctx, ctx.a[2:]...)
+		}
+	}
+	return
+}
+
+type __ifarg struct { builtinbase }
+func (ctx *__ifarg) inner() Context { return &ctx.builtinbase }
+func (ctx *__ifarg) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__ifarg) x() (_ any) {
+    if 1 < len(ctx.a) {
+        if d := auto_find(ctx, __string(ctx, ctx.a[0])); d != nil && !isTrivial(d.value) {
+            return ctx.a[1]
+        } else {
+            return ease(ctx, ctx.a[2:])
+        }
+    }
+    return
+}
+
+type __ifdef struct { builtinbase }
+func (ctx *__ifdef) inner() Context { return &ctx.builtinbase }
+func (ctx *__ifdef) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__ifdef) x() (_ any) {
+    if 1 < len(ctx.a) {
+        if d := _scope(ctx).finddef(__string(ctx, ctx.a[0])); d != nil && !isTrivial(d.value) {
+            return ctx.a[1]
+        } else {
+            return ease(ctx, ctx.a[2:])
+        }
+    }
+    return
+}
+
+type __ifeq struct { builtinbase }
+func (ctx *__ifeq) inner() Context { return &ctx.builtinbase }
+func (ctx *__ifeq) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__ifeq) x() (_ any) {
+    if 2 < len(ctx.a) {
+        if equal(ctx, ctx.a[0], ctx.a[1]) {
+            return ctx.a[2]
+        } else {
+            return ease(ctx, ctx.a[3:])
+        }
+    }
+    return
+}
+
+type __ifne struct { builtinbase }
+func (ctx *__ifne) inner() Context { return &ctx.builtinbase }
+func (ctx *__ifne) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__ifne) x() (_ any) {
+    if 2 < len(ctx.a) {
+        if !equal(ctx, ctx.a[0], ctx.a[1]) {
+            return ctx.a[2]
+        } else {
+            return ease(ctx, ctx.a[3:])
+        }
+    }
+    return
+}
+
+type __for struct { builtinbase ; empty bool `allow-empty,empty` }
+func (ctx *__for) inner() Context { return &ctx.builtinbase }
+func (ctx *__for) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__for) x() (res any) {
+    debug(ctx, "TODO: $(for): %v", ts(ctx.a), trace{})
+    return
+}
+
+type __foreach struct {
+	builtinbase
+	empty  bool `allow-empty,empty`
+	unique bool `unique`
+}
+func (ctx *__foreach) inner() Context { return &ctx.builtinbase }
+func (ctx *__foreach) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+
+func (ctx *__foreach) x() (res any) {
+	if len(ctx.a) == 0 {
+		return
+	}
+
+	var vals []Value
+	
+	// FIX 1: Use []Value to safely handle hash collisions
+	var um map[uint64][]Value
+	if ctx.unique {
+		um = make(map[uint64][]Value)
+	}
+
+	for _, val := range merge(expand(ctx, ctx.a[0])) {
+		if !ctx.empty && isEmpty(val) {
+			continue
+		} else if ctx.unique {
+			var t = hash(ctx, val)
+			var isDuplicate bool
+			
+			// Resolve potential hash collisions via structural equality
+			if existing, found := um[t]; found {
+				for _, ev := range existing {
+					if equal(ctx, ev, val) {
+						isDuplicate = true
+						break
+					}
+				}
+			}
+			
+			if isDuplicate {
+				continue
+			}
+			um[t] = append(um[t], val)
+		}
+
+		// NOTE: don't use defStatic (it's for codeblock auto)
+		// redis() will now perfectly receive the raw *auto node!
+		ctx.set(ctx, defVoid, "_", redis(val))
+
+		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
+			if !ctx.empty && isEmpty(v) {
+				continue
+			}
+			// FIX 2: Safely fallback to the macro's position to avoid nil panic
+			if v == nil {
+				v = _null(_pos(ctx))
+			}
+			vals = append(vals, v)
+		}
+	}
+	return vals
+}
+func (ctx *__foreach) _x() (res any) {
+	if len(ctx.a) == 0 {
+		return
+	}
+
+	var vals []Value
+	
+	// FIX 1: Use []Value to safely handle hash collisions
+	var um map[uint64][]Value
+	if ctx.unique {
+		um = make(map[uint64][]Value)
+	}
+
+	d := ctx.a[0].String() == `$1 $2 $3 $4 $5 $6 $7 $8 $9`
+
+	for _, val := range merge(expand(ctx, ctx.a[0])) {
+		if !ctx.empty && isEmpty(val) {
+			continue
+		} else if ctx.unique {
+			var t = hash(ctx, val)
+			var isDuplicate bool
+			
+			// Resolve potential hash collisions via structural equality
+			if existing, found := um[t]; found {
+				for _, ev := range existing {
+					if equal(ctx, ev, val) {
+						isDuplicate = true
+						break
+					}
+				}
+			}
+			
+			if isDuplicate {
+				continue
+			}
+			um[t] = append(um[t], val)
+		}
+
+		// NOTE: don't use defStatic (it's for codeblock auto)
+		ctx.set(ctx, defVoid, "_", redis(val))
+
+		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
+			if !ctx.empty && isEmpty(v) {
+				continue
+			}
+			// FIX 2: Safely fallback to the macro's position to avoid nil panic
+			if v == nil {
+				v = _null(_pos(ctx))
+			}
+			vals = append(vals, v)
+		}
+	}
+	if d { debug(ctx, "%v → %v", ctx.a[0], vals) }
+	return vals
+}
+
+type __count struct { builtinbase ; vals []Value `value` }
+func (ctx *__count) inner() Context { return &ctx.builtinbase }
+func (ctx *__count) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__count) x() (res any) {
+    var num int64
+    var vals = valvec(ctx.vals)
+    for _, a := range ctx.a {
+        if __true(ctx, a) || vals.has2(ctx, a) { num += 1 }
+    }
+    return num
+}
+
+type __env struct { builtinbase }
+func (ctx *__env) inner() Context { return &ctx.builtinbase }
+func (ctx *__env) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__env) x() (res any) {
+    var vals []Value
+    for _, a := range ctx.a {
+        if val := expand(ctx, a); isTrivial(val) {
+            continue
+        } else if s := strings.TrimSpace(__string(ctx, val)); s != "" {
+            vals = append(vals, _raw(a.Pos(), os.Getenv(s)))
+        }
+    }
+    return vals
+}
+
+type __auto struct { builtinbase }
+func (ctx *__auto) inner() Context { return &ctx.builtinbase }
+func (ctx *__auto) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__auto) x() (_ any) {
+    if 0 < len(ctx.a) {
+        for _, a := range merge(ctx.o...) {
+            switch t := a.(type) {
+            case *pair:
+                if k := __string(ctx, t.key); k == "" {
+                    debug(pc(ctx,a), "empty name: %v : %s", t.key, ts(t.key), trace{})
+                } else {
+                    ctx.set(ctx, defVoid, k, t.val)
+                }
+            default:
+                debug(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a), trace{})
+            }
+        }
+        return expands(ctx, ctx.a...)
+    }
+    return
+}
+
+type __var struct { builtinbase }
+func (ctx *__var) inner() Context { return &ctx.builtinbase }
+func (ctx *__var) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__var) x() (res any) {
+    return // TODO: ???
+}
+
+type __call struct { builtinbase ; closure bool `closure` }
+func (ctx *__call) inner() Context { return &ctx.builtinbase }
+func (ctx *__call) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__call) _x() (res any) {
+    var vals []Value
+    for _, a := range merge(ctx.a[0]) {
+        var x Value
+        var s = __string(ctx, a)
+        if s == "" {
+            debug(ctx, "empty string: %v : %v", a, ts(a), trace{})
+        } else if ctx.closure {
+            x = closure_resolve(ctx, s)
+        } else {
+            x = project_resolve(ctx, s)
+        }
+        if x == nil { x = auto_get(ctx, s) }
+        if x != nil {
+            if v := evoke(ctx, x, nil, ctx.a[1:]); v != nil {
+                vals = append(vals, v)
+            }
+        }
+    }
+    return vals
+}
+func (ctx *__call) x() (_ any) {
+    var s = ctx.a[0].String()
+    for _, v := range ctx.a[1:] { s += " " + v.String() }
+    debug(ctx, "deprecated $(call %s), use $(%s)", s, s, trace{})
+    return
+}
+
+type __value struct { builtinbase ; closure bool `closure` }
+func (ctx *__value) inner() Context { return &ctx.builtinbase }
+func (ctx *__value) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__value) x() (res any) {
+    var vals []Value
+    var p = _project(ctx)
+    for _, a := range merge(ctx.a...) {
+        var s = __string(ctx, a)
+        if s != "" {
+            var x Value
+            if ctx.closure {
+                x = closure_resolve(ctx, s)
+            } else {
+                x = p.resolve(ctx, s)
+            }
+            if x == nil { x = auto_get(ctx, s) }
+            if x != nil {
+                if d, y := x.(*def); y {
+                    vals = append(vals, d.value)
+                }
+            }
+        }
+    }
+    return vals
+}
+
+type __defs struct { builtinbase
+    n int `num,number`
+    r int `capture`
+	sort bool `sort`
+}
+func (ctx *__defs) inner() Context { return &ctx.builtinbase }
+func (ctx *__defs) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__defs) x() (_ any) {
+	var pos = _pos(ctx)
+    var names []Value
+    var pats []Value
+    for _, val := range merge(ctx.a...) { pats = append(pats, val) }
+	
+defsloop:
+    for _k, _ := range _project(ctx).elems {
+		var name = _raw(pos, _k)
+        for _, pat := range pats {
+            neg := false
+            if x, y := pat.(negative); y { pat, neg = x.Value, y }
+
+            a, _, _, c := match(pc(ctx, pat), pat, name)
+            if a && neg { continue defsloop }
+            if a || neg {
+                if ctx.r <= 0 || 0 == len(c) {
+					names = append(names, name)
+                } else if ctx.r <= len(c) {
+					names = append(names, c[ctx.r-1])
+                }
+				continue defsloop
+            }
+        }
+    }
+	if ctx.sort { slices.SortFunc(names, func(a, b Value) int { return cmpValues(ctx, a, b) }) }
+    return names
+}
+
+type __list struct { builtinbase }
+func (ctx *__list) inner() Context { return &ctx.builtinbase }
+func (ctx *__list) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__list) x() (res any) {
+    return ctx.a
+}
+
+type __plain struct { builtinbase
+    scope_ bool `findscope,find-scope,scope`
+}
+func (ctx *__plain) inner() Context { return &ctx.builtinbase }
+func (ctx *__plain) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__plain) x() (res any) {
+    var scope = _scope(ctx)
+    for _, a := range ctx.a {
+        var ( o object ; s = __string(ctx, a) )
+        if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
+        if o == nil {
+            debug(ctx, "no such symbol: %s", s, trace{})
+        } else if d, y := o.(*def); !y {
+            debug(ctx, "not a def: %s: %v", s, typeof(o), trace{})
+        } else if d.value != nil {
+            d.value = expand(ctx, d.value)
+        }
+    }
+    return
+}
+
+type __shell struct { builtinbase }
+func (ctx *__shell) inner() Context { return &ctx.builtinbase }
+func (ctx *__shell) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__shell) x() (res any) {
+    var err error
+    var vals []Value
+    var pos = _pos(ctx)
+    for _, a := range ctx.a {
+        var bufout, buferr bytes.Buffer
+        var s = __string(ctx, a)
+        sh := exec.Command("sh", "-c", s)
+        sh.Stdout, sh.Stderr = &bufout, &buferr
+        if err = sh.Run(); err != nil {
+            s = strings.TrimSpace(buferr.String())
+            if !strings.HasPrefix(s, ":") { s = ":\n" + s }
+            prompt(ctx, "%s%s\n", __string(ctx, a), s)
+            debug(ctx, "%s", err, trace{})
+            return
+        }
+        val := _raw(pos, strings.TrimSpace(bufout.String()))
+        vals = append(vals, val)
+        bufout.Reset()
+        buferr.Reset()
+    }
+    return vals
+}
+
+type __which struct { builtinbase }
+func (ctx *__which) inner() Context { return &ctx.builtinbase }
+func (ctx *__which) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__which) x() (res any) {
+    var vals []Value
+	var pos = _pos(ctx)
+    for _, a := range ctx.a {
+        if s, err := exec.LookPath(__string(ctx, a)); err != nil {
+            debug(ctx, "%v", err, trace{})
+        } else if s != "" {
+            vals = append(vals, _raw(pos, s))
+        }
+    }
+    return vals
+}
+
+type __servehttp struct { builtinbase
+    ssl bool `ssl`
+    host string `host`
+    port int `port`
+}
+func (ctx *__servehttp) inner() Context { return &ctx.builtinbase }
+func (ctx *__servehttp) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__servehttp) x() (res any) {
+    if ctx.port == 0 { ctx.port = 80 }
+    if ctx.ssl {
+        debug(ctx, "'serve-http(-ssl)' is unimplemented yet", trace{})
+    }
+
+    var server = http.Server{}
+    server.Addr = fmt.Sprintf("%s:%d", ctx.host, ctx.port)
+    info(ctx, "serving http at %v ...", server.Addr)
+
+    var root string
+    var quit = func(w http.ResponseWriter, r *http.Request) {
+        var s = "<font color=red>stop serving '%s' close in a second ...</font>"
+        io.WriteString(w, fmt.Sprintf(s, root))
+        go func() {
+            time.Sleep(1 * time.Second)
+            server.Shutdown(context.Background())
+        } ()
+    }
+
+    http.HandleFunc("/-/end",  quit)
+    http.HandleFunc("/-/quit", quit)
+    http.HandleFunc("/-/shut", quit)
+
+    if ctx.a == nil {
+        http.Handle("/", http.FileServer(http.Dir(_workdir(ctx))))
+    } else {
+        for _, a := range ctx.a {
+            var s = __string(ctx, a)
+            info(ctx, "serving files %v ...", s)
+            http.Handle("/", http.FileServer(http.Dir(s)))
+        }
+    }
+
+    flush(ctx)
+
+    var err = server.ListenAndServe()
+    if err != nil && err != http.ErrServerClosed {
+        debug(ctx, "%s", err, trace{})
+    }
+    return
+}
+
+type __append struct { builtinbase
+    auto    bool `auto`
+    closure bool `closure`
+}
+func (ctx *__append) inner() Context { return &ctx.builtinbase }
+func (ctx *__append) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__append) x() (_ any) {
+    if len(ctx.a) < 2 {
+        debug(ctx, "insufficient number of arguments: %v", ctx.a, trace{})
+    }
+
+    var names []Value
+    if names = merge(ctx.a[0]); len(names) == 0 {
+        debug(ctx, "append to nowhere: %v", ts(ctx.a[0]))
+        return
+    }
+
+    var vals []Value
+    for _, a := range names {
+        var s = __string(ctx, a)
+        var d *def
+        if s == "" {
+            debug(ctx, "'%v' is empty for name", a, trace{})
+        } else if ctx.auto {
+            d = auto_find(ctx, s)
+        } else if ctx.closure {
+            debug(ctx, "closure: %v", a) // d = closure_finddef(ctx, s)
+        } else if o := project_resolve(ctx, s); o != nil {
+            d, _ = o.(*def)
+        }
+        if d == nil {
+            debug(ctx, "%v → %s is undefined", a, s, trace{})
+        } else {
+            if vals == nil {
+                if vals = merge(ctx.a[1:]...); len(vals) == 0 {
+                    debug(ctx, "append no values: %v", ctx.a[1:])
+                    return
+                }
+            }
+            d.append(ctx, vals...)
+        }
+    }
+    return
+}
+
+type __plus struct { builtinbase ; int bool `int,integer` }
+func (ctx *__plus) inner() Context { return &ctx.builtinbase }
+func (ctx *__plus) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__plus) x() (res any) {
+    if ctx.int {
+        var num int64
+        for n, a := range ctx.a {
+            var i = __int(ctx, a)
+            if n == 0 { num = i } else { num += i }
+        }
+        return _decimal(_pos(ctx), num)
+    } else {
+        var num float64
+        for n, a := range ctx.a {
+            var f = __float(ctx, a)
+            if n == 0 { num = f } else { num += f }
+        }
+        return _float(_pos(ctx), num)
+    }
+}
+
+type __minus struct { builtinbase ; int bool `int,integer` }
+func (ctx *__minus) inner() Context { return &ctx.builtinbase }
+func (ctx *__minus) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__minus) x() (res any) {
+    if ctx.int {
+        var num int64
+        for n, a := range ctx.a {
+            var i = __int(ctx, a)
+            if n == 0 { num = i } else { num -= i }
+        }
+        return _decimal(_pos(ctx), num)
+    } else {
+        var num float64
+        for n, a := range ctx.a {
+            var f = __float(ctx, a)
+            if n == 0 { num = f } else { num -= f }
+        }
+        return _float(_pos(ctx), num)
+    }
+}
+
+type __multiply struct { builtinbase ; int bool `int,integer` }
+func (ctx *__multiply) inner() Context { return &ctx.builtinbase }
+func (ctx *__multiply) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__multiply) x() (res any) {
+    if ctx.int {
+        var num int64
+        for n, a := range ctx.a {
+            var i = __int(ctx, a)
+            if n == 0 { num = i } else { num *= i }
+        }
+        return num
+    } else {
+        var num float64
+        for n, a := range ctx.a {
+            var f = __float(ctx, a)
+            if n == 0 { num = f } else { num *= f }
+        }
+        return num
+    }
+}
+
+type __divide  struct { builtinbase ; int bool `int,integer` }
+func (ctx *__divide) inner() Context { return &ctx.builtinbase }
+func (ctx *__divide) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__divide) x() (res any) {
+    if ctx.int {
+        var num int64
+        for n, a := range ctx.a {
+            var i = __int(ctx, a)
+            if n == 0 { num = i } else { num /= i } // FIXME: NaN
+        }
+        return num
+    } else {
+        var num float64
+        for n, a := range ctx.a {
+            var f = __float(ctx, a)
+            if n == 0 { num = f } else { num /= f } // FIXME: NaN
+        }
+        return num
+    }
+}
+
+type __unique struct { builtinbase
+    reverse  bool `reverse`
+    keepAuto bool `auto,keepauto,keep-auto`
+    unexpand bool `unexpand,noexpand,no-expand`
+}
+func (ctx *__unique) inner() Context { return &ctx.builtinbase }
+func (ctx *__unique) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__unique) x() (_ any) {
+    var args = ctx.a
+    var t1, t2 time.Time
+
+    if false { defer func() {
+        t3 := time.Now()
+        d0 := t3.Sub(t1)
+        d1 := t2.Sub(t1)
+        d2 := t3.Sub(t2)
+        if d0 > 1*time.Second {
+            for _, a := range args { __string(ctx, a) }
+            t4 := time.Now()
+            d3 := t4.Sub(t3)
+            for i, a := range args { if i > 0 { cmp(ctx, a, args[i-1]) } }
+            t5 := time.Now()
+            d4 := t5.Sub(t4)
+            // for i, a := range args { if i > 0 { eq(ctx, a, args[i-1]) } }
+            for i, a := range args { if i > 0 { equal(ctx, a, args[i-1]) } }
+            t6 := time.Now()
+            d5 := t6.Sub(t5)
+            var args2 []Value
+            var seen = make(map[uint64]struct{})
+            for _, a := range args {
+                c := hash(ctx, a)
+                if _, y := seen[c]; y {
+                    note(ctx, "%v")
+                } else {
+                    seen[c] = struct{}{}
+                }
+                var t = true
+                for _, b := range args2 {
+                    if equal(ctx, a, b) { t = false ; break }
+                }
+                if t { args2 = append(args2, a) }
+            }
+            t7 := time.Now()
+            d6 := t7.Sub(t6)
+            debug(ctx, "%v %v %v (%v, %v, %v, %v, %d %d)", d0, d1, d2, d3, d4, d5, d6, len(args), len(args2))
+            t7 = time.Now()
+            unique(ctx, args...)
+            d6 = t7.Sub(t6)
+            debug(ctx, "unique: %v", d6, trace{})
+        }
+    } () }
+
+    t1 = time.Now()
+
+    if ctx.unexpand {
+        args =  merge(args...)
+    } else {
+        args = xmerge(ctx, args...)
+    }
+
+    t2 = time.Now()
+
+    if ctx.reverse {
+        return reverse_unique(ctx, args...)
+    } else {
+        return         unique(ctx, args...)
+    }
+}
+
+type __join struct { builtinbase }
+func (ctx *__join) inner() Context { return &ctx.builtinbase }
+func (ctx *__join) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__join) x() (_ any) {
+    if l := len(ctx.a); 0 < l {
+        var t = &compound{}
+        if l < 2 {
+            t.app(merge(ctx.a...)...)
+        } else {
+            var sep = scalarize(ctx.a[l-1])
+            for i, v := range merge(ctx.a[:l-1]...) {
+                if 0 < i {
+                    t.app(sep, v)
+                } else {
+                    t.app(v)
+                }
+            }
+        }
+        return t
+    }
+    return
+}
+
+type __conjunct struct { builtinbase }
+func (ctx *__conjunct) inner() Context { return &ctx.builtinbase }
+func (ctx *__conjunct) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__conjunct) x() (_ any) {
+	if l := len(ctx.a); 0 < l {
+		var con conjunction
+		if l < 2 {
+			con.list = _list(merge(ctx.a...)...)
+		} else {
+			con.list = _list(merge(ctx.a[:l-1]...)...)
+			con.sep  = ctx.a[l-1]
+		}
+		return con
+	}
+	return
+}
+
+type __quote struct { builtinbase }
+func (ctx *__quote) inner() Context { return &ctx.builtinbase }
+func (ctx *__quote) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__quote) x() any {
+    return &quote{list{elements{ctx.a}}}
+}
+
+type __quotejoin struct { builtinbase }
+func (ctx *__quotejoin) inner() Context { return &ctx.builtinbase }
+func (ctx *__quotejoin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__quotejoin) x() (res any) {
+    var sep string
+    var args = merge(ctx.a...)
+    if l := len(args); l > 1 {
+        sep = __string(ctx, args[l-1])
+        args = args[:l-1]
+    }
+    if l := len(args); l > 0 {
+        var fields []string
+        for _, a := range args[1:] {
+            if v := __string(ctx, a); v != "" { fields = append(fields, v) }
+        }
+        res = _strlit(_pos(ctx), strconv.Quote(strings.Join(fields, sep)))
+    } else {
+        res = _none(_pos(ctx))
+    }
+    return
+}
+
+// $(split .,1.2.3)
+type __split struct { builtinbase
+    sep string `sep,separator`
+}
+func (ctx *__split) inner() Context { return &ctx.builtinbase }
+func (ctx *__split) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__split) x() (res any) {
+    if 0 < len(ctx.a) {
+        var fields []Value
+        var sep = ctx.sep
+        if sep == "" { sep = __string(ctx, ctx.a[0]) }
+        for _, a := range ctx.a[1:] {
+            for _, s := range strings.Split(__string(ctx, a), sep) {
+                fields = append(fields, _strlit(a.Pos(), s))
+            }
+        }
+        return fields
+    }
+    return
+}
+
+func quotestrings(value Value) {
+    switch v := value.(type) {
+    case *strlit: v.s = strconv.Quote(v.s)
+    case *list:
+        for _, elem := range v.elems {
+            quotestrings(elem)
+        }
+    }
+    return
+}
+
+func joinstrings(ctx Context, value Value, sep string) (res Value, err error) {
+    if sep == "" { sep = " " }
+ValueType:
+    switch v := value.(type) {
+    case *strlit: res = value
+    case *list:
+        var strs []string
+        for _, elem := range v.elems {
+            var ( v Value; s string )
+            if v, err = joinstrings(ctx, elem, sep); err != nil { break ValueType }
+            if s = __string(ctx, v); s != "" { strs = append(strs, s) }
+        }
+        res = _strlit(value.Pos(), strings.Join(strs, sep))
+    }
+    return
+}
+
+// TODO: deprecate this and add -quote to __split
+type __splitquote struct { __split }
+func (ctx *__splitquote) inner() Context { return &ctx.builtinbase }
+func (ctx *__splitquote) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__splitquote) x() (res any) {
+    res = ctx.__split.x()
+    if v, y := res.(Value); y && v != nil { quotestrings(v) }
+    return
+}
+
+// TODO: deprecate this and add -quote to __split
+type __splitquotejoin struct { __split }
+func (ctx *__splitquotejoin) inner() Context { return &ctx.builtinbase }
+func (ctx *__splitquotejoin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__splitquotejoin) x() (res any) {
+    res = ctx.__split.x()
+    if val, y := res.(Value); y && val != nil {
+        var err error
+        var sep string
+        if l := len(ctx.a); l > 1 {
+            sep = __string(ctx, ctx.a[l-1])
+            ctx.a = ctx.a[:l-1]
+        }
+        if res, err = joinstrings(ctx, val, sep); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    }
+    return
+}
+
+type __splitjoinquote struct { __split }
+func (ctx *__splitjoinquote) inner() Context { return &ctx.builtinbase }
+func (ctx *__splitjoinquote) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__splitjoinquote) x() (res any) {
+    res = ctx.__split.x()
+    if val, y := res.(Value); y && val != nil {
+        var err error
+        var sep string
+        if l := len(ctx.a); l > 1 {
+            sep = __string(ctx, ctx.a[l-1])
+            ctx.a = ctx.a[:l-1]
+        }
+
+        var v Value
+        if v, err = joinstrings(ctx, val, sep); err != nil {
+            debug(ctx, "%v", err, trace{})
+        } else {
+            res = _strlit(_pos(ctx), strconv.Quote(__string(ctx, v)))
+        }
+    }
+    return
+}
+
+type __element struct { builtinbase }
+func (ctx *__element) inner() Context { return &ctx.builtinbase }
+func (ctx *__element) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__element) x() (res any) {
+	var elems []Value
+	for _, o := range ctx.o {
+		x, ok := unbox(expand(ctx, o)).(Value)
+		if ok && x.kind()&KindInteger != 0 {
+			var i = int(__int(ctx, x))
+			for _, v := range ctx.a {
+				if a := xmerge(ctx, v); 0 <= i && i < len(a) {
+					elems = append(elems, a[i])
+				}
+			}
+		}
+	}
+	return elems
+}
+
+type __field struct { builtinbase }
+func (ctx *__field) inner() Context { return &ctx.builtinbase }
+func (ctx *__field) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__field) x() (res any) {
+	var elems []Value
+	for _, o := range ctx.o {
+		x, ok := unbox(expand(ctx, o)).(Value)
+		if ok && x.kind()&KindInteger != 0 {
+			var i = int(__int(ctx, x))
+			for _, v := range ctx.a {
+				if a := strings.Fields(__string(ctx, v)); 0 < i && i <= len(a) {
+					elems = append(elems, _raw(v.Pos(), a[i-1]))
+				}
+			}
+		}
+	}
+	return elems
+}
+
+type __fields struct { builtinbase }
+func (ctx *__fields) inner() Context { return &ctx.builtinbase }
+func (ctx *__fields) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__fields) x() any {
+	var elems []Value
+
+	if len(ctx.a) == 2 {
+		x, ok := unbox(expand(ctx, ctx.a[0])).(Value)
+		if ok && x.kind()&KindInteger != 0 {
+			var i = int(__int(ctx, x))
+			for _, v := range ctx.a[1:] {
+				if a := strings.Fields(__string(ctx, v)); 0 <= i && i < len(a) {
+					elems = append(elems, _raw(v.Pos(), a[i]))
+				}
+			}
+			return elems
+		}
+	}
+
+	for _, v := range ctx.a {
+		for _, s := range strings.Fields(__string(ctx, v)) {
+			elems = append(elems, _raw(v.Pos(), s))
+		}
+	}
+	return elems
+}
+
+type __usee struct { builtinbase }
+func (ctx *__usee) inner() Context { return &ctx.builtinbase }
+func (ctx *__usee) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__usee) x() (res any) {
+    var proj = _project(ctx)
+    if proj == nil {
+        debug(ctx, "unknown current context", trace{})
+    }
+
+    var vals []Value
+    for _, a := range ctx.a {
+        v := sel(ctx, proj.use, __string(ctx, a))
+        if v != nil { vals = append(vals, v.(Value)) }
+    }
+    if vals == nil { res = vals }
+    return
+}
+
+type __uses struct { builtinbase }
+func (ctx *__uses) inner() Context { return &ctx.builtinbase }
+func (ctx *__uses) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__uses) x() (res any) {
+    var proj = _project(ctx)
+    if proj == nil {
+        debug(ctx, "unknown current context", trace{})
+    }
+
+    var found bool
+
+outer:
+    for _, a := range ctx.a {
+        var s = __string(ctx, a)
+        for _, u := range proj.use.list {
+            found = u.project.name == s
+            if found { break outer }
+        }
+    }
+
+    if found { res = found }
+    return
+}
+
+type __path struct { builtinbase }
+func (ctx *__path) inner() Context { return &ctx.builtinbase }
+func (ctx *__path) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__path) x() any {
+    var res []Value
+    for _, a := range ctx.a {
+        if x, y := a.(*path); y {
+            res = append(res, x)
+        } else {
+            res = append(res, _pathStr(ctx, __string(ctx, a)))
+        }
+    }
+    return res
+}
+
+type __bare struct { builtinbase
+    name bool `name,filename,file-name,non-full,not-full`
+}
+func (ctx *__bare) inner() Context { return &ctx.builtinbase }
+func (ctx *__bare) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__bare) x() (res any) {
+    var vals []Value
+    for _, a := range ctx.a {
+        switch p := a.Pos(); t := a.(type) {
+        case *strlit, *strcomp:
+            a = _word(p, __string(ctx, a))
+        case *file:
+            a = _word(p, ident(ctx,t))
+        case fullfile:
+            if ctx.name {
+                a = _word(p, ident(ctx,t))
+            } else {
+                a = _word(p, __string(ctx,t))
+            }
+        }
+        vals = append(vals, a)
+    }
+    return vals
+}
+
+type __word struct { builtinbase }
+func (ctx *__word) inner() Context { return &ctx.builtinbase }
+func (ctx *__word) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__word) x() (res any) {
+    var vals []Value
+    for _, a := range ctx.a {
+        if _, y := a.(*word); !y {
+            a = _word(a.Pos(), __string(ctx, a))
+        }
+        vals = append(vals, a)
+    }
+    return vals
+}
+
+type __resolve struct { builtinbase
+    closure bool `closure`
+    // expand bool `expand`
+}
+func (ctx *__resolve) inner() Context { return &ctx.builtinbase }
+func (ctx *__resolve) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__resolve) x() (res any) {
+    if 0 < len(ctx.a) {
+        var resolve func(Context, string) object
+        if ctx.closure {
+            resolve = closure_resolve
+        } else {
+            resolve = project_resolve
+        }
+
+        var vals []Value
+        for _, a := range merge(ctx.a...) {
+            var name = __string(ctx, a)
+            if o := resolve(ctx, name); o == nil {
+                debug(ctx, "%v is nil : %v", a, ts(a), trace{})
+            } else if x, y := o.(*def); !y {
+                debug(ctx, "%v is not def : %v : %v", a, o, ts(o), trace{})
+            } else if x.value != nil {
+                vals = append(vals, merge(x.value)...)
+            }
+        }
+        return vals
+    }
+    return
+}
+
+type __string_bin struct { builtinbase
+    expand bool `expand`
+    name   bool `name,file-name,non-full`
+    con  bool `conjunct,conjunction`
+    dis  bool `disjunct,disjunction`
+    closure  []string `closure`
+    def  []string `def,var`
+    join []string `join`
+}
+func (ctx *__string_bin) inner() Context { return &ctx.builtinbase }
+func (ctx *__string_bin) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__string_bin) x() (res any) {
+    if 0 < len(ctx.a)+len(ctx.closure)+len(ctx.def) {
+        var vals []Value
+        for _, name := range ctx.closure {
+            if o := closure_resolve(ctx, name); o != nil {
+                if d, y := o.(*def); y && d != nil && d.value != nil {
+                    vals = append(vals, d.value)
+                }
+            }
+        }
+        for _, name := range ctx.def {
+            if o := project_resolve(ctx, name); o != nil {
+                if d, y := o.(*def); y && d != nil && d.value != nil {
+                    vals = append(vals, d.value)
+                }
+            }
+        }
+
+        vals = merge(append(vals, ctx.a...)...)
+
+        if /* expandable(_final(ctx), vals...) */true {
+            return &strval{valbase{_pos(ctx)},vals}
+        } else if 0 < len(ctx.join) {
+            var s bytes.Buffer
+            for i, v := range vals {
+                if t := __string(ctx, v); t != "" {
+                    if 0 < i { s.WriteString(ctx.join[i % len(ctx.join)]) }
+                    s.WriteString(t)
+                }
+            }
+            return &strlit{valbase{_pos(ctx)},s.String()}
+        } else if ctx.con || !ctx.dis { // conjunction (default)
+            var s bytes.Buffer
+            for i, v := range vals {
+                if t := __string(ctx, v); t != "" {
+                    if 0 < i { s.WriteString(" ") }
+                    s.WriteString(t)
+                }
+            }
+            return &strlit{valbase{_pos(ctx)},s.String()}
+        } else { // disjunction
+            var a []Value
+            for _, v := range vals {
+                if t := __string(ctx, v); t != "" {
+                    a = append(a, &strlit{valbase{v.Pos()},t})
+                }
+            }
+            return a
+        }
+    }
+    return
+}
+
+type __finalize struct { builtinbase }
+func (ctx *__finalize) inner() Context { return &ctx.builtinbase }
+func (ctx *__finalize) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__finalize) x() any {
+    return expands(_final(ctx), ctx.a...)
+}
+
+type __filter struct { builtinbase
+    stem bool `stem`
+    neg bool
+}
+func (ctx *__filter) inner() Context { return &ctx.builtinbase }
+func (ctx *__filter) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+
+func (ctx *__filter) _x0(pats []Value, values ...Value) (result []Value) {
+	defer func(t0 time.Time) {
+		if d := time.Since(t0); d > 1*time.Second {
+			debug(ctx,
+				_f("slow: %v\n", d),
+				_f("slow: %d result, %v\n", len(result), result),
+				_f("slow: %d pats, %v\n", len(pats), pats))
+		}
+	}(time.Now())
+
+	if len(values) == 0 {
+		return
+	}
+
+	// 1. OPTIMIZATION: Pre-allocate capacity to eliminate slice growth allocations.
+	// Filter-out (ctx.neg) typically keeps most items, while filter keeps fewer.
+	capacity := len(values) / 2
+	if ctx.neg {
+		capacity = len(values)
+	}
+	result = make([]Value, 0, capacity)
+
+	// 2. OPTIMIZATION: Memoization cache for repetitive AST nodes.
+	// This prevents executing O(N * M) match() calls for duplicate values.
+	type matchResult struct {
+		matched bool
+		val     Value // Stores the stem or the original value
+	}
+	cache := make(map[string]matchResult, capacity)
+
+	for _, v := range values {
+		// Use the string representation as the identity key. Expanded AST nodes 
+		// (like *word or *strlit) that represent the same text will hit the cache.
+		var key string
+		if v != nil {
+			key = v.String()
+		}
+
+		// Fast-path: If we've already matched this exact string against the patterns, reuse it!
+		if cached, exists := cache[key]; exists {
+			if cached.matched {
+				if !ctx.neg && cached.val != nil {
+					result = append(result, cached.val)
+				}
+			} else {
+				if ctx.neg && v != nil {
+					result = append(result, v)
+				}
+			}
+			continue
+		}
+
+		var matched bool
+		var matchedVal Value
+
+		// Slow-path: Check the value against all patterns
+		for _, pat := range pats {
+			if full, _, _, stems := match(ctx, pat, v); full {
+				matched = true
+				if ctx.stem {
+					matchedVal = ease(ctx, stems)
+				} else {
+					matchedVal = v
+				}
+				break // Stop checking patterns once we have a match
+			}
+		}
+
+		// Save the computed result into the cache for future identical values
+		cache[key] = matchResult{
+			matched: matched,
+			val:     matchedVal,
+		}
+
+		// Apply filter vs filter-out logic
+		if matched {
+			if !ctx.neg {
+				if matchedVal != nil {
+					result = append(result, matchedVal)
+				}
+			}
+		} else {
+			if ctx.neg {
+				if v != nil {
+					result = append(result, v)
+				}
+			}
+		}
+	}
+	return
+}
+func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
+	if benchmark { defer func(t0 time.Time) {
+		if d := time.Since(t0); d > 25*time.Millisecond {
+			debug(ctx,
+				_f("slow: %d values, %v, %d result", len(values), d, len(result)),
+				_f("slow: %d pats: %v", len(pats), pats),
+				callstack{num:5,stop:"smart.evoke"})
+		}
+	}(time.Now())}
+
+	if len(values) == 0 {
+		return
+	}
+
+	// 1. OPTIMIZATION: Pre-allocate capacity
+	capacity := len(values) / 2
+	if ctx.neg {
+		capacity = len(values)
+	}
+	result = make([]Value, 0, capacity)
+
+	// 2. OPTIMIZATION: Pre-compile fast-path matchers for patterns!
+	// This completely bypasses the heavy, recursive AST match() function 
+	// for standard strings and percent-wildcards (like `%.in` or `CMakeLists.txt`).
+	type fastPattern struct {
+		isExact  bool
+		exact    string
+		isPerc   bool
+		prefix   string
+		suffix   string
+		isRegex  bool
+		regex    *regexp.Regexp
+		fallback Value
+	}
+
+	fastPats := make([]fastPattern, 0, len(pats))
+	for _, pat := range pats {
+		fp := fastPattern{fallback: pat}
+
+		p := unloc(pat)
+		if pp, ok := p.(*percpat); ok {
+			pfx, ok1 := staticStr(pp.Prefix)
+
+			sufVal := pp.Suffix
+			if inner, isPP := unloc(sufVal).(*percpat); isPP && isEmpty(inner.Prefix) {
+				sufVal = inner.Suffix // Handle %% 
+			}
+			suf, ok2 := staticStr(sufVal)
+
+			if ok1 && ok2 {
+				fp.isPerc = true
+				fp.prefix = pfx
+				fp.suffix = suf
+			}
+		} else if rx, ok := p.(*regexpat); ok {
+			fp.isRegex = true
+			fp.regex = rx.Regexp
+		} else if s, ok := staticStr(p); ok && !patterned(ctx, p) {
+			fp.isExact = true
+			fp.exact = s
+		}
+
+		fastPats = append(fastPats, fp)
+	}
+
+	// 3. OPTIMIZATION: Memoization cache using the raw string identity.
+	type matchResult struct {
+		matched bool
+		val     Value
+	}
+	cache := make(map[string]matchResult, capacity)
+
+	for _, v := range values {
+		var key string
+		var vStr string
+		if v != nil {
+			vStr = quickStr(ctx, v)
+			key = vStr // Use evaluated string as cache key for maximum hit rate
+		}
+
+		if cached, exists := cache[key]; exists {
+			if cached.matched {
+				if !ctx.neg && cached.val != nil {
+					result = append(result, cached.val)
+				}
+			} else {
+				if ctx.neg && v != nil {
+					result = append(result, v)
+				}
+			}
+			continue
+		}
+
+		var matched bool
+		var matchedVal Value
+
+		// Run the lightning-fast checks
+		for _, fp := range fastPats {
+			if fp.isExact {
+				if vStr == fp.exact {
+					matched = true
+					if ctx.stem { matchedVal = _raw(v.Pos(), "") } else { matchedVal = v }
+					break
+				}
+			} else if fp.isPerc {
+				if len(vStr) >= len(fp.prefix)+len(fp.suffix) &&
+					strings.HasPrefix(vStr, fp.prefix) &&
+					strings.HasSuffix(vStr, fp.suffix) {
+					matched = true
+					if ctx.stem {
+						stemStr := vStr[len(fp.prefix) : len(vStr)-len(fp.suffix)]
+						matchedVal = _raw(v.Pos(), stemStr)
+					} else {
+						matchedVal = v
+					}
+					break
+				}
+			} else if fp.isRegex && fp.regex != nil {
+				if fp.regex.MatchString(vStr) {
+					matched = true
+					matchedVal = v 
+					break
+				}
+			} else {
+				// Heavy AST Matcher Fallback (Rarely used now!)
+				if full, _, _, stems := match(ctx, fp.fallback, v); full {
+					matched = true
+					if ctx.stem {
+						matchedVal = ease(ctx, stems)
+					} else {
+						matchedVal = v
+					}
+					break
+				}
+			}
+		}
+
+		cache[key] = matchResult{
+			matched: matched,
+			val:     matchedVal,
+		}
+
+		if matched {
+			if !ctx.neg {
+				if matchedVal != nil {
+					result = append(result, matchedVal)
+				}
+			}
+		} else {
+			if ctx.neg {
+				if v != nil {
+					result = append(result, v)
+				}
+			}
+		}
+	}
+	return
+}
+
+func (ctx *__filter) x() (res any) {
+	if len(ctx.a) > 1 {
+		var i int
+		var pats = merge(expand(ctx, ctx.a[0]))
+		
+		if len(pats) > 0 {
+			i = 1 // good
+		} else if pats = merge(ctx.a[1]); len(pats) == 0 {
+			debug(ctx, "no patterns: %v", ctx.a, trace{})
+			return
+		} else {
+			i = 2
+		}
+
+		if i <= len(ctx.a) {
+			res = ctx._x(pats, merge(expands(ctx, ctx.a[i:]...)...)...)
+		} else {
+			debug(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a, trace{})
+		}
+	}
+	return
+}
+
+// $(filter-out pattern…,text)
+type __filterout struct { __filter }
+func (ctx *__filterout) inner() Context { return &ctx.builtinbase }
+func (ctx *__filterout) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__filterout) x() any {
+    ctx.neg = true ; return ctx.__filter.x()
+}
+
+type __substring struct { builtinbase }
+func (ctx *__substring) inner() Context { return &ctx.builtinbase }
+func (ctx *__substring) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__substring) x() (_ any) {
+    var res []Value
+    if n := len(ctx.a); n > 1 {
+        var v1, v2 = ctx.a[0], ctx.a[1]
+        var a, b = intVal(ctx, v1, -1), intVal(ctx, v2, -1)
+        if ctx.a = ctx.a[2:]; a < -1 && b < -1 {
+            debug(ctx, "wrong indices (%v, %v)", v1, v2, trace{})
+        }
+        if a > b { t := a; a = b; b = t } // swap the wrong order
+        if a == -1 { a = b }
+        if a == -1 { return }
+
+        for _, arg := range ctx.a {
+            var s = __string(ctx, arg)
+            if i := len(s); i <= a { s = "" } else
+            if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
+            res = append(res, _strlit(arg.Pos(), s))
+        }
+    }
+    return res
+}
+
+// $(subst from,to,text)
+type __subst struct { builtinbase }
+func (ctx *__subst) inner() Context { return &ctx.builtinbase }
+func (ctx *__subst) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__subst) x() (_ any) {
+    var res []Value
+    if len(ctx.a) > 2 {
+        var s1 = __string(ctx, ctx.a[0])
+        var s2 = __string(ctx, ctx.a[1])
+        for _, arg := range merge(ctx.a[2:]...) {
+            s := strings.Replace(__string(ctx, arg), s1, s2, -1)
+            res = append(res, _strlit(arg.Pos(), s))
+        }
+    }
+    return res
+}
+
+func coupleval(ctx Context, v Value, str string) (_ Value) {
+	// Use unbox just in case v is wrapped in *loc or *argumented
+	switch unbox(v).(type) { 
+	case *strlit, *strcomp:
+		return _strlit(_pos(ctx), str)
+	case *path:
+		return _pathStr(ctx, str)
+	case *file, fullfile:
+		// REFINED: Treat files as paths if they contain slashes, otherwise words.
+		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
+		return _word(_pos(ctx), str)
+	default:
+		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
+		return _word(_pos(ctx), str)
+	}
+}
+
+// $(patsubst pattern,replacement,text)
+// TODO: supports: $(var:pattern=replacement)
+// TODO: supports: $(var:suffix=replacement)
+// TODO: support flags -name and -full for name-only and full-name-only matching
+type __patsubst struct { builtinbase
+    fullfiles bool `fullfile,fullfiles`
+    filter    bool `filter,filter-unmatched,match-only` // Added filter option
+}
+func (ctx *__patsubst) inner() Context { return &ctx.builtinbase }
+func (ctx *__patsubst) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__patsubst) matchPats(pats []Value, a Value) (ok bool, pat Value, stems []Value) {
+	var rem Value
+	for _, pat = range pats {
+		if ok, _, rem, stems = match(ctx, pat, a); ok && (rem == nil || isEmpty(rem)) {
+			return true, pat, stems
+		}
+	}
+	return false, nil, nil
+}
+func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, full bool) {
+	var ok bool
+	if srcFile, ok = to_file(src); ok {
+		if full = ctx.fullfiles; !full { _, full = unbox(src).(fullfile) }
+	}
+	return
+}
+func (ctx *__patsubst) x() (_ any) {
+	if benchmark { defer func(t0 time.Time) {
+		if d := time.Since(t0); d > 25*time.Millisecond {
+			debug(ctx,
+				_f("slow: %d values, %v", len(ctx.a), d),
+				callstack{num:5,stop:"smart.evoke"})
+		}
+	}(time.Now())}
+	
+	var srcPats, dstPats, sources, res []Value
+	if nil != ctx.a {
+		var l = len(ctx.a)
+		if 0 < l { srcPats = xmerge(ctx, ctx.a[0]) }
+		if 1 < l { dstPats = xmerge(ctx, ctx.a[1]) }
+		if 2 < l { sources = xmerge(ctx, ctx.a[2:]...) }
+	}
+
+	var proj = _project(ctx)
+	for _, src := range sources {
+		var srcFile, full = ctx.srcFile(proj, src)
+		
+		// This now returns an exact, cleanly stripped stem (e.g., "foo")
+		var ok, /* srcPat */_, stems = ctx.matchPats(srcPats, src)
+		
+		if !ok {
+			// Pass-through unmatched files seamlessly
+			if !ctx.filter && !isTrivial(src) { res = append(res, src) }
+			continue 
+		}
+
+		for _, dstPat := range dstPats {
+			// Ignore ramnant check to allow static replacements
+			if val, _ := stencil(ctx, dstPat, stems); isNull(val) {
+				debug(ctx, "nil stencil: %v", dstPat, trace{})
+			} else if srcFile != nil {
+				// If the source was a file, we want to maintain its "file-like" identity 
+				// without incurring the cost of a full VFS/trie lookup.
+				dst := proj.file(ctx, val)
+
+				var str string
+
+				// TIER 2: If AST mapping failed, flatten to string and force VFS resolution
+				if dst == nil {
+					if str = __string(ctx, val); str != "" {
+						dst = _stat(ctx, str, stat_nonexist{true})
+					}
+				}
+
+				// TIER 3: If VFS totally rejects it, degrade to a pure string substitution
+				if dst == nil {
+					if str != "" {
+						res = append(res, coupleval(pc(ctx, dstPat), src, str))
+					}
+					continue // Safely move to next pattern
+				}
+
+				if dst == nil {
+					debug(ctx, "%v → %v (nil file)", srcFile, val, callstack{num:5}, trace{})
+				} else if dst.pos = src.Pos(); full {
+					res = append(res, fullfile{dst})
+				} else {
+					res = append(res, dst)
+				}
+			} else {
+				if str := __string(ctx, val); str != "" {
+					// Uses the coupleval function for standard string replacements
+					res = append(res, coupleval(pc(ctx, dstPat), src, str))
+				}
+			}
+		}
+	}
+	return res
+}
+
+type __title struct { builtinbase }
+func (ctx *__title) inner() Context { return &ctx.builtinbase }
+func (ctx *__title) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__title) x() any {
+    var res []Value
+    for _, a := range ctx.a {
+        switch t := a.(type) {
+        case interface{ change(func(string) string) Value }:
+            a = t.change(strings.Title)
+        default:
+            a = _raw(a.Pos(), strings.Title(__string(ctx, a)))
+        }
+    }
+    return res
+}
+
+type __uppercase struct { builtinbase }
+func (ctx *__uppercase) inner() Context { return &ctx.builtinbase }
+func (ctx *__uppercase) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__uppercase) x() any {
+    var res []Value
+    for _, a := range ctx.a {
+        switch t := a.(type) {
+        case interface{ change(func(string) string) Value }:
+            a = t.change(strings.ToUpper)
+        default:
+            a = _raw(a.Pos(), strings.ToUpper(__string(ctx, a)))
+        }
+        res = append(res, a)
+    }
+    return res
+}
+
+type __lowercase struct { builtinbase }
+func (ctx *__lowercase) inner() Context { return &ctx.builtinbase }
+func (ctx *__lowercase) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__lowercase) x() any {
+    var res []Value
+    for _, a := range ctx.a {
+        switch t := a.(type) {
+        case interface{ change(func(string) string) Value }:
+            a = t.change(strings.ToLower)
+        default:
+            a = _raw(a.Pos(), strings.ToLower(__string(ctx, a)))
+        }
+        res = append(res, a)
+    }
+    return res
+}
+
+type __trim struct { builtinbase }
+func (ctx *__trim) inner() Context { return &ctx.builtinbase }
+func (ctx *__trim) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trim) x() any {
+    var res []Value
+    var cutset string
+    var f func(string) string
+    if cutset == "" {
+        f = strings.TrimSpace
+    } else {
+        f = func(s string) string { return strings.Trim(s, cutset) }
+    }
+    for _, a := range merge(ctx.a...) {
+        switch t := a.(type) {
+        case interface{ change(func(string) string) Value }:
+            a = t.change(f)
+        default:
+            a = _raw(a.Pos(), f(__string(ctx, a)))
+        }
+        res = append(res, a)
+    }
+    return res
+}
+
+type __trimleft struct { builtinbase }
+func (ctx *__trimleft) inner() Context { return &ctx.builtinbase }
+func (ctx *__trimleft) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trimleft) x() any {
+    var res []Value
+    var cutset string
+    var f func(string) string
+    if cutset == "" {
+        f = func(s string) string { return strings.TrimLeftFunc(s, unicode.IsSpace) }
+    } else {
+        f = func(s string) string { return strings.TrimLeft(s, cutset) }
+    }
+    for _, a := range ctx.a {
+        switch t := a.(type) {
+        case interface{ change(func(string) string) Value }:
+            a = t.change(f)
+        default:
+            a = _raw(a.Pos(), f(__string(ctx, a)))
+        }
+        res = append(res, a)
+    }
+    return res
+}
+
+type __trimright struct { builtinbase }
+func (ctx *__trimright) inner() Context { return &ctx.builtinbase }
+func (ctx *__trimright) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trimright) x() any {
+    var res []Value
+    var cutset string
+    var f func(string) string
+    if cutset == "" {
+        f = func(s string) string { return strings.TrimRightFunc(s, unicode.IsSpace) }
+    } else {
+        f = func(s string) string { return strings.TrimRight(s, cutset) }
+    }
+    for _, a := range ctx.a {
+        switch t := a.(type) {
+        case interface{ change(func(string) string) Value }:
+            a = t.change(f)
+        default:
+            a = _raw(a.Pos(), f(__string(ctx, a)))
+        }
+        res = append(res, a)
+    }
+    return res
+}
+
+// $(trim-prefix foo%, fooxxx foo123)
+// $(trim-prefix %/foo, xxx/foo/a/b/c)
+// $(trim-prefix %%/foo, xxx/yyy/zzz/foo/a/b/c)
+type __trimprefix struct { builtinbase }
+func (ctx *__trimprefix) inner() Context { return &ctx.builtinbase }
+func (ctx *__trimprefix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trimprefix) x() any {
+	var res []Value
+	var prefixes = merge(expand(ctx, ctx.a[0]))
+
+	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
+		var remainder Value = val
+
+		for _, prefix := range prefixes {
+			matched, _, rem, _ := match(ctx, prefix, remainder)
+
+			if matched { // The prefix pattern was completely satisfied!
+				if rem == nil || isEmpty(rem) {
+					remainder = _null(val.Pos()) // Fully consumed target
+					break // Nothing left to trim, safe to break
+				} else {
+					remainder = rem // Prefix trimmed, keep the rest for chaining!
+				}
+			}
+		}
+
+		res = append(res, remainder)
+	}
+	return res
+}
+
+type __trimsuffix struct { builtinbase }
+func (ctx *__trimsuffix) inner() Context { return &ctx.builtinbase }
+func (ctx *__trimsuffix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trimsuffix) x() any {
+	var res []Value
+	var suffixes = merge(expand(ctx, ctx.a[0]))
+
+	for _, val := range merge(expands(ctx, ctx.a[1:]...)...) {
+		var remainder Value = val
+
+		for _, suffix := range suffixes {
+			matched, _, rem, _ := match(reversal{ctx}, suffix, remainder)
+
+			if matched { // The suffix pattern was completely satisfied!
+				if rem == nil || isEmpty(rem) {
+					remainder = _null(val.Pos()) // Fully consumed target
+					break // Nothing left to trim, safe to break
+				} else {
+					remainder = rem // Suffix trimmed, keep the rest for chaining!
+				}
+			}
+		}
+
+		res = append(res, remainder)
+	}
+	return res
+}
+
+type __trimext struct { __trim
+    all bool `all`
+    ext []string `ext`
+}
+func (ctx *__trimext) inner() Context { return &ctx.builtinbase }
+func (ctx *__trimext) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__trimext) x() any {
+	var res []Value
+	var patterns []Value
+	var values []Value
+
+	// 1. Parse arguments: optional explicit extension patterns vs auto-detect
+	if len(ctx.a) > 1 {
+		patterns = merge(expand(ctx, ctx.a[0]))
+		for _, a := range ctx.a[1:] {
+			values = append(values, merge(expands(ctx, a)...)...)
+		}
+	} else {
+		for _, a := range ctx.a {
+			values = append(values, merge(expands(ctx, a)...)...)
+		}
+	}
+
+	// 2. Process values
+	for _, val := range values {
+		var currentVal = val
+		
+		// Loop for recursive trimming (if ctx.all is set, e.g., tar.gz -> tar -> "")
+		for {
+			var matched bool
+			var remainder Value = currentVal
+
+			if len(patterns) > 0 {
+				// A. Explicit Pattern Mode (behaves like trim-suffix)
+				for _, pat := range patterns {
+					full, r, rem, _ := match(reversal{ctx}, pat, currentVal)
+					if full {
+						matched = true; remainder = _null(currentVal.Pos()); break
+					} else if r != nil {
+						matched = true; remainder = rem; break
+					}
+				}
+			} else {
+				// B. Auto-Detect Mode (uses filepath.Ext logic)
+				// We must peek at the string representation to find the extension.
+				// This is safe because we only stringify to *find* the extension,
+				// then use match() to *remove* it, preserving the AST structure of the prefix.
+				str := quickStr(ctx, currentVal) 
+				if ext := filepath.Ext(str); ext != "" {
+					// Construct a raw pattern from the detected extension
+					pat := _raw(currentVal.Pos(), ext)
+					
+					full, r, rem, _ := match(reversal{ctx}, pat, currentVal)
+					if full {
+						matched = true; remainder = _null(currentVal.Pos())
+					} else if r != nil {
+						matched = true; remainder = rem
+					}
+				}
+			}
+
+			if matched {
+				currentVal = remainder
+				if ctx.all { continue } // Repeat if --all flag is active
+			}
+			break // Stop if no match or not recursive
+		}
+		res = append(res, currentVal)
+	}
+	return res
+}
+
+type __gitdir struct { builtinbase }
+func (ctx *__gitdir) inner() Context { return &ctx.builtinbase }
+func (ctx *__gitdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__gitdir) x() (_ any) {
+    var vals []Value
+    for _, a := range merge(ctx.a...) {
+        var s = __string(ctx, a)
+        if !strings.HasSuffix(s, "/.git") {
+            s = filepath.Join(s, ".git")
+        }
+        if i, e := os.Stat(s); e != nil {
+            a = _pathStr(pc(ctx, a), s) // CRITICAL FIX
+        } else if m := i.Mode(); m.IsDir() {
+            a = _pathStr(pc(ctx, a), s) // CRITICAL FIX
+        } else if m.IsRegular() {
+            if b, e := ioutil.ReadFile(s); e != nil {
+                debug(ctx, "%v", e, trace{})
+            } else if !bytes.HasPrefix(b, []byte("gitdir:")) {
+                debug(ctx, "%s", b, trace{})
+            } else {
+                t := string(bytes.TrimSpace(b[7:]))
+                s = filepath.Join(filepath.Dir(s), t)
+                a = _pathStr(pc(ctx, a), s) // CRITICAL FIX
+            }
+        } else {
+            debug(pc(ctx,a), "%v", s, trace{})
+        }
+        vals = append(vals, a)
+    }
+    return vals
+}
+
+type __addprefix struct { builtinbase }
+func (ctx *__addprefix) inner() Context { return &ctx.builtinbase }
+func (ctx *__addprefix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__addprefix) x() any {
+	if len(ctx.a) < 2 {
+		return nil
+	}
+	
+	var res []Value
+	var prefixes = merge(expand(ctx, ctx.a[0]))
+	for _, w := range merge(expands(ctx, ctx.a[1:]...)...) {
+		if !isEmpty(w) {
+			for _, p := range prefixes {
+				// CRITICAL: Apply redis to the FINAL combined AST!
+				res = append(res, redis(prefix(ctx, p, w)))
+			}
+		}
+	}
+	return res
+}
+
+type __addsuffix struct { builtinbase }
+func (ctx *__addsuffix) inner() Context { return &ctx.builtinbase }
+func (ctx *__addsuffix) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__addsuffix) x() any {
+	if len(ctx.a) < 2 {
+		return nil
+	}
+	
+	var res []Value
+	var suffixes = merge(expand(ctx, ctx.a[0]))
+	for _, w := range merge(expands(ctx, ctx.a[1:]...)...) {
+		if !isEmpty(w) {
+			for _, s := range suffixes {
+				// CRITICAL: Apply redis to the FINAL combined AST!
+				res = append(res, redis(prefix(ctx, w, s)))
+			}
+		}
+	}
+	return res
+}
+
+type __print struct{ builtinbase
+	noErrs bool `noerrs,noerrors,no-errs,no-errors`
+	noWarn bool `nowarn,nowarns,no-warn,no-warns`
+	f string `...`
+}
+func (ctx *__print) inner() Context { return &ctx.builtinbase }
+func (ctx *__print) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__print) x() (_ any) {
+    if ctx.noErrs && 0 < diagCount(ctx, diagError) { return }
+    if ctx.noWarn && 0 < diagCount(ctx, diagWarn)  { return }
+
+    var sb bytes.Buffer
+    var x = len(ctx.a)
+    for i, a := range ctx.a {
+        if a == nil { continue }
+        if 0 < i && i < x { fmt.Fprintf(&sb, " ") }
+        fmt.Fprintf(&sb, "%s", escapedString(ctx, a))
+    }
+    prompt(ctx, sb.String())
+    return
+}
+
+type __printf struct{ builtinbase }
+func (ctx *__printf) inner() Context { return &ctx.builtinbase }
+func (ctx *__printf) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__printf) x() (_ any) {
+    if len(ctx.a) < 1 {
+        debug(ctx, "not enough args, try $(printf 'format', ...)", trace{})
+    }
+
+    var vals = merge(ctx.a[0])
+    if len(vals) != 1 {
+        debug(ctx, "not enough args, try $(printf 'format', ...)", trace{})
+    }
+
+    var i int
+    var a []any
+    var f = __string(ctx, vals[0])
+
+outer:
+    for _, v := range merge(ctx.a[1:]...) {
+    fmtloop:
+        for i < len(f) {
+            if f[i] != '%' { i += 1; continue }
+            for i += 1; i < len(f); i += 1 {
+                switch f[i] {
+                case '%': continue fmtloop
+                case '+', '-', '#', ' ', '.', '0', '1', '2', '3',
+                    '4', '5', '6', '7', '8', '9': continue
+                case 'c', 'd', 'o', 'O', 'q', 'U':
+                    a = append(a, __int(ctx, v))
+                    continue outer
+                case 'e', 'E', 'f', 'F', 'g', 'G':
+                    a = append(a, __float(ctx, v))
+                    continue outer
+                case 'b', 'x', 'X':
+                    switch k := v.kind(); {
+                    case k&KindInteger != 0:
+                        a = append(a, __int(ctx, v))
+                        continue outer
+                    case k&KindFloat != 0:
+                        a = append(a, __float(ctx, v))
+                        continue outer
+                    default:
+                        if t, e := strconv.Atoi(__string(ctx, v)) ; e == nil { a = append(a, t) } else {
+                            debug(ctx, "%v: %v", v, e, trace{})
+                        }
+                        continue outer
+                    }
+                case 'v':
+                    a = append(a, v/* .string(ctx) */)
+                    continue outer
+                case 't', 'T':
+                    a = append(a, v)
+                    continue outer
+                }
+            }
+        }
+    }
+    return fmt.Sprintf(f, a...)
+}
+
+type __indent struct { builtinbase }
+func (ctx *__indent) inner() Context { return &ctx.builtinbase }
+func (ctx *__indent) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__indent) x() (res any) {
+    var l []Value
+    var s string // indent
+    if x := len(ctx.a); x > 0 {
+        if v, ok := scalarize(ctx.a[0]).(*decimal); ok {
+            ctx.a, s = ctx.a[1:], strings.Repeat(" ", int(v.int64))
+        } else {
+            debug(ctx, "requires integer argument (first|last)", trace{})
+        }
+    }
+    for _, a := range ctx.a {
+        var lines []string
+        for _, line := range strings.Split(__string(ctx, a), "\n") {
+            lines = append(lines, s + line)
+        }
+        l = append(l, _strlit(a.Pos(), strings.Join(lines, "\n")))
+    }
+    return l
+}
+
+type __findstring struct { builtinbase }
+func (ctx *__findstring) inner() Context { return &ctx.builtinbase }
+func (ctx *__findstring) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__findstring) x() (res any) {
+    // TODO: $(findstring find,text)
+    return
+}
+
+// $(contains a b c, v1 v2 …)
+// $(contains a b c1 -or c2, v1 v2 …)          -- xx
+// $(contains a b c1 -or c2 -or c3, v1 v2 …)   -- xx
+// $(contains a b -or=(c1 c2 c3), v1 v2 …)     -- xx
+type __contains struct { builtinbase
+    match  bool `match,pat,pattern`
+    string bool `str,string`
+}
+func (ctx *__contains) inner() Context { return &ctx.builtinbase }
+func (ctx *__contains) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__contains) x() (_ any) {
+    var list = xmerge(ctx, ctx.a[1:]...)
+	for _, val := range xmerge(ctx, ctx.a[0]) {
+		var s string
+		if ctx.string { s = __string(ctx, val) }
+
+		for _, elem := range list {
+			var t bool
+			if ctx.match || patterned(ctx, val) {
+				t, _, _, _ = match(swapped_ctx{ctx}, val, elem)
+			} else if ctx.string {
+				t = __string(ctx, elem) == s
+			} else {
+				t = cmp(ctx, val, elem) == cmpEqual
+			}
+
+			if t {
+				// ANY semantics: Return truthy immediately upon the first intersection!
+				return _loc(toBool(elem, true), _pos(ctx))
+			}
+		}
+	}
+	return
+}
+
+//
+
+// $(sort(-u -reverse) list...)
+// Sorts the AST elements lexically based on their string representation/glob rank.
+type __sort struct { builtinbase
+	reverse bool `reverse,rev`
+	unique  bool `unique,u`
+}
+func (ctx *__sort) inner() Context { return &ctx.builtinbase }
+func (ctx *__sort) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+func (ctx *__sort) x() (res any) {
+	vals := xmerge(ctx, ctx.a...)
+	if len(vals) == 0 { return }
+
+	// OPTIMIZATION: Deduplicate FIRST using the fast hash map.
+	// This drastically reduces the N in O(N log N) for the expensive AST sort.
+	if ctx.unique {
+		vals = unique(ctx, vals...)
+	}
+
+	// Standard AST sorting
+	// (Using an explicit if/else avoids the generic _if allocating two closures)
+	var f func(a, b Value) int
+	if ctx.reverse {
+		f = func(a, b Value) int { return cmpValues(ctx, b, a) }
+	} else {
+		f = func(a, b Value) int { return cmpValues(ctx, a, b) }
+	}
+	slices.SortFunc(vals, f)
+
+	return vals
+}
+
+// $(wordlist start, end, list...)
+// Returns the slice of the list from index 's' to 'e' (0-based, exclusive end like Go/Python).
+type __wordlist struct { builtinbase }
+func (ctx *__wordlist) inner() Context { return &ctx.builtinbase }
+func (ctx *__wordlist) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+func (ctx *__wordlist) x() (res any) {
+	if len(ctx.a) < 2 {
+		debug(ctx, "wordlist requires indices: $(wordlist start, end, list...)", trace{})
+		return
+	}
+
+	s := int(__int(ctx, expand(ctx, ctx.a[0])))
+	e := int(__int(ctx, expand(ctx, ctx.a[1])))
+	vals := xmerge(ctx, ctx.a[2:]...)
+
+	// Intuitive, safe clamping for out-of-bounds indices
+	if s < 0 { s = 0 }
+	if e > len(vals) { e = len(vals) }
+	if s >= e || s >= len(vals) { return } // Native empty return
+
+	return vals[s:e]
+}
+
+// $(words list...)
+// Returns the number of elements in the AST list.
+type __words struct { builtinbase }
+func (ctx *__words) inner() Context { return &ctx.builtinbase }
+func (ctx *__words) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+func (ctx *__words) x() (res any) {
+	// ease() natively handles converting int64 to the proper AST numeric node.
+	return int64(len(xmerge(ctx, ctx.a...)))
+}
+
+// $(firstword list...)
+// Returns the first element of the list.
+type __firstword struct { builtinbase }
+func (ctx *__firstword) inner() Context { return &ctx.builtinbase }
+func (ctx *__firstword) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+func (ctx *__firstword) x() (res any) {
+	vals := xmerge(ctx, ctx.a...)
+	if len(vals) > 0 {
+		return vals[0]
+	}
+	return
+}
+
+// $(lastword list...)
+// Returns the last element of the list.
+type __lastword struct { builtinbase }
+func (ctx *__lastword) inner() Context { return &ctx.builtinbase }
+func (ctx *__lastword) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+func (ctx *__lastword) x() (res any) {
+	vals := xmerge(ctx, ctx.a...)
+	if n := len(vals); n > 0 {
+		return vals[n-1]
+	}
+	return
+}
+
+type __encodebase64 struct { builtinbase }
+func (ctx *__encodebase64) inner() Context { return &ctx.builtinbase }
+func (ctx *__encodebase64) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__encodebase64) x() (res any) {
+	if 0 < len(ctx.a) {
+		pos := _pos(ctx)
+		buf := new(bytes.Buffer)
+		enc := base64.NewEncoder(base64.StdEncoding, buf)
+		for _, a := range ctx.a { enc.Write([]byte(__string(ctx, a))) }
+		enc.Close()
+		res = _strlit(pos, buf.String())
+	}
+	return
+}
+
+type __decodebase64 struct { builtinbase }
+func (ctx *__decodebase64) inner() Context { return &ctx.builtinbase }
+func (ctx *__decodebase64) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__decodebase64) x() (_ any) {
+    if 0 < len(ctx.a) {
+        var res []Value
+        for _, a := range ctx.a {
+            var s = __string(ctx, a)
+            if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
+                debug(ctx, "decode '%s' failed: %v", s, err, trace{})
+            } else {
+                res = append(res, _strlit(a.Pos(), string(dat)))
+            }
+        }
+        return ease(ctx, res)
+    }
+    return
+}
+
+type __ext struct { builtinbase }
+func (ctx *__ext) inner() Context { return &ctx.builtinbase }
+func (ctx *__ext) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__ext) x() (_ any) {
+    var res []Value
+    for _, a := range merge(ctx.a...) {
+        res = append(res, _strlit(a.Pos(), filepath.Ext(__string(ctx, a))))
+    }
+    if 0 < len(res) { return res }
+    return
+}
+
+func _bases(n int, s string, a ...any) (d, b string) {
+	d, b = filepath.Dir(s), filepath.Base(s)
+	if d == "" || d == "." {
+		return
+	}
+
+	var k = 1
+
+	// 1. Process the explicit depth 'n' unconditionally
+	for i := n - k; i > 0; i -= 1 {
+		if d == "/" || d == "." || d == "" { break }
+		b = filepath.Join(filepath.Base(d), b)
+		d = filepath.Dir(d)
+		k += 1
+	}
+
+	// 2. Process optional string boundaries or boolean prefixing
+	if a != nil {
+		for _, arg := range a {
+			switch t := arg.(type) {
+			case bool:
+				if filepath.IsAbs(d) {
+					b = filepath.Join(d, b)
+				} else if t {
+					b = filepath.Join("…", b)
+				}
+			case string:
+				for d != "/" && d != "." && d != "" && len(d)+len(b) < len(s) {
+					k += 1
+					if base := filepath.Base(d); base == t {
+						d = filepath.Dir(d)
+						break
+					} else {
+						b = filepath.Join(base, b)
+						d = filepath.Dir(d)
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
+func bases(n int, s string, a ...any) (b string) {
+	_, b = _bases(n, s, a...)
+	return
+}
+
+type __bases struct { builtinbase ; n int `num,size,count` }
+func (ctx *__bases) inner() Context { return &ctx.builtinbase }
+func (ctx *__bases) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+func (ctx *__bases) x() any {
+	var vals []Value
+	for _, a := range ctx.a {
+		var s string
+		if ctx.fullname {
+			s, _ = as_fullname_string(ctx, a)
+		} else {
+			s = __string(ctx, a)
+		}
+		if s != "" {
+			_, s = _bases(ctx.n, s)
+			switch t := strings.Split(s, pathSep); len(t) {
+			case 0:
+			case 1: vals = append(vals, _word(a.Pos(), s))
+			default:
+				var p = new(path)
+				for _, t := range t {
+					p.elems = append(p.elems, _word(a.Pos(), t))
+				}
+				vals = append(vals, p)
+			}
+		}
+	}
+	return vals
+}
+
+type __base1 struct { __bases }
+func (ctx *__base1) inner() Context { return &ctx.__bases }
+func (ctx *__base1) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.__bases.cast(t)
+}
+func (ctx *__base1) x() any { ctx.n = 1; return ctx.__bases.x() }
+
+type __base2 struct { __bases }
+func (ctx *__base2) inner() Context { return &ctx.__bases }
+func (ctx *__base2) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base2) x() any { ctx.n = 2; return ctx.__bases.x() }
+
+type __base3 struct { __bases }
+func (ctx *__base3) inner() Context { return &ctx.__bases }
+func (ctx *__base3) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base3) x() any { ctx.n = 3; return ctx.__bases.x() }
+
+type __base4 struct { __bases }
+func (ctx *__base4) inner() Context { return &ctx.__bases }
+func (ctx *__base4) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base4) x() any { ctx.n = 4; return ctx.__bases.x() }
+
+type __base5 struct { __bases }
+func (ctx *__base5) inner() Context { return &ctx.__bases }
+func (ctx *__base5) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base5) x() any { ctx.n = 5; return ctx.__bases.x() }
+
+type __base6 struct { __bases }
+func (ctx *__base6) inner() Context { return &ctx.__bases }
+func (ctx *__base6) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base6) x() any { ctx.n = 6; return ctx.__bases.x() }
+
+type __base7 struct { __bases }
+func (ctx *__base7) inner() Context { return &ctx.__bases }
+func (ctx *__base7) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base7) x() any { ctx.n = 7; return ctx.__bases.x() }
+
+type __base8 struct { __bases }
+func (ctx *__base8) inner() Context { return &ctx.__bases }
+func (ctx *__base8) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base8) x() any { ctx.n = 8; return ctx.__bases.x() }
+
+type __base9 struct { __bases }
+func (ctx *__base9) inner() Context { return &ctx.__bases }
+func (ctx *__base9) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__bases.cast(t)
+}
+func (ctx *__base9) x() any { ctx.n = 9; return ctx.__bases.x() }
+
+type __dir struct { __dirs ; sub Value `has,contain,contains` }
+func (ctx *__dir) inner() Context { return &ctx.__dirs }
+func (ctx *__dir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir) x() (_ any) {
+    var sub string
+    if ctx.sub != nil {
+        sub = __string(ctx, ctx.sub)
+    }
+    if sub == "" {
+        ctx.n = 1
+        return ctx.__dirs.x()
+    }
+
+    var l []Value
+    for _, a := range merge(ctx.a...) {
+        var s string
+        if ctx.fullname {
+            s, _ = as_fullname_string(ctx, a)
+        } else {
+            s = __string(ctx, a)
+        }
+        for {
+            var d = filepath.Dir(s)
+            if d == "" || d == s { break } else { s = d }
+            if _, e := os.Stat(filepath.Join(d,sub)); e == nil {
+                l = append(l, _pathStr(pc(ctx, a), d)) // CRITICAL FIX
+                break
+            }
+        }
+    }
+    return l
+}
+
+func dirs(n int, s string) (_ string) {
+    for n > 0 {
+        s = filepath.Dir(s)
+        n -= 1
+    }
+    return s
+}
+
+type __dirs struct { builtinbase ; n int `num,size,count` }
+func (ctx *__dirs) inner() Context { return &ctx.builtinbase }
+func (ctx *__dirs) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__dirs) x() any {
+    var l []Value
+    for _, a := range merge(ctx.a...) {
+        var s string
+        if ctx.fullname {
+            s, _ = as_fullname_string(ctx, a)
+        } else {
+            s = __string(ctx, a)
+        }
+
+        s = dirs(ctx.n, s)
+
+        if f, y := a.(*file); y {
+            if ctx.fullname {
+                f = _stat(ctx, s, stat_nonexist{true})
+            } else {
+                f = _stat(ctx, s, stat_nonexist{true}, stat_sub{f.sub}, stat_dir{f.dir})
+            }
+            l = append(l, f)
+        } else if s != "" {
+            l = append(l, _pathStr(pc(ctx, a), s)) // CRITICAL FIX
+        } else {
+            continue
+        }
+    }
+    return l
+}
+
+type __dir1 struct { __dirs }
+func (ctx *__dir1) inner() Context { return &ctx.__dirs }
+func (ctx *__dir1) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir1) x() any { ctx.n = 1; return ctx.__dirs.x() }
+
+type __dir2 struct { __dirs }
+func (ctx *__dir2) inner() Context { return &ctx.__dirs }
+func (ctx *__dir2) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir2) x() any { ctx.n = 2; return ctx.__dirs.x() }
+
+type __dir3 struct { __dirs }
+func (ctx *__dir3) inner() Context { return &ctx.__dirs }
+func (ctx *__dir3) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir3) x() any { ctx.n = 3; return ctx.__dirs.x() }
+
+type __dir4 struct { __dirs }
+func (ctx *__dir4) inner() Context { return &ctx.__dirs }
+func (ctx *__dir4) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir4) x() any { ctx.n = 4; return ctx.__dirs.x() }
+
+type __dir5 struct { __dirs }
+func (ctx *__dir5) inner() Context { return &ctx.__dirs }
+func (ctx *__dir5) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir5) x() any { ctx.n = 5; return ctx.__dirs.x() }
+
+type __dir6 struct { __dirs }
+func (ctx *__dir6) inner() Context { return &ctx.__dirs }
+func (ctx *__dir6) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir6) x() any { ctx.n = 6; return ctx.__dirs.x() }
+
+type __dir7 struct { __dirs }
+func (ctx *__dir7) inner() Context { return &ctx.__dirs }
+func (ctx *__dir7) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir7) x() any { ctx.n = 7; return ctx.__dirs.x() }
+
+type __dir8 struct { __dirs }
+func (ctx *__dir8) inner() Context { return &ctx.__dirs }
+func (ctx *__dir8) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir8) x() any { ctx.n = 8; return ctx.__dirs.x() }
+
+type __dir9 struct { __dirs }
+func (ctx *__dir9) inner() Context { return &ctx.__dirs }
+func (ctx *__dir9) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__dirs.cast(t)
+}
+func (ctx *__dir9) x() any { ctx.n = 9; return ctx.__dirs.x() }
+
+type __undirs struct { builtinbase ; n int `num,size,count` }
+func (ctx *__undirs) inner() Context { return &ctx.builtinbase }
+func (ctx *__undirs) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__undirs) x() any {
+    var l []Value
+    for _, a := range ctx.a {
+        var s string
+        if ctx.fullname {
+            s, _ = as_fullname_string(ctx, a)
+        } else {
+            s = __string(ctx, a)
+        }
+        var v = strings.Split(s, pathSep)
+        if i := len(v); i == 0 {
+            // v is empty
+        } else if ctx.n < i {
+            v = v[ctx.n:]
+        } else {
+            v = v[i-1:] // empty
+        }
+        l = append(l, _pathStr(pc(ctx, a), filepath.Join(v...))) // CRITICAL FIX
+    }
+    return l
+}
+
+type __undir1 struct { __undirs }
+func (ctx *__undir1) inner() Context { return &ctx.__undirs }
+func (ctx *__undir1) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir1) x() any { ctx.n = 1; return ctx.__undirs.x() }
+
+type __undir2 struct { __undirs }
+func (ctx *__undir2) inner() Context { return &ctx.__undirs }
+func (ctx *__undir2) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir2) x() any { ctx.n = 2; return ctx.__undirs.x() }
+
+type __undir3 struct { __undirs }
+func (ctx *__undir3) inner() Context { return &ctx.__undirs }
+func (ctx *__undir3) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir3) x() any { ctx.n = 3; return ctx.__undirs.x() }
+
+type __undir4 struct { __undirs }
+func (ctx *__undir4) inner() Context { return &ctx.__undirs }
+func (ctx *__undir4) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir4) x() any { ctx.n = 4; return ctx.__undirs.x() }
+
+type __undir5 struct { __undirs }
+func (ctx *__undir5) inner() Context { return &ctx.__undirs }
+func (ctx *__undir5) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir5) x() any { ctx.n = 5; return ctx.__undirs.x() }
+
+type __undir6 struct { __undirs }
+func (ctx *__undir6) inner() Context { return &ctx.__undirs }
+func (ctx *__undir6) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir6) x() any { ctx.n = 6; return ctx.__undirs.x() }
+
+type __undir7 struct { __undirs }
+func (ctx *__undir7) inner() Context { return &ctx.__undirs }
+func (ctx *__undir7) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir7) x() any { ctx.n = 7; return ctx.__undirs.x() }
+
+type __undir8 struct { __undirs }
+func (ctx *__undir8) inner() Context { return &ctx.__undirs }
+func (ctx *__undir8) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir8) x() any { ctx.n = 8; return ctx.__undirs.x() }
+
+type __undir9 struct { __undirs }
+func (ctx *__undir9) inner() Context { return &ctx.__undirs }
+func (ctx *__undir9) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.__undirs.cast(t)
+}
+func (ctx *__undir9) x() any { ctx.n = 9; return ctx.__undirs.x() }
+
+type __chopdir struct { builtinbase }
+func (ctx *__chopdir) inner() Context { return &ctx.builtinbase }
+func (ctx *__chopdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__chopdir) x() (res any) {
+    var l []Value
+    var n = 0
+    if x := len(ctx.a); x > 0 {
+        if v, ok := scalarize(ctx.a[0]).(*decimal); ok {
+            ctx.a, n = ctx.a[1:], int(v.int64)
+        } else if v, ok := scalarize(ctx.a[x-1]).(*decimal); ok {
+            ctx.a, n = ctx.a[:x-1], int(v.int64)
+        } else {
+            debug(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.a[0], ctx.a[x-1], trace{})
+            return
+        }
+    }
+    for _, a := range ctx.a {
+        var v = strings.Split(__string(ctx, a), pathSep)
+        if i := len(v); 0 < i {
+            if n < 0 { n = i + n }
+            if 0 <= n && n+1 < i {
+                v = append(v[0:n], v[n+1:]...)
+            } else {
+                v = append(v[0:n])
+            }
+            if len(v) > 0 && v[0] == "" {
+                v[0] = pathSep // for absolute paths
+            }
+        }
+        l = append(l, _strlit(a.Pos(), filepath.Join(v...)))
+    }
+    return l
+}
+
+type __reldir struct { builtinbase }
+func (ctx *__reldir) inner() Context { return &ctx.builtinbase }
+func (ctx *__reldir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__reldir) x() (res any) {
+    var err error
+    var l []Value
+    var t string
+    for i, a := range ctx.a {
+        if s := __string(ctx, a); i == 0 {
+            t = s
+        } else if s, err = filepath.Rel(t, s); err == nil {
+            l = append(l, _strlit(a.Pos(), s))
+        } else {
+            debug(ctx, "%v", err)
+        }
+    }
+    return l
+}
+
+type __mkdir struct { builtinbase
+    all bool `all,p,path`
+}
+func (ctx *__mkdir) inner() Context { return &ctx.builtinbase }
+func (ctx *__mkdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__mkdir) x() (res any) {
+    for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
+        var (
+            a = ctx.a[i]
+            perm = os.FileMode(0755)
+            name string
+        )
+        switch t := a.(type) {
+        case *pair: // mkdir name ⇒ perm name ⇒ perm
+            name = __string(ctx, t.key)
+            perm = filePerm(ctx, t.val, uint32(perm))
+        case *group: // mkdir (name perm) (name perm)
+            if t.len() == 2 {
+                name = __string(ctx, t.at(0))
+                perm = filePerm(ctx, t.at(1), uint32(perm))
+            } else {
+                debug(ctx, "Wrong size of list `%v'", t, trace{})
+            }
+        case *list: // mkdir name perm, name perm, ...
+            if t.len() == 2 {
+                name = __string(ctx, t.at(0))
+                perm = filePerm(ctx, t.at(1), uint32(perm))
+            } else {
+                debug(ctx, "Wrong size of list `%v'", t, trace{})
+            }
+        default: // mkdir name perm, name perm, ...
+            name = __string(ctx, ctx.a[i])
+            if i+1 < nargs {
+                perm = filePerm(ctx, ctx.a[i+1], uint32(perm))
+                i += 1
+            }
+        }
+        if ctx.all {
+            if err := os.MkdirAll(name, perm); err != nil {
+                debug(ctx, "%v", err, trace{})
+            }
+        } else {
+            if err := os.Mkdir(name, perm); err != nil {
+                debug(ctx, "%v", err, trace{})
+            }
+        }
+    }
+    return
+}
+
+type __chdir struct { builtinbase }
+func (ctx *__chdir) inner() Context { return &ctx.builtinbase }
+func (ctx *__chdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__chdir) x() (res any) {
+    if len(ctx.a) == 1 {
+        var str = __string(ctx, ctx.a[0])
+        if err := lockCD(str, 0); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    } else {
+        debug(ctx, "wrong number of arguments: %v", len(ctx.a))
+    }
+    return
+}
+
+type __rename struct { builtinbase }
+func (ctx *__rename) inner() Context { return &ctx.builtinbase }
+func (ctx *__rename) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__rename) x() (res any) {
+    for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
+        var (
+            a = ctx.a[i]
+            oldname, newname string
+        )
+        switch t := a.(type) {
+        case *pair: // rename oldname=newname
+            oldname = __string(ctx, t.key)
+            newname = __string(ctx, t.val)
+        case *group: // rename (oldname newname) (old new)
+            if t.len() == 2 {
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
+            } else {
+                debug(ctx, "wrong size of group `%v'", t, trace{})
+            }
+        case *list: // rename oldname newname, old new, ...
+            if t.len() == 2 {
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
+            } else {
+                debug(ctx, "wrong size of list `%v'", t, trace{})
+            }
+        default: // rename newname oldname  newname oldname ...
+            if i+1 < nargs {
+                oldname = __string(ctx, ctx.a[i+0])
+                newname = __string(ctx, ctx.a[i+1])
+                i += 1
+            } else {
+                debug(ctx, "Wrong arguments `%v'", ctx.a, trace{})
+            }
+        }
+        if err := os.Rename(oldname, newname); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    }
+    return
+}
+
+type __remove struct { builtinbase
+    skip string `skip`
+    ignoreMissing bool `ig,ignore,ignore-missing,ignore-not-found`
+    warnNotFile bool `warn-not-file`
+    all bool `all,recursive`
+}
+func (ctx *__remove) inner() Context { return &ctx.builtinbase }
+func (ctx *__remove) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__remove) x() (res any) {
+    var opts = ctx
+    var remove func(Context, Value)
+    var removeFile = func(ctx Context, f *file) {
+        var err error
+        var s = f.fullname()
+        if opts.skip != "" {
+            if strings.HasPrefix(s, opts.skip) { return } else
+            if strings.HasPrefix(ident(ctx,f), opts.skip) { return }
+        }
+        if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
+        if err != nil {
+            debug(ctx, _f("remove: %v", err), _f("remove: %v → %s", f, s), trace{})
+            return
+        }
+        if d := opts.debug; d>0 { debug(ctx, "remove %s (%s)", f, s, callstack{num:d}) }
+        if opts.verbose { prompt(ctx, "removed %s\n", f) }
+    }
+    var removePath = func(ctx Context, p *path) {
+        var err error
+        var s = __string(ctx, p)
+        if opts.skip != "" {
+            if strings.HasPrefix(s, opts.skip) { return }
+        }
+        if opts.all { err = os.RemoveAll(s) } else {
+            debug(ctx, "remove path: %v", p, trace{})
+            return
+        }
+        if err != nil {
+            debug(ctx, _f("remove: %v", err), _f("remove: %v", p), trace{})
+            return
+        }
+        if d := opts.debug; d>0 { debug(ctx, "remove %s", s, callstack{num:d}) }
+        if opts.verbose { prompt(ctx, "removed %s\n", s) }
+    }
+    var removePat = func(ctx Context, pat Value) {
+        debug(ctx, "TODO: remove: %v", ts(pat), trace{})
+    }
+
+    remove = func(ctx Context, v Value) {
+        if _, y := v.(*none); y {
+            return
+        } else if isTrivial(v) {
+            debug(ctx, "triviality: %v (%T)", v, v)
+        } else if l, y := v.(*list); y {
+            for _, v := range l.elems { remove(ctx, v) }
+        } else if d, y := v.(*delegate); y {
+            debug(ctx, "delegate: %v (%T, %v, %v)", d.x, d.x, d.o, d.a)
+        } else if patterned(ctx,v) {
+            removePat(ctx, v)
+        } else if f, y := v.(*file); y {
+            removeFile(ctx, f)
+        } else if f = findfile(ctx, __string(ctx, v)); f != nil {
+            removeFile(ctx, f)
+        } else if p, y := v.(*path); y {
+            removePath(ctx, p)
+        } else if !opts.ignoreMissing {
+            debug(ctx, "not file: %v (%T)", v, v, trace{})
+        }
+    }
+    for _, a := range ctx.a {
+        ctx := ctx.Context
+        remove(ctx, expand(ctx, a))
+    }
+
+    if opts.debug > 0 { debug(ctx, "%v", ctx.a) }
+    if opts.debug > 0 && flush(ctx) > 0 {
+        debug(ctx, "remove errors", trace{})
+    }
+    return
+}
+
+type __truncate struct { builtinbase }
+func (ctx *__truncate) inner() Context { return &ctx.builtinbase }
+func (ctx *__truncate) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__truncate) x() (res any) {
+    for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
+        var (
+            a = ctx.a[i]
+            name string
+            size int64
+        )
+        switch t := a.(type) {
+        case *pair: // truncate name ⇒ size old ⇒ new
+            name = __string(ctx, t.key)
+            size = __int(ctx, t.val)
+        case *group: // truncate (name size) (old new)
+            if t.len() == 2 {
+                name = __string(ctx, t.at(0))
+                size = __int(ctx, t.at(1))
+            } else {
+                debug(ctx, "Wrong size of group `%v'", t, trace{})
+                break
+            }
+        case *list: // truncate name size, old new, ...
+            if t.len() == 2 {
+                name = __string(ctx, t.at(0))
+                size = __int(ctx, t.at(1))
+            } else {
+                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                break
+            }
+        default: // truncate name size  name size ...
+            if i+1 < nargs {
+                name = __string(ctx, ctx.a[i+0])
+                size = __int(ctx, ctx.a[i+1])
+                i += 1
+            } else {
+                debug(ctx, "Wrong arguments `%v'", ctx.a, trace{})
+                break
+            }
+        }
+        if err := os.Truncate(name, size); err != nil {
+            debug(ctx, "%v", err, trace{})
+            break
+        }
+    }
+    return
+}
+
+type __link struct { builtinbase }
+func (ctx *__link) inner() Context { return &ctx.builtinbase }
+func (ctx *__link) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__link) x() (res any) {
+    for i, nargs := 0, len(ctx.a); i < nargs; i += 1 {
+		var (
+			a = ctx.a[i]
+			oldname, newname string
+		)
+        switch t := a.(type) {
+        case *pair: // link oldname ⇒ newname old ⇒ new
+            oldname = __string(ctx, t.key)
+            newname = __string(ctx, t.val)
+        case *group: // link (oldname newname) (old new)
+            if t.len() == 2 {
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
+            } else {
+                debug(ctx, "Wrong size of group `%v'", t, trace{})
+                break
+            }
+        case *list: // link oldname newname, old new, ...
+            if t.len() == 2 {
+                oldname = __string(ctx, t.at(0))
+                newname = __string(ctx, t.at(1))
+            } else {
+                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                break
+            }
+        default: // link oldname newname  oldname newname ...
+            if i+1 < nargs {
+                oldname = __string(ctx, ctx.a[i+0])
+                newname = __string(ctx, ctx.a[i+1])
+                i += 1
+            } else {
+                debug(ctx, "Wrong arguments `%v'", ctx.a, trace{})
+                break
+            }
+        }
+        if err := os.Link(oldname, newname); err != nil {
+            debug(ctx, "%v", err, trace{})
+            break
+        }
+    }
+    return
+}
+
+func _readlink(ctx Context, filename string, d os.FileInfo) (_ string, linked bool) {
+    fn, linkpath := filename, filepath.Dir(filename)
+    for d.Mode()&os.ModeSymlink != 0 {
+        linkname, e := os.Readlink(fn)
+
+        if e != nil {
+            prompt(ctx, "%s: readlink failed\n", fn)
+            debug(ctx, "%v", e, trace{})
+            return
+        }
+
+        var rel = !filepath.IsAbs(linkname)
+        if rel {
+            linkname = filepath.Join(linkpath, linkname)
+            linkpath = filepath.Dir(linkname)
+        }
+
+        if d, e = os.Lstat(linkname); e != nil {
+            prompt(ctx, "%s: lstat %s\n", fn, linkname)
+            debug(ctx, "%v", e, trace{})
+            return
+        }
+
+        fn, linked = linkname, true
+    }
+    return fn, linked
+}
+
+func readlink(ctx Context, filename string) (_ string, _ bool) {
+    if d, e := os.Stat(filename); e == nil {
+        return _readlink(ctx, filename, d)
+    }
+    return
+}
+
+/* Example:
+   foo: foobar
+	symlink -pluv $< $@
+*/
+type __symlink struct { builtinbase
+    path     bool `path`
+    force    bool `force,overwrite`
+    update   bool `update`
+    relative bool `rel,relative`
+}
+func (ctx *__symlink) inner() Context { return &ctx.builtinbase }
+func (ctx *__symlink) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__symlink) x() (res any) {
+outer:
+    for i, na := 0, len(ctx.a); i < na; i += 1 {
+        var (
+            opts = *ctx // make a copy
+            srcNameVal, dstNameVal Value
+            srcName   , dstName    string
+            srcDir    , dstDir     string
+            aa []Value
+        )
+        switch t := ctx.a[i].(type) {
+        case *pair: // symlink srcName=dstName srcName=>dstName...
+            srcNameVal, dstNameVal = t.key, t.val
+        case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
+            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
+                debug(ctx, "expects two values for group", trace{})
+                return
+            } else {
+                srcNameVal, dstNameVal = aa[0], aa[1]
+            }
+        case *list: // XXX: symlink old new, old new, ...
+            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
+                debug(ctx, "expects two values for list", trace{})
+                return
+            } else {
+                srcNameVal, dstNameVal = aa[0], aa[1]
+            }
+        default:// Multiple pairs of names:
+            // symlink  new old, new old ...
+            // symlink  new old  new old ...
+            if i+1 < na {
+                srcNameVal = ctx.a[i+0]
+                dstNameVal = ctx.a[i+1]
+                i += 1
+            } else {
+                var a = auto_get(ctx,"@")
+                var l = auto_get(ctx,"<")
+                var r = auto_get(ctx,">")
+                prompt(ctx, "symlink: args=%v → %v\n", ctx.a, t)
+                prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
+                debug(ctx, "expects pair of names (%T %v)", t, t, trace{})
+                return
+            }
+        }
+
+        if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
+            prompt(ctx, "symlink: args=%v\n", ctx.a)
+            prompt(ctx, "symlink: src=%v\n", srcNameVal)
+            debug(ctx, "empty src filename (%T)", srcNameVal, trace{})
+            return
+        }
+        if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
+            prompt(ctx, "symlink: args=%v\n", ctx.a)
+            prompt(ctx, "symlink: dest=%v\n", dstNameVal)
+            debug(ctx, "empty dest filename (%T)", dstNameVal, trace{})
+            return
+        }
+
+        var src = srcName
+        var dst = dstName
+        if !filepath.IsAbs(src) { src = filepath.Join(srcDir, srcName) }
+        if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
+        if _, err := os.Stat(src); err != nil {
+            prompt(ctx, "symlink: %v: %v\n", srcName, err)
+            debug(ctx, "%v does not exist", srcName, trace{})
+            return
+        }
+
+        if !opts.relative {/* no rel required */} else
+        if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
+            prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
+            debug(ctx, "%v", e, trace{})
+            return
+        } else {
+            if false {
+                debug(ctx,
+					_f("%v %v\t%s", srcDir, srcName, src),
+					_f("%v %v\t%s", dstDir, dstName, dst),
+					_f("%v", s))
+            }
+            src = s
+        }
+
+        if !opts.path {/* no mkdir */} else
+        if dstDir == "" || dstDir == "." || dstDir == pathSep {
+            // no need to mkdir: . or /
+        } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
+            debug(ctx, "%v", err, trace{})
+            return
+        }
+
+        var rm bool
+        if rm = opts.force; rm {
+            // overwrite...
+        } else if s, e := os.Readlink(dst); e != nil {
+            if false {
+                prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
+                debug(ctx, "%v", e, trace{})
+            }
+        } else if rm = s != src; !rm {
+            continue outer
+        }
+
+        if rm { if e := os.Remove(dst); e != nil {
+            prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
+            debug(ctx, "%v", e, trace{})
+            return
+        }}
+        if err := os.Symlink(src, dst); err != nil {
+            if opts.verbose { prompt(ctx, "… %s\n", err) }
+            break
+        } else if opts.verbose {
+            var d = trimPromptString(dstName)
+            var s = filepath.Base(srcName)
+            prompt(ctx, "%s → %s …… ok\n", d, s)
+        }
+    }
+    return
+}
+
+type __stat struct { builtinbase
+    symbol bool `sym,symbol,symlink,link`
+    file   bool `file`
+    dir    bool `dir`
+}
+func (ctx *__stat) inner() Context { return &ctx.builtinbase }
+func (ctx *__stat) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__stat) x() (res any) {
+    if len(ctx.a) == 0 { return }
+
+    var proj = _project(ctx)
+    if proj == nil {
+        debug(ctx, "unknown project", trace{})
+        return
+    }
+
+    var vals []Value
+    var check = func(f *file) {
+        if f != nil && f.info != nil {
+            var mode = f.info.Mode()
+            if  (ctx.dir    && mode&os.ModeDir     != 0) ||
+                (ctx.file   && mode&os.ModeType    != 0) ||
+                (ctx.symbol && mode&os.ModeSymlink != 0) ||
+                (!ctx.dir && !ctx.file && !ctx.symbol) { vals = append(vals, f) }
+        }
+    }
+
+    var checkstat = func(a Value) {
+        var f *file
+        var s string
+        if s = __string(ctx, a); filepath.IsAbs(s) {
+            f = _stat(ctx, s)
+        } else {
+            f = _stat(ctx, s, proj) // aka stat_dir{proj.absPath}
+        }
+        if f == nil { f = proj.file(ctx, s) }
+        if f != nil { check(f) }
+    }
+
+    for _, a := range merge(ctx.a...) {
+        switch t := a.(type) {
+        case *file: check(t)
+        case *path: checkstat(a)
+        default:    checkstat(a)
+        }
+    }
+    return vals
+}
+
+type __file struct { builtinbase
+    exists bool `exist,exists,must,must-exist,required`
+    report bool `report,reportmissing,report-missing`
+    ignore bool `ignore,ignore-missing,missing,nonexist,non-exist`
+}
+func (ctx *__file) inner() Context { return &ctx.builtinbase }
+func (ctx *__file) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__file) x() any {
+    var res []Value
+    for _, a := range merge(ctx.a...) {
+        if x, y := to_file(a); y {
+            if !ctx.exists || x.exists() /* || x.stat(ctx) != nil */ {
+                res = append(res, try_fullfile(ctx, x))
+            } else if ctx.report {
+                debug(ctx, "no such file {%v %v %v}", x.dir, x.sub, x.name)
+            }
+            continue
+        }
+		var proj = _project(ctx)
+        for _, f := range select_files(ctx, unmap_files(ctx, proj, a, nil)) {
+            if !ctx.exists || f.exists() {
+                res = append(res, try_fullfile(ctx, f))
+            } else if ctx.ignore {
+                if ctx.verbose { debug(ctx, "%v → %v", ts(a), f) }
+            } else if ctx.exists {
+                debug(ctx, `not a file: %v : %s ; %s`, a, ts(a), ts(res), trace{})
+            }
+        }
+    }
+    return res
+}
+
+type __glob struct { builtinbase
+    symbol bool `sym,symlink,symbol`
+    dir bool `dir,directory`
+    file bool `file`
+}
+func (ctx *__glob) inner() Context { return &ctx.builtinbase }
+func (ctx *__glob) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__glob) x() (_ any) {
+    var cwd string // TODO: get current work directory
+    var proj *project
+    if proj = _project(ctx); proj == nil {
+        debug(ctx, "unknown current cntext", trace{})
+    }
+
+    var res []Value
+    for _, a := range ctx.a {
+        var ( str string; names []string )
+        if str = __string(ctx, a); !filepath.IsAbs(str) {
+            str = filepath.Join(cwd, str)
+        }
+
+        var err error
+        if names, err = filepath.Glob(str); err != nil {
+            debug(ctx, "glob '%v' failed: %v", str, err, trace{})
+        }
+        for _, name := range names {
+            // TODO: ctx.dir, ctx.file, ctx.symbol
+            res = append(res, _pathStr(ctx, name))
+        }
+    }
+    return res
+}
+
+func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
+	if false {
+		if f, err := os.Stat(sd); err != nil {
+			if errorMissing {
+				debug(ctx, "%v", err, trace{})
+			}
+			return
+		} else if !f.IsDir() {
+			debug(ctx, "not dir: %v", sd, trace{})
+			return
+		}
+	}
+
+	// Use os.ReadDir (Go 1.16+) instead of os.Open + Readdirnames.
+	// It is faster and gives us DirEntry, which knows IsDir() without extra syscalls.
+	entries, err := os.ReadDir(sd)
+	if err != nil {
+		if errorMissing { debug(ctx, "readdir: %v", err, trace{}) }
+		return
+	}
+
+	names = make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		if name := entry.Name(); entry.IsDir() {
+			// Directories heavily repeat (src, bin, pkg, internal). Intern them!
+			names = append(names, intern(name))
+		} else {
+			// Files are often unique artifacts (obj_123.o). Leave them raw to protect GC.
+			// Optional: You can explicitly intern safe, known file types here if desired:
+			// if strings.HasSuffix(name, ".smart") { name = intern(name) }
+			
+			names = append(names, name)
+		}
+	}
+	return
+}
+
+// stepPattern advances the AST pattern by one directory level safely.
+func stepPattern(ctx Context, pat Value, name string) (nextPats []Value) {
+	if l, ok := pat.(*list); ok {
+		for _, e := range l.elems {
+			nextPats = append(nextPats, stepPattern(ctx, e, name)...)
+		}
+		return
+	}
+
+	if p, ok := pat.(*path); ok {
+		if len(p.elems) == 0 { return }
+		first := p.elems[0]
+
+		if isMultiWildcard(first) {
+			// ** spans directories, so it must remain in the pattern for children
+			nextPats = append(nextPats, pat)
+
+			// ** can also consume 0 segments, so we check if the NEXT element matches this directory
+			if len(p.elems) > 1 {
+				okMatch, _, _, _ := match(ctx, p.elems[1], _raw(p.Pos(), name))
+				if okMatch {
+					if len(p.elems) > 2 {
+						var nextPat Value
+						if len(p.elems) == 3 {
+							nextPat = p.elems[2]
+						} else {
+							nextPat = &path{elements{p.elems[2:]}}
+						}
+						nextPats = append(nextPats, nextPat)
+					}
+				}
+			}
+		} else {
+			// Standard strict segment match
+			okMatch, _, _, _ := match(ctx, first, _raw(p.Pos(), name))
+			if okMatch {
+				if len(p.elems) > 1 {
+					var nextPat Value
+					if len(p.elems) == 2 {
+						nextPat = p.elems[1]
+					} else {
+						nextPat = &path{elements{p.elems[1:]}}
+					}
+					nextPats = append(nextPats, nextPat)
+				}
+			}
+		}
+		return
+	}
+
+	// Single segment global wildcards (like `**.h` without path wrapping)
+	if isMultiWildcard(pat) {
+		nextPats = append(nextPats, pat)
+	}
+
+	return
+}
+
+type __wildcard struct {
+	builtinbase
+	includeMissing bool    `include,includemissing,include-missing,missing,all`
+	ignoreMissing  bool    `ignore,ignoremissing,ignore-missing`
+	errorMissing   bool    `err,error,errormissing,error-missing,no-missing`
+	exclude        []Value `exclude,except,no,not`
+	filetype       string  `type` // dir, file, etc.
+	dir            string  `dir,directory`
+	sort           bool    `sort`
+	cache          bool    `cache` // The explicit caching opt-in flag!
+	files          []*file
+}
+
+func (ctx *__wildcard) inner() Context { return &ctx.builtinbase }
+func (ctx *__wildcard) cast(t reflect.Type) Context {
+	if reflect.TypeOf(ctx) == t { return ctx }
+	return ctx.builtinbase.cast(t)
+}
+
+func (ctx *__wildcard) collect(f *file) {
+	if f != nil {
+		if ctx.sort {
+			i, found := slices.BinarySearchFunc(ctx.files, f, func(a, b *file) int {
+				switch {
+				case a.name < b.name: return -1
+				case a.name > b.name: return 1
+				}
+				return 0
+			})
+			if !found { ctx.files = slices.Insert(ctx.files, i, f) }
+		} else {
+			ctx.files = append(ctx.files, f)
+		}
+	}
+}
+
+func (ctx *__wildcard) directory(topDir string, pats ...Value) {
+	var ne = ctx.includeMissing && !ctx.ignoreMissing
+
+	pats = merge(pats...)
+
+	var walk func(dir string, currentPats []Value)
+	walk = func(dir string, currentPats []Value) {
+		names := readDirNames(ctx, filepath.Join(topDir, dir), ctx.errorMissing)
+
+	NamesLoop:
+		for _, name := range names {
+			dn := name
+			if dir != "" && dir != "." { dn = joinpath(dir, name) }
+
+			// 1. Exclude Check (Must be an absolute match!)
+			dnPath := _pathStr(ctx, dn)
+			for _, x := range ctx.exclude {
+				if ok, _, rem, _ := match(ctx, x, dnPath); ok && rem == nil {
+					continue NamesLoop
+				}
+			}
+
+			// 2. Absolute Match Check (Determines if THIS path is a collected result)
+			matched := false
+			for _, pat := range pats {
+				full, _, rem, _ := match(ctx, pat, dnPath)
+				if full && rem == nil {
+					matched = true
+					break
+				}
+			}
+
+			// 3. Step the patterns (Determines ONLY if we should recurse deeper)
+			var nextPats []Value
+			for _, pat := range currentPats {
+				nextPats = append(nextPats, stepPattern(ctx, pat, name)...)
+			}
+
+			if len(nextPats) > 1 {
+				var unique []Value
+				seen := make(map[string]struct{})
+				for _, np := range nextPats {
+					s := np.String()
+					if _, ok := seen[s]; !ok {
+						seen[s] = struct{}{}
+						unique = append(unique, np)
+					}
+				}
+				nextPats = unique
+			}
+
+			var f *file
+			var isDir bool
+			if matched || len(nextPats) > 0 {
+				// Fetch the canonical *file object from the engine
+				f = _stat(ctx, dn, stat_dir{topDir}, stat_nonexist{ne})
+				
+				if f == nil {
+					continue // Invalid file state
+				}
+				
+				if f.info != nil {
+					isDir = f.info.IsDir()
+				} else if !ne {
+					continue // File doesn't exist and we aren't explicitly including missing
+				}
+			}
+
+			// 4. Collection (Strictly relies on Absolute Match!)
+			if matched {
+				validType := false
+				switch strings.ToLower(ctx.filetype) {
+				case "f", "file": validType = !isDir
+				case "d", "dir":  validType = isDir
+				case "":          validType = true
+				default:          validType = true
+				}
+
+				if validType { ctx.collect(f) }
+			}
+
+			// 5. Recursive Descent
+			if isDir && len(nextPats) > 0 {
+				walk(dn, nextPats)
+			}
+		}
+	}
+
+	walk("", pats)
+}
+
+func (ctx *__wildcard) project(p *project, pats ...Value) {
+	var ne = ctx.includeMissing && !ctx.ignoreMissing
+
+	for _, argPat := range pats {
+		for _, a := range unmap_files(ctx, p, argPat, nil) {
+			for _, mapPat := range a.filemap.patterns(ctx) {
+				var search = _if_cmp(ctx, cmpSmaller, argPat, mapPat)
+				var isSearchPat = patterned(ctx, search)
+				for _, v := range merge(expands(_final(ctx), a.filemap.paths...)...) {
+					if dir := __string(ctx, v); isSearchPat {
+						ctx.directory(dir, search)
+					} else {
+						ctx.collect(_stat(ctx, __string(ctx, search), stat_dir{dir}, stat_nonexist{ne}))
+					}
+				}
+			}
+		}
+	}
+}
+
+func (ctx *__wildcard) x() any {
+	if len(ctx.exclude) > 0 {
+		ctx.exclude = xmerge(_final(ctx.Context), ctx.exclude...)
+	}
+
+	pats := merge(ctx.a...)
+
+	// ====================================================================
+	// FAST PATH: Explicit Persistent Disk Caching
+	// ====================================================================
+	var cacheFile string
+	var p = _project(ctx)
+	var t0 = time.Now()
+	
+	if ctx.cache && p != nil {
+		// Generate a deterministic hash based on the directory and all search patterns
+		var key = sha256.New()
+		fmt.Fprintf(key, "dir:%s|type:%s|sort:%v|ex:%v", ctx.dir, ctx.filetype, ctx.sort, ctx.exclude)
+		for _, pat := range pats {
+			fmt.Fprintf(key, "|pat:%s", __string(ctx, pat))
+		}
+
+		var h hashbytes
+		copy(h[:], key.Sum(nil))
+		
+		// Map to $(outtmp)/.hash/globs/<hash>
+		dir := getHashDir(ctx, h[:])
+		cacheFile = filepath.Join(dir, "globs", fmt.Sprintf("%x.txt", h))
+
+		// Try to read the cache!
+		if b, err := os.ReadFile(cacheFile); err == nil {
+			var cachedFiles []Value
+			for _, pathStr := range strings.Split(string(b), "\n") {
+				if pathStr == "" { continue }
+				
+				// Rehydrate the cached string back into an interned *file AST node
+				var f *file
+				if filepath.IsAbs(pathStr) {
+					f = _stat(ctx, pathStr, stat_nonexist{true})
+				} else {
+					f = _stat(ctx, pathStr, stat_dir{ctx.dir}, stat_nonexist{true})
+				}
+				
+				if f == nil { f = p.file(ctx, pathStr) }
+				if f != nil { cachedFiles = append(cachedFiles, f) }
+			}
+			if false { debug(pc(ctx,cacheFile), "%v", time.Since(t0)) }
+			return cachedFiles // Done! Bypassed all OS traversal!
+		}
+	}
+
+	// ====================================================================
+	// SLOW PATH: OS File System Traversal
+	// ====================================================================
+	if ctx.dir == "" {
+		ctx.project(p, pats...)
+	} else {
+		ctx.directory(ctx.dir, pats...)
+	}
+
+	// ====================================================================
+	// WRITE CACHE
+	// ====================================================================
+	if ctx.cache && cacheFile != "" && len(ctx.files) > 0 {
+		if err := os.MkdirAll(filepath.Dir(cacheFile), 0700); err == nil {
+			var sb strings.Builder
+			for _, f := range ctx.files {
+				// Write the relative sub-path if it exists, otherwise full name
+				if f.dir == ctx.dir {
+					sb.WriteString(filepath.Join(f.sub, f.name))
+				} else {
+					sb.WriteString(f.fullname())
+				}
+				sb.WriteString("\n")
+			}
+			os.WriteFile(cacheFile, []byte(sb.String()), 0644)
+			if false { debug(pc(ctx,cacheFile), "%v", time.Since(t0)) }
+		} else {
+			debug(ctx, "failed to create cache dir: %v", err, trace{})
+		}
+	}
+
+	return ctx.files
+}
+
+type __readdir struct { builtinbase }
+func (ctx *__readdir) inner() Context { return &ctx.builtinbase }
+func (ctx *__readdir) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__readdir) x() (res any) {
+    var l []Value
+    for _, a := range ctx.a {
+        if fis, err := ioutil.ReadDir(__string(ctx, a)); err == nil {
+            v := new(list)
+            for _, fi := range fis {
+                v.append(_strlit(a.Pos(), fi.Name()))
+            }
+            l = append(l, v)
+        } else {
+            break //l = append(l, _none(pos))
+        }
+    }
+    return l
+}
+
+type __readfile struct { builtinbase
+    trim      bool `ta,trim,trim-all`
+    trimLeft  bool `tl,trim-left`
+    trimRight bool `tr,trim-right`
+}
+func (ctx *__readfile) inner() Context { return &ctx.builtinbase }
+func (ctx *__readfile) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__readfile) x() (res any) {
+    var l []Value
+    var closured = closure_projects(ctx)
+    for _, v := range ctx.a {
+        if o := as_fullname(ctx, v, closured...); o.Value == nil {
+            debug(ctx, "%v is not a file", v, trace{})
+        } else if s, e := ioutil.ReadFile(__string(ctx,o)); e != nil {
+            debug(ctx, "read file failed: %v", e, trace{})
+        } else {
+            if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
+            if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
+            if ctx.trimRight { s = bytes.TrimRightFunc(s, unicode.IsSpace) }
+            l = append(l, _strlit(v.Pos(), string(s)))
+        }
+    }
+    return l
+}
+
+type __writefile struct { builtinbase
+    path bool `path`
+}
+func (ctx *__writefile) inner() Context { return &ctx.builtinbase }
+func (ctx *__writefile) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__writefile) x() (res any) {
+    // $(write-file filename,content)
+    // $(write-file -p filename,content)
+outer:
+    for i := 0; i < len(ctx.a); i += 1 {
+        var (
+            a = ctx.a[i]
+            name, data string
+            perm = os.FileMode(0600)
+        )
+        switch t := a.(type) {
+        case *pair: // write-file name=text name=text
+            name = __string(ctx, t.key)
+            data = __string(ctx, t.val)
+        case *group: // write-file (name text) (name text 0660)
+            if n := t.len(); n < 4 && n > 0 {
+                name = __string(ctx, t.at(0))
+                if n > 1 { data = __string(ctx, t.at(1)) }
+                if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
+            } else {
+                debug(ctx, "Wrong size of group `%v'", t, trace{})
+            }
+        case *list: // write-file name text, name text 0660, ...
+            if n := t.len(); n < 4 && n > 0 {
+                name = __string(ctx, t.at(0))
+                if n > 1 { data = __string(ctx, t.at(1)) }
+                if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
+            } else {
+                debug(ctx, "Wrong size of list `%v'", t, trace{})
+            }
+        default: // write-file name text 0660  name text 0660 ...
+            name = __string(ctx, ctx.a[i])
+            if i+1 < len(ctx.a) {
+                data = __string(ctx, ctx.a[i+1])
+                i += 1
+            }
+            if i+1 < len(ctx.a) {
+                perm = filePerm(ctx, ctx.a[i+1],0600)
+                i += 1
+            }
+        }
+        if name == "" {
+            continue outer
+        } else if dir := filepath.Dir(name); ctx.path && dir != "." && dir != pathSep {
+            if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
+                debug(ctx, "%v", err, trace{})
+            }
+        }
+        if err := ioutil.WriteFile(name, []byte(data), perm); err != nil {
+            debug(ctx, "%v", err, trace{})
+        }
+    }
+    return
+}
+
+func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
+    var a, filename, c = as_fullname_file(ctx, file)
+
+    if filename == "" {
+        debug(ctx, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c, trace{})
+    } else if d := filepath.Dir(filename); optPath && d != "." && d != pathSep {
+        if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
+            debug(ctx, "touch: %v", err, trace{})
+        }
+    }
+
+    var (
+        mode = os.FileMode(optMode)
+        ta, tm time.Time
+        m os.FileMode
+    )
+    if len(ts) > 0 { ta = ts[0] } else { ta = time.Now() }
+    if len(ts) > 1 { tm = ts[1] } else { tm = time.Now() }
+    if fi, k := to_file(file); k && fi.info != nil {
+        m = fi.info.Mode()
+    } else if fi, e := os.Stat(filename); e == nil && fi != nil {
+        m = fi.Mode()
+    } else {
+        var f *os.File
+        if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
+        if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
+            debug(ctx, "touch: %v", err, trace{})
+        } else if err = f.Close(); err != nil {
+            debug(ctx, "touch: %v", err, trace{})
+        }
+    }
+    if err == nil {
+        if err = os.Chtimes(filename, ta, tm); err != nil {
+            debug(ctx, "touch: %v", err, trace{})
+        }
+    }
+    if err == nil && mode != 0 && m != 0 && mode != m {
+        if err = os.Chmod(filename, mode); err != nil {
+            debug(ctx, "touch: %v", err, trace{})
+        }
+    }
+    return
+}
+
+type __touchfile struct { builtinbase
+    mode os.FileMode `mode`
+    path bool `path`
+}
+func (ctx *__touchfile) inner() Context { return &ctx.builtinbase }
+func (ctx *__touchfile) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__touchfile) x() (res any) {
+    // $(touch-file filename)
+    // $(touch-file -p filename)
+    for i := 0; i < len(ctx.a); i += 1 {
+        if err := touch(ctx, ctx.a[i], uint32(ctx.mode), ctx.path); err != nil {
+            debug(ctx, "%v", err, trace{})
+            break
+        }
+    }
+    return
+}
+
+type __grep struct { builtinbase }
+func (ctx *__grep) inner() Context { return &ctx.builtinbase }
+func (ctx *__grep) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__grep) x() (_ any) {
+    var args = ctx.a
+    var nargs = len(args)
+    if !(nargs == 2 || nargs == 3) {
+        debug(ctx, "wrong args, try $(grep {=regex '^example$'},$0,$(file))", trace{})
+        return
+    }
+
+    var result Value
+    var rxs []*regexp.Regexp // TODO: move it into builtinGrepOpts
+    var rvs = merge(args[0])
+    switch nargs {
+    case 2:   args = args[1:]
+    case 3: result = args[1]; args = args[2:]
+    }
+
+    for _, a := range rvs {
+        if x, y := a.(*regexpat); y {
+            rxs = append(rxs, x.Regexp)
+        } else if s := __string(ctx, a); s == "" {
+            debug(ctx, "empty regexp", trace{})
+            return
+        } else if r, e := regexp.Compile(s); e != nil {
+            debug(ctx, "%v", e, trace{})
+            return
+        } else {
+            rxs = append(rxs, r)
+        }
+    }
+
+    var p Position
+    var res []Value
+    for _, a := range merge(args...) {
+        var c = pc(ctx, a)
+        if x, y := a.(*file); y {
+            p.Filename = x.fullname()
+        } else {
+            p.Filename = __string(ctx, a)
+        }
+
+        var e error
+        var f *os.File
+        if p.Filename == "" {
+            debug(c, "empty filename: %v", ts(a), trace{})
+            return
+        } else if f, e = os.Open(p.Filename); e != nil {
+            debug(c, "%s ; %s", e, ts(a), trace{})
+            return
+        } else {
+            defer f.Close()
+        }
+
+        s := bufio.NewScanner(f)
+        s.Split(bufio.ScanLines)
+        p.Line, p.Column = 0, 0
+        for s.Scan() {
+            text := s.Text()
+            p.Line += 1
+
+            for _, rx := range rxs {
+                // := rx.FindStringSubmatch(text)
+                si := rx.FindStringSubmatchIndex(text)
+                if si == nil { continue }
+
+                var val Value
+
+                ctx.defs = make(def_map) // ensure a clear defs map
+                for i, n := range rx.SubexpNames() {
+                    if n == "" { n = strconv.Itoa(i) }
+
+                    var t string
+                    var a, b = si[2*i], si[2*i+1]
+                    if 0 <= a && 0 < b { p.Column, t = 1+a, text[a:b] }
+
+                    var v = &xloc{_raw(0, t), p}
+                    ctx.set(pc(c,p), defVoid, n, v)
+
+                    if i == 0 && result == nil { val = v } else
+                    if 0 < i && a < 0 { p.Column += utf8.RuneCountInString(t) }
+                }
+                if result != nil { val = expand(_final(c), result) }
+                res = append(res, val)
+
+                if checkpoints { ctx.check(rx, text, result, val) }
+            }
+        }
+    }
+    return ease(ctx, res)
+}
+
+var (
+    rsAutoconf  = `AC_(CHECK_(FILES?|FUNCS?|HEADERS?|PROG|SIZEOF|TOOL)|DEFINE)\(([^\)]*?)\)`
+    rsConfigRef = `[$%]\{([^\s\}]+)\}|@([^\s\@]+)@`
+    rsConfigure = `^[\t ]*#[\t ]*(define|undef|smartdefine|smartdefine01|cmakedefine|cmakedefine01)[\t ]+([A-Za-z0-9_]+)(?:[\t ]+([^\n]*))?$`
+    rxAutoconf  = regexp.MustCompile(rsAutoconf)
+    rxConfigure = regexp.MustCompile(fmt.Sprintf(`(?m:%s)`, rsConfigure)) // m: multilines
+    rxConfigRef = regexp.MustCompile(rsConfigRef)
+)
+
+func (p *project) strExpandConfig(ctx Context, s string) (result string, err error) {
+    var pos Position
+    var index, line = 0, 0
+    var res = new(bytes.Buffer)
+    if v := auto_get(ctx, "-file"); v != nil {
+        if x, y := to_file(v); y { pos.Filename = x.fullname() }
+    }
+    for _, m := range rxConfigRef.FindAllStringSubmatchIndex(s, -1) {
+        line += strings.Count(s[index:m[0]], "\n")
+        pos.Line = 1 + line
+        pos.Column = m[0] - index - strings.LastIndex(s[index:m[0]], "\n")
+
+        fmt.Fprint(res, s[index:m[0]])
+        index = m[1] // reset index immediately to keep forward
+
+        var name string
+        switch {
+        case m[2] > m[0] && m[3] > m[2]: name = s[m[2]:m[3]] // ${VAR}
+        case m[4] > m[0] && m[5] > m[4]: name = s[m[4]:m[5]] //  @VAR@
+        }
+
+        var d *def
+        var val Value
+        if d = p.resolveDef(ctx, name); d == nil {
+            if true {
+                prompt(ctx, "%v: %v undefined\n", pos, name)
+                debug(ctx, "in %v", p)
+            }
+            continue
+        } else if val = evoke(ctx, d, nil, nil); isNull(val) {
+            if f := p.configuration_sm(ctx); f == nil {
+                debug(ctx, "%v: configuration file not defined", name, f, trace{})
+                return
+            } else if !f.exists() {
+                prompt(ctx, "%s: file not exists (for %v)\n", f.fullname(), name)
+                debug(ctx, "%v: configuration file not exists, try -conf first", name, trace{})
+                return
+            }
+            continue
+        }
+
+        switch t := val.(type) {
+        case *undef, undef: // FIXME: fmt.Fprintf(res, "#undef")
+        case *answer, *boolean:
+            fmt.Fprintf(res, "%d", __int(ctx, t))
+        case *group:
+            fmt.Fprintf(res, "%s", __string(ctx, parseGroupValue(ctx, t)))
+        case *plain:
+            fmt.Fprintf(res, "%s", t.String())
+        default:
+            fmt.Fprintf(res, "%s", __string(ctx, val))
+        }
+    }
+    if index < len(s) { fmt.Fprint(res, s[index:]) }
+    result = res.String()
+    return
+}
+
+// https://www.gnu.org/software/autoconf/manual/autoconf-2.67/autoconf.html
+func autoconf(ctx Context, out *bytes.Buffer, p *project, str string) (err error) {
+    var num int
+    for _, m := range rxAutoconf.FindAllStringSubmatch(str, -1) {
+        info(ctx, "TODO: %v", m)
+        num += 1
+    }
+    debug(ctx, "TODO: %d", num)
+    return
+}
+
+func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
+    if s, e := p.strExpandConfig(ctx, str); e != nil {
+        debug(ctx, "%v : %v", str, e, trace{})
+    } else {
+        str = s
+    }
+
+    var index = 0
+
+    for _, ii := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
+        if _, e := out.WriteString(str[index:ii[0]]); e != nil {
+            debug(ctx, "%v", e, trace{})
+        }
+
+        index = ii[1]
+
+        var (
+            d *def
+            t bool
+            s string
+            verb = str[ii[2]:ii[3]]
+            name = str[ii[4]:ii[5]]
+            hasv = ii[6] > ii[0] && ii[7] > ii[6]
+        )
+        if d = p.resolveDef(ctx, name); d != nil {
+            if v := evoke(ctx, d, nil, nil); v == nil {
+                // noop, TODO: or #undef?
+            } else if _, t := v.(*undef); t {
+                _, e := out.WriteString(fmt.Sprintf("#undef /* %s */", name))
+                if e != nil {
+                    debug(ctx, "%v", e, trace{})
+                } else {
+                    continue
+                }
+            } else {
+                t = __true(ctx, v)
+            }
+        }
+
+        switch verb {
+        case "define":
+            if hasv /*&& !(def == nil || d.value == nil)*/ {
+                v := str[ii[6]:ii[7]]
+                s = fmt.Sprintf("#define %s %s", name, v)
+            } else {
+                s = fmt.Sprintf("#define %s", name)
+            }
+        case "undef":
+            if d == nil {
+                s = fmt.Sprintf("#undef %s", name)
+            } else if isNull(d.value) || isNone(d.value) {
+                s = fmt.Sprintf("#undef %s /* %v */", name, d.value)
+            } else if va := expand(ctx, d.value); va != nil {
+                switch v := va.(type) {
+                case *answer, *boolean:
+                    if b := __true(ctx, v); b {
+                        s = fmt.Sprintf("#define %s 1 /* %s %v */", name, typeof(v), v)
+                    } else {
+                        s = fmt.Sprintf("#undef %s /* %s %v */", name, typeof(v), v)
+                    }
+                case *strlit:
+                    s = strings.Replace(v.s, "\"", "\\\"", -1)
+                    s = fmt.Sprintf("#define %s \"%s\"", name, v.s)
+                default:
+                    s = fmt.Sprintf("#define %s %v /* %s */", name, v, typeof(v))
+                }
+            } else {
+                var v = d.value
+                s = fmt.Sprintf("#define %s %v /* %s %v */", name, typeof(v), v, va)
+            }
+        case "smartdefine", "cmakedefine":
+            if !t {
+                s = fmt.Sprintf("/* #undef %s */", name)
+            } else if hasv {
+                v := str[ii[6]:ii[7]]
+                s = fmt.Sprintf("#define %s %s", name, v)
+            } else {
+                s = fmt.Sprintf("#define %s", name)
+            }
+        case "smartdefine01", "cmakedefine01":
+            if !t {
+                s = fmt.Sprintf("#define %s 0", name)
+            } else if hasv {
+                v := str[ii[6]:ii[7]]
+                s = fmt.Sprintf("#define %s 1 /* %s */", name, v)
+            } else {
+                s = fmt.Sprintf("#define %s 1", name)
+            }
+        }
+
+        if _, e := out.WriteString(s); e != nil {
+            debug(ctx, "%v", e, trace{})
+        }
+    }
+
+    if len(str) <= index {
+        return
+    }
+
+    if _, e := out.WriteString(str[index:]); e != nil {
+        debug(ctx, "%v", e, trace{})
+    }
+    return
+}
+
+type __return struct { builtinbase }
+func (ctx *__return) inner() Context { return &ctx.builtinbase }
+func (ctx *__return) cast(t reflect.Type) Context {
+    if reflect.TypeOf(ctx) == t { return ctx }
+    return ctx.builtinbase.cast(t)
+}
+func (ctx *__return) x() (res any) {
+    return &returner{valbase{_pos(ctx)}, ctx.a}
+}
+
+
+type _benchmark struct {
+    tag string
+    start, spot time.Time
+    spent time.Duration
+    num int64
+    frames []*_benchmark
+}
+
+type _benchspot struct {
+    tag string
+    n int64
+    d time.Duration
+    x time.Duration
+}
+
+type _sum struct {
+    n int64
+    d time.Duration
+}
+
+var (
+    // benchmarkM sync.Mutex
+    // benchmark_ *_benchmark = &_benchmark{ tag:"benchmark" }
+    benchspotM sync.Mutex
+    benchspot = make(map[string]*_benchspot,64)
+)
+
+type bencher interface { bench(t time.Time) }
+func bench(i bencher, t time.Time) { i.bench(t) }
+
+func (frame *_benchmark) report(w io.Writer, indent int, up *_benchmark) {
+    var s string
+    if frame.num > 0 {
+        var d time.Duration
+        if up != nil { d = frame.spot.Sub(up.start) }
+        s = fmt.Sprintf("%s (n=%v, d=%v, s=%v) (", frame.tag, frame.num, frame.spent, d)
+    } else {
+        s = fmt.Sprintf("%s (d=%v) (", frame.tag, frame.spent)
+    }
+    fprintIndentDots(w, indent, s)
+    for _, sub := range frame.frames { sub.report(w, indent + 2, frame) }
+    fprintIndentDots(w, indent, ")")
+}
+
+func (frame *_benchmark) _tag() string {
+    var s = frame.tag
+    if i := strings.Index(s, "("); i > 0 { s = s[0:i] }
+    return s
+}
+
+func (frame *_benchmark) sum(res map[string]_sum) map[string]_sum {
+    var t = frame._tag()
+    var s = res[t]
+    s.n += frame.num
+    s.d += frame.spent
+    res[t] = s
+    for _, p := range frame.frames { p.sum(res) }
+    return res
+}
+
+func (frame *_benchmark) _summary() (res map[string]_sum) {
+    res = make(map[string]_sum,16)
+    for _, f := range frame.frames { f.sum(res) }
+    return
+}
+
+func (frame *_benchmark) summary(w io.Writer) {
+    var m = frame._summary()
+    var tags []string
+    for tag, _ := range m { tags = append(tags, tag) }
+    for i := 0; i < len(tags); i += 1 {
+        for j := i+1; j < len(tags); j += 1 {
+            a, b := tags[i], tags[j]
+            if m[a].d < m[b].d {
+                tags[i] = b
+                tags[j] = a
+            }
+        }
+    }
+    for _, tag := range tags {
+        var p = m[tag]
+        fmt.Fprintf(w, "%s ", tag)
+        var i = 40 - len(tag)
+        for i > ndots {
+            fmt.Fprint(w, dots)
+            i -= ndots
+        }
+        fmt.Fprint(w, dots[0:i])
+        fmt.Fprintf(w, "{ %d, %s, %s }\n", p.n, p.d, time.Duration(int64(p.d)/p.n))
+    }
+}
+
+func benchspot_report(w io.Writer) {
+    var tags []string
+    for tag, _ := range benchspot { tags = append(tags, tag) }
+    for i := 0; i < len(tags); i += 1 {
+        for j := i+1; j < len(tags); j += 1 {
+            a, b := tags[i], tags[j]
+            if benchspot[a].d < benchspot[b].d {
+                tags[i] = b
+                tags[j] = a
+            }
+        }
+    }
+    for _, tag := range tags {
+        fe := benchspot[tag]
+        fmt.Fprintf(w, "%s ", tag)
+        var i = 40 - len(tag)
+        for i > ndots {
+            fmt.Fprint(w, dots)
+            i -= ndots
+        }
+        fmt.Fprint(w, dots[0:i])
+        fmt.Fprintf(w, "{ %d, %s, %s }\n", fe.n, fe.d, fe.x)
+    }
+}
+
+
+func do_helpscreen(ctx Context) {
+    prompt(ctx, `Build your projects the smart way!
+
+Usage:
+
+    smart -help[(arguments)]
+    smart -configure[(arguments)]
+    smart -reconfigure[(arguments)]
+`)
+    for name, _ := range _universe(ctx).globe.flagEntries {
+        if name == "" { continue }
+        prompt(ctx, `
+    smart -%s[(arguments)]`, name)
+    }
+
+    prompt(ctx, `
+
+Basic:
+
+   -h
+   -help
+    Display this help screen.
+
+   -c
+   -configure
+    Configure all projects underneath the work directory.
+
+   -r
+   -reconfigure
+    Reconfigures all projects underneath the work directory.
+
+`)
+
+    print_flag_entries(ctx)
+    print_help_entries(ctx)
+    print_options(ctx)
+
+    prompt(ctx, `
+Issues:
+
+    * https://github.com/extbit/smart/issues
+    * https://bugs.extbit.io/smart/report (not ready yet)
+
+`)
+}
+
+func print_flag_entries(ctx Context) {
+        prompt(ctx, "Defined:\n")
+        for name, entries := range _universe(ctx).globe.flagEntries {
+                if len(entries) == 0 || name == "" { continue }
+                prompt(ctx, `
+   -%s`, name)
+        }
+        prompt(ctx, "\n\n")
+}
+
+func print_flag_trace(ctx Context) {
+        for name, entries := range _universe(ctx).globe.flagEntries {
+                if name == "" { continue }
+                for _, entry := range entries {
+                        prompt(ctx, "%s: %v\n", entry.Pos(), entry)
+                }
+        }
+}
+
+func print_help_entries(ctx Context) {
+}
+
+func print_options(ctx Context) {
+    type opt struct { entry entry; infos []Value }
+
+    var opts []opt
+
+    // _universe(ctx).config(func(proj *project, entry entry) {
+    //     var infos = ruleOptionInfos(ctx, entry)
+    //     if infos != nil { opts = append(opts, opt{entry, infos}) }
+    // }, nil, nil)
+
+    if len(opts) == 0 { return }
+
+    prompt(ctx, "Configure:\n\n")
+    for _, opt := range opts {
+        prompt(ctx, "    %v:\n", opt.entry)
+        for _, info := range opt.infos {
+            prompt(ctx, "        %s\n", __string(ctx, info))
+        }
+    }
+}
+
+func print_configuration(ctx Context) {
+    prompt(ctx, `Configuration:
+`)
+
+    var configs = make(map[*project][]entry)
+
+    // _universe(ctx).config(func(proj *project, entry entry) {
+    //     entries, _ := configs[proj]
+    //     entries = append(entries, entry)
+    //     configs[proj] = entries
+    // }, nil, nil)
+
+    for project, entries := range configs {
+        prompt(ctx, `
+    %s`, project.spec)
+        for _, entry := range entries {
+            prompt(ctx, `
+        %s`, entry)
+        }
+    }
+
+    prompt(ctx, "\n")
+}
+
+func ruleOptionInfos(ctx Context, e entry) (infos []Value) {
+    for _, p := range e.programs() {
+        for _, depend := range p.depends {
+            g, ok := depend.(*modification)
+            if!ok { continue }
+            for _, m := range g.list {
+                if __string(ctx, m.elems[0]) != "configure" { continue }
+                for _, arg := range m.elems[1:] {
+                    a, ok := arg.(*argumented)
+                    if!ok { continue }
+                    f, ok := a.Value.(flag)
+                    if!ok { continue }
+                    if __string(ctx, f.Value) != "option" { continue }
+                    for _, v := range a.args {
+                        if p, ok := v.(*pair); ok {
+                            if __string(ctx, p.key) != "info" { continue }
+                            v = p.val
+                        }
+                        infos = append(infos, v)
+                    }
+                    return
+                }
+            }
+        }
+    }
+    return
+}
