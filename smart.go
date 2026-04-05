@@ -1371,6 +1371,7 @@ func unbox(a any) any {
 	case fullname: return unbox(t.Value)
     case *loc: return unbox(t.Value)
     case *xloc: return unbox(t.Value)
+	case *argumented: return unbox(t.Value)
     case *list: if len(t.elems) == 1 { return unbox(t.elems[0]) }
     case flag: return flag{unbox(t.Value).(Value)}
 		// case *pair: return &pair{unbox(t.key).(Value), unbox(t.val).(Value)}
@@ -1927,13 +1928,12 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		default: return &globpat{elements{append([]Value{x}, ty.elems...)}}
 		}
 	case *percpat:
-		switch tx := x.(type) {
-		case nil: return &percpat{valbase{}, ty.Prefix, ty.Suffix}
-		case *valbase: return &percpat{*tx, ty.Prefix, ty.Suffix}
-		case *null, *none: return &percpat{valbase{x.Pos()}, ty.Prefix, ty.Suffix}
+		switch x.(type) {
+		case *valbase, *null, *none, nil: 
+			return &percpat{ty.valbase, ty.Prefix, ty.Suffix}
 		default: 
 			// CRITICAL FIX: Right-hand Smart Fusion
-			return &percpat{valbase{x.Pos()}, prefix(ctx, x, ty.Prefix), ty.Suffix}
+			return &percpat{ty.valbase, prefix(ctx, x, ty.Prefix), ty.Suffix}
 		}
 	case *qualword: // CRITICAL FIX: Right-hand qualword fusion!
 		if len(ty.elems) == 0 { return x }
@@ -8099,7 +8099,7 @@ func traverse(ctx Context, val Value) {
     case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
         do(ctx, act_traverse{p})
     default:
-        debug(pc(ctx,p), "unsupported traversal: %v", ts(val), trace{})
+        debug(pc(ctx,val), "unsupported traverse: %v: %s", val, ts(val,ctx), callstack{num:10}, trace{})
     }
 }
 
@@ -20183,12 +20183,13 @@ func (p p_configure) do(ctx Context, op any) (_ any) {
 }
 
 func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Value) (res Value) {
-	var x, y = op.(*word)
-	if !y {
+	// Safely extract the string representation regardless of the AST node type
+	opName := ident(ctx, op)
+	if opName == "" {
 		debug(pc(ctx,_op), "wrong configure word: %v %v %v", ts(_op), ts(op), ts(val), trace{})
 	}
 
-	switch x.s {
+	switch opName {
 	case "answer":
 		if val == nil { return _answer(op.Pos(), false) }
 		return _answer(val.Pos(), __true(ctx, val))
