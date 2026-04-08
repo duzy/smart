@@ -556,47 +556,74 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
 }
 
 func as_file(ctx Context, val Value, projs ...*project) (res *file) {
-    var v = scalarize(expand(ctx, val))
-    if x, y := v.(fullname); y { v = x.Value }
-    switch t := v.(type) {
-    case  fullfile: return t.file
-    case *barefile: return t.file
-    case *file: return t
-    case *rule: return as_file(ctx, t.target, projs...)
-    case *def : if t.value != nil { return as_file(ctx, t.value, projs...) }
-    case *list: if a := t.elems; len(a) == 1 { return as_file(ctx, a[0], projs...) }
-    case *word, *qualword, *compound, *path:
-        if projs == nil {
-            if p := _project(ctx); p != nil { projs = append(projs, p) }
-        }
-        for _, p := range projs {
-            if f := p.file(ctx, t); f != nil { return f }
-        }
-    default: // *strlit, *strval, *strcomp:
-        // NOTE: not parsing 'string' and "strcomp" values to file to optimize.
-        // debug(pc(ctx,a), "cannot convert to file: %v", ts(a.Value), trace{})
-    }
-    return
+	v := expand(ctx, val)
+
+	// CRITICAL FIX: Fast-Path Extraction
+	// Catch *file pointers before scalarize() flattens them into strings!
+	var current = v
+	for {
+		switch t := current.(type) {
+		case *file: return t
+		case fullfile: return t.file
+		case *barefile: return t.file
+		case *loc: current = t.Value; continue
+		case *xloc: current = t.Value; continue
+		case fullname: current = t.Value; continue
+		case *list:
+			if len(t.elems) == 1 { current = t.elems[0]; continue }
+		case *def:
+			if t.value != nil { current = t.value; continue }
+		}
+		break
+	}
+
+	// Fallback for raw strings and unexpanded paths
+	v = scalarize(v)
+	if x, y := v.(fullname); y { v = x.Value }
+	switch t := v.(type) {
+	case *file: return t
+	case fullfile: return t.file
+	case *barefile: return t.file
+	case *rule: return as_file(ctx, t.target, projs...)
+	case *def: if t.value != nil { return as_file(ctx, t.value, projs...) }
+	case *list: if a := t.elems; len(a) == 1 { return as_file(ctx, a[0], projs...) }
+	case *word, *qualword, *compound, *path:
+		if projs == nil {
+			if p := _project(ctx); p != nil { projs = append(projs, p) }
+		}
+		for _, p := range projs {
+			if f := p.file(ctx, t); f != nil { return f }
+		}
+	}
+	return
 }
+
 func as_fullname_file(ctx Context, val Value, projs ...*project) (f *file, s string, y bool) {
-    if f = as_file(ctx, val, projs...); f != nil {
-        s = f.fullname()
+	if f = as_file(ctx, val, projs...); f != nil {
+		s = f.fullname()
 		y = filepath.IsAbs(s)
-    }
-    return
+	}
+	return
 }
+
 func as_fullname_string(ctx Context, val Value, projs ...*project) (s string, y bool) {
-    if _, s, y = as_fullname_file(ctx, val, projs...); !y { s = __string(ctx, val) }
-    return
-}
-func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
+	// OPTIMIZATION 3: Decoupled String Fallback
+	// Prevents double-evaluation of the AST if the file lookup fails
 	if f := as_file(ctx, val, projs...); f != nil {
-		res.Value = f
-	} else {
-		debug(pc(ctx,val), "nil file : %v : %v → %v", val, ts(val), expand(ctx,val),
+		return f.fullname(), filepath.IsAbs(f.fullname())
+	}
+	return __string(ctx, val), false
+}
+
+func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
+	if f := as_file(ctx, val, projs...); f != nil { res.Value = f } else {
+		// Only panic if the expanded value fundamentally cannot be a file
+		debug(pc(ctx,val),
+			_f("%v: nil file : %v", val, ts(val,ctx)),
+			_f("%v → %v", val, expand(ctx,val)),
 			callstack{num:10}, trace{})
-    }
-    return
+	}
+	return
 }
 
 func splitpath(ctx Context, a any) (ss []string) {
@@ -3092,12 +3119,8 @@ func (c fullfile_ctx) do(ctx Context, op any) any {
 }
 
 type fullfile struct{ *file }
-
 func try_fullfile(ctx Context, f *file) Value {
-    // if !truly(ctx, is_compound{}) && truly(ctx, is_exec{})
-    if truly(ctx, wants_fullfile{}) {
-        return fullfile{f}
-    }
+    if truly(ctx, wants_fullfile{}) { return fullfile{f} }
     return f
 }
 
@@ -5300,9 +5323,13 @@ type exec_log struct {
     lines int
 }
 func (p *exec_log) Write(b []byte) (n int, err error) {
-    p.Lock(); defer p.Unlock()
-    p.lines += bytes.Count(b, []byte("\n"))
-    n, err = p.writer.Write(b)
+    if p.writer != nil {
+		p.Lock(); defer p.Unlock()
+		if p.writer != nil {
+			p.lines += bytes.Count(b, []byte("\n"))
+			n, err = p.writer.Write(b)
+		}
+	}
     return
 }
 func (p *exec_log) createWriter(file *os.File, dir, cmd string) {
@@ -7967,7 +7994,7 @@ func stamp(ctx Context, a any) (res []*file) {
     case *plainline: return stamp(ctx, t.elems)
     case *returner: return stamp(ctx, t.vals)
     default:
-        debug(pc(ctx,a), "%v", ts(a), trace{})
+        debug(pc(ctx,a), "%v", ts(a,ctx), trace{})
         return
     }
 }
@@ -7992,7 +8019,7 @@ func stat(ctx Context, a any) (res []*statinfo) {
     case fullname: return stat(ctx, t.Value)
     case negative: return stat(ctx, t.Value)
     default:
-        debug(pc(ctx,a), "%v", ts(a), trace{})
+        debug(pc(ctx,a), "%v", ts(a,ctx), trace{})
         return
     }
 }
@@ -8002,7 +8029,7 @@ func traverse(ctx Context, val Value) {
     case *loc: traverse(ctx, p.Value)
     case *xloc: traverse(ctx, p.Value)
     case *list: for _, e := range p.elems { traverse(ctx, e) }
-    case *argumented: traverse(p.ctx(ctx), p.Value)
+    case *argumented: if !isTrivial(p.Value) { traverse(p.ctx(ctx), p.Value) }
     case *auto: if v := auto_get(ctx, p.name); v != nil { traverse(ctx, v) }
     case *def: if v := p.value; v != nil { traverse(ctx, v) }
     case negative: if v := p.Value; v != nil { traverse(ctx, v) }
@@ -8071,13 +8098,15 @@ func traverse(ctx Context, val Value) {
             case traverse_next: continue progloop
             }
         }
-    case *arrow:
-        if val := expand(ctx,p); !isTrivial(val) {
-            updated(ctx, val) // NOTE: ensure that updated flag is correct (see rule.updated)
-            traverse(ctx, val)
-        } else {
-            debug(ctx, "selected trivial value '%v' (%v, %v) ", p, ts(p.o), ts(p.s))
-        }
+    case *closure, *delegate, *arrow:
+		if val := expand(ctx,p); !isTrivial(val) {
+			updated(ctx, val) // NOTE: ensure that updated flag is correct (see rule.updated)
+			traverse(ctx, val)
+		} else if _, isArrow := p.(*arrow); isArrow {
+			// Only debug if an ARROW unexpectedly evaluates to nothing,
+			// since closures and delegates are often intentionally empty.
+			debug(ctx, "traverse trivial arrow: %v: %s", p, ts(p,ctx), callstack{num: 10}, trace{})
+		}
     case *barefile:
         if p.file != nil { traverse(ctx, p.file) } else
         if p.Value != nil { traverse(ctx, p.Value) }
@@ -8237,7 +8266,7 @@ func ease(ctx Context, a any) (res Value) {
     }
 }
 
-func scalarize(v Value) (res Value) { // NOTE: unexpanded is not scalar
+func scalarize(v Value) (res Value) {
     switch t := v.(type) {
     case *list:
         var n = len(t.elems)
@@ -8888,7 +8917,7 @@ func (s *scope) string() string {
 	return buf.String()
 }
 
-func (s *scope) projectname(ctx Context, name string, project *project) (p *project, a object) {
+func (s *scope) projectName(ctx Context, name string, project *project) (p *project, a object) {
 	s.mutex.Lock() ; defer s.mutex.Unlock()
 	if a = s.elems[name] ; a == nil {
 		p = project
@@ -12980,7 +13009,8 @@ const (
 )
 
 type diagtype int
-type diagpoint struct {
+type diagtext struct{}
+type diagpoint struct{
     t diagtype
     position Position
     message string
@@ -13057,109 +13087,6 @@ func recovered(ctx Context) {
             panic(test_fail{te.Context, 0}) // rethrow to break the test runner
         }
     }
-}
-
-var _debug_m sync.Mutex
-func debug(ctx Context, f any, a ...any) {
-	_debug_m.Lock(); defer _debug_m.Unlock()
-
-	var tr = false
-	var trCtx int
-	var trVal int
-	var cs callstack
-	var dias []*diag_point
-	var args []any
-	for _, a := range a {
-		switch t := a.(type) {
-		case trace: tr = true
-		case trace_ctx: trCtx = t.int
-		case trace_val: trVal = t.int
-		case callstack:
-			if 0 < t.num     { cs.num = t.num }
-			if 0 < t.skip    { cs.skip = t.skip }
-			if 0 != t.frames { cs.frames = t.frames }
-			if "" != t.stop  { cs.stop = t.stop }
-		case []*diag_point:
-			dias = append(dias, t...)
-		case *diag_point:
-			dias = append(dias, t)
-		default:
-			args = append(args, t)
-		}
-	}
-
-	var p *diagpoint
-	var s = _position(ctx).String()+": "
-	switch t := f.(type) {
-	case *diag_point:
-		if t.f != "" {
-			p, _ = do(ctx, diag_point{diagPrompt, s+t.f+"\n", t.a}).(*diagpoint)
-		}
-	case []*diag_point:
-		for _, t := range t {
-			p, _ = do(ctx, diag_point{diagPrompt, s+t.f+"\n", t.a}).(*diagpoint)
-		}
-	case string:
-		for _, t := range strings.Split(t, "\n") { if t == "" { continue }
-			p, _ = do(ctx, diag_point{diagPrompt, s+t+"\n", args}).(*diagpoint)
-		}
-	default:
-		p, _ = do(ctx, diag_point{diagPrompt, s+typeof(t)+": %v\n", args}).(*diagpoint)
-	}
-
-	if n := trCtx; n > 0 {
-		var pos = _position(ctx)
-		for c := inner(ctx); c != nil && 0 < n && pos.valid(); c = inner(c) {
-			var _pos = _position(c)
-			if !_pos.valid() || _pos.same(&pos) { continue }
-
-			n -= 1
-			pos = _pos
-
-			proj := _project(c)
-			s := pos.String() + ": " + typeof(c) + ": "
-			if proj == nil {
-				s += "<nil>"
-			} else {
-				s += proj.name
-			}
-
-			if e := _entry(c); e != nil {
-				if t, _, _ := entryIndicator(c, e); t == "" {
-					s += ": " + ident(ctx, e)
-				} else {
-					s += ": " + t
-				}
-			}
-
-			if false { s += " ; " + ts(c) }
-
-			p, _ = do(c, diag_point{diagPrompt, s+"\n", nil}).(*diagpoint)
-		}
-	}
-
-	if n := trVal; n > 0 {
-		p, _ = do(ctx, diag_point{diagError, "TODO: trace value\n", nil}).(*diagpoint)
-	}
-
-	for _, d := range dias {
-		p, _ = do(ctx, diag_point{diagPrompt, s+d.f+"\n", d.a}).(*diagpoint)
-	}
-
-	if args = []any{}; p == nil { return }
-	if cs.num > 0     { args = append(args, cs.num) }
-	if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
-	if cs.frames != 0 { args = append(args, frames(cs.frames)) }
-	if cs.stop != ""  { args = append(args, stopframe(cs.stop)) }
-	if p.stack = _callstack("info:", 5, 0, args...); true { flush(ctx) }
-	if tr {
-		if truly(ctx, is_test_mode{}) {
-			p.panic = test_fail{ctx, 0}
-		} else {
-			p.panic = trace_errors{ctx, diagCount(ctx, diagError)}
-		}
-		panic(p.panic)
-	}
 }
 
 const diagnostic_limit = 10_000
@@ -13281,78 +13208,182 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
 func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
 
-func diag(ctx Context, dt diagtype, f string, a ...any) (res *diagpoint) {
-    res, _ = do(ctx, diag_point{dt, f, a}).(*diagpoint)
-    return
+func prompt(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagtext{})...) }
+func info(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagInfo)...) }
+func warn(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagWarn)...) }
+func erro(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagError, trace{})...) }
+func note(ctx Context, f string, a ...any) *diagpoint { 
+	// 'note' is a prompt that explicitly wants the position prefix
+	return debug(ctx, _position(ctx).String()+": "+f, append(a, diagPrompt)...) 
 }
 
-func prompt(c Context, f string, a ...any) *diagpoint { return diag(c,   diagPrompt, f, a...) }
-func info(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagInfo,   f, a...) }
-func warn(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagWarn,   f, a...) }
-func erro(ctx Context, f string, a ...any) *diagpoint { return diag(ctx, diagError,  f, a...) }
-func note(ctx Context, f string, a ...any) *diagpoint {
-    if !strings.HasSuffix(f, "\n") { f += "\n" }
-    return prompt(ctx, _position(ctx).String()+": "+f, a...)
+// Helper function to replace diagstack behaviour seamlessly
+func debugstack(ctx Context, n int, dt diagtype, a ...any) *diagpoint {
+	var f any = ""
+	if len(a) > 0 {
+		if x, y := a[0].(string); y {
+			f, a = x, a[1:] // separate the format string and args
+		} else {
+			f, a = a[0], a[1:] // handle non-string leading args safely
+		}
+	}
+	return debug(ctx, f, append(a, dt, trace_ctx{n})...)
 }
 
-func infostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagInfo  , a...) }
-func warnstack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagWarn  , a...) }
-func errostack(ctx Context, n int, a ...any) *diagpoint { return diagstack(ctx, n, diagError , a...) }
-func notestack(ctx Context, n int, a ...any) *diagpoint {
-    if true {
-        var f string
-        if len(a) > 0 {
-            if x, y := a[0].(string); y {
-                f, a = x, a[1:]
-            }
-        }
-        a = append([]any{"%v: "+f+"\n", _position(ctx)}, a...)
-    }
-    return diagstack(ctx, n, diagPrompt, a...)
-}
-func diagstack(ctx Context, n int, dt diagtype, a ...any) (point *diagpoint) {
-    var s string
+func infostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagInfo, a...) }
+func warnstack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagWarn, a...) }
+func errostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagError, a...) }
+func notestack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagPrompt, a...) }
 
-    if 0 < len(a) {
-        if x, y := a[0].(string); y {
-            s, a = x, a[1:] // separate the format string and args
-            if !strings.HasSuffix(s, "\n") { s += "\n" }
-        }
-    }
+var _debug_m sync.Mutex
+func debug(ctx Context, f any, a ...any) *diagpoint {
+	_debug_m.Lock(); defer _debug_m.Unlock()
 
-    point = diag(ctx, dt, s, a...)
-    dt = diagInfo
+	var tr = false
+	var trCtx int
+	var trVal int
+	var noCS bool
+	var cs callstack
+	var cs_prefix = "info:"
+	var cs_i, cs_j int = 5, 0
+	var dt diagtype
+	var dias []*diag_point
+	var args []any
+	
+	for _, a := range a {
+		switch t := a.(type) {
+		case diagtype: dt = t
+		case trace: tr = true
+		case trace_ctx: trCtx = t.int
+		case trace_val: trVal = t.int
+		case diagtext: if noCS = true; dt == 0 { dt = diagPrompt }
+		case callstack:
+			if 0 < t.num     { cs.num = t.num }
+			if 0 < t.skip    { cs.skip = t.skip }
+			if 0 != t.frames { cs.frames = t.frames }
+			if "" != t.stop  { cs.stop = t.stop }
+		case []*diag_point:
+			dias = append(dias, t...)
+		case *diag_point:
+			dias = append(dias, t)
+		default:
+			args = append(args, t)
+		}
+	}
 
-    var proj = _project(ctx)
-    var p = _position(ctx)
-    for c := inner(ctx); c != nil && 0 < n && p.valid(); c = inner(c) {
-        var pos = _position(c)
-        if !pos.valid() || pos.same(&p) { continue }
+	var p *diagpoint
+	var s string
 
-        n -= 1
-        p = pos
+	// CRITICAL FIX: Only auto-prepend the fat position for actual structured logs (Info, Warn, Error).
+	// diagPrompt is used for raw console stdout (like 'prompt' and 'smake: Entering...')
+	if dt != diagPrompt { s = _position(ctx).String() + ": " }
+	if dt == 0 && true { dt = diagPrompt }
 
-        if proj == nil {
-            s = "<nil>"
-        } else {
-            s = proj.name
-        }
+	switch t := f.(type) {
+	case *diag_point:
+		if t.f != "" {
+			nl := "\n"
+			if noCS { nl = "" } // Bypass newline for bare prompts
+			p, _ = do(ctx, diag_point{dt, s+t.f+nl, t.a}).(*diagpoint)
+		}
+	case []*diag_point:
+		for _, t := range t {
+			nl := "\n"
+			if noCS { nl = "" } // Bypass newline for bare prompts
+			p, _ = do(ctx, diag_point{dt, s+t.f+nl, t.a}).(*diagpoint)
+		}
+	case string:
+		if noCS {
+			// CRITICAL FIX: Pass the raw string exactly as-is for bare prompts
+			p, _ = do(ctx, diag_point{dt, s+t, args}).(*diagpoint)
+		} else {
+			for _, t := range strings.Split(t, "\n") { 
+				if t == "" { continue }
+				p, _ = do(ctx, diag_point{dt, s+t+"\n", args}).(*diagpoint)
+			}
+		}
+	default:
+		nl := "\n"
+		if noCS { nl = "" } // Bypass newline for bare prompts
+		p, _ = do(ctx, diag_point{dt, s+typeof(t)+": %v"+nl, args}).(*diagpoint)
+	}
 
-        proj = _project(c)
+	if n := trCtx; n > 0 {
+		var pos = _position(ctx)
+		for c := inner(ctx); c != nil && 0 < n && pos.valid(); c = inner(c) {
+			var _pos = _position(c)
+			if !_pos.valid() || _pos.same(&pos) { continue }
 
-        if e := _entry(c); e != nil {
-            if t, _, _ := entryIndicator(c, e); t == "" {
-                s += ": " + ident(ctx, e)
-            } else {
-                s += ": " + t
-            }
-        }
+			n -= 1
+			pos = _pos
 
-        if true { s += " ; " + ts(c) }
+			proj := _project(c)
+			s := pos.String() + ": " + typeof(c) + ": "
+			if proj == nil {
+				s += "<nil>"
+			} else {
+				s += proj.name
+			}
 
-        point = diag(c, dt, s)
-    }
-    return
+			if e := _entry(c); e != nil {
+				if t, _, _ := entryIndicator(c, e); t == "" {
+					s += ": " + ident(ctx, e)
+				} else {
+					s += ": " + t
+				}
+			}
+
+			if false { s += " ; " + ts(c) }
+
+			p, _ = do(c, diag_point{dt, s+"\n", nil}).(*diagpoint)
+		}
+	}
+
+	// CRITICAL ADDITION: trace_val{n} iterates over resolved Value args to print their structural positions
+	if n := trVal; n > 0 {
+		for _, arg := range args {
+			if n <= 0 { break }
+			if v, ok := arg.(Value); ok {
+				n -= 1
+				posStr := ""
+				if pos := v.Pos(); pos != 0 { // or pos.IsValid() if supported by your Pos type
+					// Dynamically resolve the compact AST Pos into a fat Position using the bridge!
+					if fat, ok := do(ctx, get_fatpos{pos}).(Position); ok && fat.valid() {
+						posStr = fat.String() + ": "
+					} else {
+						// Fallback to the thin pos if fat resolution fails for any reason
+						posStr = fmt.Sprintf("%v: ", pos)
+					}
+				}
+				
+				str := posStr + typeof(v)
+				if false { str += " ; " + ts(v) }
+				
+				p, _ = do(ctx, diag_point{dt, str+"\n", nil}).(*diagpoint)
+			}
+		}
+	}
+
+	for _, d := range dias {
+		p, _ = do(ctx, diag_point{dt, s+d.f+"\n", d.a}).(*diagpoint)
+	}
+
+	if noCS { return p }
+	if args = []any{}; p == nil { return nil }
+	if cs.num > 0     { args = append(args, cs.num) }
+	if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
+	if cs.frames != 0 { args = append(args, frames(cs.frames)) }
+	if cs.stop != ""  { args = append(args, stopframe(cs.stop)) }
+	if p.stack = _callstack(cs_prefix, cs_i, cs_j, args...); true { flush(ctx) }
+	if tr {
+		if truly(ctx, is_test_mode{}) {
+			p.panic = test_fail{ctx, 0}
+		} else {
+			p.panic = trace_errors{ctx, diagCount(ctx, diagError)}
+		}
+		panic(p.panic)
+	}
+	return p
 }
 
 func _position(ctx Context) (_ Position) {
@@ -14076,7 +14107,7 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     return
 }
 
-func (l ul) parse_args(base string, a ...string) {
+func (l ul) parseArgs(base string, a ...string) {
     var args []Value
 
 	if s := strings.Join(a, " "); s != "" {
@@ -14138,7 +14169,7 @@ func (u *universe) load(ctx Context) {
     u.globe.top = &loader{term:term{ctx, u.globe.scope}}
 
     l := ul{u, u.globe.top}
-    l.parse_args(u.workdir, os.Args[1:]...)
+    l.parseArgs(u.workdir, os.Args[1:]...)
 
     if u.autoProfs {
         if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
@@ -16703,7 +16734,7 @@ func (p *parser) expect(ctx Context, tok token) Pos {
 	if p.tok == tok {
 		p.step(ctx) // move forward
 	} else {
-		debug(pc(ctx,p), "expect %v, not %v", tok, p.tok, trace{})
+		debug(pc(ctx,p), "expect %v, not %v", tok, p.tok, callstack{num:10}, trace{})
 	}
 	return pos
 }
@@ -16716,7 +16747,7 @@ func (p *parser) linend(ctx Context) (ok bool) {
 	} else if p.tok == LINEND {
 		p.step(ctx); ok = true
 	} else {
-		debug(pc(ctx,p), "expect end of line, but %v", p.tok, trace{})
+		debug(pc(ctx,p), "expect end of line, but %v", p.tok, callstack{num:10}, trace{})
 	}
 	return
 }
@@ -19383,6 +19414,11 @@ func (p *parser) var_modifier(ctx Context, args ...Value) (err error) {
 		if x, y := v.(*group); y { v = x.list() }
 
 		_scope(ctx).def(ctx, defVoid, kv.key, v)
+
+		if false {
+			val := _scope(ctx).elems[__string(ctx,kv.key)]
+			debug(ctx, "%v %v ; %s", elem, val, _scope(ctx).comment)
+		}
 	}
 	return
 }
@@ -19394,8 +19430,6 @@ func (l ul) define_configs(ctx Context) {
 }
 
 func (l ul) modifier(ctx Context) (res *modifier) {
-	l.p.spaces(ctx)
-
 	pos := l.p.pos
 	l.p.expect(ctx, LPAREN)
 	l.p.spaces(ctx)
@@ -19445,17 +19479,24 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 	return
 }
 
-// example: {(modifier ...)}
+// example: {(modifier ...) ...}
 func (l ul) modification(ctx Context) *modification {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "modification")) }
 
 	var vb = l.p.valbase(ctx)
 	var elems []*modifier
-	for l.p.tok != EOF && l.p.tok != LINEND && l.p.tok != RBRACE {
+	
+	for l.p.tok != RBRACE && l.p.tok != EOF {
+		l.p.spaces(ctx)
+		
+		// CRITICAL FIX: Use 'continue' to safely consume consecutive newlines and comments.
+		if l.p.tok == SPACE || l.p.tok == LINEND || l.p.tok == COMMENT {
+			l.p.next(ctx, true)
+			continue
+		}
+		
 		if m := l.modifier(ctx); m != nil { elems = append(elems, m) }
 	}
-
-	// l.p.expect(ctx, /* RBRACK */RBRACE)
 
 	if len(elems) == 0 {
 		debug(ctx, "empty modifier group", trace{})
@@ -19509,17 +19550,24 @@ func (l ul) rule(ctx Context, targets []Value) (result Value) {
 		debug(ctx, "mismatched project/scope : %v", targets, trace{})
 	}
 
+	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
+	// project.entry while matching for entry looked up if not expanded right now.
+	targets = expands(_final(ctx), targets...)
+
+	var scopeComment string
+	if len(targets) == 1 {
+		scopeComment = targets[0].String()
+	} else {
+		scopeComment = sf("%v", targets)
+	}
+
 	// TODO: doc = p.leadComment
 	var depends, ordered, recipes []Value
-	defer l.closescope(l.openscope(ts(targets)))
+	defer l.closescope(l.openscope(scopeComment))
 	defer func() { l.p.dialect, l.p.ruparas = "", nil } ()
 
 	l.p.dialect = ""
 	l.p.ruparas = nil
-
-	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
-	// project.entry while matching for entry looked up if not expanded right now.
-	targets = expands(_final(ctx), targets...)
 
 	defer func(t []Value) { l.p.targets = t } (l.p.targets)
 	l.p.targets = targets // save targets for later refering
@@ -20669,7 +20717,7 @@ func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *p
 	}
 
 	if ll := _loader(l.loader.Context); ll != l.loader && ll == prev {
-		if _, a := ll.project.projectname(ctx, name, dec.project); a != nil {
+		if _, a := ll.project.projectName(ctx, name, dec.project); a != nil {
 			if x, y := a.(*project); !y || x != dec.project {
 				debug(ctx, "%v: name already taken : %v", name, ts(a), trace{})
 			}
@@ -20757,7 +20805,7 @@ func (p parent) do(ctx Context, op any) (_ any) {
 		}
 
 		if len(p.bases) == 0 {
-			p.projectname(ctx, ".base", t.project)
+			p.projectName(ctx, ".base", t.project)
 		}
 
 		p.bases = append(p.bases, t.project)
@@ -21286,7 +21334,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
 
         var scope = l.project.scope
         if p, _ := scope.Lookup(loaded.name).(*project); p == nil {
-            if _, alt := scope.projectname(ctx, loaded.name, loaded); alt != nil {
+            if _, alt := scope.projectName(ctx, loaded.name, loaded); alt != nil {
                 if p, y := alt.(*project); !y || p == nil {
                     debug(ctx, "%s: name already taken : %s", loaded.name, ts(alt), trace{})
                 }
@@ -21915,7 +21963,7 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 	}
 
 	if x, y := l.project.Lookup(dot_configure).(*project); !y || x == nil {
-		if _, alt := l.project.projectname(ctx, dot_configure, cc.declared); alt != nil {
+		if _, alt := l.project.projectName(ctx, dot_configure, cc.declared); alt != nil {
 			if p, y := alt.(*project); !y || p == nil {
 				debug(ctx, "name `%s' already taken: %s", cc.declared.name, typeof(alt), trace{})
 			}
@@ -21936,10 +21984,9 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 	// =========================================================
 	var c = l.project.configuration
 	if c == nil { c = l.project.configuration_sm(ctx) }
-
 	if c != nil && c.exists() && c.stat(ctx) != nil {
 		if l.promptConfigurationLoads(ctx) {
-			debug(pc(ctx, c), "cached configuration")
+			debug(pc(ctx, c), "cached configuration", callstack{num:1})
 		}
 		cc.configuration = c
 		l.source(&cc, c.fullname(), nil) // Populates local definitions correctly
@@ -22172,7 +22219,7 @@ func (l ul) file(ctx Context, spec, absPath string, source any) {
 
     // Check loaded project.
     if p, y := l.globe.loaded[absPath]; y {
-        if _, a := l.scope().projectname(ctx, p.name, p); a != nil {
+        if _, a := l.scope().projectName(ctx, p.name, p); a != nil {
             if x, y := a.(*project); !y || x == nil {
                 debug(ctx, "name already taken: %v (%s).", p, typeof(a), trace{})
             }
@@ -22201,28 +22248,28 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
 
     var okay bool
     var loaded *project
-    defer func(t time.Time, proj *project) {
-        if spec == "." { spec = absDir }
-        if loaded == nil { return }
-        if l.globe.main == nil { l.globe.main = loaded }
-        if proj != nil {
-            if d := proj.resolveDef(ctx, loaded.name); d != nil {
-                c := pc(ctx, d.value)
-                note(c, "conflicts project name %v", ts(d))
-                note(c, "conflicts project name %v", loaded)
-                debug(c, "%v %v", d, loaded, trace{})
-            }
-        }
-        if l.project != nil {
-            if p, _ := l.project.Lookup(loaded.name).(*project); p == nil {
-                if _, alt := l.project.projectname(ctx, loaded.name, loaded); alt != nil {
-                    if x, y := alt.(*project); !y || x == nil {
-                        debug(ctx, "`%s' already taken: %s", loaded.name, alt, trace{})
-                    }
-                }
-            }
-        }
-    } (time.Now(), l.project)
+	defer func(t time.Time, proj *project) {
+		if spec == "." { spec = absDir }
+		if loaded == nil { return }
+		if l.globe.main == nil { l.globe.main = loaded }
+		if proj != nil {
+			if d := proj.resolveDef(ctx, loaded.name); d != nil {
+				c := pc(ctx, d.value)
+				note(c, "conflicts project name %v", ts(d))
+				note(c, "conflicts project name %v", loaded)
+				debug(c, "%v %v", d, loaded, trace{})
+			}
+		}
+		if l.project != nil {
+			if p, _ := l.project.Lookup(loaded.name).(*project); p == nil {
+				if _, alt := l.project.projectName(ctx, loaded.name, loaded); alt != nil {
+					if x, y := alt.(*project); !y || x == nil {
+						debug(ctx, "`%s' already taken: %s", loaded.name, alt, trace{})
+					}
+				}
+			}
+		}
+	} (time.Now(), l.project)
 
     // Check previously loaded project.
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
@@ -22325,6 +22372,7 @@ var (
         `select`:       reflect.TypeOf((*modifier_select)(nil)).Elem(),
 
         `env`:          reflect.TypeOf((*modifier_env)(nil)).Elem(), // interpreter environments
+        `dep`:          reflect.TypeOf((*modifier_dep)(nil)).Elem(),
         `var`:          reflect.TypeOf((*modifier_var)(nil)).Elem(),
         `set`:          reflect.TypeOf((*modifier_set)(nil)).Elem(),
         `defer`:        reflect.TypeOf((*modifier_defer)(nil)).Elem(),
@@ -22627,32 +22675,26 @@ func (ctx *modifier_select) x(args ...Value) (_ any) {
 
 type modifier_env struct { modifier_ }
 func (ctx *modifier_env) x(args ...Value) (result any) {
-    args = xmerge(ctx, args...)
-
     if exe := _execution(ctx); exe != nil {
-        for _, a := range args {
+        for _, a := range xmerge(ctx, args...) {
             if p, y := a.(*pair); y {
                 exe._env = append(exe._env, p)
             } else {
-                debug(ctx, "env: not a pair value: %s", ts(a), trace{})
+                debug(ctx, "env: not a pair value: %s", ts(a,ctx), callstack{num:16}, trace{})
             }
         }
     }
     return
 }
 
-type modifier_var struct { modifier_ }
-func (ctx *modifier_var) x(args ...Value) (_ any) {
-    if checkpoints {
-        if args != nil {
-            debug(ctx, "%v", args, trace{})
-        }
-        switch p := _project(ctx); p.name {
-        case "configure.base":
-        }
-    }
-    return // no-op
+type modifier_dep struct { modifier_ }
+func (ctx *modifier_dep) x(args ...Value) any {
+	for _, a := range args { traverse(ctx, a) }
+	return nil
 }
+
+type modifier_var struct { modifier_ }
+func (*modifier_var) x(...Value) any { return nil }
 
 // examples:
 //     [(set name=value)]    set $(name) to 'value'
@@ -22660,35 +22702,57 @@ func (ctx *modifier_var) x(args ...Value) (_ any) {
 //     [(set -)]             clear $-
 type modifier_set struct { modifier_ }
 func (ctx *modifier_set) x(args ...Value) (_ any) {
-    for _, arg := range args {
-        var name string
-        var value Value
-        switch a := arg.(type) {
-        case *word: name = a.s
-        case *pair: // NOTE: pair.Value is not expanded, need to do it again.
-            name, value = __string(ctx, a.key), expand(_final(ctx),a.val)
-            if value == nil { value = a.val }
-        case flag:
-            name, value = __string(ctx, a.Value), _null(a.Pos())
-            if name == "" { name = "-" }
-        default:
-            debug(ctx, "%v is unsupported (try: foo=value)", ts(arg), trace{})
-        }
+	for _, arg := range args {
+		var name string
+		var value Value
 
-        var d, _ = auto_set(ctx, defVoid, name, value)
-        if d == nil {
-            debug(ctx, "no auto set: %v : %v", name, ts(ctx), trace{})
-        }
+		switch a := arg.(type) {
+		case *word: 
+			name = a.s
+		case *pair: 
+			// NOTE: pair.Value is not expanded, need to do it again.
+			name = __string(ctx, a.key)
+			value = expand(_final(ctx), a.val)
+			if value == nil { 
+				value = a.val 
+			}
+		case flag:
+			name = __string(ctx, a.Value)
+			if name == "" { 
+				name = "-" 
+			}
+			value = _null(a.Pos())
+		default:
+			// OPTIMIZATION: Dynamic variable name extraction
+			// Allows clearing dynamically constructed variables like [(set $(foo))]
+			if s := __string(ctx, arg); s != "" {
+				name = s
+			} else {
+				debug(ctx, "%v is unsupported (try: foo=value)", ts(arg), trace{})
+				continue
+			}
+		}
 
-        if name == "@" {
-            var f, s, _ = as_fullname_file(ctx, value)
-            if ctx.verbose {
-                var ts = trimPromptString(s)
-                prompt(ctx, "%s …… traversed (%d)\n", ts, f._traved)
-            }
-        }
-    }
-    return
+		var d, _ = auto_set(ctx, defVoid, name, value)
+		if d == nil {
+			debug(ctx, "no auto set: %v : %v", name, ts(ctx), trace{})
+		}
+
+		if name == "@" {
+			var f, s, _ = as_fullname_file(ctx, value)
+			if ctx.verbose {
+				// CRITICAL FIX: Safe VFS fallback to prevent panic on unbound files
+				var traved int
+				if f != nil {
+					traved = f._traved
+				}
+				
+				var ts = trimPromptString(s)
+				prompt(ctx, "%s …… traversed (%d)\n", ts, traved)
+			}
+		}
+	}
+	return
 }
 
 type modifier_defer struct { modifier_ }
@@ -29602,28 +29666,50 @@ func (ctx *__file) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__file) x() any {
-    var res []Value
-    for _, a := range merge(ctx.a...) {
-        if x, y := to_file(a); y {
-            if !ctx.exists || x.exists() /* || x.stat(ctx) != nil */ {
-                res = append(res, try_fullfile(ctx, x))
-            } else if ctx.report {
-                debug(ctx, "no such file {%v %v %v}", x.dir, x.sub, x.name)
-            }
-            continue
-        }
-		var proj = _project(ctx)
-        for _, f := range select_files(ctx, unmap_files(ctx, proj, a, nil)) {
-            if !ctx.exists || f.exists() {
-                res = append(res, try_fullfile(ctx, f))
-            } else if ctx.ignore {
-                if ctx.verbose { debug(ctx, "%v → %v", ts(a), f) }
-            } else if ctx.exists {
-                debug(ctx, `not a file: %v : %s ; %s`, a, ts(a), ts(res), trace{})
-            }
-        }
-    }
-    return res
+	var res []Value
+	var proj = _project(ctx)
+	for _, a := range merge(ctx.a...) {
+		if checkpoints {
+			if strings.Contains(a.String(), "{}") {
+				debug(pc(ctx,a),
+					_f("a: %v", _scope(ctx).resolve("a")),
+					_f("s: %v", _scope(ctx).resolve("s")),
+					_f("x: %v", _scope(ctx).resolve("x")),
+					_f("o: %v", _scope(ctx).resolve("o")),
+					_f("@: %v", _scope(ctx).resolve("@")),
+					callstack{num:16}, trace{})
+			}
+		}
+		if x, y := to_file(a); y {
+			if !ctx.exists || x.exists() /* || x.stat(ctx) != nil */ {
+				res = append(res, try_fullfile(ctx, x))
+			} else if ctx.report {
+				debug(ctx, "no such file {%v %v %v}", x.dir, x.sub, x.name)
+			}
+			continue
+		}
+		
+		var mapped = select_files(ctx, unmap_files(ctx, proj, a, nil))
+
+		// CRITICAL FIX: If the string maps to no physical files, but the file 
+		// is not strictly required to exist, forcefully retrieve/create its VFS node!
+		if len(mapped) == 0 && !ctx.exists {
+			if f := proj.file(ctx, a); f != nil {
+				mapped = []*file{f}
+			}
+		}
+
+		for _, f := range mapped {
+			if !ctx.exists || f.exists() {
+				res = append(res, try_fullfile(ctx, f))
+			} else if ctx.ignore {
+				if ctx.verbose { debug(ctx, "%v → %v", ts(a,ctx), f) }
+			} else if ctx.exists {
+				debug(ctx, `not a file: %v : %s ; %s`, a, ts(a,ctx), ts(res,ctx), trace{})
+			}
+		}
+	}
+	return res
 }
 
 type __glob struct { builtinbase

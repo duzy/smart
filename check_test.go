@@ -8365,35 +8365,35 @@ func testConfigureCustom(ctx *testcase) {
 	} else if d == nil {
 		ctx.err("FOO0")
 	} else if s, t := "{2:18:decimal 123}", ts(d.value,ctx); s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	}
 	if e, d := testConfig(ctx, proj, "FOO1"); e == nil {
 		ctx.err("FOO1")
 	} else if d == nil {
 		ctx.err("FOO1")
 	} else if s, t := "{4:47:yes}", ts(d.value,ctx); s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	}
 	if e, d := testConfig(ctx, proj, "FOO2"); e == nil {
 		ctx.err("FOO2")
 	} else if d == nil {
 		ctx.err("FOO2")
 	} else if s, t := "{5:47:true}", ts(d.value,ctx); s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	}
 	if e, d := testConfig(ctx, proj, "FOO3"); e == nil {
 		ctx.err("FOO3")
 	} else if d == nil {
 		ctx.err("FOO3")
 	} else if s, t := "{6:47:true}", ts(d.value,ctx); s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	}
 	if e, d := testConfig(ctx, proj, "FOO4"); e == nil {
 		ctx.err("FOO4")
 	} else if d == nil {
 		ctx.err("FOO4")
 	} else if s, t := "{7:47:true}", ts(d.value,ctx); s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	}
 
 	confsm = proj.configuration.fullname()
@@ -8513,7 +8513,7 @@ func testBug_01(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(bug_0.1 $1,$2)"; s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	} else {
 		var v Value
 		func () {
@@ -8549,7 +8549,7 @@ func testBug_01(ctx *testcase) {
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
 	} else if s, t := v.String(), "$(bug_1.1 $1,$2)"; s != t {
-		ctx.err("%v : %s != %s", d, s, t)
+		ctx.err("%s != %s", s, t, d.pos)
 	} else {
 		var e, v Value
 		func () {
