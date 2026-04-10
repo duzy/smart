@@ -436,7 +436,7 @@ func (p *execution) getRecipesHash(ctx Context, target Value, values ...Value) (
 
 func (p *execution) updateRecipesHash(ctx Context, target Value) (k, v hashbytes, err error) {
     if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
-        debug(ctx, "hashing recipes failed: %v", err, trace{})
+        erro(ctx, "hashing recipes failed: %v", err)
     }
 
     var dir = getHashDir(ctx, k[:])
@@ -466,7 +466,7 @@ func (p *execution) updateRecipesHash(ctx Context, target Value) (k, v hashbytes
 func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, err error) {
     var k, v hashbytes
     if k, v, err = p.getRecipesHash(ctx, target, p.recipes...); err != nil {
-        debug(ctx, "compute recipes hash failed: %v", err, trace{})
+        erro(ctx, "compute recipes hash failed: %v", err)
         return
     }
 
@@ -501,17 +501,17 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
     }
 
     if target = auto_target_value(ctx); target == nil {
-        debug(ctx, "target is nil", trace{})
+        erro(ctx, "target is nil")
     }
 
     if isTrivial(target) {
-        debug(ctx, "trivial target : %s", ts(target), trace{})
+        erro(ctx, "trivial target : %s", ts(target))
     }
 
     if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
         var numRealErrs = 0
         for _, err := range calleeErrs {
-            debug(ctx, "%v: %v", target, err, trace{})
+            erro(ctx, "%v: %v", target, err)
             numRealErrs += 1
         }
         if numRealErrs == 0 { return } // simply return if no real errors
@@ -532,7 +532,7 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
             }
         }
         if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
-            debug(ctx, "waiting for def '%v': %v", def.name, def.value, trace{})
+            erro(ctx, "waiting for def '%v': %v", def.name, def.value)
         }
         return
     }
@@ -633,7 +633,7 @@ func splitpath(ctx Context, a any) (ss []string) {
 	case   string: ss = strings.Split(t, pathSep)
 	case    Value: ss = strings.Split(__string(ctx, t), pathSep)
 	case      nil: break
-	default: debug(ctx, "err splitpath: %v %s", a, ts(a), callstack{num:10}, trace{})
+	default: erro(ctx, "err splitpath: %v %s", a, ts(a), callstack{num:10})
 	}
 	return
 }
@@ -973,7 +973,7 @@ func ident0(ctx Context, x Value) string {
 		}
 		return b.String()
 	default:
-		debug(pc(ctx, x), "no ident for %s", x, callstack{num:24}, trace{})
+		erro(pc(ctx, x), "no ident for %s", x, callstack{num:24})
 		return ""
 	}
 }
@@ -1165,7 +1165,7 @@ func ident(ctx Context, x Value) string {
 		if ic != nil {
 			ic.nil++
 		} else {
-			debug(pc(ctx, x), "no ident for %T: %v", x, x, callstack{num: 24}, trace{})
+			erro(pc(ctx, x), "no ident for %T: %v", x, x, callstack{num: 24})
 		}
 		return ""
 	}
@@ -1242,7 +1242,7 @@ func fnv1(ctx Context, t any, a ...any) (_ uint64) {
 				}
 			}
 		default:
-			debug(ctx, "fnv1: unsupported type : %s", ts(v), trace{})
+			erro(ctx, "fnv1: unsupported type : %s", ts(v))
 		}
 		h.Write(b)
 	}
@@ -1937,6 +1937,10 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 			return &qualword{elements{append(append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], ty.elems[0])), ty.elems[1:]...)}}
 		case *punct: 
 			// CRITICAL FIX: Do not let the qualword "swallow" the punctuation (e.g., .H + >)
+			// EXCEPT for TILDE (~), which acts as an internal name separator and must bind tightly!
+			if ty.token == TILDE {
+				return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
+			}
 			return &compound{elements{[]Value{tx, ty}}}
 		default: // qualword + scalar
 			return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
@@ -1967,7 +1971,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		return &qualword{elements{append([]Value{prefix(ctx, x, ty.elems[0])}, ty.elems[1:]...)}}
 	case *compound:
 		switch ty.elems[0].(type) {
-		case *pair: debug(ctx, "%v", ty.elems, trace{})
+		case *pair: erro(ctx, "%v", ty.elems)
 		case *valbase, *null, *none, nil: return &compound{elements{dup(ty.elems)}}
 		default: return &compound{elements{append([]Value{x}, ty.elems...)}}
 		}
@@ -2097,7 +2101,7 @@ func (p *argumented) ctx(ctx Context) *argumented_ctx {
                     stemVals = append(stemVals, s)
                 }
                 if v, rest := stencil(ctx, a, stemVals); len(rest) > 0 {
-                    debug(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems, trace{})
+                    erro(pc(ctx,p), "partial stencil: %v, %v, %v, %v", a, v, rest, stems)
                 } else if f := as_file(ctx, a, proj); f != nil {
                     a = f
                 } else {
@@ -2518,22 +2522,75 @@ func com_qualword(ctx *comctx, a, elems []Value) (res []Value) {
 			return
 		case *loc:
 			for _, v := range com_qualword(ctx, nil, []Value{t.Value}) {
-				res = append(res, com_qualword(ctx, append(dup(a), &loc{v, t.pos}), tail)...)
+				// CRITICAL FIX: Strip location wrappers ONLY for paths during concatenation!
+				// This bubbles the path up to fuse with `.c` while preserving braces for lists.
+				if _, isPath := v.(*path); isPath && (len(a) > 0 || len(tail) > 0) {
+					res = append(res, com_qualword(ctx, dup(a), append([]Value{v}, tail...))...)
+				} else {
+					res = append(res, com_qualword(ctx, append(dup(a), &loc{v, t.pos}), tail)...)
+				}
 			}
 			return
 		case *xloc:
 			for _, v := range com_qualword(ctx, nil, []Value{t.Value}) {
-				res = append(res, com_qualword(ctx, append(dup(a), &xloc{v, t.pos}), tail)...)
+				// CRITICAL FIX: Strip location wrappers ONLY for paths during concatenation!
+				if _, isPath := v.(*path); isPath && (len(a) > 0 || len(tail) > 0) {
+					res = append(res, com_qualword(ctx, dup(a), append([]Value{v}, tail...))...)
+				} else {
+					res = append(res, com_qualword(ctx, append(dup(a), &xloc{v, t.pos}), tail)...)
+				}
 			}
 			return
 		case *compound:
-			// CRITICAL FIX: Evaluate the compound to trigger variants or annihilation!
 			for _, v := range com(ctx, nil, t.elems) {
 				res = append(res, com_qualword(ctx, append(dup(a), v), tail)...)
 			}
 			return
+		case *qualword:
+			// Unpack ONLY explicit qualwords to flatten the AST safely.
+			res = append(res, com_qualword(ctx, dup(a), append(t.elems, tail...))...)
+			return
+		case *path:
+			if len(t.elems) == 0 {
+				res = append(res, com_qualword(ctx, dup(a), tail)...)
+				return
+			}
+			if len(t.elems) == 1 {
+				res = append(res, com_qualword(ctx, dup(a), append([]Value{t.elems[0]}, tail...))...)
+				return
+			}
+			
+			firsts := com_qualword(ctx, dup(a), []Value{t.elems[0]})
+			lasts := com_qualword(ctx, nil, append([]Value{t.elems[len(t.elems)-1]}, tail...))
+			
+			for _, f := range firsts {
+				for _, l := range lasts {
+					p := &path{elements{make([]Value, len(t.elems))}}
+					p.elems[0] = f
+					for j := 1; j < len(t.elems)-1; j++ {
+						p.elems[j] = t.elems[j]
+					}
+					p.elems[len(t.elems)-1] = l
+					res = append(res, p)
+				}
+			}
+			return
 		default:
-			a = append(a, expand(ctx, elem))
+			val := expand(ctx, elem)
+			
+			if val != nil && val != elem {
+				switch val.(type) {
+				case *disjunction, *loc, *xloc, *compound, *path:
+					// CRITICAL RE-INJECTION: We must bounce structural wrappers (like *xloc) 
+					// back to the top of the function so the switch can peel them open and find the path!
+					res = append(res, com_qualword(ctx, dup(a), append([]Value{val}, tail...))...)
+					return
+				}
+			}
+			
+			// For all other types (like *list), append them natively.
+			// This preserves {} formatting and prevents stack overflow loops!
+			a = append(a, val)
 		}
 	}
 	switch len(a) {
@@ -2782,7 +2839,7 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
         result = nodes[0]
     }
     if err != io.EOF {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     }
     return
 }
@@ -2970,7 +3027,7 @@ LoopJSON:
         result = g
     }
     if err != io.EOF {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     }
     return
 }
@@ -2999,7 +3056,7 @@ func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
    )}
  */
 func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
-    debug(ctx, "TODO: implement DecodeYAML", trace{})
+    erro(ctx, "TODO: implement DecodeYAML")
     return
 }
 
@@ -3171,7 +3228,7 @@ func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
 func (p *file) stamp(ctx Context) (res []*file) {
     var fn = p.fullname()
     if fn == "" {
-        debug(ctx, "file `%s` has no fullname", p, trace{})
+        erro(ctx, "file `%s` has no fullname", p)
     }
 
     var e error
@@ -3180,16 +3237,16 @@ func (p *file) stamp(ctx Context) (res []*file) {
         if truly(ctx, must_file_stamp{p}) {
             ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
             if _, y := e.(*fs.PathError); y {
-                debug(ctx, "no such file: %s", p.name, trace{})
+                erro(ctx, "no such file: %s", p.name)
             } else {
-                debug(ctx, "%v", e, trace{})
+                erro(ctx, "%v", e)
             }
         }
         return
     } else if p.info == nil {
         if truly(ctx, must_file_stamp{p}) {
             ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
-            debug(ctx, "no such file: %s", p.name, trace{})
+            erro(ctx, "no such file: %s", p.name)
         }
         return
     }
@@ -3215,11 +3272,11 @@ func (p *file) stat(ctx Context) (si *statinfo) {
         // good
     } else if x, y := e.(*fs.PathError); y {
         if false {
-            debug(ctx, "%v: %v", trimPromptString(x.Path), x.Err, trace{})
+            erro(ctx, "%v: %v", trimPromptString(x.Path), x.Err)
         }
         return
     } else {
-        debug(ctx, "file.stat: %v", e, trace{})
+        erro(ctx, "file.stat: %v", e)
     }
     return &statinfo{ file: p }
 }
@@ -3263,7 +3320,7 @@ func (p flag) String() (s string) {
 }
 func (p flag) opt(ctx Context, name string) (res string, match bool) {
 	if val := p.Value; isTrivial(val) {
-		if false { debug(ctx, "flag name is trivial", trace{}) }
+		if false { erro(ctx, "flag name is trivial") }
 	} else if x, y := val.(flag); y {
 		res, match = x.opt(ctx, name)
 	} else if s := __string(ctx, val); s == name {
@@ -3289,7 +3346,7 @@ func (p *strcomp) src() (s string) {
     // Escape string chars
     for i := strings.IndexAny(s, escapedChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
-            panic(err) // debug(ctx, "%v", err, trace{})
+            panic(err) // erro(ctx, "%v", err)
             return
         }
 
@@ -3300,7 +3357,7 @@ func (p *strcomp) src() (s string) {
         case '\n': esc = `\n`
         }
         if _, err = buf.WriteString(esc); err != nil {
-            panic(err) // debug(ctx, "%v", err, trace{})
+            panic(err) // erro(ctx, "%v", err)
             return
         }
 
@@ -3359,7 +3416,7 @@ func parseGroupValue(ctx Context, g *group) (result Value) {
             if len(kind.elems) > 0 {
                 var ( name = kind.elems[0]; y bool )
                 if w, y = name.(*word); !y {
-                    debug(ctx, "unsupported name type: %T %v", name, name, trace{})
+                    erro(ctx, "unsupported name type: %T %v", name, name)
                 }
             }
         }
@@ -3753,7 +3810,7 @@ func values(args ...any) (elems []Value) {
 				elems = append(elems, values(v.Index(n).Interface())...)
 			}
 		} else {
-			// debug(ctx, "'%v' is not value type (%T)", a, a, trace{})
+			// erro(ctx, "'%v' is not value type (%T)", a, a)
 		}
 	}
 	return
@@ -3850,7 +3907,7 @@ func deleteFile(ctx Context, val Value) (res []*file) {
         for _, e := range t.elems { res = append(res, deleteFile(ctx, e)...) }
     case *path:
         if si := statFile(ctx, val); si == nil || si.file == nil {
-            debug(ctx, "no path name for `%s`", val, trace{})
+            erro(ctx, "no path name for `%s`", val)
         } else {
             return deleteFile(ctx, si.file)
         }
@@ -3869,7 +3926,7 @@ func stampFile(ctx Context, val Value) (res []*file) {
         for _, e := range t.elems { res = append(res, stampFile(ctx, e)...) }
     case *path:
         if si := statFile(ctx, val); si == nil || si.file == nil {
-            debug(ctx, "no path name for `%s`", val, trace{})
+            erro(ctx, "no path name for `%s`", val)
         } else {
             return stampFile(ctx, si.file)
         }
@@ -4056,9 +4113,9 @@ func __string(ctx Context, v any) (res string) {
 		if v := t.Value; v != nil {
 			if x, y := v.(*file); y {
 				if x == nil {
-					debug(ctx, "nil file", trace{})
+					erro(ctx, "nil file")
 				} else if x.filestub == nil {
-					debug(ctx, "nil file stub", trace{})
+					erro(ctx, "nil file stub")
 				}
 				return x.fullname()
 			}
@@ -4221,7 +4278,7 @@ func __true(ctx Context, v Value) (res bool) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t))
 				}
 			}
 			return __true(ctx, v)
@@ -4259,31 +4316,31 @@ func __int(ctx Context, v Value) (res int64) {
 		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
 			return i
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *word:
 		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
 			return i
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *strlit:
 		if i, e := strconv.ParseInt(t.s, 10, 64); e == nil {
 			return i
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *strcomp:
 		if i, e := strconv.ParseInt(__string(ctx, t), 10, 64); e == nil {
 			return i
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *strval:
 		if i, e := strconv.ParseInt(__string(ctx, t), 10, 64); e == nil {
 			return i
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *compound:
 		if n := len(t.elems); n > 0 {
@@ -4309,7 +4366,7 @@ func __int(ctx Context, v Value) (res int64) {
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t))
 				}
 			}
 			return __int(ctx, v)
@@ -4350,44 +4407,44 @@ func __float(ctx Context, v Value) (_ float64) {
 			if f, e := strconv.ParseFloat(s, 64); e == nil {
 				return f
 			} else {
-				debug(ctx, "%v", e, trace{})
+				erro(ctx, "%v", e)
 			}
 		}
 	case *raw:
 		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
 			return f
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *word:
 		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
 			return f
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *strlit:
 		if f, e := strconv.ParseFloat(t.s, 64); e == nil {
 			return f
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *strcomp:
 		if f, e := strconv.ParseFloat(__string(ctx, t), 64); e == nil {
 			return f
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *strval:
 		if f, e := strconv.ParseFloat(__string(ctx, t), 64); e == nil {
 			return f
 		} else {
-			debug(ctx, "%v", e, trace{})
+			erro(ctx, "%v", e)
 		}
 	case *arrow, *closure, *delegate:
 		if v = expand(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
-					debug(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t), trace{})
+					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t))
 				}
 			}
 			return __float(ctx, v)
@@ -4603,7 +4660,7 @@ func expand(ctx Context, v Value) (res Value) {
                     case SELECT_PROP:
                         if v := closure_resolve(ctx, str); v != nil { o = v }
                     default:
-                        debug(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
+                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss)
                     }
                 case truly(ctx, delegate_t{}):
                     switch t.t {
@@ -4612,10 +4669,10 @@ func expand(ctx Context, v Value) (res Value) {
                     case SELECT_PROP:
                         if v := project_resolve(ctx, str); v != nil { o = v }
                     default:
-                        debug(pc(ctx,t), "%v %v %v", o, t.t, ss, trace{})
+                        erro(pc(ctx,t), "%v %v %v", o, t.t, ss)
                     }
                 default:
-                    debug(pc(ctx,t), "%v %v", o, ss, trace{})
+                    erro(pc(ctx,t), "%v %v", o, ss)
                 }
             }
 			for _, s := range ss {
@@ -4684,7 +4741,7 @@ func expand(ctx Context, v Value) (res Value) {
         // Expand elements, but we do NOT use com() because dots are strict boundaries,
         // not whitespace-separated compound elements.
         var vals = com_qualword(&comctx{ctx, 0}, nil, t.elems)
-        if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
+        if res = ease(ctx, vals); checkpoints { check(ctx, res, v) }
         return
     case *pair:
         var vals []Value
@@ -4774,7 +4831,7 @@ func expand(ctx Context, v Value) (res Value) {
         if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
         return v
     default:
-        if checkpoints { debug(pc(ctx,v), "%v", ts(v,ctx), callstack{stop:"smart.runcase"}, trace{}) }
+        if checkpoints { erro(pc(ctx,v), "%v", ts(v,ctx), callstack{stop:"smart.runcase"}) }
         return v
     }
 }
@@ -4864,7 +4921,7 @@ func sel(ctx Context, v any, s string) (res Value) {
         }
         return ease(ctx, vals)
     default:
-        debug(pc(ctx,v), "cannot sel: %v %v", ts(t), s, trace{})
+        erro(pc(ctx,v), "cannot sel: %v %v", ts(t), s)
     }
 	if g != nil {}
     return
@@ -4918,18 +4975,18 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		defer t.benchmark(ctx, time.Now(), _v)
 
 		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
-			debug(ctx, "no such field: %s.builtinbase", _v.Elem().Type(), trace{})
+			erro(ctx, "no such field: %s.builtinbase", _v.Elem().Type())
 		} else if f.CanAddr() {
 			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
 			b.evocation = ctx
 		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
-			debug(ctx, "no such field: %s.evocation", _v.Elem().Type(), trace{})
+			erro(ctx, "no such field: %s.evocation", _v.Elem().Type())
 		} else if f.CanSet() {
 			f.Set(reflect.ValueOf(ctx))
 		} else if f.CanAddr() && f.Addr().CanSet() {
 			f.Addr().SetPointer(unsafe.Pointer(ctx))
 		} else {
-			debug(ctx, "cannot set field: %s.evocation", _v.Elem().Type(), trace{})
+			erro(ctx, "cannot set field: %s.evocation", _v.Elem().Type())
 		}
 
 		if o != nil { ctx.o = _opts(ctx, _v, o) }
@@ -4937,7 +4994,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		if x, y := _v.Interface().(builtin_x); y {
 			res = ease(ctx, x.x())
 		} else {
-			debug(pc(ctx,x), "no method: %v", t.t.Name(), trace{})
+			erro(pc(ctx,x), "no method: %v", t.t.Name())
 		}
 
 	case *uselist:
@@ -4973,17 +5030,15 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		collect(t)
 
 		// Execute all collected entry points
-		if len(targets) > 0 {
-			return ease(ctx, targets)
-		}
-		return nil
+		if len(targets) == 0 { return nil }
+		return ease(ctx, targets)
 
 	case *closure, *delegate, *word, *raw, *strlit, *compound, *qualword, *globpat, *arrow, flag:
 		do(ctx, _not_evoker{})
 
     default:
 		if x != nil && !isTrivial(x) {
-			debug(pc(ctx,x), "%s", ts(x,ctx), callstack{num:10}, trace{})
+			erro(pc(ctx,x), "%s", ts(x,ctx), callstack{num:10})
 		}
     }
 	return
@@ -4995,7 +5050,7 @@ type eval struct { accumulation bool ; o origin }
 func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
     var exe = _execution(ctx)
     if exe == nil {
-        debug(ctx, "wrong eval context: %v", ts(ctx), trace{})
+        erro(ctx, "wrong eval context: %v", ts(ctx))
     }
 
     var list []Value
@@ -5149,16 +5204,16 @@ var (
 
     commonerrors = map[*regexp.Regexp]func(Context, []byte, [][]byte){
         rxExitStatus: func(c Context, line []byte, sm [][]byte) {
-            if string(sm[1]) != "0" { debug(c, "%s", sm[0], trace{}) }
+            if string(sm[1]) != "0" { erro(c, "%s", sm[0]) }
         },
         rxShellNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
-            debug(c, "no such command '%s'", sm[2], trace{})
+            erro(c, "no such command '%s'", sm[2])
         },
         regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(c Context, line []byte, sm [][]byte) {
-            debug(c, "%s: command not found", sm[2], trace{})
+            erro(c, "%s: command not found", sm[2])
         },
         regexp.MustCompile(`the input device is not a TTY`): func(c Context, line []byte, sm [][]byte) {
-            debug(c, "%s", sm[0], trace{})
+            erro(c, "%s", sm[0])
         },
     }
 
@@ -5172,7 +5227,7 @@ var (
                 case "warning":
                     debug(c, "%s", s)
                 default:
-                    debug(c, "%s", s, trace{}) // "error", "fatal error"
+                    erro(c, "%s", s) // "error", "fatal error"
                 }
                 if m := rxFileNotFound.FindStringSubmatch(s); m != nil {
                     do(c, missing_file{m[1]})
@@ -5443,7 +5498,7 @@ func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *pr
     var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
     if err = c.Run(); err != nil {
         if p.report {
-            debug(ctx, "dokcer daemon not running (at %s)", sock, trace{})
+            erro(ctx, "dokcer daemon not running (at %s)", sock)
         }
     } else {
         // TODO: start docker daemon
@@ -5542,7 +5597,7 @@ func (p *exec_ctx) do(ctx Context, op any) any {
 
 func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
     if p.container == nil {
-        debug(p.Context, "no container", trace{})
+        erro(p.Context, "no container")
     } else if maxRetries < p.num {
         fmt.Fprintf(p.sh.Stderr, "\n---- Retried %d times\n", p.num)
         return
@@ -5559,7 +5614,7 @@ func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
             run.execute(p.Context, nil)
         }
     } else {
-        debug(p.Context, "%s⇒run undefined", p.container, trace{})
+        erro(p.Context, "%s⇒run undefined", p.container)
     }
 
     fmt.Fprintf(sh.Stderr, "\n---- Retry the command in %s:", name)
@@ -5631,10 +5686,10 @@ func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err 
                 run.execute(p.Context, nil)
             }
         } else {
-            debug(p.Context, "%s⇒run undefined", p.container, trace{})
+            erro(p.Context, "%s⇒run undefined", p.container)
         }
     } else if err != nil {
-        debug(p.Context, "%v", err, trace{})
+        erro(p.Context, "%v", err)
     }
     return
 }
@@ -5669,7 +5724,7 @@ func (p *exec_ctx) run(exe *execution) (err error) {
             if p.Status = x.ExitCode(); p.Status == 0 { err = p.check() } // success!
             if p.resetStatusZero { p.Status = 0 }
         } else {
-            debug(p.Context, "exec failed: %v", err, trace{})
+            erro(p.Context, "exec failed: %v", err)
             return
         }
     }
@@ -5742,7 +5797,7 @@ func (p *exec_ctx) check() (err error) {
             }
 
             if diffLogPos && en > 0 { debug(ctx, "%v: %d known errors", str, en) }
-            debug(p, "%v: exit status %d", str, p.Status, trace{})
+            erro(p, "%v: exit status %d", str, p.Status)
         } else if wn > 0 {
             if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn) }
             warn(p, "%v: exit status %d", str, p.Status)
@@ -5823,7 +5878,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
     }
 
     if len(sources) == 0 && 0 < len(recipes) {
-        debug(ctx, "empty recipes: %v", recipes, trace{})
+        erro(ctx, "empty recipes: %v", recipes)
     }
     return
 }
@@ -5882,7 +5937,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         if x, y := ac.defs["1"]; y {
             ac.defs["_"] = x // alias
         } else {
-            debug(ctx, "wrong args: %v", ac.defs, trace{})
+            erro(ctx, "wrong args: %v", ac.defs)
         }
         ctx.Context = &ac
     }
@@ -5900,9 +5955,9 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     if ctx.log == nil || ctx.log.filename == "" {
         // no log required
     } else if err := os.MkdirAll(filepath.Dir(ctx.log.filename), os.FileMode(0755)); err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     } else if logFile, err = os.Create(ctx.log.filename); err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     } else {
         cmdline := joinraws("\n", srcs...)
         ctx.log.createWriter(logFile, ctx._workdir, cmdline)
@@ -5958,7 +6013,7 @@ type executor struct {
 func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     var prog = _program(ctx)
     if prog == nil {
-        debug(ctx, "needs program context to exec: %v", ctx, trace{})
+        erro(ctx, "needs program context to exec: %v", ctx)
     }
 
     if false && truly(ctx, is_test_univ{}) {
@@ -5983,7 +6038,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             var x, y = r.(*argumented)
             if !y { break }
             if len(x.args) != 1 {
-                debug(pc(ctx,x), "wrong result spec: %v", x, trace{})
+                erro(pc(ctx,x), "wrong result spec: %v", x)
             }
 
             switch s := __string(ctx, x.Value); s {
@@ -5993,7 +6048,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
             if l, y := x.args[0].(*list); y {
                 if l.len() != 1 {
-                    debug(pc(ctx,x), "wrong result spec: %v", x, trace{})
+                    erro(pc(ctx,x), "wrong result spec: %v", x)
                 }
                 r = l.elems[0]
             }
@@ -6019,7 +6074,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     }
 
     if t := auto_target_value(ctx); patterned(ctx,t) {
-        debug(ctx, "target is pattern: %v", ec.target, trace{})
+        erro(ctx, "target is pattern: %v", ec.target)
     } else {
         ec.target = t
         if _, y := t.(flag); !y {
@@ -6039,7 +6094,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if p.contained {
         var proj = _project(ctx)
         if proj == nil {
-            debug(ctx, "nil project", trace{})
+            erro(ctx, "nil project")
         }
 
         if proj.name == dot_container {
@@ -6048,7 +6103,7 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
             ec.container = sym.(*project)
         }
         if ec.container == nil {
-            debug(ctx, "%s: nil container", proj.name, trace{})
+            erro(ctx, "%s: nil container", proj.name)
         }
 
         var stringify = func(name string) (str string) {
@@ -6070,12 +6125,12 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
         var containerName = stringify("container")
         if containerName == "" {
-            debug(ctx, ".container.name undefined", trace{})
+            erro(ctx, ".container.name undefined")
         }
 
         var containerImage = stringify("image")
         if containerImage == "" {
-            debug(ctx, ".container.image undefined", trace{})
+            erro(ctx, ".container.image undefined")
         }
 
         ec.args = append(ec.args, "exec", containerName, cmd)
@@ -6085,14 +6140,14 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
     if ec._workdir == "" {
         ec._workdir = prog.workdir(ctx)
         if ec._workdir == "" {
-            debug(ctx, "workdir is empty", trace{})
+            erro(ctx, "workdir is empty")
         }
     }
 
     if ec.path {
         if s := filepath.Dir(ec.targetName); s != "" && s != "." && s != "/" {
             if e := os.MkdirAll(s, os.FileMode(0755)); e != nil {
-                debug(ctx, "make path '%s' for target failed: %v", s, e, trace{})
+                erro(ctx, "make path '%s' for target failed: %v", s, e)
             }
         }
     }
@@ -7747,7 +7802,7 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 
 	case *regexpat:
-		if p.Regexp == nil { debug(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}, trace{}) }
+		if p.Regexp == nil { erro(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}) }
 		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
 			res = _raw(val.Pos(), sm[0])
 			for _, s := range sm[1:] { stems = append(stems, _raw(val.Pos(), s)) }
@@ -7881,7 +7936,7 @@ func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
 		// 1. Prefix
 		if !isTrivial(p.Prefix) {
 			if patterned(ctx, p.Prefix) {
-				debug(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix, trace{})
+				erro(ctx, "patterned prefix: %T %v", p.Prefix, p.Prefix)
 			} else {
 				vals = append(vals, p.Prefix)
 			}
@@ -7994,7 +8049,7 @@ func stamp(ctx Context, a any) (res []*file) {
     case *plainline: return stamp(ctx, t.elems)
     case *returner: return stamp(ctx, t.vals)
     default:
-        debug(pc(ctx,a), "%v", ts(a,ctx), trace{})
+        erro(pc(ctx,a), "%v", ts(a,ctx))
         return
     }
 }
@@ -8019,7 +8074,7 @@ func stat(ctx Context, a any) (res []*statinfo) {
     case fullname: return stat(ctx, t.Value)
     case negative: return stat(ctx, t.Value)
     default:
-        debug(pc(ctx,a), "%v", ts(a,ctx), trace{})
+        erro(pc(ctx,a), "%v", ts(a,ctx))
         return
     }
 }
@@ -8050,7 +8105,7 @@ func traverse(ctx Context, val Value) {
         var target = auto_get(ctx, "@")
 
         if target == nil {
-            debug(ctx, "$@ is not defined", trace{})
+            erro(ctx, "$@ is not defined")
         }
 
         if _entry(ctx) == p {
@@ -8105,7 +8160,7 @@ func traverse(ctx Context, val Value) {
 		} else if _, isArrow := p.(*arrow); isArrow {
 			// Only debug if an ARROW unexpectedly evaluates to nothing,
 			// since closures and delegates are often intentionally empty.
-			debug(ctx, "traverse trivial arrow: %v: %s", p, ts(p,ctx), callstack{num: 10}, trace{})
+			erro(ctx, "traverse trivial arrow: %v: %s", p, ts(p,ctx), callstack{num: 10})
 		}
     case *barefile:
         if p.file != nil { traverse(ctx, p.file) } else
@@ -8118,7 +8173,7 @@ func traverse(ctx Context, val Value) {
         }
     case *modifier:
         if name := __string(ctx, p.elems[0]); name == "" {
-            debug(ctx, "empty name: %v", p.elems[0], trace{})
+            erro(ctx, "empty name: %v", p.elems[0])
         } else if truly(ctx, interpret{name, p.elems[1:]}) {
             modify(ctx, &p.group, true)
         }
@@ -8128,7 +8183,7 @@ func traverse(ctx Context, val Value) {
     case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
         do(ctx, act_traverse{p})
     default:
-        debug(pc(ctx,val), "unsupported traverse: %v: %s", val, ts(val,ctx), callstack{num:10}, trace{})
+        erro(pc(ctx,val), "unsupported traverse: %v: %s", val, ts(val,ctx), callstack{num:10})
     }
 }
 
@@ -8256,7 +8311,7 @@ func ease(ctx Context, a any) (res Value) {
     case []string: for _, s := range t { elems = append(elems, _strlit(_pos(ctx),        s )) }
     case   []bare: for _, s := range t { elems = append(elems, _word(  _pos(ctx), string(s))) }
 	case  []*file: for _, f := range t { elems = append(elems, f) }
-    default: debug(ctx, "unsupported value: %v", ts(t), trace{})
+    default: erro(ctx, "unsupported value: %v", ts(t))
     }
 
     switch len(elems) {
@@ -8723,7 +8778,7 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
             }
         }
         if u, y := do(ctx, evoke_count{}).(uint); y && u > 255 {
-            debug(pc(ctx,p.x), "%s : %s", p.x, ts(p.x), trace{})
+            erro(pc(ctx,p.x), "%s : %s", p.x, ts(p.x))
         }
 
     case get_position:
@@ -8970,10 +9025,10 @@ func (s *scope) alias(ctx Context, o object, alias ...string) {
 func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNew bool) {
 	var name string = ident_any(ctx, id)
 	if name == "" {
-		debug(ctx, "empty name: %s: `%v`", typeof(id), id, callstack{num:16}, trace{})
+		erro(ctx, "empty name: %s: `%v`", typeof(id), id, callstack{num:16})
 	}
 	if checkpoints { if illegal_name_prefix.MatchString(name) {
-		debug(ctx, "illegal name: %v", name, callstack{num:16}, trace{})
+		erro(ctx, "illegal name: %v", name, callstack{num:16})
 	}}
 
 	s.mutex.Lock()
@@ -8991,7 +9046,7 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 	
 	if o != defInvalid && o != d.o {
 		if d.o == defInvalid { d.o = o } else {
-			debug(pc(ctx, d), "%v: conflicts origin: %v <> %v", id, d.o, o, trace{})
+			erro(pc(ctx, d), "%v: conflicts origin: %v <> %v", id, d.o, o)
 		}
 	}
 	
@@ -9205,7 +9260,7 @@ func (ac *automatic) has(s string) (y bool) { _, y = ac.defs[s]; return }
 func (ac *automatic) set(ctx Context, o origin, name string, val Value) (out *def, old Value) {
     if name == "-" && val != nil {
         if x, y := val.(*def); y && x.o != defConfig {
-            debug(ctx, "set $- to def (%v): %v", x.o, x, trace{})
+            erro(ctx, "set $- to def (%v): %v", x.o, x)
         }
     }
 
@@ -9238,14 +9293,14 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 
         if p, y := val.(*pair); y {
             if a.name = __string(ctx, p.key); a.name == "" {
-                debug(pc(ctx,a), "empty name: %v", p.key, trace{})
+                erro(pc(ctx,a), "empty name: %v", p.key)
                 return
             }
 
             if ac.params != nil {
                 if _, y = ac.params[a.name]; !y {
                     var keys = reflect.ValueOf(ac.params).MapKeys()
-                    debug(pc(ctx,a), "unknown arg#%d: %v ; known: %v", i, p, keys, trace{})
+                    erro(pc(ctx,a), "unknown arg#%d: %v ; known: %v", i, p, keys)
                     return
                 }
             }
@@ -9270,12 +9325,12 @@ func (ac *automatic) args(ctx Context, vals []Value) {
         argn += 1
 
         if d, _ := ac.set(ctx, defParam, a.name, a.value); d == nil {
-            debug(ac, "arg '%s' not set", a.name, trace{})
+            erro(ac, "arg '%s' not set", a.name)
             return
         }
 
         if d, y := ac.defs[a.name]; !y || d == nil {
-            debug(ac, "arg '%s' not set", a.name, trace{})
+            erro(ac, "arg '%s' not set", a.name)
             return
         } else if a.id != "" && a.id != a.name {
             ac.Lock()
@@ -9321,7 +9376,7 @@ func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
     if d != nil {
         if false { d.pos = a.pos }
     } else {
-        debug(ctx, "set auto failed: %v: %v %v", a.name, value, app, trace{})
+        erro(ctx, "set auto failed: %v: %v %v", a.name, value, app)
     }
 }
 func (a *auto) isDigit() bool { return IsDigits(a.name) }
@@ -9393,7 +9448,7 @@ func (d *def) origin(ctx Context, o origin) (res origin) {
 
     if checkpoints {
         if d.o != defInvalid && (o == defVoid || o == defInvalid) {
-            debug(pc(ctx,d), "%v: %v → %v", d.name, d.o, o, trace{})
+            erro(pc(ctx,d), "%v: %v → %v", d.name, d.o, o)
         }
     }
 
@@ -9480,7 +9535,7 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     } ()
 
     if e := sh.Run(); e != nil {
-        debug(pc(ctx,value), "%v: execute command failed: %v", d.name, e, trace{})
+        erro(pc(ctx,value), "%v: execute command failed: %v", d.name, e)
         return
     }
 
@@ -9651,7 +9706,7 @@ func (p *rule) String() string {
 }
 func (p *rule) execute(ctx Context, a ...Value) (res []Value) {
     if patterned(ctx, p.target) {
-        debug(ctx, "execute pattern entry: %v", p.target, trace{})
+        erro(ctx, "execute pattern entry: %v", p.target)
     }
 
     ctx = &rule_ctx{ctx, p, a}
@@ -9788,7 +9843,7 @@ func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string
     } else if a, y := res.([]string); y {
         name = joinpath(a...)
     } else {
-        debug(ctx, "unexpected result: %v", ts(res), trace{})
+        erro(ctx, "unexpected result: %v", ts(res))
     }
     return // NOTE: also `globMatchFile(ctx, pat, str, true)`
 }
@@ -9796,7 +9851,7 @@ func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string
 func (p *filemap) stat(ctx Context, name string) (res *file) {
     var patts = p.patts
     if len(patts) == 0 {
-        debug(ctx, "no map patterns: %v", p, trace{})
+        erro(ctx, "no map patterns: %v", p)
     }
 
     if len(p.paths) == 0 {
@@ -9810,12 +9865,12 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
                 info(ctx, "pattern %d. %v", i, ts(pat))
             }
         }
-        debug(ctx, "%s → %v", name, p.patts, trace{})
+        erro(ctx, "%s → %v", name, p.patts)
     }
 
     for _, path := range p.paths {
         if isNull(path) {
-            debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p), trace{})
+            erro(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p))
         } else if isNone(path) {
             debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p))
             continue
@@ -9825,7 +9880,7 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
 
         if sub = __string(ctx, path); sub == "" {
             if false {
-                debug(ctx, "empty filemap path: %v, patterns=%v", path, patts, trace{})
+                erro(ctx, "empty filemap path: %v, patterns=%v", path, patts)
             }
             return
         }
@@ -9916,9 +9971,9 @@ const mapThreshold = 16
 var (
 	// Global Wildcard Constants (Already "interned" by being constants)
 	WildcardOne   = "*"
+	WildcardChar  = "?"
 	WildcardAny   = "**"
 	WildcardShort = "*?"
-	WildcardChar  = "?"
 
 	// Intern Cache: Maps string content to the canonical string header
 	internPool = make(map[string]string)
@@ -9929,9 +9984,9 @@ func intern(s string) string {
 	// 1. Optimization: Return constants for wildcards immediately
 	switch s {
 	case "*":  return WildcardOne
+	case "?":  return WildcardChar
 	case "**": return WildcardAny
 	case "*?": return WildcardShort
-	case "?":  return WildcardChar
 	}
 
 	// 2. Fast Path: Read Lock
@@ -10513,7 +10568,7 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 				if 0 < do(ctx, matched_filemap{a, res}).(int) {
 					ok = true
 				} else {
-					debug(ctx, "%v %v", ts(a), res, callstack{num:10}, trace{})
+					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
 				}
 			}
 		case *rule:
@@ -10523,11 +10578,11 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 				if 0 < do(ctx, matched_rule{a, res}).(int) {
 					ok = true
 				} else {
-					debug(ctx, "%v %v", ts(a), res, callstack{num:10}, trace{})
+					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
 				}
 			}
 		default:
-			debug(ctx, "%v", ts(a), callstack{num:10}, trace{})
+			erro(ctx, "%v", ts(a), callstack{num:10})
 		}
 	}
 	return
@@ -10605,7 +10660,7 @@ func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
 	var s []string
 	if false && checkpoints { defer func() {
 		if t := tokenizePath(__string(ctx, g)); sf("[%s]",s) != sf("%s",t) {
-			debug(ctx, "%s ⇒ [%s] != %v | %v", g, s, t, c, trace{})
+			erro(ctx, "%s ⇒ [%s] != %v | %v", g, s, t, c)
 		}
 	}()}
 	
@@ -10644,7 +10699,7 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 	var ss [][]string
 	if false && checkpoints { defer func() {
 		if t := tokenizePath(__string(ctx, p)); sf("%s",ss) != sf("%s",t) {
-			debug(ctx, "%v: %v != %v", p, ss, t, trace{})
+			erro(ctx, "%v: %v != %v", p, ss, t)
 		}
 	}()}
 	
@@ -10693,7 +10748,7 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	if checkpoints { defer func(s string) {
 		if  truly(ctx, propCache)   { check_cache(ctx, k, s, c, r) }
 		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
-		if !truly(ctx, propCache|propUncache) { debug(ctx, "%v %v", k, c, callstack{num:10}, trace{}) }
+		if !truly(ctx, propCache|propUncache) { erro(ctx, "%v %v", k, c, callstack{num:10}) }
 	}(c.String())}
 	
 	switch t := k.(type) {
@@ -10757,10 +10812,10 @@ func map_files(ctx Context, p *project, patts, paths []Value) (res []filemap) {
 				c0, f := c[0], filemap{base, patt}
 				c0.a, res = append(c0.a, f), append(res, f)
 			default:
-				debug(pc(ctx,patt), "too many cached: %v %v", ts(patt), c, trace{})
+				erro(pc(ctx,patt), "too many cached: %v %v", ts(patt), c)
 			}
 		} else {
-			debug(pc(ctx,patt), "cache failed: %v", ts(patt), trace{})
+			erro(pc(ctx,patt), "cache failed: %v", ts(patt))
 		}
     }
     return
@@ -10780,11 +10835,11 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
     var args []Value // e.g. for pattern filtering
 	switch t := target.(type) {
 	case *argumented: target, args = t.Value, merge(t.args...)
-	case *group: debug(ctx, "not supported target: %v", t, trace{})
+	case *group: erro(ctx, "not supported target: %v", t)
 	}
 
 	if c := hit(cache_t{ctx}, &p.entries, target); c == nil {
-		debug(ctx, "uncachable for: %v | %s", target, ts(target), trace{})
+		erro(ctx, "uncachable for: %v | %s", target, ts(target))
 	} else {
 		switch len(c) {
 		case 1:
@@ -10794,7 +10849,7 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
 			c[0].a = append(c[0].a, r)
 			entry = r
 		default:
-			debug(pc(ctx,target), "too many cached: %v %v", ts(target), c, trace{})
+			erro(pc(ctx,target), "too many cached: %v %v", ts(target), c)
 		}
 	}
 	return
@@ -10826,7 +10881,7 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 		case T: 
 			res = append(res, t)
 		default: 
-			debug(ctx, "%v %v", ts(key), ts(a), trace{})
+			erro(ctx, "%v %v", ts(key), ts(a))
 		}
 	}
 	if checkpoints { check_unmap(u, key, c, x) }
@@ -11016,13 +11071,13 @@ func select_file_1(ctx Context, m matched_filemap) (res *file) {
                 if f := _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true}); f != nil {
                     fs = append(fs, f)
                 } else {
-                    debug(ctx, "%s ⇒ %v → %v → ''", m.value, v, t, trace{})
+                    erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
                 }
             } else if false {
-                debug(ctx, "%s ⇒ %v → %v → ''", m.value, v, t, trace{})
+                erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
             }
         } else {
-            debug(ctx, "%s ⇒ %v", m.value, v, trace{})
+            erro(ctx, "%s ⇒ %v", m.value, v)
         }
     }
 
@@ -11059,7 +11114,7 @@ func (p *project) tempdir(ctx Context) (d *def, s string) {
 	}
 
 	if d == nil {
-		debug(ctx, "%v: tmp is not defined", p, trace{})
+		erro(ctx, "%v: tmp is not defined", p)
 		return
 	}
 
@@ -11091,7 +11146,7 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
     }
 
     if f = _stat(ctx, name, stat_dir{d}, stat_nonexist{true}); f == nil {
-        debug(ctx, "%v: not a file: %v : %v", p, name, d, trace{})
+        erro(ctx, "%v: not a file: %v : %v", p, name, d)
     }
 
     if false && checkpoints { tempfile_check(ctx, p, name, d, f) }
@@ -11100,7 +11155,7 @@ func (p *project) tempfile(ctx Context, name string) (f *file) {
 
 func (p *project) configuration_sm(ctx Context) (f *file) {
     if f = p.tempfile(ctx, configuration_sm); f == nil {
-        debug(ctx, "%v: no file %s", p, configuration_sm, trace{})
+        erro(ctx, "%v: no file %s", p, configuration_sm)
     }
     return
 }
@@ -11118,13 +11173,13 @@ func (p *project) resolve(ctx Context, name string) (obj object) {
 
     if p.ext.Plugin != nil {
         if sym, e := p.ext.Lookup(name); e == nil && sym != nil {
-            debug(ctx, "TODO: convert ext symbol: %v: %s", name, typeof(sym), trace{})
+            erro(ctx, "TODO: convert ext symbol: %v: %s", name, typeof(sym))
         }
     }
 
     for _, base := range p.bases {
         if base.has_base(p) {
-            debug(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base), trace{})
+            erro(ctx, "recursive derivation: %v ⇔ %v", ts(p), ts(base))
         }
         if obj = base.resolve(ctx, name); obj != nil { return }
     }
@@ -11164,7 +11219,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
 func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
     var entries = p._entries(c, name, a...)
     if n := len(entries); 0 < n {
-        if 1 < n { debug(c, "%v : %d entries", name, n, trace{}) }
+        if 1 < n { erro(c, "%v : %d entries", name, n) }
         return entries[0]
     }
     return
@@ -11318,12 +11373,12 @@ func (p *project) has_loaded(ctx Context, proj *project, traveUseLoop bool) (rp 
 func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, traveUseLoop bool) (rp *project, res, isb bool, err error) {
     if depth > 1 && top == p && true {
         err = fmt.Errorf("loop '%v' (depth=%d)", p.loop_load_path(), depth)
-        debug(ctx, "%v: %v", p, err, trace{})
+        erro(ctx, "%v: %v", p, err)
     } else if depth > 128 {
         err = fmt.Errorf("exceeds maximum base depth (%d) (start=%v, target=%v)", depth, top, proj)
         debug(ctx, "%v: %v", p, err)
         debug(ctx, "start: %v", top)
-        debug(ctx, "target: %v", proj, trace{})
+        erro(ctx, "target: %v", proj)
     }
     for _, base := range p.bases {
         if isb = base == proj; isb { return }
@@ -11338,7 +11393,7 @@ func (p *project) has_loaded_recur(ctx Context, top, proj *project, depth int, t
             err = fmt.Errorf("loop `%v`", s)
             debug(ctx, "start: %v", top)
             debug(ctx, "stop: %v", proj)
-            debug(ctx, "%v: %v", p, err, trace{})
+            erro(ctx, "%v: %v", p, err)
         }
         if res = imp == proj; res { rp = imp; return }
         if rp, res, res, err = imp.has_loaded_recur(ctx, top, proj, depth+1, traveUseLoop); err != nil {
@@ -11688,7 +11743,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
         if d, prev := auto_set(ctx, defVoid, "-", res); d == nil {
             _, ent, _ := entryIndicator(ctx, _entry(ctx))
             prompt(ctx, "%v: %s\n", ent, intername(i))
-            debug(ctx, "set buffer value failed: %v → %v", prev, res, trace{})
+            erro(ctx, "set buffer value failed: %v → %v", prev, res)
         }
     }
 
@@ -11697,7 +11752,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
         _, ent, _ := entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s\n", ent, intername(i))
-        debug(ctx, "update recipes hash failed: %v", e, trace{})
+        erro(ctx, "update recipes hash failed: %v", e)
     }
     return
 }
@@ -11705,7 +11760,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
     var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
     if !y {
-        debug(ctx, "nil dirtyopts : %v", ts(ctx), trace{})
+        erro(ctx, "nil dirtyopts : %v", ts(ctx))
         return
     }
     if len(updatedDeps(ctx, target)) > 0 { return true }
@@ -11768,14 +11823,14 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
     if outdated {
         assert(reason != "", "needs outdated reason")
     } else if y, e := p.isRecipesChanged(ctx, target); e != nil {
-        debug(ctx, "recipes changed: %v", e, trace{})
+        erro(ctx, "recipes changed: %v", e)
         return
     } else if y {
         outdated, reason = true, "recipes changed"
     } else if !opts.checksum {
         // does nothing
     } else {
-        debug(ctx, "FIXME: check prerequisites against the saved checksums", trace{})
+        erro(ctx, "FIXME: check prerequisites against the saved checksums")
         return
     }
 
@@ -11857,7 +11912,7 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
 
     var stems = _stems(ctx)
     if len(stems) == 0 {
-        if false { debug(ctx, "%v: no stems, %v", prereqValue, ctx, trace{}) }
+        if false { erro(ctx, "%v: no stems, %v", prereqValue, ctx) }
         return
     }
 
@@ -11870,9 +11925,9 @@ func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, 
     prereqPattern = prereqValue
     prereqValue, rest = stencil(ctx, prereqPattern, stemVals)
     if isTrivial(prereqValue) {
-        debug(ctx, "%v: empty stencil with %v", prereqPattern, stems, trace{})
+        erro(ctx, "%v: empty stencil with %v", prereqPattern, stems)
     } else if len(rest) > 0 {
-        debug(ctx, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest, trace{})
+        erro(ctx, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest)
     }
 
     mapPrereqFile(prereqValue)
@@ -11921,16 +11976,16 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
     )
 
     if targetValue = auto_target_value(ctx); targetValue == nil {
-        debug(ctx, "%s: target is nil\n", prereqFinal, trace{})
+        erro(ctx, "%s: target is nil\n", prereqFinal)
     } else if isTrivial(targetValue) {
-        debug(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue, trace{})
+        erro(ctx, "%s: target is trivial (%T)\n", prereqFinal, targetValue)
     }
 
     var projs = []*project{ p.proj }
 
     if len(projs) == 0 {
         note(ctx, "%v", closure_projects(ctx))
-        debug(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue, trace{})
+        erro(ctx, "%v: %v → %v: no projects", p.proj, targetValue, prereqValue)
     }
 
     prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
@@ -11945,7 +12000,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
             prompt(ctx, "%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue)
             warn(ctx, "recursion: %T %v", prereqValue, prereqValue)
             warn(ctx, "recursion: %T %v", targetValue, targetValue)
-            debug(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs, trace{})
+            erro(ctx, "recursion: %v : %v ; in %v", targetValue, prereqFile, projs)
         }
         for c := p; c != nil; c = c.caller() {
             if val := auto_get(c, "@"); val != nil && eq(c, val, prereqValue) {
@@ -12060,11 +12115,11 @@ func (prog *program) workdir(ctx Context) (workdir string) {
         var o object
         if o = proj.resolve(ctx, "CWD"); isTrivial(o) {
             if o = proj.resolve(ctx, "/"); isTrivial(o) {
-                debug(ctx, "both $(CWD) and $/ are trivial", trace{})
+                erro(ctx, "both $(CWD) and $/ are trivial")
             }
         }
         if v := expand(_final(ctx),o); v == nil {
-            debug(ctx, "trivial %v", ts(o), trace{})
+            erro(ctx, "trivial %v", ts(o))
         } else {
             workdir = __string(ctx, v)
         }
@@ -12078,7 +12133,7 @@ func (prog *program) workdir(ctx Context) (workdir string) {
 
 func (prog *program) target(ctx *execution) (target Value) {
     if target = _entry(ctx).destiny(); target == nil {
-        debug(ctx, "%v: nil entry target", target, trace{})
+        erro(ctx, "%v: nil entry target", target)
     }
 
     switch a := target.(type) {
@@ -12141,7 +12196,7 @@ callerloop:
 
         prompt(ctx, "%v: %v: %v, %v\n", a[0], v, cc, o)
         for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
-        debug(ctx, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a, trace{})
+        erro(ctx, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a)
     }
 
     if depth < maxCallRecursion {
@@ -12184,7 +12239,7 @@ callerloop:
             flush(ctx) // dump immediately
         }
 
-        debug(ctx, depth, "#>", _entry(ctx), trace{})
+        erro(ctx, depth, "#>", _entry(ctx))
     }
 }
 
@@ -12196,7 +12251,7 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
         if x, y := dialects[""]; y && x != nil {
             return ctx.interpret(ctx, x, nil)
         }
-        debug(ctx, "no default dialect", trace{})
+        erro(ctx, "no default dialect")
     }
     return
 }
@@ -12217,7 +12272,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
             if x, y := a.(*group); y {
                 modify(exe, x, true)
             } else {
-                debug(exe, "defer: not a modifier: %s", ts(a), trace{})
+                erro(exe, "defer: not a modifier: %s", ts(a))
             }
         }
 
@@ -12280,14 +12335,14 @@ func (cc *configurecontext) do(ctx Context, op any) (_ any) {
 }
 func (cc *configurecontext) open_configuration_sm(ctx Context, p *project) (res *os.File) {
     if f := p.configuration_sm(ctx); f == nil {
-        debug(ctx, "%p: nil configuration file", p, trace{})
+        erro(ctx, "%p: nil configuration file", p)
     } else if s := f.fullname(); s == "" {
-        debug(ctx, "empty configuration file name: %v", f, trace{})
+        erro(ctx, "empty configuration file name: %v", f)
     } else if e := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
-        debug(ctx, "make path %s failed: %v", filepath.Dir(s), e, trace{})
+        erro(ctx, "make path %s failed: %v", filepath.Dir(s), e)
     } else {
         res, e = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600))
-        if e != nil { debug(ctx, "%v", e, trace{}) }
+        if e != nil { erro(ctx, "%v", e) }
     }
     return
 }
@@ -12308,12 +12363,12 @@ func (cc *configurecontext) execute(ctx *execution, e entry) {
         if f != nil {
             if cc.writer != nil {
                 if e := cc.writer.Flush(); e != nil {
-                    debug(ctx, "%v", e, trace{})
+                    erro(ctx, "%v", e)
                 }
             }
             if cc.file != nil {
                 if e := cc.file.Close(); e != nil {
-                    debug(ctx, "%v", e, trace{})
+                    erro(ctx, "%v", e)
                 }
             }
         }
@@ -12337,7 +12392,7 @@ func (cc *configurecontext) execute(ctx *execution, e entry) {
     if _, y := cc.defs[s]; y { return }
 
     if d = cc.current.finddef(s); d == nil {
-        debug(ctx, "%v: `%s` not configured", cc.current, s, trace{})
+        erro(ctx, "%v: `%s` not configured", cc.current, s)
         return
     }
 
@@ -12421,17 +12476,17 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
     args = parseOpts(ctx, opts, args...)
 
     if target = auto_get(ctx, "@"); isTrivial(target) {
-        debug(ctx, "'@' is not defined", trace{})
+        erro(ctx, "'@' is not defined")
     } else if f, filename, _ = as_fullname_file(ctx, target, closured...); f == nil {
         if depend := auto_get(ctx,">"); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
         } else if true {
             prompt(ctx, "%v: not defined as file\n", __string(ctx, target))
-            debug(ctx, "%v", ts(target), trace{})
+            erro(ctx, "%v", ts(target))
         }
         return
     } else if filename == "" {
-        debug(ctx, "%v: empty fullname", target, trace{})
+        erro(ctx, "%v: empty fullname", target)
     }
 
     if _, prev := auto_set(ctx, defVoid, "@", f); opts.debug>0 {
@@ -12449,7 +12504,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         prompt(ctx, "%v\n", filename)
         if opts.mustConf {
             var d = opts.debug ; if d == 0 { d = 1 }
-            debug(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj, trace{})
+            erro(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj)
         } else if true {
             debug(ctx, "no configuration (%v), try -conf first, in %v", f, ctx.proj)
         }
@@ -12482,7 +12537,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 
     if data.Len() == 0 {
         prompt(ctx, "%v: %v %v\n", filename, auto_get(ctx,"@"), auto_get(ctx,">"))
-        debug(ctx, "empty configuration data", trace{})
+        erro(ctx, "empty configuration data")
     } else if f := ctx.proj.configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         debug(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,"@"), strings.TrimSpace(data.String()))
@@ -12507,7 +12562,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 
     if f.info != nil {
         if same, e = crc64CheckFileModeContent(ctx, filename, data.Bytes(), opts.mode); e != nil {
-            debug(ctx, " crc64 checksum failed: %v", e, trace{})
+            erro(ctx, " crc64 checksum failed: %v", e)
             return
         }
         if same {
@@ -12521,17 +12576,17 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
         }
     } else if dir := filepath.Dir(filename); opts.makePath && dir != "." && dir != pathSep {
         if e = os.MkdirAll(dir, os.FileMode(0755)); e != nil {
-            debug(ctx, " %v", e, trace{})
+            erro(ctx, " %v", e)
         }
     }
 
     if e = ioutil.WriteFile(filename, data.Bytes(), opts.mode); e != nil {
-        debug(ctx, " %v", e, trace{})
+        erro(ctx, " %v", e)
     }
 
     if f.info == nil {
         if f.info, e = os.Stat(filename) ; e == nil {
-            debug(ctx, " %v", e, trace{})
+            erro(ctx, " %v", e)
         }
     }
 
@@ -12559,7 +12614,7 @@ func (ctx *modifier_configureinput) x(args ...Value) (result any) {
             if _, ok := configs[name]; ok {
                 continue
             } else if obj := p.resolve(ctx, name); obj == nil {
-                debug(ctx, "undefined %v", name, trace{})
+                erro(ctx, "undefined %v", name)
                 return nil
             } else if def, ok := obj.(*def); ok {
                 configs[name] = def
@@ -12613,12 +12668,12 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
     }
 
     if len(pats) == 0 {
-        debug(ctx, "extract-configuration: missing file names (patterns)", trace{})
+        erro(ctx, "extract-configuration: missing file names (patterns)")
         return
     }
 
     if len(ctx.rxs) == 0 {
-        debug(ctx, "extract-configuration: missing -rx=... flags", trace{})
+        erro(ctx, "extract-configuration: missing -rx=... flags")
         return
     }
 
@@ -12626,7 +12681,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 
     var outFile string
     if target := auto_get(ctx,"@"); isNull(target) {
-        debug(ctx, " target '@' is undefined", trace{})
+        erro(ctx, " target '@' is undefined")
         return
     } else {
         outFile = __string(ctx, target)
@@ -12634,14 +12689,14 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 
     if ctx.makePath {
         if err := os.MkdirAll(filepath.Dir(outFile), os.FileMode(0755)); err != nil {
-            debug(ctx, " make path failed: %v", err, trace{})
+            erro(ctx, " make path failed: %v", err)
             return
         }
     }
 
     var fil, err = os.OpenFile(outFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, ctx.mode)
     if err != nil {
-        debug(ctx, " open file failed: %v", err, trace{})
+        erro(ctx, " open file failed: %v", err)
         return
     }
 
@@ -12671,7 +12726,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
             var name = filepath.Base(s)
             var f = _stat(ctx, name, stat_dir{dir})
             if f == nil {
-                debug(ctx, " extract-configuration: `%s` file not found", name, trace{})
+                erro(ctx, " extract-configuration: `%s` file not found", name)
                 return
             } else if f.info.IsDir() {
                 err = walkFiles(ctx, s, pats, func(f *file, err error) error {
@@ -13009,6 +13064,8 @@ const (
 )
 
 type diagtype int
+type diagadd_cs_i int
+type diagadd_cs_j int
 type diagtext struct{}
 type diagpoint struct{
     t diagtype
@@ -13208,13 +13265,13 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
 func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
 
-func prompt(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagtext{})...) }
-func info(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagInfo)...) }
-func warn(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagWarn)...) }
-func erro(ctx Context, f string, a ...any) *diagpoint { return debug(ctx, f, append(a, diagError, trace{})...) }
-func note(ctx Context, f string, a ...any) *diagpoint { 
+func prompt(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append(a, diagtext{})...) }
+func info(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append(a, diagInfo, diagadd_cs_i(1))...) }
+func warn(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append(a, diagWarn, diagadd_cs_i(1))...) }
+func erro(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append(a, diagError, diagadd_cs_i(1))...) }
+func note(ctx Context, f any, a ...any) *diagpoint { 
 	// 'note' is a prompt that explicitly wants the position prefix
-	return debug(ctx, _position(ctx).String()+": "+f, append(a, diagPrompt)...) 
+	return debug(ctx, sf("%v:%v", _position(ctx), f), append(a, diagPrompt)...) 
 }
 
 // Helper function to replace diagstack behaviour seamlessly
@@ -13256,6 +13313,8 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		case trace: tr = true
 		case trace_ctx: trCtx = t.int
 		case trace_val: trVal = t.int
+		case diagadd_cs_i: cs_i += int(t)
+		case diagadd_cs_j: cs_j += int(t)
 		case diagtext: if noCS = true; dt == 0 { dt = diagPrompt }
 		case callstack:
 			if 0 < t.num     { cs.num = t.num }
@@ -13274,10 +13333,15 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 	var p *diagpoint
 	var s string
 
-	// CRITICAL FIX: Only auto-prepend the fat position for actual structured logs (Info, Warn, Error).
-	// diagPrompt is used for raw console stdout (like 'prompt' and 'smake: Entering...')
-	if dt != diagPrompt { s = _position(ctx).String() + ": " }
-	if dt == 0 && true { dt = diagPrompt }
+	// CRITICAL FIX: The engine's internal logger automatically prepends the position
+	// for Info, Warn, and Error. We must leave 's' empty to avoid double prefixes!
+	// We only auto-prepend for direct calls to debug() where no 'dt' is specified.
+	if dt == 0 && !noCS { 
+		s = _position(ctx).String() + ": " 
+	}
+	if dt == 0 { 
+		dt = diagPrompt 
+	}
 
 	switch t := f.(type) {
 	case *diag_point:
@@ -13917,7 +13981,7 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 		case stat_sub: sub = t.string
 		case stat_fileinfo: fileInfo = t.FileInfo
 		case stat_nonexist: nonexist = t.bool
-		default: debug(ctx, "invalid stat arg: %v", ts(a), trace{})
+		default: erro(ctx, "invalid stat arg: %v", ts(a))
 		}
 	}
 
@@ -14055,15 +14119,15 @@ func cpu_profile(ctx Context, name string, heap ...bool) (stop func()) {
 
     f, e := os.Create(fn)
     if e != nil {
-        debug(ctx, "%T: %v", e, e, trace{})
+        erro(ctx, "%T: %v", e, e)
     } else if e = pprof.StartCPUProfile(f); e != nil {
-        debug(ctx, "%T: %v", e, e, trace{})
+        erro(ctx, "%T: %v", e, e)
     }
     return func() { if f != nil {
         if e != nil { pprof.StopCPUProfile() }
         if heap != nil && heap[0] { runtime.GC() // update memory statistics
             if e = pprof.WriteHeapProfile(f); e != nil {
-                debug(ctx, "WriteHeapProfile: %v", e, trace{})
+                erro(ctx, "WriteHeapProfile: %v", e)
             }
         }
         f.Close()
@@ -14082,13 +14146,13 @@ func heap_profile(ctx Context, name string) (stop func()) {
 
     f, e := os.Create(fn)
     if e != nil {
-        debug(ctx, "%T: %v", e, e, trace{})
+        erro(ctx, "%T: %v", e, e)
     }
     return func() { if f != nil {
         if e != nil { pprof.StopCPUProfile() }
         runtime.GC() // update memory statistics
         if e = pprof.WriteHeapProfile(f); e != nil {
-            debug(ctx, "WriteHeapProfile: %v", e, trace{})
+            erro(ctx, "WriteHeapProfile: %v", e)
         }
         f.Close()
     }}
@@ -14099,10 +14163,10 @@ func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     case *rule:
         var y bool
         if result, y = execute_entry(ctx, g, args...); !y {
-            debug(ctx, "update '%v' failed", g, trace{})
+            erro(ctx, "update '%v' failed", g)
         }
     default:
-        debug(ctx, "not an entry: %v", ts(goal), trace{})
+        erro(ctx, "not an entry: %v", ts(goal))
     }
     return
 }
@@ -14173,11 +14237,11 @@ func (u *universe) load(ctx Context) {
 
     if u.autoProfs {
         if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
         } else {
             defer f.Close()
             if e := pprof.StartCPUProfile(f); e != nil {
-                debug(ctx, "could not start CPU profile: %v", e, trace{})
+                erro(ctx, "could not start CPU profile: %v", e)
             }
             defer pprof.StopCPUProfile()
         }
@@ -14185,12 +14249,12 @@ func (u *universe) load(ctx Context) {
             var prof string //= u.memProf
             if prof == "" { prof = filepath.Join(workBaseDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
-                debug(ctx, "%v", e, trace{})
+                erro(ctx, "%v", e)
             } else {
                 defer f.Close()
                 runtime.GC() // update memory statistics
                 if e := pprof.WriteHeapProfile(f); e != nil {
-                    debug(ctx, "could not start CPU profile: %v", e, trace{})
+                    erro(ctx, "could not start CPU profile: %v", e)
                 }
             }
         } ()
@@ -14212,7 +14276,7 @@ func (u *universe) load(ctx Context) {
     l.directory(l.loader, spec, u.workdir, nil)
 
     if l.globe.main == nil {
-        debug(ctx, "nothing loaded", trace{})
+        erro(ctx, "nothing loaded")
     }
     return
 }
@@ -14222,7 +14286,7 @@ func (u *universe) run() (result []Value) {
 
     var main = u.globe.main
     if main == nil {
-        debug(u, "no targets to update `%v`", u.globe.goals, trace{})
+        erro(u, "no targets to update `%v`", u.globe.goals)
     }
 
     var ctx Context = closure_with(u, main.scope)
@@ -14277,7 +14341,7 @@ func (u *universe) run() (result []Value) {
             case *null, *none: // just ignore
             case *word:
                 if entries := proj._entries(ctx, t.s, true); entries == nil {
-                    debug(ctx, "no such entry `%s`", t.s, trace{})
+                    erro(ctx, "no such entry `%s`", t.s)
                     return false
                 } else {
                     for _, entry := range entries {
@@ -14287,7 +14351,7 @@ func (u *universe) run() (result []Value) {
             case *delegate:
                 var s = __string(ctx, t)
                 if entries := proj._entries(ctx, s, true); entries == nil {
-                    debug(ctx, "no such entry `%s` (via `%v`)", s, t, trace{})
+                    erro(ctx, "no such entry `%s` (via `%v`)", s, t)
                     return false
                 } else {
                     for _, entry := range entries {
@@ -14297,7 +14361,7 @@ func (u *universe) run() (result []Value) {
             case flag:
                 var s = __string(ctx, t)
                 if entries := proj._entries(ctx, s, true); entries == nil {
-                    debug(ctx, "no such entry `%s` (via `%v`)", s, t, trace{})
+                    erro(ctx, "no such entry `%s` (via `%v`)", s, t)
                     return false
                 } else {
                     for _, entry := range entries { goals = append(goals, entry) }
@@ -14319,12 +14383,12 @@ func (u *universe) run() (result []Value) {
                         }
                     }
                     if found == 0 {
-                        debug(ctx, `"%s" not loaded: %v`, s, args, trace{})
+                        erro(ctx, `"%s" not loaded: %v`, s, args)
                         return false
                     }
                 }
             default:
-                debug(ctx, "%v: unknown target: %v (%s)", proj, goal, typeof(goal), trace{})
+                erro(ctx, "%v: unknown target: %v (%s)", proj, goal, typeof(goal))
                 return false
             }
         }
@@ -15311,12 +15375,12 @@ func (s *scanner) pickNext(ctx Context) (ch rune, w int) {
 func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
 	switch ch, w = rune(s.src[offset]), 1; {
 	case ch == 0:
-		debug(pc(ctx,s.pos(offset)), "illegal character NUL", trace{})
+		erro(pc(ctx,s.pos(offset)), "illegal character NUL")
 	case ch >= 0x80: // Non ASCII
 		if ch, w = utf8.DecodeRune(s.src[offset:]); ch == utf8.RuneError && w == 1 {
-			debug(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding", trace{})
+			erro(pc(ctx,s.pos(offset)), "illegal UTF-8 encoding")
 		} else if ch == bom && offset > 0 {
-			debug(pc(ctx,s.pos(offset)), "illegal byte order mark", trace{})
+			erro(pc(ctx,s.pos(offset)), "illegal byte order mark")
 		} else if w > 1 {
 			// CRITICAL FIX: Register the multibyte span instantly during parsing!
 			// We pass the byte offset and the "extra" bytes (width - 1).
@@ -15445,7 +15509,7 @@ func (s *scanner) scanMantissa(ctx Context, base int) {
 			for s.ch == '_' || digitVal(s.ch) < base {
 				if s.ch == '_' {
 					if s.next(ctx); s.ch == '_' {
-						debug(pc(ctx,s), "invalid digit group", trace{})
+						erro(pc(ctx,s), "invalid digit group")
 						break
 					}
 				} else {
@@ -15490,18 +15554,18 @@ checkDate:
 
 	// month range is 01-12
 	if ch = s.src[o+5]; ch != '0' && ch != '1' {
-		debug(pc(ctx,s.pos(o+5)), "bad month", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+5)), "bad month"); goto exit
 	}
 	if ch = s.src[o+6]; ch < '0' || '9' < ch {
-		debug(pc(ctx,s.pos(o+6)), "bad month", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+6)), "bad month"); goto exit
 	}
 
 	// month-day range is 01-28, 01-29, 01-30, 01-31 based on month/year
 	if ch = s.src[o+8]; ch < '0' && '3' < ch {
-		debug(pc(ctx,s.pos(o+8)), "bad month day", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+8)), "bad month day"); goto exit
 	}
 	if ch = s.src[o+9]; ch < '0' || '9' < ch {
-		debug(pc(ctx,s.pos(o+9)), "bad month day", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+9)), "bad month day"); goto exit
 	}
 
 	if o += 10; o == l {
@@ -15514,36 +15578,36 @@ checkDate:
 		o += 1 // consume 'T'
 		hasTime = true
 	} else {
-		debug(pc(ctx,s.pos(o)), "bad time", trace{}); goto exit
+		erro(pc(ctx,s.pos(o)), "bad time"); goto exit
 	}
 
 	if l-o < 9 || s.src[o+2] != ':' || s.src[o+5] != ':' {
-		debug(pc(ctx,s.pos(o)), "illegal time", trace{}); goto exit
+		erro(pc(ctx,s.pos(o)), "illegal time"); goto exit
 	}
 
 checkTime:
 	// hour range is 00-23
 	if ch = s.src[o+0]; ch < '0' || '2' < ch {
-		debug(pc(ctx,s.pos(o+0)), "bad hour", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+0)), "bad hour"); goto exit
 	}
 	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-		debug(pc(ctx,s.pos(o+1)), "bad hour", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+1)), "bad hour"); goto exit
 	}
 
 	// minute range is 00-59
 	if ch = s.src[o+3]; ch < '0' || '5' < ch {
-		debug(pc(ctx,s.pos(o+3)), "bad minute", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+3)), "bad minute"); goto exit
 	}
 	if ch = s.src[o+4]; ch < '0' || '9' < ch {
-		debug(pc(ctx,s.pos(o+4)), "bad minute", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+4)), "bad minute"); goto exit
 	}
 
 	// second ranges are 00-59 00-58, 00-59, 00-60 based on leap second rules
 	if ch = s.src[o+6]; ch < '0' || '5' < ch {
-		debug(pc(ctx,s.pos(o+6)), "bad second", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+6)), "bad second"); goto exit
 	}
 	if ch = s.src[o+7]; ch < '0' || '9' < ch {
-		debug(pc(ctx,s.pos(o+7)), "bad second", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+7)), "bad second"); goto exit
 	}
 
 	if ch = s.src[o+8]; IsDatetimeTerminator(rune(ch)) {
@@ -15559,34 +15623,34 @@ checkTime:
 			} else if ch == '+' || ch == '-' {
 				o += 1; goto checkNumOffset // consume '+' or '-'
 			} else if ch < '0' || '9' < ch {
-				debug(pc(ctx,s.pos(o)), "bad secfrac", trace{}); goto exit
+				erro(pc(ctx,s.pos(o)), "bad secfrac"); goto exit
 			}
 		}
 	} else if ch == '+' || ch == '-' {
 		o += 9; goto checkNumOffset // consume 00:00:00+
 	} else {
-		debug(pc(ctx,s.pos(o)), "bad time", trace{}); goto exit
+		erro(pc(ctx,s.pos(o)), "bad time"); goto exit
 	}
 
 checkNumOffset:
 	if ch = s.src[o+2]; ch != ':' {
-		debug(pc(ctx,s.pos(o+2)), "bad offset", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+2)), "bad offset"); goto exit
 	}
 
 	// hour range is 00-23
 	if ch = s.src[o+0]; ch < '0' || '2' < ch {
-		debug(pc(ctx,s.pos(o+0)), "bad hour", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+0)), "bad hour"); goto exit
 	}
 	if ch = s.src[o+1]; ch < '0' || '9' < ch || ('3' < ch && s.src[o] == '2') {
-		debug(pc(ctx,s.pos(o+1)), "bad hour", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+1)), "bad hour"); goto exit
 	}
 
 	// minute range is 00-59
 	if ch = s.src[o+3]; ch < '0' || '5' < ch {
-		debug(pc(ctx,s.pos(o+3)), "bad minute", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+3)), "bad minute"); goto exit
 	}
 	if ch = s.src[o+4]; ch < '0' || '9' < ch {
-		debug(pc(ctx,s.pos(o+4)), "bad minute", trace{}); goto exit
+		erro(pc(ctx,s.pos(o+4)), "bad minute"); goto exit
 	}
 
 	o += 5 // consume 00:00
@@ -15631,7 +15695,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 			tok = BINARY
 			if s.offset-offs <= 2 {
 				// only scanned "0b" or "0B"
-				debug(pc(ctx,offs), "illegal binary number", trace{})
+				erro(pc(ctx,offs), "illegal binary number")
 			}
 		} else if s.ch == 'x' || s.ch == 'X' {
 			// hexadecimal int
@@ -15640,7 +15704,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 			tok = HEXADECIMAL
 			if s.offset-offs <= 2 {
 				// only scanned "0x" or "0X"
-				debug(pc(ctx,offs), "illegal hexadecimal number", trace{})
+				erro(pc(ctx,offs), "illegal hexadecimal number")
 			}
 		} else {
 			// octal int or float
@@ -15656,7 +15720,7 @@ func (s *scanner) scanNumber(ctx Context, seenDecimalPoint bool) (token, string)
 			}
 			// octal int
 			if seenDecimalDigit {
-				debug(pc(ctx,offs), "illegal octal number", trace{})
+				erro(pc(ctx,offs), "illegal octal number")
 			}
 			if s.offset-offs > 1 {
 				tok = OCTAL
@@ -15743,7 +15807,7 @@ func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 	default:
 		var msg = "unknown escape sequence"
 		if s.ch < 0 { msg = "escape sequence not terminated" }
-		debug(pc(ctx,offs), msg, trace{})
+		erro(pc(ctx,offs), msg)
 		return false
 	}
 
@@ -15753,7 +15817,7 @@ func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 		if d >= base {
 			var msg = fmt.Sprintf("illegal character %#U in escape sequence", s.ch)
 			if s.ch < 0 { msg = "escape sequence not terminated" }
-			debug(pc(ctx,offs), msg, trace{})
+			erro(pc(ctx,offs), msg)
 			return false
 		}
 		x = x*base + d
@@ -15762,7 +15826,7 @@ func (s *scanner) scanEscape(ctx Context, quote rune) bool {
 	}
 
 	if x > max || 0xD800 <= x && x < 0xE000 {
-		debug(pc(ctx,offs), "escape sequence is invalid Unicode code point", trace{})
+		erro(pc(ctx,offs), "escape sequence is invalid Unicode code point")
 		return false
 	}
 
@@ -15777,7 +15841,7 @@ func (s *scanner) scanStrliting(ctx Context, ml bool) string {
 	for s.offsetRead < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 { // if ch < 0 {
-			debug(pc(ctx,offs), "raw string literal not terminated", trace{})
+			erro(pc(ctx,offs), "raw string literal not terminated")
 			break
 		}
 		if ch == '\\' { s.next(ctx) } // escapes
@@ -15804,7 +15868,7 @@ func (s *scanner) scanString(ctx Context, ml bool) string {
 	for s.offsetRead < len(s.src) {
 		ch := s.ch
 		if (!ml && ch == '\n') || ch < 0 {
-			debug(pc(ctx,offs), "string literal not terminated", trace{})
+			erro(pc(ctx,offs), "string literal not terminated")
 			break
 		}
 		s.next(ctx)
@@ -15868,7 +15932,7 @@ func (s *scanner) scanStrcomp(ctx Context, q rune) (tok token, lit string) {
 			tok, lit = ESCAPE, string(s.src[offs+1:s.offset])
 		} else {
 			tok, lit = ILLEGAL, string(s.src[offs:s.offset])
-			debug(pc(ctx,offs), "illegal strcomp escape %#U", s.ch, trace{})
+			erro(pc(ctx,offs), "illegal strcomp escape %#U", s.ch)
 			s.next(ctx) // discard
 		}
 		return
@@ -15915,7 +15979,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		switch s.ch {
 		case '$', '&', '{':
 		default:
-			debug(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:]), trace{})
+			erro(pc(ctx,s), "unexpected '%s'", string(s.src[s.offset:]))
 		}
 	}
 
@@ -15930,7 +15994,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		// This prevents rule targets like `configure-input:` from being hijacked!
 		if len(lit) > 1 && s.ch != '/' && s.ch != '.' && s.ch != '~' && s.ch != '-' {
 			if tok = lookup_keyword(lit) ; !tok.is_keyword() && tok != WORD {
-				debug(pc(ctx,s), "unexpected token '%s' %s", tok, lit, trace{})
+				erro(pc(ctx,s), "unexpected token '%s' %s", tok, lit)
 			}
 		} else {
 			tok = WORD
@@ -16059,7 +16123,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 		}
 	case '"':
 		if s.bits.isStrcompString() {
-			debug(pc(ctx,s.pos(offs)), "composed", trace{})
+			erro(pc(ctx,s.pos(offs)), "composed")
 		} else {
 			tok = STRCOMP
 			s.push(isStrcompString)
@@ -16085,7 +16149,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 					goto poprparen
 				}
 			}
-			debug(pc(ctx,s.pos(offs)), "unexpected right-paren, %016b %016b", s.bits, s.bitss, trace{})
+			erro(pc(ctx,s.pos(offs)), "unexpected right-paren, %016b %016b", s.bits, s.bitss)
 		}
 		poprparen: s.pop(t)
 	case '{':
@@ -16102,7 +16166,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 					goto poprbrace
 				}
 			}
-			debug(pc(ctx,s.pos(offs)), "unexpected right-brace, %016b %016b", s.bits, s.bitss, trace{})
+			erro(pc(ctx,s.pos(offs)), "unexpected right-brace, %016b %016b", s.bits, s.bitss)
 		}
 		poprbrace: s.pop(t)
 	case '=':
@@ -16223,7 +16287,7 @@ func (s *scanner) scan(ctx Context) (pos Pos, tok token, lit string) {
 	default:
 		// next reports unexpected BOMs - don't repeat
 		if ch != bom {
-			debug(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch, trace{})
+			erro(pc(ctx,s.pos(s.file.Offset(pos))), "illegal %#U", ch)
 		} else {
 			tok = ILLEGAL
 			lit = string(ch)
@@ -16734,7 +16798,7 @@ func (p *parser) expect(ctx Context, tok token) Pos {
 	if p.tok == tok {
 		p.step(ctx) // move forward
 	} else {
-		debug(pc(ctx,p), "expect %v, not %v", tok, p.tok, callstack{num:10}, trace{})
+		erro(pc(ctx,p), "expect %v, not %v", tok, p.tok, callstack{num:10})
 	}
 	return pos
 }
@@ -16747,7 +16811,7 @@ func (p *parser) linend(ctx Context) (ok bool) {
 	} else if p.tok == LINEND {
 		p.step(ctx); ok = true
 	} else {
-		debug(pc(ctx,p), "expect end of line, but %v", p.tok, callstack{num:10}, trace{})
+		erro(pc(ctx,p), "expect end of line, but %v", p.tok, callstack{num:10})
 	}
 	return
 }
@@ -16815,7 +16879,7 @@ func (l ul) braced(ctx Context) (x Value) {
 
 	switch l.p.tok {
 	case LBRACK: // obsolete syntax: {[...]}
-		debug(ctx, "syntax error, use {(modifier)} for modification", trace{})
+		erro(ctx, "syntax error, use {(modifier)} for modification")
 		return
 	case LPAREN:
 		x = l.modification(ctx)
@@ -16952,7 +17016,7 @@ func (l ul) braced(ctx Context) (x Value) {
 				return
 			}
 
-			debug(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit, trace{})
+			erro(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit)
 			return
 
 		default:
@@ -17022,7 +17086,7 @@ func (p *parser) rule_params(ctx Context, args []Value) (err error) {
 			
 			p.ruparas = append(p.ruparas, a)
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-			debug(ctx, "bad parameter form (%v)", ts(arg), trace{})
+			erro(ctx, "bad parameter form (%v)", ts(arg))
 		}
 	}
 	return
@@ -17044,7 +17108,7 @@ func (l ul) depends(ctx Context, params bool) (res []Value) {
 		if l.p.tok == COLON {
 			// FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
-			debug(ctx, "unexpected colon", trace{})
+			erro(ctx, "unexpected colon")
 		} else if l.p.spaces(ctx) ; !l.p.is_end_of_line() {
 			var val = l.expr(selection{ctx})
 
@@ -17072,7 +17136,7 @@ func (l ul) values(ctx Context) (values []Value) {
 	for l.p.spaces(ctx); !l.p.is_list_term(ctx); l.p.spaces(ctx) {
 		var prev = l.p.pos
 		if values = append(values, l.expr(ctx)); l.p.pos == prev {
-			debug(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, values, trace{})
+			erro(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, values)
 		}
 
 		// If there's a comment right after the parsed expression, we break
@@ -17103,7 +17167,7 @@ func (l ul) group(ctx Context) *group {
 		p := l.p.pos
 		next := _list(l.values(ctx)...)
 
-		if l.p.pos == p { debug(ctx, "syntax error", callstack{num:64}, trace{}) }
+		if l.p.pos == p { erro(ctx, "syntax error", callstack{num:64}) }
 
 		if !converted {
 			elems = []Value{ _list(elems...), next }
@@ -17122,14 +17186,14 @@ func (l ul) corner_list(ctx Context) *list { // ⌜a b c⌟
 	var elems []Value
 	switch l.p.tok {
 	case Lbot_corner, Ltop_corner: l.p.step(ctx)
-	default: debug(pc(ctx,l.p), "unexpect %v", l.p.tok, trace{})
+	default: erro(pc(ctx,l.p), "unexpect %v", l.p.tok)
 	}
 
 corner_loop:
 	for l.p.spaces(ctx); l.p.tok != EOF; l.p.spaces(ctx) {
 		var saved = l.p.pos
 		if elems = append(elems, l.expr(ctx)); l.p.pos == saved {
-			debug(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, elems, trace{})
+			erro(ctx, "bad: %v %v; %v", l.p.tok, l.p.lit, elems)
 		}
 
 		// If there's a comment right after the parsed expression, we break
@@ -17141,7 +17205,7 @@ corner_loop:
 
 	switch l.p.tok {
 	case Rbot_corner, Rtop_corner: l.p.step(ctx)
-	default: debug(pc(ctx,l.p), "unexpect %v", l.p.tok, trace{})
+	default: erro(pc(ctx,l.p), "unexpect %v", l.p.tok)
 	}
 
 	return _list(elems...)
@@ -17163,7 +17227,7 @@ func (l ul) argumented(ctx Context, x Value) *argumented {
 				a = append(a, l.punct(ctx))
 				l.p.spaces(ctx)
 			} else {
-				debug(ctx, "unexpected punctuation: %v", l.p.tok, trace{})
+				erro(ctx, "unexpected punctuation: %v", l.p.tok)
 			}
 		}
 		a = append(a, _list(l.values(ctx)...))
@@ -17218,7 +17282,7 @@ func (l ul) glob(ctx Context, x Value) (g *globpat) {
 			v = l.unary(ctx)
 		}
 
-		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+		if l.p.pos == p { erro(ctx, "syntax error") }
 
 		g.elems = append(g.elems, v)
 	}
@@ -17251,11 +17315,11 @@ func (l ul) perc(ctx Context, x Value) Value {
 			if pos+2 == l.p.pos && !is_perc_term(l.p.tok) {
 				switch l.p.tok {
 				case PERC: // %%%
-					debug(ctx, "too many %", trace{})
+					erro(ctx, "too many %")
 				default:
 					switch perc.Suffix = l.expr(ctx); perc.Suffix.(type) {
 					case *argumented, *path:
-						debug(ctx, "incorrect: %v %v", x, ts(perc.Suffix), trace{})
+						erro(ctx, "incorrect: %v %v", x, ts(perc.Suffix))
 					}
 				}
 			}
@@ -17278,10 +17342,10 @@ func (l ul) regex(ctx Context) (_ Value) {
 	ctx = p_regex{ctx}
 
 	if !l.p.scanner.bits.isBrace() {
-		debug(ctx, "wrong scan state: %v", l.p.scanner.scanstate, trace{})
+		erro(ctx, "wrong scan state: %v", l.p.scanner.scanstate)
 	}
 	if !l.p.scanner.bits.isBraceRaw() {
-		debug(ctx, "wrong scan state: %v", l.p.scanner.scanstate, trace{})
+		erro(ctx, "wrong scan state: %v", l.p.scanner.scanstate)
 	}
 
 rxloop:
@@ -17308,7 +17372,7 @@ rxloop:
 	var err error
 	var x = &regexpat{valbase{pos}, nil} // TODO: correct regexp pattern value
 	if x.Regexp, err = regexp.Compile(rx); err != nil {
-		debug(pc(ctx,l.p), "regex: %v", err, trace{})
+		erro(pc(ctx,l.p), "regex: %v", err)
 	} else {
 		do(ctx, regex_subexp_auto{x.Regexp})
 	}
@@ -17344,11 +17408,11 @@ composeloop:
 				break composeloop
 			}
 		}
-		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+		if l.p.pos == p { erro(ctx, "syntax error") }
 	}
 
 	if x == nil {
-		debug(ctx, "nil flag name", trace{})
+		erro(ctx, "nil flag name")
 	}
 	return flag{x}
 }
@@ -17379,7 +17443,7 @@ func (l ul) literal(ctx Context) (_ Value) {
 
 	// ESCAPE is handled in value.EscapeChar
 	switch tok {
-	case BAR: debug(ctx, "`|` is deprecated, change the modifiers!", trace{})
+	case BAR: erro(ctx, "`|` is deprecated, change the modifiers!")
 	case BINARY:      return ParseBinary(pos, lit)
 	case OCTAL:       return ParseOctal(pos, lit)
 	case INTEGER:     return ParseDecimal(pos, lit)
@@ -17410,7 +17474,7 @@ func (l ul) strcomp(ctx Context) *strcomp {
 		} else {
 			elems = append(elems, l.expr(p_strcomp{ctx}))
 		}
-		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+		if l.p.pos == p { erro(ctx, "syntax error") }
 	}
 
 	l.p.expect(ctx, COMPOSED)
@@ -17454,7 +17518,7 @@ func (l ul) dot(ctx Context, x Value) (_ Value) {
 		p := l.p.pos
 		y := l.unary(ctx)
 
-		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+		if l.p.pos == p { erro(ctx, "syntax error") }
 
 		// Flatten nested qualwords if they emerge from evaluation
 		if subQ, ok := y.(*qualword); ok {
@@ -17482,7 +17546,7 @@ func (l ul) dot(ctx Context, x Value) (_ Value) {
 
 func (l ul) path(ctx Context, start Value) (res *path) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "path")) }
-	if start == nil { debug(ctx, "nil path starter", trace{}) }
+	if start == nil { erro(ctx, "nil path starter") }
 
 	ctx = p_path{ctx}
 
@@ -17507,7 +17571,7 @@ func (l ul) path(ctx Context, start Value) (res *path) {
 
 		var p = l.p.pos
 		var elem = l.unary(ctx)
-		if l.p.pos == p { debug(ctx, "syntax error", trace{}) }
+		if l.p.pos == p { erro(ctx, "syntax error") }
 		if x, y := elem.(*list); false && y && x.len() == 1 { elem = x.elems[0] }
 
 		switch l.p.tok {
@@ -17678,7 +17742,7 @@ pathloop:
 			if l.p.tok == CLOSURE {
 				l.p.step(ctx) // '&'
 			} else if l.p.tok == PERC {
-				debug(ctx, "unexpected %v in url", l.p.tok, trace{})
+				erro(ctx, "unexpected %v in url", l.p.tok)
 			}
 		}
 	}
@@ -17699,7 +17763,7 @@ func (l ul) resolve(ctx Context, name Value, str string) (result Value) {
 	if !pos.IsValid() { pos = l.p.pos }
 	if !pos.IsValid() { pos = _pos(ctx) }
 	if str == "" {
-		debug(ctx, "resolve no-name : %v", ts(name), trace{})
+		erro(ctx, "resolve no-name : %v", ts(name))
 	}
 
 	if d := auto_find(ctx, str); d != nil {
@@ -17771,7 +17835,7 @@ func (l ul) identity(ctx Context, tok token, name Value) (obj Value, str string,
 			return
 		}
 
-		debug(pc(ctx,name), "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name,ctx), trace{})
+		erro(pc(ctx,name), "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name,ctx))
 	}
 
 	switch tok {
@@ -17784,16 +17848,16 @@ func (l ul) identity(ctx Context, tok token, name Value) (obj Value, str string,
 		}
 	case LBRACE:
 		if e := l.project.entry(ctx, name); e == nil {
-			debug(pc(ctx,name), "resolved nil: %s", ts(name,ctx), trace{})
+			erro(pc(ctx,name), "resolved nil: %s", ts(name,ctx))
 		} else if _, ok := e.(object); !ok {
-			debug(pc(ctx,name), "not an object: %v: %s", name, ts(e,ctx), trace{})
+			erro(pc(ctx,name), "not an object: %v: %s", name, ts(e,ctx))
 		} else {
 			obj = name
 			return
 		}
 	}
 
-	debug(pc(ctx,name), "undefined %v → %v : %s", name, str, ts(name,ctx), callstack{num:32}, trace{})
+	erro(pc(ctx,name), "undefined %v → %v : %s", name, str, ts(name,ctx), callstack{num:32})
 	return
 }
 
@@ -17823,7 +17887,7 @@ func (l ul) calling(ctx Context) (result Value) {
 		tok = l.p.tok // use LPAREN, LBRACE
 		l.p.step(ctx) // skips LPAREN, LBRACE
 
-		if l.p.tok == SPACE { debug(pc(ctx,l.p.pos), "unexpected spaces", trace{}) }
+		if l.p.tok == SPACE { erro(pc(ctx,l.p.pos), "unexpected spaces") }
 
 		name = l.expr(selection{ctx})
 
@@ -17898,7 +17962,7 @@ func (l ul) calling(ctx Context) (result Value) {
 			l.p.step(ctx)
 
 		default:
-			debug(pc(ctx,l.p.pos), _f("unexpects %v", l.p.lit), trace{})
+			erro(pc(ctx,l.p.pos), _f("unexpects %v", l.p.lit))
 		}
 
 	default: // case AT, BAR, DOT, SAST, QUE, MINUS, PLUS, PCON:
@@ -17957,7 +18021,7 @@ func (l ul) unary(ctx Context) (x Value) {
 	defer func() {
 		if pos == l.p.pos && x != nil {
 			if z, y := x.(*punct); !y || z.token != PROOT {
-				debug(pc(ctx,x), "syntax error: %v", ts(x), trace{})
+				erro(pc(ctx,x), "syntax error: %v", ts(x))
 			}
 		}
 	} ()
@@ -17989,7 +18053,7 @@ func (l ul) unary(ctx Context) (x Value) {
 					case HASH:
 						break urlpercloop
 					default:
-						debug(ctx, "bad url token: %v %v", l.p.tok, l.p.lit, trace{})
+						erro(ctx, "bad url token: %v %v", l.p.tok, l.p.lit)
 					}
 				}
 			}
@@ -18078,7 +18142,7 @@ func (l ul) unary(ctx Context) (x Value) {
 
 	if l.p.lineComment != nil {
 		for _, c := range l.p.lineComment.comments {
-			debug(ctx, "# %s", c.string, trace{})
+			erro(ctx, "# %s", c.string)
 		}
 	}
 	return
@@ -18174,14 +18238,14 @@ composeloop: // parses right-fixes
 	var p = l.p.pos
 	var y = l.unary(ctx)// NOTE: it's unary, not composite
 	if l.p.pos == p {
-		debug(ctx, "syntax error: %v (%v %v %v)", x, ts(x), ts(y), l.p.tok, trace{})
+		erro(ctx, "syntax error: %v (%v %v %v)", x, ts(x), ts(y), l.p.tok)
 	}
 
 	x = prefix(ctx, x, y) // ⇒ xy
 
 	switch l.p.tok { case COMMENT, SPACE, LINEND, EOF: return }
 
-	if 9999 < n { debug(ctx, "too many compose: %v (%d)", x, n, trace{}) }
+	if 9999 < n { erro(ctx, "too many compose: %v (%d)", x, n) }
 
 	n += 1; goto composeloop // compose as many as possible
 }
@@ -18236,7 +18300,7 @@ orloop:
 func (l ul) braced_for(ctx Context) (res Value) {
 	l.p.expect(ctx, FOR) // consumes `for`
 
-	debug(ctx, "TODO: {=for ...}", trace{})
+	erro(ctx, "TODO: {=for ...}")
 
 	l.p.expect(ctx, RBRACE)
 	return
@@ -18295,7 +18359,7 @@ valsloop:
 			if v := l.expr(foreach_text{&cc}); v != nil {
 				temps = append(temps, v)
 			} else {
-				debug(ctx, "nil ; %v", l.p.tok, trace{})
+				erro(ctx, "nil ; %v", l.p.tok)
 			}
 		}
 	}
@@ -18384,7 +18448,7 @@ func (l ul) braced_defs(ctx Context) (res Value) {
 			case INTEGER, WORD:
 				capture = append(capture, l.p.lit)
 			default:
-				debug(pc(ctx,l.p), "unexpected %v '%s'", l.p.tok, l.p.lit, trace{})
+				erro(pc(ctx,l.p), "unexpected %v '%s'", l.p.tok, l.p.lit)
 			}
 			l.p.next(ctx, true)
 		}
@@ -18474,7 +18538,7 @@ func (l ul) braced_file(ctx Context) (res Value) {
 				continue
 			}
 		}
-		debug(pc(ctx,elem), "not a file: %v", ts(elem), trace{})
+		erro(pc(ctx,elem), "not a file: %v", ts(elem))
 	}
 
 	res = ease(ctx, elems)
@@ -18518,7 +18582,7 @@ func (l ul) braced_type(ctx Context, tok token) (x Value) {
 			case  TRUE, YES,  ON: n = true
 			case FALSE,  NO, OFF: n = false
 			default:
-				debug(ctx, "unexpected token: %v", l.p.tok, trace{})
+				erro(ctx, "unexpected token: %v", l.p.tok)
 			}
 			l.p.next(ctx, true)
 		case FLOAT:
@@ -18539,7 +18603,7 @@ func (l ul) braced_type(ctx Context, tok token) (x Value) {
 	}
 
 	if x == nil {
-		debug(pc(ctx,l.p), "nil const, %v, %v %v", tok, l.p.tok, l.p.lit, trace{})
+		erro(pc(ctx,l.p), "nil const, %v, %v %v", tok, l.p.tok, l.p.lit)
 	}
 
 	l.p.spaces(ctx)
@@ -18553,7 +18617,7 @@ func (l ul) braced_const(ctx Context, tok token) (x Value) {
 	var pos = l.p.pos
 
 	if l.p.spaces(ctx); l.p.tok != RBRACE {
-		debug(pc(ctx,l.p), "expecting right-brace, %v %v", l.p.tok, l.p.lit, trace{})
+		erro(pc(ctx,l.p), "expecting right-brace, %v %v", l.p.tok, l.p.lit)
 	}
 
 	switch tok {
@@ -18566,7 +18630,7 @@ func (l ul) braced_const(ctx Context, tok token) (x Value) {
 	}
 
 	if x == nil {
-		debug(pc(ctx,l.p), "nil const, %v, %v %v", tok, l.p.tok, l.p.lit, trace{})
+		erro(pc(ctx,l.p), "nil const, %v, %v %v", tok, l.p.tok, l.p.lit)
 	}
 
 	l.p.spaces(ctx)
@@ -18622,16 +18686,16 @@ func (l ul) braced_project(ctx Context) (_ *project) {
 	name := l.expr(ctx)
 	str := __string(ctx, name)
 	if str == "" {
-		debug(ctx, "empty name : %s : %s", ts(name), str, trace{})
+		erro(ctx, "empty name : %s : %s", ts(name), str)
 	}
 
 	if /* self && */ l.project.name == str {
 		return l.project
 	} else if o := l.resolve(ctx, name, str); o == nil {
-		debug(pc(ctx,l.p), "%s : undefined %s : %v", l.project, str, ts(name), trace{})
+		erro(pc(ctx,l.p), "%s : undefined %s : %v", l.project, str, ts(name))
 		return
 	} else if x, y := o.(*project); !y && x != nil {
-		debug(pc(ctx,l.p), "%s : %v is not a project", l.project, ts(o), trace{})
+		erro(pc(ctx,l.p), "%s : %v is not a project", l.project, ts(o))
 		return
 	} else {
 		return x
@@ -18735,14 +18799,14 @@ func (l ul) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 		if !isTrivial(val) { specVals = append(specVals, val) }
 	}
 	if len(specVals) == 0 {
-        debug(pc(ctx,g.spec), "empty use spec: %v", ts(g.spec[0]), trace{})
+        erro(pc(ctx,g.spec), "empty use spec: %v", ts(g.spec[0]))
     }
 
 	var opts useopts
 	var args = parseOpts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, y := a.(flag); y {
-			debug(pc(ctx,a), "unkown use opts: %v", ts(a), trace{})
+			erro(pc(ctx,a), "unkown use opts: %v", ts(a))
 		}
 	}
 
@@ -18755,10 +18819,10 @@ func (l ul) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 	// CRITICAL FIX: Prevent index out of bounds panic!
 	if len(g.spec) == 0 {
-		debug(ctx, "missing file specification properties", trace{})
+		erro(ctx, "missing file specification properties")
 		return // Halt immediately
 	} else if len(g.spec) > 1 {
-		debug(ctx, "too many properties: %v", g.spec, trace{})
+		erro(ctx, "too many properties: %v", g.spec)
 	}
 
 	var p Value
@@ -18767,7 +18831,7 @@ func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 	if l.p.tok == SELECT_PROG1 { // e.g., '=>' or '⇒'
 		l.p.next(ctx, true) // step forward with spaces skipped
 		if l.p.tok == LINEND || l.p.lineComment != nil {
-			debug(ctx, "expecting files path after '⇒'", trace{})
+			erro(ctx, "expecting files path after '⇒'")
 		}
 		p = l.expr(ctx)
 	}
@@ -18777,12 +18841,12 @@ func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 	if g.skip { return }
 
 	if t := parseOpts(ctx, &g.general_opts, g.remainder...); t != nil {
-		debug(ctx, "unsupported opts: %v", t, trace{})
+		erro(ctx, "unsupported opts: %v", t)
 	}
 
 	// Expand the left-hand side (Patterns) eagerly
 	if t := expand(original{ctx,defExpand1}, g.spec[0]); t == nil {
-		debug(ctx, "nil file pattern: %v", g.spec[0], trace{})
+		erro(ctx, "nil file pattern: %v", g.spec[0])
 	} else if x, y := t.(*group); y {
 		patts = merge(x.elems...)
 	} else {
@@ -18795,7 +18859,7 @@ func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 				if f, y := x.Value.(flag); y {
 					switch __string(ctx, f.Value) {
 					default: // TODO: parse files options
-						debug(ctx, "invalid files flag: %v", trace{})
+						erro(ctx, "invalid files flag: %v")
 					}
 				}
 			}
@@ -18805,7 +18869,7 @@ func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 			if f, y := patts[0].(flag); y {
 				switch __string(ctx, f.Value) {
 				default: // TODO: parse files options
-					debug(ctx, "invalid files flag: %v", trace{})
+					erro(ctx, "invalid files flag: %v")
 				}
 			}
 		}
@@ -18875,14 +18939,14 @@ func (l ul) local(ctx Context, _ *commentgroup, g *clause_opts, _ int) {
 					// l.project.mutex.Unlock()
 				}
 			default:
-				debug(ctx, "unsupported flag: %v", ts(a), trace{})
+				erro(ctx, "unsupported flag: %v", ts(a))
 			}
 			continue
 		}
 
 		var s = __string(ctx, a)
 		if s == "" {
-			debug(ctx, "empty local: %v", ts(a), trace{})
+			erro(ctx, "empty local: %v", ts(a))
 		}
 
 		if local == nil { local = make(map[string]*def) }
@@ -18906,14 +18970,14 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 		for _, op := range parseOpts(_final(ctx), &opts, g.values...) {
 			var val Value
 			if v, y := op.(*pair); y { op, val = v.key, v.val }
-			debug(ctx, "unsupport flag: %v (%v)", ts(op), val, trace{})
+			erro(ctx, "unsupport flag: %v (%v)", ts(op), val)
 		}
 		return
 	}
 
 	prop0 := g.spec[0]
 	if isTrivial(prop0) {
-		debug(pc(ctx,l.p), "illegal", trace{})
+		erro(pc(ctx,l.p), "illegal")
 	}
 
 	var name string
@@ -18927,12 +18991,12 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 				debug(pc(ctx,l.p), "%v → %v", t.key, t.val)
 			case *word:
 				if name != "" {
-					debug(pc(ctx,l.p), "%v → %d. %v", prop0, i, x, trace{})
+					erro(pc(ctx,l.p), "%v → %d. %v", prop0, i, x)
 				} else {
 					name = t.s
 				}
 			default:
-				debug(pc(ctx,l.p), "%v → %d. %v", prop0, i, ts(x), trace{})
+				erro(pc(ctx,l.p), "%v → %d. %v", prop0, i, ts(x))
 			}
 		}
 		return
@@ -18944,9 +19008,9 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 
 	switch name {
 	case "-configuration", "configuration":
-		debug(pc(ctx,l.p), "configuration is done at parse time", trace{})
+		erro(pc(ctx,l.p), "configuration is done at parse time")
 	case "":
-		debug(pc(ctx,l.p), "empty eval command", trace{})
+		erro(pc(ctx,l.p), "empty eval command")
 	}
 
 	resolved := l.resolve(ctx, prop0, name)
@@ -18957,7 +19021,7 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 		case "plain": evoke(ctx, x, opts, g.spec[1:])
 		}
 	default:
-		debug(pc(ctx,l.p), "resolved '%s' is not evaler: %v → %s", typeof(resolved), prop0, name, trace{})
+		erro(pc(ctx,l.p), "resolved '%s' is not evaler: %v → %s", typeof(resolved), prop0, name)
 	}
 
 	// TODO: if c, y := res.(code); y { ... }
@@ -19014,7 +19078,7 @@ func (l ul) spec(ctx Context, keyword token, pos Pos, f parseSpecFunc) {
 			return
 		}
 
-		debug(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder, trace{})
+		erro(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder)
 
 	case LPAREN:
 		l.p.next(ctx, true)
@@ -19114,16 +19178,16 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 
 		switch t := id.(type) {
 		case *argumented:
-			debug(ctx, "multiple defs: %v, args=%v", t.Value, t.args, trace{})
+			erro(ctx, "multiple defs: %v, args=%v", t.Value, t.args)
 
 		case *group:
-			debug(ctx, "multiple defs: %v", t.elems, trace{})
+			erro(ctx, "multiple defs: %v", t.elems)
 
 		case *arrow:
 			if v := expand(_final(ctx), t); v == nil {
-				debug(ctx, "%v is nil", ts(t), trace{})
+				erro(ctx, "%v is nil", ts(t))
 			} else if x, y := v.(*def); !y {
-				debug(ctx, "%v is not a def: %v", ts(t), ts(v), trace{})
+				erro(ctx, "%v is not a def: %v", ts(t), ts(v))
 			} else {
 				d = x
 			}
@@ -19133,12 +19197,12 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			name := ident(def_name{ctx}, expand(def_name{ctx}, t))
 
 			if name == "" {
-				debug(pc(ctx,t), "empty name: %s: `%v`", typeof(id), id, callstack{num:32}, trace{})
+				erro(pc(ctx,t), "empty name: %s: `%v`", typeof(id), id, callstack{num:32})
 			} else if _, y := builtins[name]; y {
-				debug(pc(ctx,t), "`%v` is a builtin name (%v)", ident, name, trace{})
+				erro(pc(ctx,t), "`%v` is a builtin name (%v)", ident, name)
 			}
 			if checkpoints { if illegal_name_prefix.MatchString(name) {
-				debug(pc(ctx,t), "illegal name: %v", name, callstack{num:32}, trace{})
+				erro(pc(ctx,t), "illegal name: %v", name, callstack{num:32})
 			}}
 
 			prev := l.project.resolve(ctx, name)
@@ -19152,7 +19216,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			} else if x, y := prev.(*def); !y {
 				// not a def
 			} else if x == nil {
-				debug(ctx, "prev def '%s' is nil", name, trace{})
+				erro(ctx, "prev def '%s' is nil", name)
 			} else if x != d && x.scope != d.scope && alt == nil {
 				switch tok {
 				case ASSIGN_ADD, ASSIGN_SHI:
@@ -19163,7 +19227,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 		}
 
 		if d == nil {
-			debug(ctx, "def is nil: %v", ts(ident), trace{})
+			erro(ctx, "def is nil: %v", ts(ident))
 		}
 
 		_ctx := defval{original{ctx, 0}, d}
@@ -19205,7 +19269,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			case d.o&(defVoid|defExpand0|defExpand1|defExpand2|defExpand3) != 0:
 				d.set(_ctx, nil, expands(_ctx, rhsVals...)...)
 			default:
-				debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+				erro(ctx, "unknown: %v %v", _ctx.o, d.name)
 			}
 		case ASSIGN_SHI: // =+
 			if d.o == defInvalid { d.o = defExpand0 }
@@ -19215,7 +19279,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
 				d.val(_ctx, append(expands(_ctx, rhsVals...), d.value))
 			default:
-				debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+				erro(ctx, "unknown: %v %v", _ctx.o, d.name)
 			}
 		case ASSIGN_SUB: // -=
 			if d.o == defInvalid { d.o = defExpand0 }
@@ -19228,7 +19292,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 					case d.o&(defExpand1|defExpand2|defExpand3) != 0:
 						vals = expands(_ctx, rhsVals...)
 					default:
-						debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+						erro(ctx, "unknown: %v %v", _ctx.o, d.name)
 					}
 				outer1:
 					for _, v := range dv {
@@ -19254,7 +19318,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
 				vals = expands(_ctx, rhsVals...)
 			default:
-				debug(ctx, "unknown: %v %v", _ctx.o, d.name, trace{})
+				erro(ctx, "unknown: %v %v", _ctx.o, d.name)
 			}
 			if d.value != nil {
 				if dv := merge(d.value); len(dv) > 0 {
@@ -19273,7 +19337,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			}
 			d.value = ease(ctx, _vals)
 		default:
-			debug(ctx, "unknown: %v %v %v", _ctx.o, d.name, tok, trace{})
+			erro(ctx, "unknown: %v %v %v", _ctx.o, d.name, tok)
 		}
 
 		l.p.lineComment = nil
@@ -19313,7 +19377,7 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
 			var a *argumented
 			if a, _ = x.(*argumented); a != nil { x = a.Value }
 			if x == nil {
-				debug(pc(ctx,p), "parsed nil value, dialect=%s", l.p.dialect, trace{})
+				erro(pc(ctx,p), "parsed nil value, dialect=%s", l.p.dialect)
 			}
 
 			if l.p.dialect == "value" {
@@ -19321,9 +19385,9 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
 			} else if t, y := x.(*word); !y {
 				// does nothing
 			} else if s := l.resolve(ctx, t, t.s); isTrivial(s) {
-				debug(pc(ctx,p), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), l.p.dialect, trace{})
+				erro(pc(ctx,p), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), l.p.dialect)
 			} else if _, y := s.(*builtin); !y {
-				debug(pc(ctx,p), "'%s' is not a command (%s)", t.s, typeof(s), trace{})
+				erro(pc(ctx,p), "'%s' is not a command (%s)", t.s, typeof(s))
 			} else {
 				x = s
 			}
@@ -19342,7 +19406,7 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
 				if !l.p.tok.is_rule_delim() {
 					x = l.expr(&c)
 				} else {
-					debug(ctx, "unsupported token: %s, %v", l.p.tok, elems, trace{})
+					erro(ctx, "unsupported token: %s, %v", l.p.tok, elems)
 				}
 				if cmdargs = append(cmdargs, x); l.p.tok == COMMA {
 					l.p.next(ctx, true)
@@ -19378,7 +19442,7 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
 
 		if c.lines != nil {
 			if c.elems != nil {
-				debug(ctx, "%v %v", c.elems, c.lines, trace{})
+				erro(ctx, "%v %v", c.elems, c.lines)
 			}
 			for _, a := range c.lines {
 				recipes = append(recipes, &plainline{elements{merge(a...)}})
@@ -19402,22 +19466,28 @@ func (l ul) recipe(ctx Context) (recipes []Value) {
     }
 }
 
-// Parsing (var a=xxx,b=yyy) definitions
+// Parsing (var a=xxx,b=yyy) or (var a) definitions
 func (p *parser) var_modifier(ctx Context, args ...Value) (err error) {
 	for _, elem := range args {
-		var kv, y = elem.(*pair)
-		if !y || kv == nil {
-			debug(ctx, "bad var form (%v)", ts(elem), trace{})
+		var name string
+		var pos Pos
+
+		if kv, y := elem.(*pair); y && kv != nil {
+			name = __string(ctx, kv.key)
+			pos = kv.key.Pos()
+		} else if w, y := elem.(*word); y && w != nil {
+			name = w.s
+			pos = w.Pos()
+		} else {
+			erro(ctx, "bad var form (%v)", ts(elem))
+			continue
 		}
 
-		var v = kv.val
-		if x, y := v.(*group); y { v = x.list() }
-
-		_scope(ctx).def(ctx, defVoid, kv.key, v)
-
-		if false {
-			val := _scope(ctx).elems[__string(ctx,kv.key)]
-			debug(ctx, "%v %v ; %s", elem, val, _scope(ctx).comment)
+		if d := _scope(ctx).auto(ctx, name); d != nil { d.pos = pos
+			if false {
+				val := _scope(ctx).elems[name]
+				debug(ctx, "%v ; %v ; %s", d, val, _scope(ctx).comment)
+			}
 		}
 	}
 	return
@@ -19438,23 +19508,30 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 	var val = l.expr(ctx)
 	var name = __string(ctx, val)
 	if name == "" {
-		debug(pc(ctx,val), "unsupported modifier: %s", ts(name), trace{})
+		erro(pc(ctx,val), "unsupported modifier: %s", ts(name))
 	} else if _, y := dialects[name]; y {
 		if l.p.dialect == "" { l.p.dialect = name } else {
-			debug(pc(ctx,l.p), "multi-dialects unsupported, already defined '%s'", l.p.dialect, trace{})
+			erro(pc(ctx,l.p), "multi-dialects unsupported, already defined '%s'", l.p.dialect)
 		}
 	} else if _, y = modifiers[name]; !y {
-		debug(pc(ctx,l.p), "no such dialect or modifier: %s", name, trace{})
+		erro(pc(ctx,l.p), "no such dialect or modifier: %s", name)
 	}
 
 	for l.p.tok != RPAREN && l.p.tok != EOF {
 		l.p.spaces(ctx)
-
 		pos := l.p.pos
 
-		if va := l.values(ctx); name == "var" {
+		va := l.values(ctx)
+		
+		// 1. Parse-time local-define (Forward Declaration)
+		if name == "var" {
 			l.p.var_modifier(ctx, va...)
-		} else if n := len(va); n == 1 {
+		} 
+		
+		// 2. CRITICAL FIX: Removed 'else'. We MUST append to elems 
+		// so the AST retains the arguments for runtime!
+		n := len(va)
+		if n == 1 {
 			elems = append(elems, va[0])
 		} else if n > 1 {
 			elems = append(elems, &list{elements{va}})
@@ -19464,14 +19541,14 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 
 		if l.p.tok == COMMA { l.p.next(ctx, true) }
 		if l.p.pos == pos {
-			debug(pc(ctx,l.p), "unsupported modifier arg: %v '%v'", l.p.tok, l.p.lit, trace{})
+			erro(pc(ctx,l.p), "unsupported modifier arg: %v '%v'", l.p.tok, l.p.lit)
 		}
 	}
 
 	l.p.expect(ctx, RPAREN)
 
 	if val == nil && len(elems) == 0 {
-		debug(pc(ctx,l.p), "empty modifier", trace{})
+		erro(pc(ctx,l.p), "empty modifier")
 	}
 
 	res = new(modifier)
@@ -19499,10 +19576,10 @@ func (l ul) modification(ctx Context) *modification {
 	}
 
 	if len(elems) == 0 {
-		debug(ctx, "empty modifier group", trace{})
+		erro(ctx, "empty modifier group")
 	}
 	if l.p.tok == COLON {
-		debug(ctx, "unexpected colon after modifer", trace{})
+		erro(ctx, "unexpected colon after modifer")
 	}
     return &modification{vb, elems}
 }
@@ -19547,7 +19624,7 @@ func (l ul) rule(ctx Context, targets []Value) (result Value) {
 	ctx = p_rule_ctx{ctx, l.p}
 
     if l.project != _scope(ctx).project {
-		debug(ctx, "mismatched project/scope : %v", targets, trace{})
+		erro(ctx, "mismatched project/scope : %v", targets)
 	}
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
@@ -19630,7 +19707,7 @@ func (l ul) entries(ctx Context, prog *program, targets []Value) (res []entry) {
 
         var entry = map_entry(pc(ctx,target), prog.project, target, prog)
         if entry == nil {
-            debug(ctx, "creating entry failed for %v", target, trace{})
+            erro(ctx, "creating entry failed for %v", target)
         }
 
 		res = append(res, entry)
@@ -19704,7 +19781,7 @@ func (l ul) def_end(ctx Context) {
 
 func (l ul) foreach_done(ctx Context) {
 	if l.p.spaces(ctx); l.p.tok == LINEND {
-		debug(ctx, "unexpected end of line", trace{})
+		erro(ctx, "unexpected end of line")
 	}
 
 	l.p.expect(ctx, FOREACH)
@@ -19780,7 +19857,7 @@ func (l ul) foreach_done(ctx Context) {
 
 func (l ul) for_done(ctx Context) {
 	if l.p.spaces(ctx); l.p.tok == LINEND {
-		debug(ctx, "unexpected end-of-line", trace{})
+		erro(ctx, "unexpected end-of-line")
 	}
 
 	var opts struct{
@@ -19789,7 +19866,7 @@ func (l ul) for_done(ctx Context) {
 	if  l.p.expect(ctx, FOR) ; l.p.tok == LPAREN {
 		l.p.next(ctx, true) // LPAREN
 		if vals := parseOpts(ctx, &opts, l.values(ctx)...); vals != nil {
-			debug(ctx, "unexpected opts: %v", vals, trace{})
+			erro(ctx, "unexpected opts: %v", vals)
 		}
 		l.p.expect(ctx, RPAREN)
 	}
@@ -19803,7 +19880,7 @@ func (l ul) for_done(ctx Context) {
 	var ac = automatic{Context:ctx, defs:make(def_map)}
 	for l.p.spaces(ctx); l.p.tok != EOF && !l.p.is_end_of_line(); l.p.spaces(ctx) {
 		if l.p.tok == AND && params == nil {
-			debug(pc(ctx,l.p), "unexpected 'and'", trace{})
+			erro(pc(ctx,l.p), "unexpected 'and'")
 		} else if l.p.tok == AND || params == nil {
 			params = append(params, &nparam{p:l.p.pos})
 			if l.p.tok == AND { l.p.next(ctx, true); continue }
@@ -19818,7 +19895,7 @@ func (l ul) for_done(ctx Context) {
 				// CRITICAL FIX: Extract the iterator name safely without expanding its value
 				var name = ident(def_name{ctx}, expand(def_name{ctx}, x.key))
 				if name == "" {
-					debug(pc(ctx,a), "empty key %v", ts(x.key), trace{})
+					erro(pc(ctx,a), "empty key %v", ts(x.key))
 				}
 
 				var par *param
@@ -19854,7 +19931,7 @@ func (l ul) for_done(ctx Context) {
 				}
 
 			default:
-				debug(pc(ctx,a), "unexpected %v ; %d. %v", ts(a), i, ac.defs, trace{})
+				erro(pc(ctx,a), "unexpected %v ; %d. %v", ts(a), i, ac.defs)
 			}
 		}
 	}
@@ -19967,7 +20044,7 @@ func (l ul) codeblock(ctx *automatic, op token, t *template) {
 	}
 
 	if !(l.p.pos < l.p.stop) {
-		debug(ctx, "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name, trace{})
+		erro(ctx, "bad range: [%v %v) (%v)", l.p.pos, l.p.stop, t.name)
 	}
 
 	var c = codeblock{ctx, op}
@@ -20001,10 +20078,10 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 			e error
 		)
 		if fCpu, e = os.Create(profCpu); e != nil {
-			debug(ctx, "%v", ts(e), trace{})
+			erro(ctx, "%v", ts(e))
 		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
 			fCpu.Close()
-			debug(ctx, "%v: %v", profCpu, e, trace{})
+			erro(ctx, "%v: %v", profCpu, e)
 		}
 		defer func() {
 			pprof.StopCPUProfile()
@@ -20012,7 +20089,7 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 
 			var fMem, e = os.Create(profMem)
 			if e != nil {
-				debug(ctx, "%v", e, trace{})
+				erro(ctx, "%v", e)
 			}
 
 			runtime.GC() // update memory statistics
@@ -20020,7 +20097,7 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 			fMem.Close()
 
 			if e != nil {
-				debug(ctx, "%v: %v", profMem, e, trace{})
+				erro(ctx, "%v: %v", profMem, e)
 			}
 		} ()
 	}
@@ -20040,7 +20117,7 @@ func (l ul) repeat(ctx Context, t *template, params []Value) {
 			}
 			ac.set(&ac, defStatic, s, v)
 		} else {
-			debug(ctx, "empty template param name: %v", ts(v), trace{})
+			erro(ctx, "empty template param name: %v", ts(v))
 		}
 	}
 
@@ -20058,12 +20135,12 @@ func (l ul) call(ctx Context, name Value, args []Value) (result bool) {
 		}
 	}
 
-	debug(ctx, "undefined template: %v", name, trace{})
+	erro(ctx, "undefined template: %v", name)
 	return
 }
 
 func (l ul) saveConfiguration(ctx Context) {
-	if l.project == nil { debug(ctx, "nil project", callstack{num:32}, trace{}) }
+	if l.project == nil { erro(ctx, "nil project", callstack{num:32}) }
 
 	var configs = l.project.configs
 	if configs == nil { return }
@@ -20076,7 +20153,7 @@ func (l ul) saveConfiguration(ctx Context) {
 	if f != nil && f.filebase != nil {
 		if f._dirty == 0 && f.exists() {
 			// Enforce strict state transitions: Catch unwarranted saves!
-			// debug(pc(ctx,f.fullname()), "%s: conflicted configuration.sm", l.project.name, trace{})
+			// erro(pc(ctx,f.fullname()), "%s: conflicted configuration.sm", l.project.name)
 		}
 		if !f._updated && f.exists() {
 			return // Cache is in perfect sync with disk. Bail out instantly!
@@ -20093,12 +20170,12 @@ func (l ul) saveConfiguration(ctx Context) {
 
 	if checkpoints {
 		if c := l.project.configuration; c != nil && c.fullname() != fn {
-			debug(pc(pc(ctx,fn),c.fullname()), "%s: configuration already loaded", l.project.name, trace{})
+			erro(pc(pc(ctx,fn),c.fullname()), "%s: configuration already loaded", l.project.name)
 		}
 	}
 
 	if e := os.MkdirAll(filepath.Dir(fn), os.FileMode(0755)); e != nil {
-		debug(pc(ctx,fn), "make path %s failed: %v", filepath.Dir(fn), e, trace{})
+		erro(pc(ctx,fn), "make path %s failed: %v", filepath.Dir(fn), e)
 	}
 
 	// =========================================================
@@ -20107,7 +20184,7 @@ func (l ul) saveConfiguration(ctx Context) {
 	var tmpFn = fn + ".tmp"
 	var o, e = os.OpenFile(tmpFn, os.O_RDWR | os.O_CREATE | os.O_TRUNC, os.FileMode(0600))
 	if e != nil {
-		debug(pc(ctx,fn), "%s: %v", l.project.name, e, trace{})
+		erro(pc(ctx,fn), "%s: %v", l.project.name, e)
 		return
 	}
 	defer func() {
@@ -20196,7 +20273,7 @@ func (l ul) configure_par(ctx Context, _op Value) (op Value, par map[string]Valu
 		if f, y := x.Value.(flag); y {
 			op = f.Value
 		} else {
-			debug(pc(ctx,x.Value), "wrong configure word: %v", ts(x.Value), trace{})
+			erro(pc(ctx,x.Value), "wrong configure word: %v", ts(x.Value))
 		}
 		args = xmerge(_final(ctx), x.args...)
 	}
@@ -20209,7 +20286,7 @@ func (l ul) configure_par(ctx Context, _op Value) (op Value, par map[string]Valu
 			par["INFO"] = &pair{_word(t.Pos(),"INFO"), t}
 		default:
 			if !isTrivial(arg) {
-				debug(pc(ctx,arg), "wrong arg: %s", ts(arg), trace{})
+				erro(pc(ctx,arg), "wrong arg: %s", ts(arg))
 			}
 		}
 	}
@@ -20234,7 +20311,7 @@ func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Val
 	// Safely extract the string representation regardless of the AST node type
 	opName := ident(ctx, op)
 	if opName == "" {
-		debug(pc(ctx,_op), "wrong configure word: %v %v %v", ts(_op), ts(op), ts(val), trace{})
+		erro(pc(ctx,_op), "wrong configure word: %v %v %v", ts(_op), ts(op), ts(val))
 	}
 
 	switch opName {
@@ -20250,12 +20327,12 @@ func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Val
 	}
 
 	if l.project.configure == nil {
-		debug(pc(ctx,op), "wrong configure: %v %v", ts(op), ts(val), trace{})
+		erro(pc(ctx,op), "wrong configure: %v %v", ts(op), ts(val))
 	}
 
 	var ops = l.project.configure._entries(ctx, _op, false)
 	if ops == nil {
-		debug(pc(ctx,_op), "no configure ops: %v", _op, trace{})
+		erro(pc(ctx,_op), "no configure ops: %v", _op)
 	}
 
 	var vals []Value
@@ -20268,8 +20345,13 @@ func (l ul) configure_val(ctx *execution, _op, op, val Value, par map[string]Val
 					params = append(params, x)
 				} else {
 					switch w.s {
-					case "TARGET": params = append(params, &pair{w, auto_get(ctx, "@")})
-					case "VALUE":  params = append(params, &pair{w, val})
+					case "TARGET":
+						// CRITICAL FIX: Eagerly expand the target value from the calling context
+						// so it doesn't dynamically fetch the local rule's overwritten `@` later!
+						targetVal := expand(ctx, auto_get(ctx, "@"))
+						params = append(params, &pair{w, targetVal})
+					case "VALUE":
+						params = append(params, &pair{w, val})
 					case "LANG", "LANGUAGE":
 						if ctx.language != "" {
 							params = append(params, &pair{w, _word(w.pos, ctx.language)})
@@ -20350,12 +20432,12 @@ minusloop:
 			}
 		case flag:
 			if t.Value.String() == "cond" {
-				debug(pc(ctx,t), "needs cond value", trace{})
+				erro(pc(ctx,t), "needs cond value")
 			}
 		}
 
 		if _op != nil {
-			debug(pc(ctx,t), "configure op already defined: %v", _op, trace{})
+			erro(pc(ctx,t), "configure op already defined: %v", _op)
 		}
 
 		_op = t
@@ -20551,7 +20633,7 @@ minusloop:
 				if x, y := a.(*group); y {
 					modify(ctx, x, true)
 				} else {
-					debug(pc(ctx,a), "defer: not a modifier: %s", ts(a), trace{})
+					erro(pc(ctx,a), "defer: not a modifier: %s", ts(a))
 				}
 			}
 
@@ -20566,7 +20648,7 @@ minusloop:
 		}
 		return
 	} else {
-		debug(pc(ctx,l.p), "%v: wrong configure", op, trace{})
+		erro(pc(ctx,l.p), "%v: wrong configure", op)
 	}
 }
 
@@ -20595,7 +20677,7 @@ func (l ul) clause(ctx Context) {
 	case   FOREACH: l.foreach_done(ctx); return
 	case CONFIGURE: l.configure(ctx)   ; return
 	case USE, TEMPLATE:
-		debug(ctx, "unexpected %v", t, trace{})
+		erro(ctx, "unexpected %v", t)
 	}
 
 	var vals []Value
@@ -20698,11 +20780,11 @@ func (l ul) declareNew(ctx Context, pos Pos, name, filename string, opts *projec
 
 func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *project_opts) bool {
 	if name == "@" {
-		debug(ctx, "deprecated project name: @", trace{})
+		erro(ctx, "deprecated project name: @")
 	}
 
 	if _, o := l.find(name); o != nil { switch o.(type) {
-	case *builtin: debug(ctx, "%v is a builtin, can't be project name", o, trace{})
+	case *builtin: erro(ctx, "%v is a builtin, can't be project name", o)
 	}}
 
 	var prev = l.loader // nil if newly declared
@@ -20710,7 +20792,7 @@ func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *p
 	if prev == nil || dec.project != prev.project {
 		if prev != nil && prev.project != nil && prev.project != dec.project {
 			if prev.project.name == dec.project.name {
-				debug(ctx, "%s", prev.project.name, trace{})
+				erro(ctx, "%s", prev.project.name)
 			}
 		}
 		l.project, l.loader.scope = dec.project, dec.scope
@@ -20719,7 +20801,7 @@ func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *p
 	if ll := _loader(l.loader.Context); ll != l.loader && ll == prev {
 		if _, a := ll.project.projectName(ctx, name, dec.project); a != nil {
 			if x, y := a.(*project); !y || x != dec.project {
-				debug(ctx, "%v: name already taken : %v", name, ts(a), trace{})
+				erro(ctx, "%v: name already taken : %v", name, ts(a))
 			}
 		}
 	}
@@ -20754,7 +20836,7 @@ func (l ul) declare(ctx Context, ident Value, name, filename string, declOpts *p
 	}
 
     if err := l.loadPlugin(ctx); err != nil {
-        debug(ctx, "load plugin failed: %v", err, trace{})
+        erro(ctx, "load plugin failed: %v", err)
     }
     return l.project != nil
 }
@@ -20775,7 +20857,7 @@ func (l ul) pre_project_set(ctx Context, args ...Value) {
 		case *pair:
 			s.def(ctx, defVoid, t.key, t.val)
 		default:
-			debug(ctx, "unknown set: %v", ts(a), trace{})
+			erro(ctx, "unknown set: %v", ts(a))
 		}
 	}
 }
@@ -20796,12 +20878,12 @@ func (p parent) do(ctx Context, op any) (_ any) {
 				debug(ctx, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project))
 				return
 			} else {
-				debug(ctx, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project), trace{})
+				erro(ctx, "recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project))
 			}
 		}
 
 		if p.has_base(p.project) {
-			debug(ctx, "duplication derivation: %v ⇔ %v", ts(p.project), ts(t.project), trace{})
+			erro(ctx, "duplication derivation: %v ⇔ %v", ts(p.project), ts(t.project))
 		}
 
 		if len(p.bases) == 0 {
@@ -20836,7 +20918,7 @@ func (l ul) projectStart(ctx Context, filename string, isMainFile bool) (_ Value
 
 	var opts project_opts
 	if a := parseOpts(ctx, &opts, vals...); len(a) > 0 {
-		debug(pc(ctx,filename), "unknown project option %v", ts(a), trace{})
+		erro(pc(ctx,filename), "unknown project option %v", ts(a))
 	}
 
 	var ident Value
@@ -20853,13 +20935,13 @@ func (l ul) projectStart(ctx Context, filename string, isMainFile bool) (_ Value
 			// TODO: validate basename as a valid identifier
 			ident = _word(l.p.pos, s)
 		} else {
-			debug(ctx, "invalid file: %v", filename, trace{})
+			erro(ctx, "invalid file: %v", filename)
 		}
 	} else if l.p.tok == TILDE { // `project ~`
 		if ext := filepath.Ext(filename); ext != ".smart" {
-			debug(ctx, "`%v` not a smart file", filepath.Base(filename), trace{})
+			erro(ctx, "`%v` not a smart file", filepath.Base(filename))
 		} else if s := strings.TrimSuffix(filepath.Base(filename), ext); s == "" {
-			debug(ctx, "`%v` not tilde name", filepath.Base(filename), trace{})
+			erro(ctx, "`%v` not tilde name", filepath.Base(filename))
 		} else {
 			ident = _word(l.p.pos, s)
 		}
@@ -20882,7 +20964,7 @@ func (l ul) projectStart(ctx Context, filename string, isMainFile bool) (_ Value
 
 		switch qw.len() {
 		case 0:
-			debug(pc(ctx,qw), "package name is empty (tok=%v)", l.p.tok, trace{})
+			erro(pc(ctx,qw), "package name is empty (tok=%v)", l.p.tok)
 		case 1:
 			ident = qw.elems[0]
 		default:
@@ -20897,11 +20979,11 @@ func (l ul) projectStart(ctx Context, filename string, isMainFile bool) (_ Value
 	var name = __string(ctx, ident)
 
 	if name == "-" || name == "_" {
-		debug(ctx, "package name '%s' is preserved", name, trace{})
+		erro(ctx, "package name '%s' is preserved", name)
 	}
 
 	if p := l.project; p != nil && p.name != name {
-		debug(ctx, "%v: multiple projects in the directory : %v", p, ident, trace{})
+		erro(ctx, "%v: multiple projects in the directory : %v", p, ident)
 	}
 
 	var _, prevDeclared = l.declares[name]
@@ -20935,19 +21017,19 @@ func (l ul) close_project(ctx Context, name string) {
     var x, y = l.declares[name]
 
 	if !y || x == nil {
-		debug(ctx, "undeclared project: %v", name, trace{})
+		erro(ctx, "undeclared project: %v", name)
 	}
 
     if l.project == nil {
-        debug(ctx, "current project unset", trace{})
+        erro(ctx, "current project unset")
     }
 
     if l.project.name != name {
-        debug(ctx, "current project is %s, not %s", l.project, name, trace{})
+        erro(ctx, "current project is %s, not %s", l.project, name)
     }
 
     if l.project != x.project {
-        debug(ctx, "project conflicts (%v, %v)", l.project, x.project, trace{})
+        erro(ctx, "project conflicts (%v, %v)", l.project, x.project)
     }
 
     l.p, l.loader.scope = x.p, x.s
@@ -20958,12 +21040,12 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	if l.traceLaunch { defer un(l_trace(l_launch, "parse_file")) }
 	if checkpoints {
 		if s := l.p.scanner.file.Name(); filename != s {
-			debug(ctx, "%v: %s != %s", l.project, filename, s, trace{})
+			erro(ctx, "%v: %s != %s", l.project, filename, s)
 		}
 	}
 
 	if l.p.tok == EOF {
-		debug(pc(ctx,l.p), "early end of file", callstack{num:64}, trace{})
+		erro(pc(ctx,l.p), "early end of file", callstack{num:64})
 		return
 	}
 
@@ -20973,7 +21055,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 
 	if flatmode {
 		if l.project == nil {
-			debug(pc(ctx,filename), "nil project", callstack{num:64}, trace{})
+			erro(pc(ctx,filename), "nil project", callstack{num:64})
 		} else {
 			abs = l.project.absPath
 		}
@@ -20994,14 +21076,14 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 	var tmp    = joinTmpPath(ctx, l.workdir, rel)
 
 	if s := l.scope(); /* p == nil || */ s == nil {
-		debug(ctx, "%v: nil scope: %v", l.project, s, trace{})
+		erro(ctx, "%v: nil scope: %v", l.project, s)
 	}
 
 	defer l.closescope(l.openscope(bases(2, filename, true)))
 
 	if flatmode {
 		if l.p.tok == PROJECT {
-			debug(pc(ctx,l.p), "project is forbidden in flat file", trace{})
+			erro(pc(ctx,l.p), "project is forbidden in flat file")
 		}
 	} else {
 		// CWD: Current Work Directory,     TODO: use $:cwd:
@@ -21017,7 +21099,7 @@ func (l ul) parse(ctx Context, filename string) (_ bool) {
 			_, name, isMainFile = l.projectStart(ctx, filename, isMainFile)
 			if prev != l.project { defer l.close_project(ctx, name) }
 		} else {
-			debug(pc(ctx,l.p), "expect keyword 'project', not %v", l.p.tok, trace{})
+			erro(pc(ctx,l.p), "expect keyword 'project', not %v", l.p.tok)
 		}
 	}
 
@@ -21179,7 +21261,7 @@ func usefor(ctx Context, user *project, f func(usevar, Value, Value, string)) {
                     if c := user.configure; c != nil {
                         note(ctx, "%v", ts(c.resolve(ctx, "use.*")))
                     }
-                    debug(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec), trace{})
+                    erro(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec))
                 } else {
                     f(op, spec, val, name)
                 }
@@ -21199,7 +21281,7 @@ func (l ul) usevars(ctx Context, user, usee *project) {
 			if d, y := o.(*def); y && d != nil {
 				useDef = d
 			} else {
-				debug(ctx, "use.%s: nil def: %T %v", name, o, o, trace{})
+				erro(ctx, "use.%s: nil def: %T %v", name, o, o)
 			}
 		}
 		if useDef == nil {
@@ -21256,7 +21338,7 @@ func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
     }
 
     if spec == "." {
-        debug(ctx, "self-search is not possible", trace{})
+        erro(ctx, "self-search is not possible")
     } else if filepath.IsAbs(spec) {
         var s = spec
         if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
@@ -21267,14 +21349,14 @@ func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
         s = spec + ".sm"
         if x, y := os.Stat(s); y == nil { return s, x.IsDir() }
     } else if spec == "~" || strings.HasPrefix(spec, "~") {
-        debug(ctx, "%v : wrong spec : %s (tilde not allowed)", l.project, spec, trace{})
+        erro(ctx, "%v : wrong spec : %s (tilde not allowed)", l.project, spec)
     } else if spec == ".." || has_prefix(spec, "."+pathSep, ".."+pathSep) {
         var s = spec
         var sx string
 
         if t := l.project.absPath; t != "" {
             if x, e := os.Stat(t); e != nil {
-                debug(ctx, "%v", e, trace{})
+                erro(ctx, "%v", e)
             } else if !x.IsDir() {
                 t = filepath.Dir(t)
             }
@@ -21282,7 +21364,7 @@ func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
             sx = filepath.Join(t, s)
 
             if x, e := filepath.Abs(sx); e != nil {
-                debug(ctx, "%v", e, trace{})
+                erro(ctx, "%v", e)
             } else {
                 s = x
             }
@@ -21311,15 +21393,15 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
     if x, y := specVal.(*project); y {
         loaded = x
     } else if spec = __string(ctx, specVal); spec == "" {
-        debug(pc(ctx,specVal), "empty spec: %v", ts(specVal), trace{})
+        erro(pc(ctx,specVal), "empty spec: %v", ts(specVal))
     } else if absPath, isDir = l.search(ctx, spec); absPath == "" {
-        debug(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths, trace{})
+        erro(pc(ctx,specVal), "missing `%s` (in %v)", spec, l.paths)
     } else {
         loaded, y = l.globe.loaded[absPath]
 
         for ll := _loader(l.loader.Context); ll != nil; ll = _loader(ll.Context) {
             if ll.project.absPath == absPath {
-                debug(pc(ctx,specVal), "%s: loop detected", l.project, trace{})
+                erro(pc(ctx,specVal), "%s: loop detected", l.project)
             }
         }
     }
@@ -21327,7 +21409,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
     defer func() {
         if loaded == nil {
             if false {
-                debug(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir, trace{})
+                erro(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir)
             }
             return
         }
@@ -21336,7 +21418,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
         if p, _ := scope.Lookup(loaded.name).(*project); p == nil {
             if _, alt := scope.projectName(ctx, loaded.name, loaded); alt != nil {
                 if p, y := alt.(*project); !y || p == nil {
-                    debug(ctx, "%s: name already taken : %s", loaded.name, ts(alt), trace{})
+                    erro(ctx, "%s: name already taken : %s", loaded.name, ts(alt))
                 }
             }
         }
@@ -21367,12 +21449,12 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
             // NOTE: proj could be nil
             prompt(ctx, "%v: %v is already a base\n", l.project, spec)
             debug(ctx, "`%s` is already a base (proj=%s)", spec, proj)
-            debug(ctx, "%v", ctx, trace{})
+            erro(ctx, "%v", ctx)
         } else if res {
             // NOTE: proj could be nil
             prompt(ctx, "%v: %v already imported by %v\n", l.project, spec, proj)
             debug(ctx, "'%s' already imported by '%s'", spec, proj)
-            debug(ctx, "%v", ctx, trace{})
+            erro(ctx, "%v", ctx)
         }
     }
 
@@ -21385,15 +21467,15 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
             l.file(cc, spec, absPath, nil)
         }
         if loaded, _ = l.globe.loaded[absPath]; loaded == nil {
-            debug(ctx, "%s not loaded (%s)", spec, absPath, trace{})
+            erro(ctx, "%s not loaded (%s)", spec, absPath)
         }
         if loaded == l.project {
-            debug(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir, trace{})
+            erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir)
         }
     }
 
     if checkpoints && prev != l.project {
-        debug(ctx, "active project changed: %v → %v, use %v", prev, l.project, loaded, trace{})
+        erro(ctx, "active project changed: %v → %v, use %v", prev, l.project, loaded)
     }
 
     // Check against the current load list before appending loaded.
@@ -21401,7 +21483,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
         var up = use.project
         if loaded == up {
             if !opts.noVars && !opts.files {
-                debug(ctx, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list, trace{})
+                erro(ctx, "%v: using `%s` multiple times: %v", l.project, spec, l.project.use.list)
             }
             return
         }
@@ -21410,7 +21492,7 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
         var res, isb bool
         if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
             if !l.project.has_base(up) {
-                debug(ctx, "`%s` is already a base", spec, trace{})
+                erro(ctx, "`%s` is already a base", spec)
             }
         } else if res && !use.opts.reuse && !up.opt.multiUseAllowed && !loaded.opt.multiUseAllowed {
             warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, up, proj)
@@ -21463,7 +21545,7 @@ func (l ul) buildPlugin(ctx Context, s, src string) (err error) {
 func (l ul) loadPlugin(ctx Context) (err error) {
     if l.traceLaunch { defer un(l_trace(l_launch, "ul.loadPlugin")) }
     if l.project == nil {
-        debug(ctx, "current project is nil", trace{})
+        erro(ctx, "current project is nil")
     }
 
     var g = _stat(ctx, "smart.go", l.project)
@@ -21490,7 +21572,7 @@ func (l ul) loadPlugin(ctx Context) (err error) {
     if l.project.ext.Plugin, err = plugin.Open(s); err == nil {
         var sym plugin.Symbol
         if sym, err = l.project.ext.Lookup("Init"); err != nil {
-            debug(ctx, "nil plugin symbol Init", trace{})
+            erro(ctx, "nil plugin symbol Init")
         }
         if sym == nil {
             return // no initialization (optional)
@@ -21500,10 +21582,10 @@ func (l ul) loadPlugin(ctx Context) (err error) {
             if err = init(ctx); err == nil {
                 return
             } else {
-                debug(ctx, "plugin Init: %v", err, trace{})
+                erro(ctx, "plugin Init: %v", err)
             }
         default:
-            debug(ctx, "wrong plugin Init: %T", sym, trace{})
+            erro(ctx, "wrong plugin Init: %T", sym)
         }
     } else if strings.Contains(err.Error(), pluginDifferentVersionError) {
         err = l.buildPlugin(ctx, s, src)
@@ -21520,7 +21602,7 @@ func (l ul) useProj(ctx Context, opts useopts, proj *project, params ...Value) (
     }
 
     if proj == l.project {
-        debug(ctx, "%v: cannot use itself", proj, trace{})
+        erro(ctx, "%v: cannot use itself", proj)
     }
 
     if l.project.isUsingDirectly(proj) {
@@ -21549,7 +21631,7 @@ func (l ul) spec_file(ctx Context, specVal Value) (res *file, spec, fullname str
         return t, ident(ctx,t), t.fullname()
     default:
         if spec = __string(ctx, specVal) ; spec == "" {
-            debug(ctx, "empty string: %v", ts(specVal), trace{})
+            erro(ctx, "empty string: %v", ts(specVal))
         }
 
         var f = l.project.file(ctx, specVal)
@@ -21605,10 +21687,10 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 
 	var opts = include_opts{ clause_opts: g }
 	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
-		debug(ctx, "unknown opts: %v", va[0], callstack{num:5}, trace{})
+		erro(ctx, "unknown opts: %v", va[0], callstack{num:5})
 	}
 	if len(g.spec) < 1 {
-		debug(ctx, "expect include file: %v", g.spec, callstack{num:5}, trace{})
+		erro(ctx, "expect include file: %v", g.spec, callstack{num:5})
 	}
 
 	var val = expand(_final(ctx), g.spec[0])
@@ -21628,7 +21710,7 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
     // Execute the rule entry to update include source.
     if x, y := val.(*rule); y && x != nil {
         if z, y := execute_entry(ctx, x); !y {
-            debug(ctx, "%v: include entry failed : %s", x, ts(z), trace{})
+            erro(ctx, "%v: include entry failed : %s", x, ts(z))
         }
 
         val = x.target
@@ -21640,7 +21722,7 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
     }
 
     if spec == "" || fullname == "" {
-        debug(ctx, "empty string: %v", ts(val), trace{})
+        erro(ctx, "empty string: %v", ts(val))
     } else {
         var p, s = val.Pos(), l.trimSpecPath(ctx, spec)
         l.source(p_include{ctx, opts, p, s}, fullname, nil)
@@ -21662,10 +21744,10 @@ func (l ul) closescope(s *scope) {
         var ctx Context = l.loader
         if l.p != nil { ctx = pc(l.loader, l.p.pos) }
         if x == &l.term {
-            debug(ctx, "conflict term: %s", x.comment, trace{})
+            erro(ctx, "conflict term: %s", x.comment)
         }
         if x.scope != s {
-            debug(ctx, "conflict scope: %s != %s", x.comment, s.comment, trace{})
+            erro(ctx, "conflict scope: %s != %s", x.comment, s.comment)
         }
         l.term = *x
     }
@@ -21721,7 +21803,7 @@ paramsloop:
             elem, ctx = x.Value, x.ctx(ctx)
         }
         if x, y := elem.(*pair); y {
-            debug(pc(ctx,x), "use -set(%v) instead", x, trace{})
+            erro(pc(ctx,x), "use -set(%v) instead", x)
         }
 
         var spec string
@@ -21729,16 +21811,16 @@ paramsloop:
         if specVal = expand(_final(ctx), elem); specVal == nil { specVal = elem }
 
         if spec = __string(ctx, specVal) ; spec == "" {
-            debug(ctx, "%v: empty base name: %v", l.project, ts(specVal), trace{})
+            erro(ctx, "%v: empty base name: %v", l.project, ts(specVal))
         } else if strings.Contains(spec, "//") {
-            note(ctx, "%v: invalid spec: %v → %v", l.project, elem, specVal)
-            note(ctx, "%v: invalid spec: %v → %v", l.project, elem, spec)
-            debug(ctx, trace{})
+            erro(ctx,
+				_f("%v: invalid spec: %v → %v", l.project, elem, specVal),
+				_f("%v: invalid spec: %v → %v", l.project, elem, spec))
         } else if implicitBase != "" && spec == implicitBase {
             if i == implicitIndex {
                 ctx = load_implicit{ctx}
             } else {
-                debug(ctx, "%v: implicit base '%v' already loaded", l.project, elem, trace{})
+                erro(ctx, "%v: implicit base '%v' already loaded", l.project, elem)
             }
         }
 
@@ -21753,7 +21835,7 @@ paramsloop:
 
         for _, base := range l.project.bases {
             if base.absPath == abs {
-                debug(ctx, "duplicated base: %v : %v → %v (in %v)", base, elem, spec, trace{})
+                erro(ctx, "duplicated base: %v : %v → %v (in %v)", base, elem, spec)
                 continue paramsloop
             }
         }
@@ -21790,7 +21872,7 @@ func (l ul) dot_container(ctx Context, ident Value, identStr string, f *file) {
     if l.traceLaunch { defer un(l_trace(l_launch, "ul.dot_container")) }
 
     if s := f.fullname(); f.info == nil {
-        debug(ctx, "%s: file not exists: %s", ident, s, trace{})
+        erro(ctx, "%s: file not exists: %s", ident, s)
     } else if cc := pc(ctx, ident); f.info.IsDir() {
         l.directory(cc, dot_container, s, nil)
     } else {
@@ -21799,7 +21881,7 @@ func (l ul) dot_container(ctx Context, ident Value, identStr string, f *file) {
 
     if x, y := l.globe.loaded[f.fullname()]; y && x != nil {
         if name, _ := l.scope().Lookup(x.name).(*project) ; name == nil {
-            debug(ctx, "%v: %v: `dock` is not a project", l.project.name, f, trace{})
+            erro(ctx, "%v: %v: `dock` is not a project", l.project.name, f)
         }
 
         var opts useopts
@@ -21857,9 +21939,9 @@ func (l ul) autoload(ctx Context, tag string) {
                 if isTrivial(v) {
                     continue
                 } else if f, s, t := l.spec_file(ctx, v); f == nil || !f.exists() {
-                    continue//debug(ctx, "no such source file: %v → %v", ts(d.value), ts(v), trace{})
+                    continue//erro(ctx, "no such source file: %v → %v", ts(d.value), ts(v))
                 } else if s == "" || t == "" {
-                    continue//debug(ctx, "empty string: %v → %v", ts(d.value), ts(v), trace{})
+                    continue//erro(ctx, "empty string: %v → %v", ts(d.value), ts(v))
                 } else {
                     l.source(&p_autoload{ctx,l.p.pos,v,nil}, t, nil)
                 }
@@ -21909,7 +21991,7 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 		} else {
 			cc.configure = __string(ctx, v)
 			if cc.configure == "" {
-				debug(ctx, "empty configure spec: %v", ts(v), trace{})
+				erro(ctx, "empty configure spec: %v", ts(v))
 			} else if cc.configure == "." {
 				cc.configure, cc.local = cs, true
 			}
@@ -21935,13 +22017,13 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 	if cc.abs == "" && l.project.opt.configure != nil {
 		if !cc.local { cc.abs, cc.isDir = l.search(ctx, cc.configure) }
 		if cc.abs == "" {
-			debug(ctx, "%v: no such project: %s", l.project, cc.configure, trace{})
+			erro(ctx, "%v: no such project: %s", l.project, cc.configure)
 		}
 	}
 
 	if cc.abs == "" {
 		if l.project.opt.configure != nil {
-			debug(ctx, "%v: missing the default .configure", l.project, trace{})
+			erro(ctx, "%v: missing the default .configure", l.project)
 		}
 		if l.project.configure == nil { l.project.configure = l.project }
 		return
@@ -21959,20 +22041,20 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 	}
 
 	if cc.declared == nil {
-		debug(ctx, "%s not loaded", cc.configure, trace{})
+		erro(ctx, "%s not loaded", cc.configure)
 	}
 
 	if x, y := l.project.Lookup(dot_configure).(*project); !y || x == nil {
 		if _, alt := l.project.projectName(ctx, dot_configure, cc.declared); alt != nil {
 			if p, y := alt.(*project); !y || p == nil {
-				debug(ctx, "name `%s' already taken: %s", cc.declared.name, typeof(alt), trace{})
+				erro(ctx, "name `%s' already taken: %s", cc.declared.name, typeof(alt))
 			}
 		}
 	}
 
 	if c := l.project.configure; c != cc.declared {
 		if c != nil && c != l.project {
-			debug(ctx, "%s already specified", dot_configure, trace{})
+			erro(ctx, "%s already specified", dot_configure)
 		} else {
 			l.project.configure = cc.declared
 		}
@@ -21982,11 +22064,12 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 	// 2. Load Cache securely AFTER sandbox evaluation
 	// Sets cc.configuration so `is_flat_mode` protects the parse.
 	// =========================================================
-	var c = l.project.configuration
-	if c == nil { c = l.project.configuration_sm(ctx) }
-	if c != nil && c.exists() && c.stat(ctx) != nil {
+	if c := l.project.configuration; c != nil {
+		// ALREADY LOADED: Just pass it to the context and skip sourcing.
+		cc.configuration = c
+	} else if c = l.project.configuration_sm(ctx); c != nil && c.exists() && c.stat(ctx) != nil {
 		if l.promptConfigurationLoads(ctx) {
-			debug(pc(ctx, c), "cached configuration", callstack{num:1})
+			debug(pc(ctx, c), "cached configuration (%p)", l.project, callstack{num:1})
 		}
 		cc.configuration = c
 		l.source(&cc, c.fullname(), nil) // Populates local definitions correctly
@@ -21995,7 +22078,7 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 
 	for _, proj := range cc.declared.usees(true, false, false, false) {
 		if e := l.useProj(ctx, useopts{}, proj); e != nil { 
-			debug(ctx, "failed to use %v : %v", proj, e, trace{})
+			erro(ctx, "failed to use %v : %v", proj, e)
 		}
 	}
 }
@@ -22003,7 +22086,7 @@ func (l ul) configuration(ctx Context, ident Value, _ string) {
 func (l ul) container(ctx Context, ident Value, identStr string) {
     if l.project.name != dot_container {
         if _, e := os.Stat(filepath.Join(l.project.absPath, ".dock")); e == nil {
-            debug(ctx, "must rename .dock into .container !", trace{})
+            erro(ctx, "must rename .dock into .container !")
         }
 
         // Looking for project specific .container module
@@ -22042,11 +22125,11 @@ func load_source_bytes(ctx Context, opts *include_opts, filename string, source 
             case *bytes.Buffer: _, e = buf.Write(s.Bytes())
             case     io.Reader: _, e = io.Copy(&buf, s)
             default:
-                debug(pc(ctx,filename), "invalid source : %v", ts(src), trace{})
+                erro(pc(ctx,filename), "invalid source : %v", ts(src))
             }
 
             if e != nil {
-                debug(pc(ctx,filename), "copy bytes (%s) failed : %v", typeof(src), e, trace{})
+                erro(pc(ctx,filename), "copy bytes (%s) failed : %v", typeof(src), e)
             }
         }
         if 0 < n { return buf.Bytes() }
@@ -22055,11 +22138,11 @@ func load_source_bytes(ctx Context, opts *include_opts, filename string, source 
         return t
     } else if _, y := e.(*fs.PathError); y {
         if (opts != nil && !opts.ifExists) {
-            debug(pc(ctx,filename), "no such source file", trace{})
+            erro(pc(ctx,filename), "no such source file")
         }
         return
     } else {
-        debug(pc(ctx,filename), "%v", e, trace{})
+        erro(pc(ctx,filename), "%v", e)
         return
     }
 }
@@ -22068,7 +22151,7 @@ func (l ul) source(ctx Context, filename string, a_src any) (res Value) {
     if l.traceLaunch { defer un(l_trace(l_launch, "ul.source")) }
 
     defer func(p *parser) {
-        if l.p == nil { debug(ctx, "nil parser", trace{}) }
+        if l.p == nil { erro(ctx, "nil parser") }
         l.p = p
     } (l.p)
 
@@ -22099,7 +22182,7 @@ func (l ul) source(ctx Context, filename string, a_src any) (res Value) {
 func (l ul) parseConfigDir(ctx Context, pathname, linked string) (err error) {
     var fd *os.File // Directory of the destination.
     if fd, err = os.Open(linked); err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
         return
     }
 
@@ -22110,7 +22193,7 @@ func (l ul) parseConfigDir(ctx Context, pathname, linked string) (err error) {
 
     var ident = filepath.Base(pathname)
     if ident == "_" {
-        debug(ctx, "invalid package name %s", ident, trace{})
+        erro(ctx, "invalid package name %s", ident)
     }
 
 	var sof, _ = filepath.Rel(workBaseDir, pathname)
@@ -22135,19 +22218,19 @@ func (l ul) parseConfigDir(ctx Context, pathname, linked string) (err error) {
 
         if f.IsDir() {
             if err = l.parseConfigDir(ctx, filepath.Join(pathname, name), fullname); err != nil {
-                debug(ctx, "parse config failed: %v", err, trace{})
+                erro(ctx, "parse config failed: %v", err)
             }
             if 0 < flush(ctx) { return } else { continue }
         }
 
         d := scope.def(ctx, defConfig, name)
         if d == nil {
-            debug(ctx, "%v", name, trace{})
+            erro(ctx, "%v", name)
         }
 
         var v []byte
         if v, err = ioutil.ReadFile(fullname); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
 
         var s = string(v)
@@ -22169,17 +22252,17 @@ func nonsource(name string, mo os.FileMode) (_ bool) {
 func (l ul) sources(ctx Context, path string, filter func(os.FileInfo) bool) (sources []string) {
     fd, err := os.Open(path)
     if err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     }
 
     defer fd.Close()
 
     fis, err := fd.Readdir(-1)
     if err != nil {
-        debug(ctx, "readdir: %v", err, trace{})
+        erro(ctx, "readdir: %v", err)
     }
     if len(fis) == 0 {
-        debug(ctx, "no files underneath: %s", path, trace{})
+        erro(ctx, "no files underneath: %s", path)
     }
 
     var first = fis[0]
@@ -22212,16 +22295,16 @@ func (l ul) file(ctx Context, spec, absPath string, source any) {
     if l.traceLaunch { defer un(l_trace(l_launch, "ul.load")) }
 
     if absPath == "" {
-        debug(pc(ctx,l.p), "%v: no such base: %v", l.project.name, spec, trace{})
+        erro(pc(ctx,l.p), "%v: no such base: %v", l.project.name, spec)
     } else if !filepath.IsAbs(absPath) {
-        debug(pc(ctx,l.p), "%v: not absolute path: %v", l.project.name, spec, trace{})
+        erro(pc(ctx,l.p), "%v: not absolute path: %v", l.project.name, spec)
     }
 
     // Check loaded project.
     if p, y := l.globe.loaded[absPath]; y {
         if _, a := l.scope().projectName(ctx, p.name, p); a != nil {
             if x, y := a.(*project); !y || x == nil {
-                debug(ctx, "name already taken: %v (%s).", p, typeof(a), trace{})
+                erro(ctx, "name already taken: %v (%s).", p, typeof(a))
             }
         }
         do(ctx, declared_project{p})
@@ -22241,9 +22324,9 @@ func (l ul) file(ctx Context, spec, absPath string, source any) {
 
 func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo) bool) {
     if absDir == "" {
-        debug(ctx, "%v: no such base: %v", l.project, spec, trace{})
+        erro(ctx, "%v: no such base: %v", l.project, spec)
     } else if !filepath.IsAbs(absDir) {
-        debug(ctx, "%v: not absolute path: %v", l.project, spec, trace{})
+        erro(ctx, "%v: not absolute path: %v", l.project, spec)
     }
 
     var okay bool
@@ -22257,14 +22340,14 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
 				c := pc(ctx, d.value)
 				note(c, "conflicts project name %v", ts(d))
 				note(c, "conflicts project name %v", loaded)
-				debug(c, "%v %v", d, loaded, trace{})
+				erro(c, "%v %v", d, loaded)
 			}
 		}
 		if l.project != nil {
 			if p, _ := l.project.Lookup(loaded.name).(*project); p == nil {
 				if _, alt := l.project.projectName(ctx, loaded.name, loaded); alt != nil {
 					if x, y := alt.(*project); !y || x == nil {
-						debug(ctx, "`%s' already taken: %s", loaded.name, alt, trace{})
+						erro(ctx, "`%s' already taken: %s", loaded.name, alt)
 					}
 				}
 			}
@@ -22300,7 +22383,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         }
 
         for s, m := range l.globe.loaded { debug(ctx, "%v: %v", s, m) }
-        debug(ctx, "%s not loaded (as %s)", spec, absDir, trace{})
+        erro(ctx, "%s not loaded (as %s)", spec, absDir)
     }
 
     if loaded, okay = l.globe.loaded[absDir]; okay && loaded != nil {
@@ -22311,7 +22394,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         return // Okay!
     }
 
-    debug(ctx, "%s not loaded", spec, trace{})
+    erro(ctx, "%s not loaded", spec)
     return
 }
 
@@ -22438,7 +22521,7 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
     if t, y := modifiers[name]; !y {
         var _, e, _ = entryIndicator(ctx, _entry(ctx))
         prompt(ctx, "%v: %s failed for %s\n", e, name, _project(ctx))
-        debug(ctx, "unknown modifier: %s (args=%v)", name, args, trace{})
+        erro(ctx, "unknown modifier: %s (args=%v)", name, args)
     } else {
         var exe = _execution(ctx)
         var mv = reflect.New(t)
@@ -22449,20 +22532,20 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
         var fy modifier_y
         if !hyphen {
             if fv, _ = mi.(modifier_v); fv == nil {
-                debug(ctx, "%v: no method: (*%s).v(...)", name, typeof(mi), trace{})
+                erro(ctx, "%v: no method: (*%s).v(...)", name, typeof(mi))
             }
         } else if fx, _ = mi.(modifier_x); fx == nil {
             if fy, _ = mi.(modifier_y); fy == nil {
-                debug(ctx, "%v: no method: (*%s).x(...)", name, typeof(mi), trace{})
+                erro(ctx, "%v: no method: (*%s).x(...)", name, typeof(mi))
             } else if exe == nil {
-                debug(ctx, "%v: nil execution: (*%s).x(...)", name, typeof(mi), trace{})
+                erro(ctx, "%v: nil execution: (*%s).x(...)", name, typeof(mi))
             }
         }
 
         if c := mv.Elem().FieldByName("Context"); c.IsValid() {
             c.Set(reflect.ValueOf(modify_ctx{pc(ctx, g)})) // c.Type().String() == "smart.Context"
         } else {
-            debug(ctx, "%v: no field: %s.Context", name, typeof(mi), trace{})
+            erro(ctx, "%v: no field: %s.Context", name, typeof(mi))
         }
 
         args = _opts(ctx, mv, args)
@@ -22481,7 +22564,7 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
     } else if res == nil {
         res = _null(g.pos) // $- remains too
     } else if name == "defer" || name == "set" || name == "var" {
-        debug(ctx, "invalid result: (set ...) ⇒ %v", res, trace{})
+        erro(ctx, "invalid result: (set ...) ⇒ %v", res)
     } else if a := _automatic(ctx); a != nil {
         a.amend(ctx, "-", res)
     }
@@ -22558,7 +22641,7 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
     if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
     for _, v := range ctx.info { info(ctx, "%s", __string(ctx, v)) }
     for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
-    for _, v := range ctx.erro { debug(ctx, "%s", __string(ctx, v), trace{}) }
+    for _, v := range ctx.erro { erro(ctx, "%s", __string(ctx, v)) }
 
     var (
         target  = auto_get(ctx, "@")
@@ -22580,20 +22663,18 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
             }
         }
     }
-    // if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
-    //     var ( p = _position(ctx) ; s = _stems(ctx) ; m diagtracer )
-    //     if len(args) == 0 {
-    //         m = prompt(ctx, "%v: target=%v stems=%v depends=%v\n", p, target, s, depends)
-    //     } else if ctx.verbose {
-    //         m = prompt(ctx, "%v: target=%v stems=%v depends=%v ; %v\n", p, target, s, depends, args)
-    //     } else if len(args) == 1 {
-    //         m = prompt(ctx, "%v: %v (%T)\n", p, args[0], args[0])
-    //     } else {
-    //         m = prompt(ctx, "%v: %v\n", p, args)
-    //     }
-    //     if ctx.s > 0 { m = infostack(ctx, ctx.s) }
-    //     if ctx.n > 0 { m.debug(ctx.n) }
-    // }
+    if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
+		var dps []*diag_point
+		for _, a := range args {
+			pos := do(ctx, get_fatpos{a.Pos()})
+			dps = append(dps, _f("%v: %v: %v\n", pos, target, a))
+		}
+
+		var aa = []any{ diagtext{} }
+		if ctx.s > 0 { aa = append(aa, trace_ctx{ctx.s}) }
+		// if ctx.n > 0 { /* d.debug(ctx.n) */ }
+		debug(pc(ctx,args), dps, aa...)
+    }
     return
 }
 
@@ -22662,7 +22743,7 @@ func (ctx *modifier_disclose) v(args ...Value) (result any) {
 type modifier_select struct { modifier_ }
 func (ctx *modifier_select) x(args ...Value) (_ any) {
     if h := auto_get(ctx, "-"); h == nil {
-        debug(ctx, "no pipe value $-", trace{})
+        erro(ctx, "no pipe value $-")
     } else if x, y := h.(*group); y {
         var vals []Value
         for _, a := range xmerge(ctx, args...) {
@@ -22680,7 +22761,7 @@ func (ctx *modifier_env) x(args ...Value) (result any) {
             if p, y := a.(*pair); y {
                 exe._env = append(exe._env, p)
             } else {
-                debug(ctx, "env: not a pair value: %s", ts(a,ctx), callstack{num:16}, trace{})
+                erro(ctx, "env: not a pair value: %s", ts(a,ctx), callstack{num:16})
             }
         }
     }
@@ -22694,7 +22775,38 @@ func (ctx *modifier_dep) x(args ...Value) any {
 }
 
 type modifier_var struct { modifier_ }
-func (*modifier_var) x(...Value) any { return nil }
+func (ctx *modifier_var) x(args ...Value) any {
+	if true { for _, arg := range args {
+		var name string
+		var value Value
+
+		switch a := arg.(type) {
+		case *word:
+			name = a.s
+			value = _null(a.Pos())
+		case *pair:
+			name = __string(ctx, a.key)
+			if x, y := value.(*group); y { 
+				value = x.list() 
+			} else {
+				// CRITICAL: Do NOT expand here. Store the raw AST node (e.g., $(file $(a).c))
+				value = a.val
+			}
+		default:
+			if s := __string(ctx, arg); s != "" {
+				name = s
+				value = _null(arg.Pos())
+			} else {
+				erro(ctx, "%v is unsupported (try: foo=value)", ts(arg,ctx))
+				continue
+			}
+		}
+
+		// Re-bind the raw node into the local runtime scope!
+		_scope(ctx).def(ctx, defVoid, name, value)
+	}}
+	return nil
+}
 
 // examples:
 //     [(set name=value)]    set $(name) to 'value'
@@ -22728,14 +22840,14 @@ func (ctx *modifier_set) x(args ...Value) (_ any) {
 			if s := __string(ctx, arg); s != "" {
 				name = s
 			} else {
-				debug(ctx, "%v is unsupported (try: foo=value)", ts(arg), trace{})
+				erro(ctx, "%v is unsupported (try: foo=value)", ts(arg))
 				continue
 			}
 		}
 
 		var d, _ = auto_set(ctx, defVoid, name, value)
 		if d == nil {
-			debug(ctx, "no auto set: %v : %v", name, ts(ctx), trace{})
+			erro(ctx, "no auto set: %v : %v", name, ts(ctx))
 		}
 
 		if name == "@" {
@@ -22782,7 +22894,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
     exe.Context = closure_with(cc)
 
     if false && cast[*term](ctx) != exe.Context {
-        debug(ctx, "wrong closure_with", trace{})
+        erro(ctx, "wrong closure_with")
     }
 
     var proj = _project(ctx)
@@ -22791,7 +22903,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
         if v, y := val.(*boolean); y {
             if !v.bool { noop = true }
         } else if isTrivial(val) {
-            debug(ctx, "trivial target: %T %v", val, val, trace{})
+            erro(ctx, "trivial target: %T %v", val, val)
         } else if true {
             t = expand(ctx,val) //, plain
         } else {
@@ -22804,7 +22916,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
         if t != nil {
             auto_set(ctx, defVoid, name, t) // aka (set @=&@)
         } else if !noop {
-            debug(ctx, "%v: %s is nil", proj, name, trace{})
+            erro(ctx, "%v: %s is nil", proj, name)
         }
         return
     }
@@ -22838,21 +22950,21 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
         }
 
         // FIXME: if isInnerauto_get(ctx, t.Value) {
-        //     debug(ctx, "loop: %v", t, trace{})
+        //     erro(ctx, "loop: %v", t)
         //     return
         // }
     }
 
     if proj == nil {
-        debug(ctx, "%T: nil project in the context", ctx, trace{})
+        erro(ctx, "%T: nil project in the context", ctx)
     } else if scope := proj.scope; scope == nil {
-        debug(ctx, "empty closure context", trace{})
+        erro(ctx, "empty closure context")
     } else if def := scope.finddef("/"); def == nil {
-        debug(ctx, "&/ is undefined", trace{})
+        erro(ctx, "&/ is undefined")
     } else if dir := __string(ctx, def.value); dir == "" {
-        debug(ctx, "&/ is empty", trace{})
+        erro(ctx, "&/ is empty")
     } else if !filepath.IsAbs(dir) {
-        debug(ctx, "&/ is relative", trace{})
+        erro(ctx, "&/ is relative")
     } else /* if err := enter(ctx, dir); err == nil */ {
         exe.changedWD = dir
     }
@@ -22882,7 +22994,7 @@ func (ctx *modifier_cd) x(args ...Value) (result any) {
         }
         if exe := _execution(ctx); exe != nil { exe.changedWD = dir }
     } else {
-        debug(ctx, "wrong number of cd args: %v", args, trace{})
+        erro(ctx, "wrong number of cd args: %v", args)
     }
     return
 }
@@ -22907,12 +23019,12 @@ func (ctx *modifier_mkdir) x(args ...Value) (result any) {
             s = __string(ctx, a)
         }
         if strings.Contains(s, " /") || strings.Contains(s, " ./") || strings.Contains(s, " ../") {
-            debug(ctx, "multiple paths (%v): '%v'", typeof(a), s, trace{})
+            erro(ctx, "multiple paths (%v): '%v'", typeof(a), s)
         } else if strings.Contains(s, " ") {
             debug(ctx, "path containing spaces (%v): '%v'", typeof(a), s)
         }
         if e := os.MkdirAll(s, ctx.mode); e != nil {
-            debug(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, e, trace{})
+            erro(ctx, "path: %v(%v) ⇒ %s: %v", typeof(a), a, s, e)
         }
     }
     return
@@ -22920,7 +23032,7 @@ func (ctx *modifier_mkdir) x(args ...Value) (result any) {
 
 type modifier_sudo struct { modifier_ }
 func (ctx *modifier_sudo) x(args ...Value) (result any) {
-    debug(ctx, "TODO: sudo modifier is not implemented yet", trace{})
+    erro(ctx, "TODO: sudo modifier is not implemented yet")
     return
 }
 
@@ -22934,14 +23046,14 @@ func parseDependList(ctx Context, dependList *list) (depends *list) {
             }
         case *exec_result:
             if d.Status != 0 {
-                debug(ctx, "bad status %v", d.Status, trace{})
+                erro(ctx, "bad status %v", d.Status)
             } else {
                 depends.append(d)
             }
         case *rule, *strlit, *file:
             depends.append(d)
         default:
-            debug(ctx, "unsupported entry depend `%v' (%v)", depend, _program(ctx).depends, trace{})
+            erro(ctx, "unsupported entry depend `%v' (%v)", depend, _program(ctx).depends)
         }
     }
     return
@@ -23017,13 +23129,13 @@ type grepctx struct {
 type greprex struct{ bool ; *regexp.Regexp }
 func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     if g.targetInfo == nil {
-        debug(ctx, "'%v' not exists", g.target, trace{})
+        erro(ctx, "'%v' not exists", g.target)
     }
     var tt time.Time = g.targetInfo.ModTime()
     for _, val := range g.files {
         var file *file
         if file, _ = to_file(val); file == nil {
-            debug(ctx, "'%v' is not file (%T)", val, val, trace{})
+            erro(ctx, "'%v' is not file (%T)", val, val)
         }
         if file.info == nil && !file.isSysFile() {
             if file.info, _ = os.Stat(__string(ctx, file)); file.info == nil { continue }
@@ -23037,7 +23149,7 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     }
     if tt.After(g.targetInfo.ModTime()) {
         if err = os.Chtimes(g.targetFullName, tt, tt); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     }
     return
@@ -23180,7 +23292,7 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
         var tt = gc.targetInfo.ModTime()
         if file.info == nil && !file.isSysFile() {
             if file.info, err = os.Stat(__string(ctx, file)); err != nil {
-                debug(ctx, "%v", err, trace{})
+                erro(ctx, "%v", err)
             }
             if false || gc.debug>0 {
                 debug(ctx, "'%v' info is nil (%s)", file, file.fullname(), callstack{num:gc.debug})
@@ -23193,7 +23305,7 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
             }
             tv = launchTime //time.Now() // ...
             if err, tt = os.Chtimes(gc.targetFullName, tv, tv), tv; err != nil {
-                debug(ctx, "chtimes failed: %v", err, trace{})
+                erro(ctx, "chtimes failed: %v", err)
             }
         }
     }
@@ -23212,13 +23324,13 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
 func tempfile(ctx Context, prefix, hashee0 string, hasheeN... any) (file *file, err error) {
     var nameHash = sha256.New() // HashByte -> [sha256.Size]byte
     if _, err = fmt.Fprint(nameHash, prefix, hashee0); err != nil {
-        debug(ctx, "hashing failed: %v", err, trace{})
+        erro(ctx, "hashing failed: %v", err)
     } else if _, err = fmt.Fprint(nameHash, hasheeN...); err != nil {
-        debug(ctx, "hashing failed: %v", err, trace{})
+        erro(ctx, "hashing failed: %v", err)
     } else if nameSum := nameHash.Sum(nil); len(nameSum) != nameHash.Size() {
-        debug(ctx, "hash sum invalid: %v", len(nameSum), trace{})
+        erro(ctx, "hash sum invalid: %v", len(nameSum))
     } else if project := _project(ctx); project == nil {
-        debug(ctx, "current project is nil: %v", ctx, trace{})
+        erro(ctx, "current project is nil: %v", ctx)
     } else {
         // Make names like .deps/00/da/bef0cc203d80fa25e0e2d3760518ee1b16bd641f99b9059468cfbbe8f096
         // .deps/??/??/????????????????????????????????????????????????????????????
@@ -23243,13 +23355,13 @@ func removeTempDirs(ctx Context, cleanDirs ...string) {
     }
     for _, dir := range cleanDirs {
         if file, err := tempfile(ctx, dir, ""); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         } else if s := file.fullname(); s == "" {
-            debug(ctx, `"%v" has no fullname`, file, trace{})
+            erro(ctx, `"%v" has no fullname`, file)
         } else if s = filepath.Dir(filepath.Dir(filepath.Dir(s))); s == "" {
-            debug(ctx, `"%v" is invalid temp dir`, file.fullname(), trace{})
+            erro(ctx, `"%v" is invalid temp dir`, file.fullname())
         } else if err = os.RemoveAll(s); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         } else if false {
             debug(ctx, "%s: removed %v", _project(ctx), s)
         } else {
@@ -23262,7 +23374,7 @@ func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (fi
     var ( file *file; hashees []any )
     for _, s := range strs { hashees = append(hashees, s) }
     if file, err = tempfile(ctx, ".deps", targetFullName, hashees...); err != nil {
-        debug(ctx, "get .deps temp file failed: %v", err, trace{})
+        erro(ctx, "get .deps temp file failed: %v", err)
     } else {
         filename, _ = as_fullname_string(ctx, file)
     }
@@ -23272,7 +23384,7 @@ func getSavedDepsFileName(ctx Context, targetFullName string, strs []string) (fi
 func getSavedGrepFileName(ctx Context, targetFullName string) (filename string, err error) {
     var ( file *file )
     if file, err = tempfile(ctx, ".grep", targetFullName); err != nil {
-        debug(ctx, "get .grep temp file failed: %v", err, trace{})
+        erro(ctx, "get .grep temp file failed: %v", err)
     } else {
         filename, _ = as_fullname_string(ctx, file)
     }
@@ -23281,7 +23393,7 @@ func getSavedGrepFileName(ctx Context, targetFullName string) (filename string, 
 
 func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
     if gc.savedGrepFileName, err = getSavedGrepFileName(ctx, gc.targetFullName); err != nil {
-        debug(ctx, "get saved grep filename failed: %v", err, trace{})
+        erro(ctx, "get saved grep filename failed: %v", err)
     } else if gc.savedGrepFile = _stat(ctx, gc.savedGrepFileName); gc.savedGrepFile == nil {
         return // No saved grepfile yet!
     }
@@ -23300,7 +23412,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
 
     var savedGrepOSFile *os.File
     if savedGrepOSFile, err = os.Open(gc.savedGrepFileName); err != nil {
-        debug(ctx, "open saved grep filename failed: %v", err, trace{})
+        erro(ctx, "open saved grep filename failed: %v", err)
     }
     defer savedGrepOSFile.Close()
 
@@ -23319,7 +23431,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
         if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &gp.Line, &gp.Column, &name); e == nil && n == 4 {
             var f *file
             if f, err = searchGrepped(ctx, gp, gc, sys == 1, name); err != nil {
-                debug(ctx, "search grepped filename failed: %v", err, trace{})
+                erro(ctx, "search grepped filename failed: %v", err)
             } else if f != nil {
                 if /* f.pos = gp */; gc.isTargetFile(ctx, f) { continue }
             } else if sys != 1 && !gc.discard {
@@ -23331,7 +23443,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
         }
     }
     if gc.savedGrepFile.info, err = savedGrepOSFile.Stat(); err != nil {
-        debug(ctx, "stat saved grep filename error: %v", err, trace{})
+        erro(ctx, "stat saved grep filename error: %v", err)
     } else { okay = true }
     return
 }
@@ -23339,7 +23451,7 @@ func loadSavedGrepFile(ctx Context, gc *grepctx) (okay bool, err error) {
 func grepTargetFile(ctx Context, gc *grepctx) (err error) {
     var ( f *os.File )
     if f, err = os.Open(gc.targetFullName); err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     } else { defer func() { err = f.Close() } () }
 
     var gp Position
@@ -23362,7 +23474,7 @@ ForScan:
                     fmt.Fprintf(gc.save, "%d %d %d %s\n", d, gp.Line, gp.Column, name)
                 }
                 if f, err = searchGrepped(ctx, gp, gc, sys, name); err != nil {
-                    debug(ctx, "search grepped '%s' failed: %v", name, err, trace{})
+                    erro(ctx, "search grepped '%s' failed: %v", name, err)
                 } else if f != nil {
                     if /* f.pos = gp */; gc.isTargetFile(ctx, f) { continue }
                 } else if !sys && !gc.discard {
@@ -23396,25 +23508,25 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             gc.targetFullName = filepath.Join(gc.targetDir, targetName)
         }
         if file := _stat(ctx, gc.targetFullName); file == nil {
-            debug(ctx, "grep: '%s' not found (%v)", gc.targetFullName, gc.target, trace{})
+            erro(ctx, "grep: '%s' not found (%v)", gc.targetFullName, gc.target)
         } else {
             gc.targetInfo = file.info
         }
     }
     if err != nil {
-        debug(ctx, "grep target %s: %v", targetName, err, trace{})
+        erro(ctx, "grep target %s: %v", targetName, err)
     }
 
     if gc.targetInfo == nil { return }
     if gc.done == nil { gc.done = make(map[string]int) }
     if !filepath.IsAbs(gc.targetFullName) {
-        debug(ctx, "grep: '%s' is not abs", gc.targetFullName, trace{})
+        erro(ctx, "grep: '%s' is not abs", gc.targetFullName)
     } else {
         gc.done[gc.targetFullName] += 1
     }
     if n, done := gc.done[gc.targetFullName]; done && n > 1 {
         if gc.debug>0 {
-            debug(ctx, "%v (done %v)", gc.targetFullName, n, trace{})
+            erro(ctx, "%v (done %v)", gc.targetFullName, n)
         }
         return
     }
@@ -23446,12 +23558,12 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             if t.grepped = append(t.grepped, gc.target); !gc.recursive {
                 continue
             } else if err = grep(ctx, gc); err != nil {
-                debug(ctx, "grep files (deferred): %v", err, trace{})
+                erro(ctx, "grep files (deferred): %v", err)
             }
         }
         if err == nil && gc.touch {
             if err = touch.work(ctx, gc); err != nil {
-                debug(ctx, "grep touch failed: %v", err, trace{})
+                erro(ctx, "grep touch failed: %v", err)
             }
         }
     } (gc.files)
@@ -23470,7 +23582,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
     }
     if cached && len(gc.files) > 0 {
         if gc.debug>0 {
-            debug(ctx, "grepcache: %v → %v", gc.targetFullName, gc.files, trace{})
+            erro(ctx, "grepcache: %v → %v", gc.targetFullName, gc.files)
         }
         return
     } else if infos {
@@ -23478,7 +23590,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
     }
 
     if savedGrepFileLoaded, err = loadSavedGrepFile(ctx, gc); err != nil {
-        debug(ctx, "load saved grepfile failed: %v", err, trace{})
+        erro(ctx, "load saved grepfile failed: %v", err)
     } else if savedGrepFileLoaded && len(gc.files) > 0 {
         if infos {
             debug(ctx, "loadSavedGrepFile: %v files=%d grepped=%d",
@@ -23488,7 +23600,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
     }
     if dir := filepath.Dir(gc.savedGrepFileName); dir != "." && dir != ".." {
         if err = os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-            debug(ctx, "make grep dir failed: %v", err, trace{})
+            erro(ctx, "make grep dir failed: %v", err)
         }
     }
 
@@ -23500,13 +23612,13 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
             name = gc.savedGrepFileName + ".src"
         )
         if err = ioutil.WriteFile(name, data, perm); err != nil {
-            debug(ctx, "grep write file: %v", err, trace{})
+            erro(ctx, "grep write file: %v", err)
         } else if false {
             debug(ctx, "saved grep %s", name)
         }
     }
     if savedGrepFile, err = os.Create(gc.savedGrepFileName); err != nil {
-        debug(ctx, "grep create %s: %v", gc.savedGrepFileName, err, trace{})
+        erro(ctx, "grep create %s: %v", gc.savedGrepFileName, err)
     }
 
     gc.save = bufio.NewWriter(savedGrepFile)
@@ -23516,7 +23628,7 @@ func grep(ctx Context, gc *grepctx) (err error) { // TODO: using ctx.grepping() 
     } ()
 
     if err = grepTargetFile(ctx, gc); err != nil && !gc.discard {
-        debug(ctx, "grep target file: %v", err, trace{})
+        erro(ctx, "grep target file: %v", err)
     } else {
         err = nil // discard any errors
     }
@@ -23555,11 +23667,11 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
             for _, re := range info.rxs { gc.rxs = append(gc.rxs, &greprex{false, re}) }
             for _, re := range info.sys { gc.rxs = append(gc.rxs, &greprex{true , re}) }
         } else {
-            debug(ctx, "lang '%s' is unknown", s, trace{})
+            erro(ctx, "lang '%s' is unknown", s)
         }
     }
     if len(gc.rxs) == 0 {
-        debug(ctx, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args, trace{})
+        erro(ctx, "no grep expressions: %v %v %v %v", gc.sys, gc.reg, gc.langs, args)
     }
 
     var (
@@ -23569,7 +23681,7 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
     )
     if len(targets) == 0 {
         if target == nil || isNull(target) || isNone(target) {
-            debug(ctx, "no grep target", trace{})
+            erro(ctx, "no grep target")
         } else {
             targets = append(targets, target)
         }
@@ -23600,15 +23712,15 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
 
     for _, target := range targets {
         if isNull(target) {
-            debug(ctx, "found nil grep target for %v", tar, trace{})
+            erro(ctx, "found nil grep target for %v", tar)
         }
         if isNone(target) {
-            debug(ctx, "grep target '%v' is none for %v", target, tar, trace{})
+            erro(ctx, "grep target '%v' is none for %v", target, tar)
         }
 
         gc.target, pc.grepped = target, nil
         if err := grep(ctx, &gc); err != nil {
-            debug(ctx, "grep files from %v failed: %v", target, err, trace{})
+            erro(ctx, "grep files from %v failed: %v", target, err)
         } else if gc.noTraverse {
             // does nothing
         } else if len(pc.grepped) > 0 {
@@ -23709,7 +23821,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
                 var s = trimPromptString(targetVal.String())
                 prompt(ctx, "%v: %d errors counted\n", word, n)
                 debug(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
-                debug(ctx, `%v: %v`, ctx, trace{})
+                erro(ctx, `%v: %v`, ctx)
             }
         } else {
             if n = diagCount(dc.Context, diagError); n > 0 {
@@ -23762,7 +23874,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr string, savedDepsFile *fi
         } else if err = os.Remove(savedDepsFileName); err != nil {
             for s, _ := range missing { debug(ctx, `missing "%v"`, s) }
             debug(ctx, `%v: "%v" %d deps missing in "%v"`, proj, targetVal, len(missing), savedDepsFileName)
-            debug(ctx, "%s", ts(ctx), trace{})
+            erro(ctx, "%s", ts(ctx))
         } else {
             for s, _ := range missing { warn(ctx, `missing "%v"`, s) }
             debug(ctx, `%v: "%v" missing %d deps (%v in total)`, proj, targetVal, len(missing), len(files))
@@ -23778,17 +23890,17 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
         err error
     )
     if targetVal, targetStr := auto_target_valstr(ctx); targetVal == nil {
-        debug(ctx, "target is nil", trace{})
+        erro(ctx, "target is nil")
     } else if targetStr == "" {
-        debug(ctx, "target '%v' is empty", targetVal, trace{})
+        erro(ctx, "target '%v' is empty", targetVal)
     } else if savedDepsFileName, err = getSavedDepsFileName(ctx, targetStr, args); err != nil {
-        debug(ctx, "get saved deps filename failed: %v", err, trace{})
+        erro(ctx, "get saved deps filename failed: %v", err)
     } else if savedDepsFileName == "" {
-        debug(ctx, "empty saved deps filename", savedDepsFileName, trace{})
+        erro(ctx, "empty saved deps filename", savedDepsFileName)
     } else if savedDepsFile := _stat(ctx, savedDepsFileName); savedDepsFile == nil {
         // no saved deps file
     } else if savedDepsBytes, err = ioutil.ReadFile(savedDepsFileName); err != nil {
-        debug(ctx, "can'ctx open saved deps file: %v", savedDepsFileName, err, trace{})
+        erro(ctx, "can'ctx open saved deps file: %v", savedDepsFileName, err)
     } else if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, string(savedDepsBytes)); len(files) > 0 {
         if false { debug(ctx, "loaded deps %s (%d files)", savedDepsFileName, len(files)) }
         var savedDepsFileModTime = savedDepsFile.info.ModTime()
@@ -23804,13 +23916,13 @@ func loadSavedDepsAndCheckOutdated(ctx Context, args []string) (savedDepsFileNam
 
 func traverseMissingDep(ctx Context, dep string) (res bool) {
     if proj := _project(ctx); proj == nil {
-        prompt(ctx, "%s: traverse dep failed, project %v\n", dep, proj)
-        debug(ctx, "%s: no current project for dep", dep)
-        debug(ctx, trace{})
+        erro(ctx,
+			_f("%s: traverse dep failed, project %v\n", dep, proj),
+			_f("%s: no current project for dep", dep))
     } else if f := proj.file(ctx, dep); f == nil {
-        prompt(ctx, "%s: dep is unknown file; project %v\n", dep, proj)
-        debug(ctx, "%v: %s is unknown file", proj, dep)
-        debug(ctx, trace{})
+        erro(ctx,
+			_f("%s: dep is unknown file; project %v\n", dep, proj),
+			_f("%v: %s is unknown file", proj, dep))
     } else {
         traverse(ctx, f)
     }
@@ -23827,7 +23939,7 @@ func traverseMissingDeps(ctx Context, lastTry string, errBytes []byte) (res bool
         } else if res = traverseMissingDep(ctx, dep); !res {
             prompt(ctx, "%s: dep missing, project %v\n", m[4], _project(ctx))
             prompt(ctx, "%s\n", m[0]) // prompt the entire error line
-            debug(ctx, "%v", ctx, trace{})
+            erro(ctx, "%v", ctx)
         } else if tried == "" { tried = dep }
     }
     return
@@ -23851,9 +23963,9 @@ func (ctx *modifier_deps) x(args ...Value) (result any) {
     var targetVal Value
     var targetStr string
     if targetVal, targetStr = auto_target_valstr(ctx); targetVal == nil {
-        debug(ctx, "target is nil", trace{})
+        erro(ctx, "target is nil")
     } else if targetStr == "" {
-        debug(ctx, "target '%v' is empty", targetVal, trace{})
+        erro(ctx, "target '%v' is empty", targetVal)
     }
 
     var files []Value
@@ -23876,7 +23988,7 @@ CorrectCC:
         if ctx.useClang { ctx.cc = "clang" }
     default:
         if base := filepath.Base(ctx.cc); base == "" {
-            debug(ctx, "unsupported cc: %v", ctx.cc, trace{})
+            erro(ctx, "unsupported cc: %v", ctx.cc)
         } else if strings.HasPrefix(base, "clang") { ctx.useClang = true
         } else if strings.HasPrefix(base, "gcc")   { ctx.useGcc   = true }
     }
@@ -23936,20 +24048,20 @@ CorrectCC:
             prompt(ctx, "%s \\\n  %s\n----------\n", cc.Path, strings.Join(ca, " \\\n  "))
             prompt(ctx, "%s\n----------\n%s----------\n", &stdout, &stderr)
             debug(ctx, "%s: %s deps failed: %v", proj, filepath.Base(ctx.cc), err)
-            debug(ctx, "%s: %v", proj, ctx, trace{})
+            erro(ctx, "%s: %v", proj, ctx)
         }
         if stderr.Reset(); savedDepsFileName == "" {
             stdout.Reset()
-            debug(ctx, "empty saved deps file name: %v", savedDepsFileName, trace{})
+            erro(ctx, "empty saved deps file name: %v", savedDepsFileName)
         }
 
         var savedDepsFile *file = nil//_stat(ctx, savedDepsFileName)
         if files = parseDeps(ctx, targetVal, targetStr, savedDepsFile, savedDepsFileName, stdout.String()); len(files) == 0 {
             debug(ctx, "parse deps file failed") // not saving if failed
         } else if err = os.MkdirAll(filepath.Dir(savedDepsFileName), os.FileMode(0755)); err != nil {
-            debug(ctx, "make path '%s' failed: %v", filepath.Dir(savedDepsFileName), err, trace{})
+            erro(ctx, "make path '%s' failed: %v", filepath.Dir(savedDepsFileName), err)
         } else if err = ioutil.WriteFile(savedDepsFileName, stdout.Bytes(), os.FileMode(0666)); err != nil {
-            debug(ctx, "save deps file failed: %v", err, trace{})
+            erro(ctx, "save deps file failed: %v", err)
         }
         stdout.Reset() // release buffers (optional)
     }
@@ -23970,7 +24082,7 @@ func (ctx *modifier_touch) x(args ...Value) (result any) {
     var files []*file
     for _, arg := range args {
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
-            debug(ctx, "touch '%v' failed: %v", arg, err, trace{})
+            erro(ctx, "touch '%v' failed: %v", arg, err)
         } else {
             files = append(files, stampFile(must_files_stamp{ctx}, arg)...)
         }
@@ -24016,7 +24128,7 @@ func (ctx *modifier_check) x(args ...Value) (_ any) {
     var values []Value
     var checkfile = func (val Value, dir bool) {
         if val == nil {
-            debug(pc(ctx, val), "nil file value to check", trace{})
+            erro(pc(ctx, val), "nil file value to check")
         } else if x, y := val.(*boolean); y {
             if x.bool { val = auto_get(ctx, "@") } else { val = nil }
         }
@@ -24042,7 +24154,7 @@ func (ctx *modifier_check) x(args ...Value) (_ any) {
         if makeResult != nil {
             values = append(values, makeResult(res))
         } else if !res {
-            debug(pc(ctx, val), "'%v' is not file", val, trace{})
+            erro(pc(ctx, val), "'%v' is not file", val)
         }
     }
 
@@ -24059,7 +24171,7 @@ argsloop:
             if res = __true(ctx, arg); makeResult != nil {
                 values = append(values, makeResult(res))
             } else {
-                debug(ctx, "value '%v' is false", arg, trace{})
+                erro(ctx, "value '%v' is false", arg)
             }
             continue
         }
@@ -24069,7 +24181,7 @@ argsloop:
         case "status":
             var exeres, _ = value.(*exec_result)
             if exeres == nil {
-                debug(ctx, "not exec result: %v ", ts(value), trace{})
+                erro(ctx, "not exec result: %v ", ts(value))
             }
 
             var num = __int(ctx, p.val)
@@ -24098,13 +24210,13 @@ argsloop:
             if makeResult != nil {
                 values = append(values, makeResult(good))
             } else if !good {
-                debug(ctx, "bad status (%v) (expects %v)", exeres.Status, p.val, trace{})
+                erro(ctx, "bad status (%v) (expects %v)", exeres.Status, p.val)
                 break argsloop
             }
         case "stdout", "stderr":
             var exeres, _ = value.(*exec_result)
             if exeres == nil {
-                debug(ctx, "value '%v' (%T) is not exec result", value, value, trace{})
+                erro(ctx, "value '%v' (%T) is not exec result", value, value)
             } else { /*exeres.wg.Wait()*/ }
 
             if ctx.verbose {
@@ -24129,7 +24241,7 @@ argsloop:
             }
 
             if v == nil {
-                debug(ctx, "bad %s (expects %v)", key, p.val, trace{})
+                erro(ctx, "bad %s (expects %v)", key, p.val)
                 break argsloop
             }
 
@@ -24139,7 +24251,7 @@ argsloop:
             if res := v.String() == str; makeResult != nil {
                 values = append(values, makeResult(res))
             } else if !res {
-                debug(ctx, "bad %s (%v) (expects %v)", key, v, p.val, trace{})
+                erro(ctx, "bad %s (%v) (expects %v)", key, v, p.val)
                 break argsloop
             }
         case "file", "dir": // file=xxx and dir=xxx, same as -file=xxx and -dir=xxx
@@ -24161,13 +24273,13 @@ argsloop:
             if makeResult != nil {
                 values = append(values, makeResult(res))
             } else if !res {
-                debug(ctx, "`%v` is not %s", p.val, key, trace{})
+                erro(ctx, "`%v` is not %s", p.val, key)
                 break argsloop
             }
         case "var":
             var g, ok = p.val.(*group)
             if !ok {
-                debug(ctx, "`%v` is not a group value", p.val, trace{})
+                erro(ctx, "`%v` is not a group value", p.val)
                 break argsloop
             }
             for _, elem := range g.elems {
@@ -24182,22 +24294,22 @@ argsloop:
                         if res := a != b; makeResult != nil {
                             values = append(values, makeResult(res))
                         } else if !res {
-                            debug(ctx, "`%v` != `%v`", p.key, p.val, trace{})
+                            erro(ctx, "`%v` != `%v`", p.key, p.val)
                             break argsloop
                         }
                     } else if makeResult != nil {
                         values = append(values, makeResult(false))
                     } else {
-                        debug(ctx, "`%v` is not defined", k, trace{})
+                        erro(ctx, "`%v` is not defined", k)
                         break argsloop
                     }
                 default:
-                    debug(ctx, "`%v` unsupported checks", elem, trace{})
+                    erro(ctx, "`%v` unsupported checks", elem)
                     break argsloop
                 }
             }
         default:
-            debug(ctx, "unknown check for %v → %v", p.key, p.val, trace{})
+            erro(ctx, "unknown check for %v → %v", p.key, p.val)
             break argsloop
         }
     }
@@ -24389,7 +24501,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result any) {
             if ctx.verbose { prompt(ctx, "override %v …", target) }
         } else {
             if ctx.verbose { prompt(ctx, "copy %v …… already existed!\n", target) }
-            if !ctx.silent { debug(ctx, "file already existed (%s)", target, trace{}) }
+            if !ctx.silent { erro(ctx, "file already existed (%s)", target) }
             return
         }
     } else if ctx.verbose {
@@ -24416,18 +24528,18 @@ func (ctx *modifier_copyfile) x(args ...Value) (result any) {
     }
     var file *file
     if file = _stat(ctx,srcname, stat_nonexist{true}); file == nil || file.info == nil {
-        debug(ctx, "'%s' source file not found", srcname, trace{})
+        erro(ctx, "'%s' source file not found", srcname)
     } else if !file.info.IsDir() {
         if ctx.mode == 0 { ctx.mode = file.info.Mode() }
         if err := copyFile(ctx, file.info, srcname, filename, copts); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     } else if ctx.recursive {
         if err := copyDir(ctx, srcname, filename, copts); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     } else {
-        debug(ctx, "`%v` is a directory (use -r to solve it)", source, trace{})
+        erro(ctx, "`%v` is a directory (use -r to solve it)", source)
     }
 
     if ctx.verbose {
@@ -24452,30 +24564,30 @@ func (ctx *modifier_writefile) x(args ...Value) (result any) {
         f *os.File
     )
     if target == nil {
-        debug(ctx, "target is undefined", trace{})
+        erro(ctx, "target is undefined")
     }
 
     defer func() {
         if filename != "" { os.Remove(filename); f = nil }
         if f == nil {
-            debug(ctx, "file %s not generated", target, trace{})
+            erro(ctx, "file %s not generated", target)
         }
     } ()
 
     filename, _ = as_fullname_string(ctx, target)
 
     if h := auto_get(ctx, "-"); h == nil {
-        debug(ctx, "buffer value is nil", trace{})
+        erro(ctx, "buffer value is nil")
     } else {
         str = __string(ctx, h)
     }
 
     var err error
     if f, err = os.Create(filename); err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     } else if _, err = f.WriteString(str); err != nil {
         f.Close()
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     } else {
         result = _stat(ctx, filename)
         f.Close()
@@ -24494,7 +24606,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
         target Value
     )
     if n := len(args); n > 1 {
-        debug(ctx, "too many files: %v", args, trace{})
+        erro(ctx, "too many files: %v", args)
     } else if n == 1 {
         target = args[0]
     } else {
@@ -24502,17 +24614,16 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
     }
 
     if isTrivial(target) {
-        debug(ctx, "target for reading is invalid (%T) (%v)", target, args, trace{})
+        erro(ctx, "target for reading is invalid (%T) (%v)", target, args)
     } else if file, filename, _ = as_fullname_file(ctx, target); file == nil {
         if val := auto_get(ctx, ">"); val != nil {
             panic(traveTargetNotDefinedFile)
         } else if true {
-            debug(ctx, "not a file: %v (%T)", target, target)
-            debug(ctx, trace{})
+            erro(ctx, _f("not a file: %v (%T)", target, target))
         }
         return
     } else if filename == "" {
-        debug(ctx, "%v: empty fullname", target, trace{})
+        erro(ctx, "%v: empty fullname", target)
     }
 
     var ( bytes []byte ; err error )
@@ -24532,7 +24643,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
         auto_set(ctx.Context, defVoid, "-", _raw(_pos(ctx), b.String()))
         auto_set(ctx.Context, defVoid, "-file", file)
     } else {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
     }
     if 0 < ctx.debug && err != nil {
         debug(ctx, "%v: %v ; stems=%v\n", target, err, _stems(ctx))
@@ -24569,7 +24680,7 @@ func crc64CheckFileModeContent(ctx Context, filename string, content []byte, per
 func crc64CompareFileChecksum(ctx Context, filename1, filename2 string) (same bool, err error) {
     var s []byte
     if s, err = ioutil.ReadFile(filename1); err != nil {
-        debug(ctx, "%v", err, trace{})
+        erro(ctx, "%v", err)
         return
     }
     return crc64CheckFileModeContent(ctx, filename2, s, 0)
@@ -24593,11 +24704,11 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 
     if isTrivial(target) { target = auto_get(ctx, "@") }
     if isTrivial(target) {
-        debug(ctx, "update-file: no file target", trace{})
+        erro(ctx, "update-file: no file target")
     } else if t := as_fullname(ctx, target); t.Value == nil {
-        debug(ctx, "update-file: not a file: %v", ts(target), trace{})
+        erro(ctx, "update-file: not a file: %v", ts(target))
     } else if filename = __string(ctx, t); filename == "" {
-        debug(ctx, "update-file: empty fullname: %v", ts(target), trace{})
+        erro(ctx, "update-file: empty fullname: %v", ts(target))
     }
 
     if checkpoints {
@@ -24610,14 +24721,14 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         if p := filepath.Dir(filename); p != "." && p != "/" {
             if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
                 if e := os.Remove(p); e != nil {
-                    debug(ctx, "%v (%v)", e, ts(target), trace{})
+                    erro(ctx, "%v (%v)", e, ts(target))
                 }
             }
             if e := os.MkdirAll(p, os.FileMode(0755)); e != nil {
                 if proj := _project(ctx); proj != nil {
                     info(ctx, "%v: %v %v", filename, proj, unmap_files(ctx, proj, _pathStr(ctx, filename), nil))
                     info(ctx, "%v: %v %v", filename, proj, proj.file(ctx, filename))
-                    debug(ctx, "%v: %v (%v)", filename, e, ts(target), trace{})
+                    erro(ctx, "%v: %v (%v)", filename, e, ts(target))
                 }
                 return
             }
@@ -24647,7 +24758,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         } else if file := _stat(ctx, filename); file != nil && file.info != nil && file.info.Size() == 0 {
             file.info = nil
             if err := os.Remove(filename); err != nil {
-                debug(ctx, "remove file failed: %v", err, trace{})
+                erro(ctx, "remove file failed: %v", err)
             }
         }
         if exeres != nil {
@@ -24670,7 +24781,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         } else {
             prompt(ctx, "%s:1: empty content: %v\n", filename, v)
         }
-        debug(ctx, "empty content for '%v'", target, trace{})
+        erro(ctx, "empty content for '%v'", target)
     }
 
     var (
@@ -24703,7 +24814,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
         if _, ok := err.(*os.PathError); ok {
             err = nil // discard path error (e.g. no such file or directory)
         } else {
-            debug(ctx, "crc64 checksum failed: %v", err, trace{})
+            erro(ctx, "crc64 checksum failed: %v", err)
         }
     } else if same {
         //removeCallerUpdated(ctx, target) // remove timestamp updated
@@ -24717,17 +24828,17 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
     var m = os.O_RDWR | os.O_CREATE
     if ctx.append { m |= os.O_APPEND } else { m |= os.O_TRUNC }
     if f, err = os.OpenFile(filename, m, ctx.mode); err != nil {
-        debug(ctx, "open file failed: %v", err, trace{})
+        erro(ctx, "open file failed: %v", err)
     } else if f != nil {
         defer func() {
             if err = f.Close(); err != nil {
                 os.Remove(filename)
-                debug(ctx, "close file '%s' failed: %v", filename, err, trace{})
+                erro(ctx, "close file '%s' failed: %v", filename, err)
             }
 
             if t := _stat(ctx, filename); t == nil {
                 prompt(ctx, "%s: invalid file\n", filename)
-                debug(ctx, "%v: invalid file '%s'", _project(ctx), filename, trace{})
+                erro(ctx, "%v: invalid file '%s'", _project(ctx), filename)
             } else {
                 var fs = t.stamp(must_files_stamp{ctx})
                 if false && ctx.verbose { reportFileUpdates(ctx, fs) }
@@ -24735,10 +24846,10 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
             }
         } ()
         if wrote, err = f.WriteString(content); err != nil {
-            debug(ctx, "write content failed: %v", err, trace{})
+            erro(ctx, "write content failed: %v", err)
         }
     } else {
-        debug(ctx, "%v not updated", target, trace{})
+        erro(ctx, "%v not updated", target)
     }
     return
 }
@@ -24836,7 +24947,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
 
     if isNull(target) {
         prompt(ctx, "%v\n", _project(ctx))
-        debug(ctx, "stamp(%v) failed", target, trace{})
+        erro(ctx, "stamp(%v) failed", target)
     }
 
     var v = stampFile(must_files_stamp{ctx}, target)
@@ -24846,12 +24957,12 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
     if ctx.next {
         panic(traverse_state{_position(ctx),traverse_next})
     } else if ctx.error {
-        debug(ctx, "stamp(%v) error", trace{})
+        erro(ctx, "stamp(%v) error")
     } else {
         if f, y := target.(*file); y {
-            debug(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info, trace{})
+            erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f.info)
         } else {
-            debug(ctx, "failed stamp(%v) (%T)", target, target, trace{})
+            erro(ctx, "failed stamp(%v) (%T)", target, target)
         }
     }
     return
@@ -24866,7 +24977,7 @@ func (ctx *modifier_assert) z(args ...Value) (_ any) {
     var u = _universe(ctx)
     for _, a := range args {
         if a == nil {
-            debug(ctx, "assert: nil", trace{})
+            erro(ctx, "assert: nil")
         }
 
         if _, y := a.(*punct); y { continue }
@@ -24880,9 +24991,9 @@ func (ctx *modifier_assert) z(args ...Value) (_ any) {
         } else if ctx.msg == "" {
             var s string
             if v != nil { s = __string(ctx, v) }
-            debug(pc(ctx,a), "assert: %v → %v → '%s'", a, v, s, trace{})
+            erro(pc(ctx,a), "assert: %v → %v → '%s'", a, v, s)
         } else {
-            debug(pc(ctx,a), "assert: %v → %v: %s", a, v, ctx.msg, trace{})
+            erro(pc(ctx,a), "assert: %v → %v: %s", a, v, ctx.msg)
         }
     }
     return
@@ -24939,7 +25050,7 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value) {
     if ctx.wd != "" {
         attr.Dir = ctx.wd
     } else if attr.Dir = prog.workdir(ctx); attr.Dir == "" {
-        debug(ctx, "empty workdir", trace{})
+        erro(ctx, "empty workdir")
     }
 
     attr.Env, _ = _execution(ctx).env(ctx)
@@ -24950,11 +25061,11 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value) {
     }
 
     if exe, err := os.Executable(); err != nil {
-        debug(ctx, "fork: %v: %v", os.Args[0], err, trace{})
+        erro(ctx, "fork: %v: %v", os.Args[0], err)
     } else if pid, err := syscall.ForkExec(exe, argv, &attr); err != nil {
-        debug(ctx, "fork: %v: %v", exe, err, trace{})
+        erro(ctx, "fork: %v: %v", exe, err)
     } else if pid == 0 {
-        debug(ctx, "fork: pid is zero", trace{})
+        erro(ctx, "fork: pid is zero")
     } else {
         // TODO: status code, etc.
     }
@@ -24971,12 +25082,12 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
     if ctx.wd != "" {
         wd = ctx.wd
     } else if wd = prog.workdir(ctx); wd == "" {
-        debug(ctx, "empty workdir", trace{})
+        erro(ctx, "empty workdir")
     }
 
     var exe, err = os.Executable()
     if err != nil {
-        debug(ctx, "fork: %v: %v", os.Args[0], err, trace{})
+        erro(ctx, "fork: %v: %v", os.Args[0], err)
     }
 
     var cmd = exec.Command(exe, argv...)
@@ -24984,7 +25095,7 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
     cmd.Env, _ = _execution(ctx).env(ctx)
 
     if err = cmd.Run(); err != nil {
-        debug(ctx, "fork: %v: %v", exe, err, trace{})
+        erro(ctx, "fork: %v: %v", exe, err)
     } else {
         // TODO: status code, etc.
     }
@@ -24997,7 +25108,7 @@ func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
     var git = exec.Command("git", "status")
     git.Stdout, git.Stderr = out, os.Stderr
     if err := git.Run(); err != nil {
-        debug(ctx, "git failed: %v", err, trace{})
+        erro(ctx, "git failed: %v", err)
     }
 
     // TODO: check also for `Changes not staged for commit:`
@@ -25031,7 +25142,7 @@ func (ctx *modifier_gitahead) x(args ...Value) (result any) {
     var git = exec.Command("git", "status")
     git.Stdout, git.Stderr = out, os.Stderr
     if err := git.Run(); err != nil {
-        debug(ctx, "git: %v", err, trace{})
+        erro(ctx, "git: %v", err)
     }
 
     // TODO: check also for `Changes not staged for commit:`
@@ -25170,7 +25281,7 @@ func (ctx *modifier_once) x(args ...Value) (result any) {
     const onceAlgo = 2 // avaialbe: 0, 1, 2
 
     if isTrivial(target) {
-        debug(ctx, "once: no target $@, %v", args, trace{})
+        erro(ctx, "once: no target $@, %v", args)
     } else if ctx.checksum {
         onceSHA256(ctx, target, append([]Value{target}, args...)...)
     } else if onceAlgo == 2 {
@@ -25495,7 +25606,7 @@ func _set(ctx Context, val reflect.Value, v Value) {
         case "smart.Value":
             val.Set(reflect.ValueOf(v))
         default:
-            debug(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type(), trace{})
+            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type())
         }
     case reflect.Ptr:
         switch val.Type().Elem().String() {
@@ -25510,16 +25621,16 @@ func _set(ctx Context, val reflect.Value, v Value) {
             if t := as_file(ctx, v); t != nil {
                 val.Set(reflect.ValueOf(t))
             } else {
-                debug(pc(ctx,v), _f("not a file: %v → %s", ts(v), ts(expand(ctx, v))), trace{})
+                erro(pc(ctx,v), _f("not a file: %v → %s", ts(v), ts(expand(ctx, v))))
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(__string(ctx, v)); e == nil {
                 val.Set(reflect.ValueOf(rx))
             } else {
-                debug(pc(ctx,v), "wrong regexp: %v: %v", ts(v), e, trace{})
+                erro(pc(ctx,v), "wrong regexp: %v: %v", ts(v), e)
             }
         default:
-            debug(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Elem().Kind(), val.Type().Elem(), trace{})
+            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Elem().Kind(), val.Type().Elem())
         }
     default:
         switch val.Type().String() {
@@ -25528,9 +25639,9 @@ func _set(ctx Context, val reflect.Value, v Value) {
             if t == 0 { debug(pc(ctx,v), "zero file mode") }
             val.SetUint(uint64(t))
         case "regexp.Regexp": // aka. reflect.Ptr
-            debug(pc(ctx,v), "TODO: regexp: %v → %v, %v", ts(v), val.Kind(), val.Type(), trace{})
+            erro(pc(ctx,v), "TODO: regexp: %v → %v, %v", ts(v), val.Kind(), val.Type())
         default:
-            debug(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type(), trace{})
+            erro(pc(ctx,v), "option type unsupported: %v → %v, %v", ts(v), val.Kind(), val.Type())
         }
     }
 }
@@ -25590,9 +25701,9 @@ func _opts(ctx Context, opts reflect.Value, args []Value) (rest []Value) {
     if args == nil { return }
 
     if opts.Kind() != reflect.Ptr {
-        debug(ctx, "opts must be ptr: %v", opts.Kind(), trace{})
+        erro(ctx, "opts must be ptr: %v", opts.Kind())
     } else if opts = opts.Elem(); opts.Kind() != reflect.Struct {
-        debug(ctx, "opts is not ptr of struct: %v", opts.Kind(), trace{})
+        erro(ctx, "opts is not ptr of struct: %v", opts.Kind())
     }
 
     rest = merge(args...)
@@ -25671,7 +25782,7 @@ func _parseHeadArgsMerge(ctx Context, store any, args ...Value) (res []Value) {
 func _parseHeadArgsRequired(ctx Context, store any, args ...Value) (head, rest []Value) {
     head, rest = _parseHeadArgs(ctx, store, args...)
     if len(head) == 0 || len(rest) == 0 {
-        debug(ctx, "insufficient number of arguments", trace{})
+        erro(ctx, "insufficient number of arguments")
     }
     return
 }
@@ -25878,7 +25989,7 @@ func (ctx *__assert) x() (res any) {
 
     for _, a := range expands(ctx, ctx.a...) {
         if a == nil {
-            debug(ctx, "nil argument", trace{})
+            erro(ctx, "nil argument")
             continue
         }
 
@@ -25904,7 +26015,7 @@ func (ctx *__sure) cast(t reflect.Type) Context {
 func (ctx *__sure) x() (res any) {
     for _, a := range ctx.a {
         if !__true(ctx, a) {
-            debug(ctx, "assert: %v", ts(a), trace{})
+            erro(ctx, "assert: %v", ts(a))
         }
     }
     return ctx.a
@@ -25932,7 +26043,7 @@ func (ctx *__defor) cast(t reflect.Type) Context {
 }
 func (ctx *__defor) x() (res any) {
     for _, a := range merge(ctx.a...) {
-        debug(ctx, "TODO: %v", ts(a), trace{})
+        erro(ctx, "TODO: %v", ts(a))
 
         var unres bool
         if unres {
@@ -26121,7 +26232,7 @@ func (ctx *__match) cast(t reflect.Type) Context {
 }
 func (ctx *__match) x() (result any) {
     if n := len(ctx.a); n < 2 {
-        debug(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)", trace{})
+        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list-1>,...)")
     }
 
     var leftList, rightList []Value
@@ -26168,7 +26279,7 @@ func (ctx *__match) x() (result any) {
 func (ctx *__match) _x() (res any) {
     var patList, valList []Value
     if n := len(ctx.a); n < 1 {
-        debug(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)", trace{})
+        erro(ctx, "wrong arguments, try: $(match <regexp-list>,<value-list>,...)")
     }
 
     if len(ctx.a) > 1 {
@@ -26275,7 +26386,7 @@ func (ctx *__case) x() (res any) {
         }
         return vals
     } else {
-        debug(pc(ctx,arg), "unexpected case: %v", ts(arg), trace{})
+        erro(pc(ctx,arg), "unexpected case: %v", ts(arg))
     }}
     return
 }
@@ -26384,7 +26495,7 @@ func (ctx *__for) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__for) x() (res any) {
-    debug(ctx, "TODO: $(for): %v", ts(ctx.a), trace{})
+    erro(ctx, "TODO: $(for): %v", ts(ctx.a))
     return
 }
 
@@ -26553,12 +26664,12 @@ func (ctx *__auto) x() (_ any) {
             switch t := a.(type) {
             case *pair:
                 if k := __string(ctx, t.key); k == "" {
-                    debug(pc(ctx,a), "empty name: %v : %s", t.key, ts(t.key), trace{})
+                    erro(pc(ctx,a), "empty name: %v : %s", t.key, ts(t.key))
                 } else {
                     ctx.set(ctx, defVoid, k, t.val)
                 }
             default:
-                debug(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a), trace{})
+                erro(pc(ctx,a), "wrong auto def: %s : %s", a, ts(a))
             }
         }
         return expands(ctx, ctx.a...)
@@ -26588,7 +26699,7 @@ func (ctx *__call) _x() (res any) {
         var x Value
         var s = __string(ctx, a)
         if s == "" {
-            debug(ctx, "empty string: %v : %v", a, ts(a), trace{})
+            erro(ctx, "empty string: %v : %v", a, ts(a))
         } else if ctx.closure {
             x = closure_resolve(ctx, s)
         } else {
@@ -26606,7 +26717,7 @@ func (ctx *__call) _x() (res any) {
 func (ctx *__call) x() (_ any) {
     var s = ctx.a[0].String()
     for _, v := range ctx.a[1:] { s += " " + v.String() }
-    debug(ctx, "deprecated $(call %s), use $(%s)", s, s, trace{})
+    erro(ctx, "deprecated $(call %s), use $(%s)", s, s)
     return
 }
 
@@ -26702,9 +26813,9 @@ func (ctx *__plain) x() (res any) {
         var ( o object ; s = __string(ctx, a) )
         if ctx.scope_ { _, o = scope.find(s) } else { o = project_resolve(ctx, s) }
         if o == nil {
-            debug(ctx, "no such symbol: %s", s, trace{})
+            erro(ctx, "no such symbol: %s", s)
         } else if d, y := o.(*def); !y {
-            debug(ctx, "not a def: %s: %v", s, typeof(o), trace{})
+            erro(ctx, "not a def: %s: %v", s, typeof(o))
         } else if d.value != nil {
             d.value = expand(ctx, d.value)
         }
@@ -26731,7 +26842,7 @@ func (ctx *__shell) x() (res any) {
             s = strings.TrimSpace(buferr.String())
             if !strings.HasPrefix(s, ":") { s = ":\n" + s }
             prompt(ctx, "%s%s\n", __string(ctx, a), s)
-            debug(ctx, "%s", err, trace{})
+            erro(ctx, "%s", err)
             return
         }
         val := _raw(pos, strings.TrimSpace(bufout.String()))
@@ -26753,7 +26864,7 @@ func (ctx *__which) x() (res any) {
 	var pos = _pos(ctx)
     for _, a := range ctx.a {
         if s, err := exec.LookPath(__string(ctx, a)); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         } else if s != "" {
             vals = append(vals, _raw(pos, s))
         }
@@ -26774,7 +26885,7 @@ func (ctx *__servehttp) cast(t reflect.Type) Context {
 func (ctx *__servehttp) x() (res any) {
     if ctx.port == 0 { ctx.port = 80 }
     if ctx.ssl {
-        debug(ctx, "'serve-http(-ssl)' is unimplemented yet", trace{})
+        erro(ctx, "'serve-http(-ssl)' is unimplemented yet")
     }
 
     var server = http.Server{}
@@ -26809,7 +26920,7 @@ func (ctx *__servehttp) x() (res any) {
 
     var err = server.ListenAndServe()
     if err != nil && err != http.ErrServerClosed {
-        debug(ctx, "%s", err, trace{})
+        erro(ctx, "%s", err)
     }
     return
 }
@@ -26825,7 +26936,7 @@ func (ctx *__append) cast(t reflect.Type) Context {
 }
 func (ctx *__append) x() (_ any) {
     if len(ctx.a) < 2 {
-        debug(ctx, "insufficient number of arguments: %v", ctx.a, trace{})
+        erro(ctx, "insufficient number of arguments: %v", ctx.a)
     }
 
     var names []Value
@@ -26839,7 +26950,7 @@ func (ctx *__append) x() (_ any) {
         var s = __string(ctx, a)
         var d *def
         if s == "" {
-            debug(ctx, "'%v' is empty for name", a, trace{})
+            erro(ctx, "'%v' is empty for name", a)
         } else if ctx.auto {
             d = auto_find(ctx, s)
         } else if ctx.closure {
@@ -26848,7 +26959,7 @@ func (ctx *__append) x() (_ any) {
             d, _ = o.(*def)
         }
         if d == nil {
-            debug(ctx, "%v → %s is undefined", a, s, trace{})
+            erro(ctx, "%v → %s is undefined", a, s)
         } else {
             if vals == nil {
                 if vals = merge(ctx.a[1:]...); len(vals) == 0 {
@@ -27009,7 +27120,7 @@ func (ctx *__unique) x() (_ any) {
             t7 = time.Now()
             unique(ctx, args...)
             d6 = t7.Sub(t6)
-            debug(ctx, "unique: %v", d6, trace{})
+            erro(ctx, "unique: %v", d6)
         }
     } () }
 
@@ -27193,7 +27304,7 @@ func (ctx *__splitquotejoin) x() (res any) {
             ctx.a = ctx.a[:l-1]
         }
         if res, err = joinstrings(ctx, val, sep); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     }
     return
@@ -27217,7 +27328,7 @@ func (ctx *__splitjoinquote) x() (res any) {
 
         var v Value
         if v, err = joinstrings(ctx, val, sep); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         } else {
             res = _strlit(_pos(ctx), strconv.Quote(__string(ctx, v)))
         }
@@ -27308,7 +27419,7 @@ func (ctx *__usee) cast(t reflect.Type) Context {
 func (ctx *__usee) x() (res any) {
     var proj = _project(ctx)
     if proj == nil {
-        debug(ctx, "unknown current context", trace{})
+        erro(ctx, "unknown current context")
     }
 
     var vals []Value
@@ -27329,7 +27440,7 @@ func (ctx *__uses) cast(t reflect.Type) Context {
 func (ctx *__uses) x() (res any) {
     var proj = _project(ctx)
     if proj == nil {
-        debug(ctx, "unknown current context", trace{})
+        erro(ctx, "unknown current context")
     }
 
     var found bool
@@ -27432,9 +27543,9 @@ func (ctx *__resolve) x() (res any) {
         for _, a := range merge(ctx.a...) {
             var name = __string(ctx, a)
             if o := resolve(ctx, name); o == nil {
-                debug(ctx, "%v is nil : %v", a, ts(a), trace{})
+                erro(ctx, "%v is nil : %v", a, ts(a))
             } else if x, y := o.(*def); !y {
-                debug(ctx, "%v is not def : %v : %v", a, o, ts(o), trace{})
+                erro(ctx, "%v is not def : %v : %v", a, o, ts(o))
             } else if x.value != nil {
                 vals = append(vals, merge(x.value)...)
             }
@@ -27789,7 +27900,7 @@ func (ctx *__filter) x() (res any) {
 		if len(pats) > 0 {
 			i = 1 // good
 		} else if pats = merge(ctx.a[1]); len(pats) == 0 {
-			debug(ctx, "no patterns: %v", ctx.a, trace{})
+			erro(ctx, "no patterns: %v", ctx.a)
 			return
 		} else {
 			i = 2
@@ -27798,7 +27909,7 @@ func (ctx *__filter) x() (res any) {
 		if i <= len(ctx.a) {
 			res = ctx._x(pats, merge(expands(ctx, ctx.a[i:]...)...)...)
 		} else {
-			debug(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a, trace{})
+			erro(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a)
 		}
 	}
 	return
@@ -27827,7 +27938,7 @@ func (ctx *__substring) x() (_ any) {
         var v1, v2 = ctx.a[0], ctx.a[1]
         var a, b = intVal(ctx, v1, -1), intVal(ctx, v2, -1)
         if ctx.a = ctx.a[2:]; a < -1 && b < -1 {
-            debug(ctx, "wrong indices (%v, %v)", v1, v2, trace{})
+            erro(ctx, "wrong indices (%v, %v)", v1, v2)
         }
         if a > b { t := a; a = b; b = t } // swap the wrong order
         if a == -1 { a = b }
@@ -27942,7 +28053,7 @@ func (ctx *__patsubst) x() (_ any) {
 		for _, dstPat := range dstPats {
 			// Ignore ramnant check to allow static replacements
 			if val, _ := stencil(ctx, dstPat, stems); isNull(val) {
-				debug(ctx, "nil stencil: %v", dstPat, trace{})
+				erro(ctx, "nil stencil: %v", dstPat)
 			} else if srcFile != nil {
 				// If the source was a file, we want to maintain its "file-like" identity 
 				// without incurring the cost of a full VFS/trie lookup.
@@ -27966,7 +28077,7 @@ func (ctx *__patsubst) x() (_ any) {
 				}
 
 				if dst == nil {
-					debug(ctx, "%v → %v (nil file)", srcFile, val, callstack{num:5}, trace{})
+					erro(ctx, "%v → %v (nil file)", srcFile, val, callstack{num:5})
 				} else if dst.pos = src.Pos(); full {
 					res = append(res, fullfile{dst})
 				} else {
@@ -28282,16 +28393,16 @@ func (ctx *__gitdir) x() (_ any) {
             a = _pathStr(pc(ctx, a), s) // CRITICAL FIX
         } else if m.IsRegular() {
             if b, e := ioutil.ReadFile(s); e != nil {
-                debug(ctx, "%v", e, trace{})
+                erro(ctx, "%v", e)
             } else if !bytes.HasPrefix(b, []byte("gitdir:")) {
-                debug(ctx, "%s", b, trace{})
+                erro(ctx, "%s", b)
             } else {
                 t := string(bytes.TrimSpace(b[7:]))
                 s = filepath.Join(filepath.Dir(s), t)
                 a = _pathStr(pc(ctx, a), s) // CRITICAL FIX
             }
         } else {
-            debug(pc(ctx,a), "%v", s, trace{})
+            erro(pc(ctx,a), "%v", s)
         }
         vals = append(vals, a)
     }
@@ -28379,12 +28490,12 @@ func (ctx *__printf) cast(t reflect.Type) Context {
 }
 func (ctx *__printf) x() (_ any) {
     if len(ctx.a) < 1 {
-        debug(ctx, "not enough args, try $(printf 'format', ...)", trace{})
+        erro(ctx, "not enough args, try $(printf 'format', ...)")
     }
 
     var vals = merge(ctx.a[0])
     if len(vals) != 1 {
-        debug(ctx, "not enough args, try $(printf 'format', ...)", trace{})
+        erro(ctx, "not enough args, try $(printf 'format', ...)")
     }
 
     var i int
@@ -28417,7 +28528,7 @@ outer:
                         continue outer
                     default:
                         if t, e := strconv.Atoi(__string(ctx, v)) ; e == nil { a = append(a, t) } else {
-                            debug(ctx, "%v: %v", v, e, trace{})
+                            erro(ctx, "%v: %v", v, e)
                         }
                         continue outer
                     }
@@ -28447,7 +28558,7 @@ func (ctx *__indent) x() (res any) {
         if v, ok := scalarize(ctx.a[0]).(*decimal); ok {
             ctx.a, s = ctx.a[1:], strings.Repeat(" ", int(v.int64))
         } else {
-            debug(ctx, "requires integer argument (first|last)", trace{})
+            erro(ctx, "requires integer argument (first|last)")
         }
     }
     for _, a := range ctx.a {
@@ -28555,7 +28666,7 @@ func (ctx *__wordlist) cast(t reflect.Type) Context {
 }
 func (ctx *__wordlist) x() (res any) {
 	if len(ctx.a) < 2 {
-		debug(ctx, "wordlist requires indices: $(wordlist start, end, list...)", trace{})
+		erro(ctx, "wordlist requires indices: $(wordlist start, end, list...)")
 		return
 	}
 
@@ -28646,7 +28757,7 @@ func (ctx *__decodebase64) x() (_ any) {
         for _, a := range ctx.a {
             var s = __string(ctx, a)
             if dat, err := base64.StdEncoding.DecodeString(s); err != nil {
-                debug(ctx, "decode '%s' failed: %v", s, err, trace{})
+                erro(ctx, "decode '%s' failed: %v", s, err)
             } else {
                 res = append(res, _strlit(a.Pos(), string(dat)))
             }
@@ -29088,7 +29199,7 @@ func (ctx *__chopdir) x() (res any) {
         } else if v, ok := scalarize(ctx.a[x-1]).(*decimal); ok {
             ctx.a, n = ctx.a[:x-1], int(v.int64)
         } else {
-            debug(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.a[0], ctx.a[x-1], trace{})
+            erro(ctx, "require (first/last) integer argument (first=%T, last=%T)", ctx.a[0], ctx.a[x-1])
             return
         }
     }
@@ -29156,14 +29267,14 @@ func (ctx *__mkdir) x() (res any) {
                 name = __string(ctx, t.at(0))
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
-                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                erro(ctx, "Wrong size of list `%v'", t)
             }
         case *list: // mkdir name perm, name perm, ...
             if t.len() == 2 {
                 name = __string(ctx, t.at(0))
                 perm = filePerm(ctx, t.at(1), uint32(perm))
             } else {
-                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                erro(ctx, "Wrong size of list `%v'", t)
             }
         default: // mkdir name perm, name perm, ...
             name = __string(ctx, ctx.a[i])
@@ -29174,11 +29285,11 @@ func (ctx *__mkdir) x() (res any) {
         }
         if ctx.all {
             if err := os.MkdirAll(name, perm); err != nil {
-                debug(ctx, "%v", err, trace{})
+                erro(ctx, "%v", err)
             }
         } else {
             if err := os.Mkdir(name, perm); err != nil {
-                debug(ctx, "%v", err, trace{})
+                erro(ctx, "%v", err)
             }
         }
     }
@@ -29195,7 +29306,7 @@ func (ctx *__chdir) x() (res any) {
     if len(ctx.a) == 1 {
         var str = __string(ctx, ctx.a[0])
         if err := lockCD(str, 0); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     } else {
         debug(ctx, "wrong number of arguments: %v", len(ctx.a))
@@ -29224,14 +29335,14 @@ func (ctx *__rename) x() (res any) {
                 oldname = __string(ctx, t.at(0))
                 newname = __string(ctx, t.at(1))
             } else {
-                debug(ctx, "wrong size of group `%v'", t, trace{})
+                erro(ctx, "wrong size of group `%v'", t)
             }
         case *list: // rename oldname newname, old new, ...
             if t.len() == 2 {
                 oldname = __string(ctx, t.at(0))
                 newname = __string(ctx, t.at(1))
             } else {
-                debug(ctx, "wrong size of list `%v'", t, trace{})
+                erro(ctx, "wrong size of list `%v'", t)
             }
         default: // rename newname oldname  newname oldname ...
             if i+1 < nargs {
@@ -29239,11 +29350,11 @@ func (ctx *__rename) x() (res any) {
                 newname = __string(ctx, ctx.a[i+1])
                 i += 1
             } else {
-                debug(ctx, "Wrong arguments `%v'", ctx.a, trace{})
+                erro(ctx, "Wrong arguments `%v'", ctx.a)
             }
         }
         if err := os.Rename(oldname, newname); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     }
     return
@@ -29272,7 +29383,7 @@ func (ctx *__remove) x() (res any) {
         }
         if opts.all { err = os.RemoveAll(s) } else { err = os.Remove(s) }
         if err != nil {
-            debug(ctx, _f("remove: %v", err), _f("remove: %v → %s", f, s), trace{})
+            erro(ctx, _f("remove: %v", err), _f("remove: %v → %s", f, s))
             return
         }
         if d := opts.debug; d>0 { debug(ctx, "remove %s (%s)", f, s, callstack{num:d}) }
@@ -29285,18 +29396,18 @@ func (ctx *__remove) x() (res any) {
             if strings.HasPrefix(s, opts.skip) { return }
         }
         if opts.all { err = os.RemoveAll(s) } else {
-            debug(ctx, "remove path: %v", p, trace{})
+            erro(ctx, "remove path: %v", p)
             return
         }
         if err != nil {
-            debug(ctx, _f("remove: %v", err), _f("remove: %v", p), trace{})
+            erro(ctx, _f("remove: %v", err), _f("remove: %v", p))
             return
         }
         if d := opts.debug; d>0 { debug(ctx, "remove %s", s, callstack{num:d}) }
         if opts.verbose { prompt(ctx, "removed %s\n", s) }
     }
     var removePat = func(ctx Context, pat Value) {
-        debug(ctx, "TODO: remove: %v", ts(pat), trace{})
+        erro(ctx, "TODO: remove: %v", ts(pat))
     }
 
     remove = func(ctx Context, v Value) {
@@ -29317,7 +29428,7 @@ func (ctx *__remove) x() (res any) {
         } else if p, y := v.(*path); y {
             removePath(ctx, p)
         } else if !opts.ignoreMissing {
-            debug(ctx, "not file: %v (%T)", v, v, trace{})
+            erro(ctx, "not file: %v (%T)", v, v)
         }
     }
     for _, a := range ctx.a {
@@ -29327,7 +29438,7 @@ func (ctx *__remove) x() (res any) {
 
     if opts.debug > 0 { debug(ctx, "%v", ctx.a) }
     if opts.debug > 0 && flush(ctx) > 0 {
-        debug(ctx, "remove errors", trace{})
+        erro(ctx, "remove errors")
     }
     return
 }
@@ -29354,7 +29465,7 @@ func (ctx *__truncate) x() (res any) {
                 name = __string(ctx, t.at(0))
                 size = __int(ctx, t.at(1))
             } else {
-                debug(ctx, "Wrong size of group `%v'", t, trace{})
+                erro(ctx, "Wrong size of group `%v'", t)
                 break
             }
         case *list: // truncate name size, old new, ...
@@ -29362,7 +29473,7 @@ func (ctx *__truncate) x() (res any) {
                 name = __string(ctx, t.at(0))
                 size = __int(ctx, t.at(1))
             } else {
-                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                erro(ctx, "Wrong size of list `%v'", t)
                 break
             }
         default: // truncate name size  name size ...
@@ -29371,12 +29482,12 @@ func (ctx *__truncate) x() (res any) {
                 size = __int(ctx, ctx.a[i+1])
                 i += 1
             } else {
-                debug(ctx, "Wrong arguments `%v'", ctx.a, trace{})
+                erro(ctx, "Wrong arguments `%v'", ctx.a)
                 break
             }
         }
         if err := os.Truncate(name, size); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
             break
         }
     }
@@ -29404,7 +29515,7 @@ func (ctx *__link) x() (res any) {
                 oldname = __string(ctx, t.at(0))
                 newname = __string(ctx, t.at(1))
             } else {
-                debug(ctx, "Wrong size of group `%v'", t, trace{})
+                erro(ctx, "Wrong size of group `%v'", t)
                 break
             }
         case *list: // link oldname newname, old new, ...
@@ -29412,7 +29523,7 @@ func (ctx *__link) x() (res any) {
                 oldname = __string(ctx, t.at(0))
                 newname = __string(ctx, t.at(1))
             } else {
-                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                erro(ctx, "Wrong size of list `%v'", t)
                 break
             }
         default: // link oldname newname  oldname newname ...
@@ -29421,12 +29532,12 @@ func (ctx *__link) x() (res any) {
                 newname = __string(ctx, ctx.a[i+1])
                 i += 1
             } else {
-                debug(ctx, "Wrong arguments `%v'", ctx.a, trace{})
+                erro(ctx, "Wrong arguments `%v'", ctx.a)
                 break
             }
         }
         if err := os.Link(oldname, newname); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
             break
         }
     }
@@ -29440,7 +29551,7 @@ func _readlink(ctx Context, filename string, d os.FileInfo) (_ string, linked bo
 
         if e != nil {
             prompt(ctx, "%s: readlink failed\n", fn)
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
             return
         }
 
@@ -29452,7 +29563,7 @@ func _readlink(ctx Context, filename string, d os.FileInfo) (_ string, linked bo
 
         if d, e = os.Lstat(linkname); e != nil {
             prompt(ctx, "%s: lstat %s\n", fn, linkname)
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
             return
         }
 
@@ -29498,14 +29609,14 @@ outer:
             srcNameVal, dstNameVal = t.key, t.val
         case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                debug(ctx, "expects two values for group", trace{})
+                erro(ctx, "expects two values for group")
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
             }
         case *list: // XXX: symlink old new, old new, ...
             if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                debug(ctx, "expects two values for list", trace{})
+                erro(ctx, "expects two values for list")
                 return
             } else {
                 srcNameVal, dstNameVal = aa[0], aa[1]
@@ -29523,7 +29634,7 @@ outer:
                 var r = auto_get(ctx,">")
                 prompt(ctx, "symlink: args=%v → %v\n", ctx.a, t)
                 prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
-                debug(ctx, "expects pair of names (%T %v)", t, t, trace{})
+                erro(ctx, "expects pair of names (%T %v)", t, t)
                 return
             }
         }
@@ -29531,13 +29642,13 @@ outer:
         if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
             prompt(ctx, "symlink: args=%v\n", ctx.a)
             prompt(ctx, "symlink: src=%v\n", srcNameVal)
-            debug(ctx, "empty src filename (%T)", srcNameVal, trace{})
+            erro(ctx, "empty src filename (%T)", srcNameVal)
             return
         }
         if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
             prompt(ctx, "symlink: args=%v\n", ctx.a)
             prompt(ctx, "symlink: dest=%v\n", dstNameVal)
-            debug(ctx, "empty dest filename (%T)", dstNameVal, trace{})
+            erro(ctx, "empty dest filename (%T)", dstNameVal)
             return
         }
 
@@ -29547,14 +29658,14 @@ outer:
         if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
         if _, err := os.Stat(src); err != nil {
             prompt(ctx, "symlink: %v: %v\n", srcName, err)
-            debug(ctx, "%v does not exist", srcName, trace{})
+            erro(ctx, "%v does not exist", srcName)
             return
         }
 
         if !opts.relative {/* no rel required */} else
         if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
             prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
             return
         } else {
             if false {
@@ -29570,7 +29681,7 @@ outer:
         if dstDir == "" || dstDir == "." || dstDir == pathSep {
             // no need to mkdir: . or /
         } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
             return
         }
 
@@ -29580,7 +29691,7 @@ outer:
         } else if s, e := os.Readlink(dst); e != nil {
             if false {
                 prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
-                debug(ctx, "%v", e, trace{})
+                erro(ctx, "%v", e)
             }
         } else if rm = s != src; !rm {
             continue outer
@@ -29588,7 +29699,7 @@ outer:
 
         if rm { if e := os.Remove(dst); e != nil {
             prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
             return
         }}
         if err := os.Symlink(src, dst); err != nil {
@@ -29618,7 +29729,7 @@ func (ctx *__stat) x() (res any) {
 
     var proj = _project(ctx)
     if proj == nil {
-        debug(ctx, "unknown project", trace{})
+        erro(ctx, "unknown project")
         return
     }
 
@@ -29670,8 +29781,8 @@ func (ctx *__file) x() any {
 	var proj = _project(ctx)
 	for _, a := range merge(ctx.a...) {
 		if checkpoints {
-			if strings.Contains(a.String(), "{}") {
-				debug(pc(ctx,a),
+			if s := a.String(); strings.Contains(s, "{}") || strings.HasSuffix(s, ".x") {
+				debug(pc(ctx,a), _f("%v", a),
 					_f("a: %v", _scope(ctx).resolve("a")),
 					_f("s: %v", _scope(ctx).resolve("s")),
 					_f("x: %v", _scope(ctx).resolve("x")),
@@ -29705,7 +29816,7 @@ func (ctx *__file) x() any {
 			} else if ctx.ignore {
 				if ctx.verbose { debug(ctx, "%v → %v", ts(a,ctx), f) }
 			} else if ctx.exists {
-				debug(ctx, `not a file: %v : %s ; %s`, a, ts(a,ctx), ts(res,ctx), trace{})
+				erro(ctx, `not a file: %v : %s ; %s`, a, ts(a,ctx), ts(res,ctx))
 			}
 		}
 	}
@@ -29726,7 +29837,7 @@ func (ctx *__glob) x() (_ any) {
     var cwd string // TODO: get current work directory
     var proj *project
     if proj = _project(ctx); proj == nil {
-        debug(ctx, "unknown current cntext", trace{})
+        erro(ctx, "unknown current cntext")
     }
 
     var res []Value
@@ -29738,7 +29849,7 @@ func (ctx *__glob) x() (_ any) {
 
         var err error
         if names, err = filepath.Glob(str); err != nil {
-            debug(ctx, "glob '%v' failed: %v", str, err, trace{})
+            erro(ctx, "glob '%v' failed: %v", str, err)
         }
         for _, name := range names {
             // TODO: ctx.dir, ctx.file, ctx.symbol
@@ -29752,11 +29863,11 @@ func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
 	if false {
 		if f, err := os.Stat(sd); err != nil {
 			if errorMissing {
-				debug(ctx, "%v", err, trace{})
+				erro(ctx, "%v", err)
 			}
 			return
 		} else if !f.IsDir() {
-			debug(ctx, "not dir: %v", sd, trace{})
+			erro(ctx, "not dir: %v", sd)
 			return
 		}
 	}
@@ -29765,7 +29876,7 @@ func readDirNames(ctx Context, sd string, errorMissing bool) (names []string) {
 	// It is faster and gives us DirEntry, which knows IsDir() without extra syscalls.
 	entries, err := os.ReadDir(sd)
 	if err != nil {
-		if errorMissing { debug(ctx, "readdir: %v", err, trace{}) }
+		if errorMissing { erro(ctx, "readdir: %v", err) }
 		return
 	}
 
@@ -30069,7 +30180,7 @@ func (ctx *__wildcard) x() any {
 			os.WriteFile(cacheFile, []byte(sb.String()), 0644)
 			if false { debug(pc(ctx,cacheFile), "%v", time.Since(t0)) }
 		} else {
-			debug(ctx, "failed to create cache dir: %v", err, trace{})
+			erro(ctx, "failed to create cache dir: %v", err)
 		}
 	}
 
@@ -30113,9 +30224,9 @@ func (ctx *__readfile) x() (res any) {
     var closured = closure_projects(ctx)
     for _, v := range ctx.a {
         if o := as_fullname(ctx, v, closured...); o.Value == nil {
-            debug(ctx, "%v is not a file", v, trace{})
+            erro(ctx, "%v is not a file", v)
         } else if s, e := ioutil.ReadFile(__string(ctx,o)); e != nil {
-            debug(ctx, "read file failed: %v", e, trace{})
+            erro(ctx, "read file failed: %v", e)
         } else {
             if ctx.trim      { s = bytes.TrimFunc     (s, unicode.IsSpace) } else
             if ctx.trimLeft  { s = bytes.TrimLeftFunc (s, unicode.IsSpace) } else
@@ -30154,7 +30265,7 @@ outer:
                 if n > 1 { data = __string(ctx, t.at(1)) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
-                debug(ctx, "Wrong size of group `%v'", t, trace{})
+                erro(ctx, "Wrong size of group `%v'", t)
             }
         case *list: // write-file name text, name text 0660, ...
             if n := t.len(); n < 4 && n > 0 {
@@ -30162,7 +30273,7 @@ outer:
                 if n > 1 { data = __string(ctx, t.at(1)) }
                 if n > 2 { perm = filePerm(ctx, t.at(2),0600) }
             } else {
-                debug(ctx, "Wrong size of list `%v'", t, trace{})
+                erro(ctx, "Wrong size of list `%v'", t)
             }
         default: // write-file name text 0660  name text 0660 ...
             name = __string(ctx, ctx.a[i])
@@ -30179,11 +30290,11 @@ outer:
             continue outer
         } else if dir := filepath.Dir(name); ctx.path && dir != "." && dir != pathSep {
             if err := os.MkdirAll(dir, os.FileMode(0755)); err != nil {
-                debug(ctx, "%v", err, trace{})
+                erro(ctx, "%v", err)
             }
         }
         if err := ioutil.WriteFile(name, []byte(data), perm); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
         }
     }
     return
@@ -30193,10 +30304,10 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
     var a, filename, c = as_fullname_file(ctx, file)
 
     if filename == "" {
-        debug(ctx, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c, trace{})
+        erro(ctx, "touch: empty file name: %v (%v, %v, %v)", file, typeof(file), a, c)
     } else if d := filepath.Dir(filename); optPath && d != "." && d != pathSep {
         if err = os.MkdirAll(d, os.FileMode(optMode|0733)); err != nil {
-            debug(ctx, "touch: %v", err, trace{})
+            erro(ctx, "touch: %v", err)
         }
     }
 
@@ -30215,19 +30326,19 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
         var f *os.File
         if m = mode; m == 0 { m = os.FileMode(0600); mode = m }
         if f, err = os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, m&os.ModePerm); err != nil {
-            debug(ctx, "touch: %v", err, trace{})
+            erro(ctx, "touch: %v", err)
         } else if err = f.Close(); err != nil {
-            debug(ctx, "touch: %v", err, trace{})
+            erro(ctx, "touch: %v", err)
         }
     }
     if err == nil {
         if err = os.Chtimes(filename, ta, tm); err != nil {
-            debug(ctx, "touch: %v", err, trace{})
+            erro(ctx, "touch: %v", err)
         }
     }
     if err == nil && mode != 0 && m != 0 && mode != m {
         if err = os.Chmod(filename, mode); err != nil {
-            debug(ctx, "touch: %v", err, trace{})
+            erro(ctx, "touch: %v", err)
         }
     }
     return
@@ -30247,7 +30358,7 @@ func (ctx *__touchfile) x() (res any) {
     // $(touch-file -p filename)
     for i := 0; i < len(ctx.a); i += 1 {
         if err := touch(ctx, ctx.a[i], uint32(ctx.mode), ctx.path); err != nil {
-            debug(ctx, "%v", err, trace{})
+            erro(ctx, "%v", err)
             break
         }
     }
@@ -30264,7 +30375,7 @@ func (ctx *__grep) x() (_ any) {
     var args = ctx.a
     var nargs = len(args)
     if !(nargs == 2 || nargs == 3) {
-        debug(ctx, "wrong args, try $(grep {=regex '^example$'},$0,$(file))", trace{})
+        erro(ctx, "wrong args, try $(grep {=regex '^example$'},$0,$(file))")
         return
     }
 
@@ -30280,10 +30391,10 @@ func (ctx *__grep) x() (_ any) {
         if x, y := a.(*regexpat); y {
             rxs = append(rxs, x.Regexp)
         } else if s := __string(ctx, a); s == "" {
-            debug(ctx, "empty regexp", trace{})
+            erro(ctx, "empty regexp")
             return
         } else if r, e := regexp.Compile(s); e != nil {
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
             return
         } else {
             rxs = append(rxs, r)
@@ -30303,10 +30414,10 @@ func (ctx *__grep) x() (_ any) {
         var e error
         var f *os.File
         if p.Filename == "" {
-            debug(c, "empty filename: %v", ts(a), trace{})
+            erro(c, "empty filename: %v", ts(a))
             return
         } else if f, e = os.Open(p.Filename); e != nil {
-            debug(c, "%s ; %s", e, ts(a), trace{})
+            erro(c, "%s ; %s", e, ts(a))
             return
         } else {
             defer f.Close()
@@ -30390,11 +30501,11 @@ func (p *project) strExpandConfig(ctx Context, s string) (result string, err err
             continue
         } else if val = evoke(ctx, d, nil, nil); isNull(val) {
             if f := p.configuration_sm(ctx); f == nil {
-                debug(ctx, "%v: configuration file not defined", name, f, trace{})
+                erro(ctx, "%v: configuration file not defined", name, f)
                 return
             } else if !f.exists() {
                 prompt(ctx, "%s: file not exists (for %v)\n", f.fullname(), name)
-                debug(ctx, "%v: configuration file not exists, try -conf first", name, trace{})
+                erro(ctx, "%v: configuration file not exists, try -conf first", name)
                 return
             }
             continue
@@ -30430,7 +30541,7 @@ func autoconf(ctx Context, out *bytes.Buffer, p *project, str string) (err error
 
 func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
     if s, e := p.strExpandConfig(ctx, str); e != nil {
-        debug(ctx, "%v : %v", str, e, trace{})
+        erro(ctx, "%v : %v", str, e)
     } else {
         str = s
     }
@@ -30439,7 +30550,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
 
     for _, ii := range rxConfigure.FindAllStringSubmatchIndex(str, -1) {
         if _, e := out.WriteString(str[index:ii[0]]); e != nil {
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
         }
 
         index = ii[1]
@@ -30458,7 +30569,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
             } else if _, t := v.(*undef); t {
                 _, e := out.WriteString(fmt.Sprintf("#undef /* %s */", name))
                 if e != nil {
-                    debug(ctx, "%v", e, trace{})
+                    erro(ctx, "%v", e)
                 } else {
                     continue
                 }
@@ -30519,7 +30630,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
         }
 
         if _, e := out.WriteString(s); e != nil {
-            debug(ctx, "%v", e, trace{})
+            erro(ctx, "%v", e)
         }
     }
 
@@ -30528,7 +30639,7 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
     }
 
     if _, e := out.WriteString(str[index:]); e != nil {
-        debug(ctx, "%v", e, trace{})
+        erro(ctx, "%v", e)
     }
     return
 }
