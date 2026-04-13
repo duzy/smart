@@ -52,18 +52,14 @@ import (
 
 type hashbytes [sha256.Size]byte
 
-const escapedChars = "\"\r\n"
-
 const (
-    recursiveTraversalClosurePre = false
+    recursiveTraversalClosurePre  = false
     recursiveTraversalClosurePost = false
     recursiveTraversalClosure = true
-)
-
-const (
+    traverseDetectLoops = true // turn on/off traverse loop detection
     enable_assertions   = true
     enable_grep_bench   = true
-    traverseDetectLoops = true // turn on/off traverse loop detection
+	escapedChars = "\"\r\n"
 )
 
 type cmpres int
@@ -8953,7 +8949,7 @@ type scope struct {
 	comment string
 }
 
-func newscope(outer *scope, owner *project, c string) (s *scope) {
+func new_scope(outer *scope, owner *project, c string) (s *scope) {
 	return &scope{outer:outer, project:owner, comment:c, elems:make(map[Symbol]object)}
 }
 
@@ -11407,7 +11403,7 @@ type project struct {
 	// --- Logical Routing Domain (Portable Symbols) ---
 	// These are identical across all developer machines and safe to intern/hash.
 	name Symbol // e.g., intern("core")
-	rel  Symbol // path segment relative to the workBaseDir
+	rel  Symbol // path segment relative to the baseWorkDir
 	spec Symbol // relative to search-paths as a specification
 
 	filemap valcache
@@ -13303,13 +13299,14 @@ type (
     act_traversed  struct{ v Value }
     act_traverse   struct{ v Value }
     init_args      struct{ *automatic }
-    get_closure_scopes struct{}
-    get_args       struct{}
+	set_workdir    struct{ s string }
     get_workdir    struct{}
+    get_args       struct{}
 	get_fatpos     struct{ p Pos }
     get_position   struct{}
     get_project    struct{}
     get_scope      struct{}
+    get_closure_scopes struct{}
     no_position    struct{}
     on_errors      struct{ i int }
     param_name     struct{ i int }
@@ -13994,9 +13991,6 @@ func walkSmartBaseDirs(ctx Context, cwd string, vis func(string) bool) (s string
     return
 }
 
-// baseTmpPath is the base tmp path initialized only once.
-var baseTmpPath string
-
 func joinTmpPath(ctx Context, base, rel string) string {
     if baseTmpPath == "" {
         var s = walkSmartBaseDirs(ctx, base, func(d string) bool {
@@ -14056,7 +14050,7 @@ func positionForDir(dir string) (pos Position) {
     return
 }
 
-func loadSeachPaths(ctx *universe, s string) (paths []string) {
+func (ctx *universe) loadSeachPaths(s string) (paths []string) {
     var f, err = os.Open(filepath.Join(s, ".search"))
     if err != nil { return }
 
@@ -14095,27 +14089,18 @@ func loadSeachPaths(ctx *universe, s string) (paths []string) {
     return
 }
 
+type main_ctx struct{ Context }
+func (m main_ctx) inner() Context { return m.Context }
+func (m main_ctx) cast(t reflect.Type) Context { return icast(m, t) }
+func (m main_ctx) do(c Context, op any) any {
+	return m.Context.do(c, op)
+}
+
 func Main() {
-    var ctx = new_universe()
-    var modulesPaths, packagePaths searchlist
+	if checkpoints { panic("Smart in testmode!") }
 
-    walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
-        if baseTmpPath == "" { baseTmpPath = s }
-        packagePaths = append(packagePaths, filepath.Join(s, ".smart", "packages"))
-        modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
-        return true
-    })
-
-    userLib := filepath.Join(ctx.prefix, "user", "lib", "smart")
-    packagePaths = append(packagePaths, filepath.Join(userLib, "packages"))
-    modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
-
-    // make sure that .smart dirs have higher priority.
-    ctx.paths = append(modulesPaths, ctx.paths...)
-
-    for _, s := range modulesPaths { loadSeachPaths(ctx, s) }
-
-    ctx.load(ctx)
+    ctx := new_universe()
+    ctx.load(main_ctx{ctx})
 
     if ctx.flush(ctx) > 0 {
         prompt(ctx, "loading work got %d errors\n", ctx.erros)
@@ -14145,10 +14130,9 @@ func Main() {
     }
 }
 
-
 var searchPaths searchlist
-var launchTime = time.Now()
-var workBaseDir = func () string {
+var baseTmpPath string // the base tmp path initialized only once.
+var baseWorkDir = func () string {
     if s, e := os.Getwd(); e == nil { return s } else { panic(e) }
 } ()
 
@@ -14217,12 +14201,15 @@ func ResolvePosition(ctx Context, v Value) Position {
 
 func _universe(c Context) *universe { return cast[*universe](c) }
 
+type no_exec struct{}
 type universe struct {
     diagnostic
     commandline
 
     *scope
     *globe
+
+	launchTime time.Time
 
     fset *fileset
 
@@ -14234,8 +14221,6 @@ type universe struct {
     statmutex sync.Mutex
 
     hooks hooks
-
-    expand_n int32
 }
 func (ctx *universe) String() string { return "universe" }
 func (ctx *universe) inner() Context { return &ctx.diagnostic }
@@ -14254,7 +14239,7 @@ func (ctx *universe) _position() (p Position) {
 func (ctx *universe) ts(t string) string {
     var s = ts(ctx.Context)
     if  s == "{}"  {
-        s, _ = filepath.Rel(workBaseDir, ctx.workdir)
+        s, _ = filepath.Rel(baseWorkDir, ctx.workdir)
         s = bases(3, s, "testdata", true)
         if s == "." || s == "" { return "{="+t+"}" }
     }
@@ -14302,7 +14287,6 @@ func (ctx *universe) do(_ctx Context, op any) (res any) {
     return ctx.diagnostic.do(_ctx, op)
 }
 
-type no_exec struct{}
 type commandline struct {
     help            bool `h,help`
 
@@ -14385,67 +14369,75 @@ func _commandline() commandline { return commandline{
 }}
 
 func new_universe(ii ...any) (ctx *universe) {
-    ctx = &universe{}
-    ctx.paths = searchPaths
-    ctx.workdir = workBaseDir
-    ctx.fset = _fileset()
-    ctx.statcache = make(map[string]*filebase)
-    ctx.scope = newscope(nil, nil, `universe`)
+	ctx = &universe{
+		launchTime: time.Now(),
+		scope: new_scope(nil, nil, `universe`),
+		statcache: make(map[string]*filebase),
+		fset: new_fileset(),
+		paths: searchPaths,
+		workdir: baseWorkDir,
+	}
 
-    var cl = true
-    for _, i := range ii {
-        switch t := i.(type) {
-        case  commandline: ctx.commandline, cl =  t, false
-        case *commandline: ctx.commandline, cl = *t, false
-        case *hooks: ctx.hooks = *t
-        case  hooks: ctx.hooks =  t
-        }
-    }
-    if cl { ctx.commandline = _commandline() }
+	cl := true
+	for _, i := range ii {
+		switch t := i.(type) {
+		case  hooks: ctx.hooks =  t
+		case *hooks: ctx.hooks = *t
+		case  commandline: ctx.commandline, cl =  t, false
+		case *commandline: ctx.commandline, cl = *t, false
+		case  set_workdir: ctx.workdir = t.s
+			if _, e := os.Stat(t.s); e != nil { panic(e) }
+		}
+	}
+	if cl { ctx.commandline = _commandline() }
 
-    var bin  = ease(ctx, os.Args[0])
-    var args = ease(ctx, os.Args[1:])
-    ctx.scope.def(ctx, defVoid, intern("SMART.ARGS"), args)
-    ctx.scope.def(ctx, defVoid, intern("SMART.BIN"),  bin)
-    ctx.scope.def(ctx, defVoid, intern("SMART"),      bin)
+	var bin  = ease(ctx, os.Args[0])
+	var args = ease(ctx, os.Args[1:])
+	ctx.scope.def(ctx, defVoid, intern("SMART.ARGS"), args)
+	ctx.scope.def(ctx, defVoid, intern("SMART.BIN"),  bin)
+	ctx.scope.def(ctx, defVoid, intern("SMART"),      bin)
 
-    for name, f := range builtins {
-        if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
-            panic(fmt.Sprintf("builtin '%s' already defined", name))
-        }
-    }
+	for name, f := range builtins {
+		if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
+			panic(fmt.Sprintf("builtin '%s' already defined", name))
+		}
+	}
 
-    var pos Pos = 0 //ctx._position()
-	// one of darwin, freebsd, linux, and so on.
-	var os Value = ease(ctx, []Value{_raw(pos, runtime.GOOS)})
+    var pos Pos = 0 // ctx._position()
+	var os Value = ease(ctx, []Value{_raw(pos, runtime.GOOS)}) // darwin, freebsd, linux
 
-    ctx.globe = &globe{
-        scope: newscope(ctx.scope, nil, `globe`),
-        flagEntries: make(map[string][]entry),
-        loaded: make(map[string]*project),
-        args: make(map[Value][]Value),
-    }
+	ctx.globe = &globe{
+		scope: new_scope(ctx.scope, nil, `globe`),
+		flagEntries: make(map[string][]entry),
+		loaded: make(map[string]*project),
+		args: make(map[Value][]Value),
+	}
 
     // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
     ctx.globe.os    = ctx.globe.def(ctx, defVoid, intern(".os"),    os)
     ctx.globe.goals = ctx.globe.def(ctx, defVoid, intern(".goals"), _none(pos))
     ctx.globe.mode  = ctx.globe.def(ctx, defVoid, intern(".mode"),  _null(pos))
+
+    var modulesPaths, packagePaths searchlist
+    walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
+        if baseTmpPath == "" { baseTmpPath = s }
+        packagePaths = append(packagePaths, filepath.Join(s, ".smart", "packages"))
+        modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
+        return true
+    })
+
+    var userLib = filepath.Join(ctx.prefix, "user", "lib", "smart")
+    packagePaths = append(packagePaths, filepath.Join(userLib, "packages"))
+    modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
+
+    // make sure that .smart dirs have higher priority.
+    ctx.paths = append(modulesPaths, ctx.paths...)
+
+    for _, s := range modulesPaths { ctx.loadSeachPaths(s) }
     return
 }
 
-func AddPaths(paths... string) (err error) {
-    for _, s := range paths {
-        if s, err = filepath.Abs(s); err != nil {
-            break
-        }
-        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
-           searchPaths = append(searchPaths, s)
-        }
-    }
-    return
-}
-
-func (ctx *universe) AddPaths(paths... string) (err error) {
+func (ctx *universe) addPaths(paths... string) (err error) {
     for _, s := range paths {
         if s, err = filepath.Abs(s); err != nil { break }
         if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
@@ -14569,7 +14561,7 @@ func (u *universe) load(ctx Context) {
     if false { loadGrepCache(ctx) }
 
     if s := filepath.Join(u.workdir, ".smart", "modules"); s != "" {
-        if _, e := os.Stat(s); e == nil { u.AddPaths(s) }
+        if _, e := os.Stat(s); e == nil { u.addPaths(s) }
     }
     if s := filepath.Join(u.workdir, mainFileName); s != "" {
         if _, e := os.Stat(s); e != nil {
@@ -14584,7 +14576,7 @@ func (u *universe) load(ctx Context) {
     l.parseArgs(u.workdir, os.Args[1:]...)
 
     if u.autoProfs {
-        if f, e := os.Create(filepath.Join(workBaseDir, "load.cpu.auto.prof")); e != nil {
+        if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
             erro(ctx, "%v", e)
         } else {
             defer f.Close()
@@ -14595,7 +14587,7 @@ func (u *universe) load(ctx Context) {
         }
         defer func() {
             var prof string //= u.memProf
-            if prof == "" { prof = filepath.Join(workBaseDir, "load.mem.auto.prof") }
+            if prof == "" { prof = filepath.Join(baseWorkDir, "load.mem.auto.prof") }
             if f, e := os.Create(prof); e != nil {
                 erro(ctx, "%v", e)
             } else {
@@ -14620,7 +14612,7 @@ func (u *universe) load(ctx Context) {
         }
     } (time.Now())
 
-    spec, _ := filepath.Rel(workBaseDir, u.workdir)
+    spec, _ := filepath.Rel(baseWorkDir, u.workdir)
     l.directory(l.loader, spec, u.workdir, nil)
 
     if l.globe.main == nil {
@@ -15513,23 +15505,22 @@ func (f *tokfile) Position(p Pos) Position {
 
 // AddSpan registers a multi-byte character during scanningt.
 func (f *tokfile) AddSpan(offset, extraBytes int) {
+	t := mbInfo{ offset:offset, extra:extraBytes }
 	f.Lock()
-	f.mb = append(f.mb, mbInfo{offset: offset, extra: extraBytes})
+	f.mb = append(f.mb, t)
 	f.Unlock()
 }
 
 type fileset struct {
 	*gt.FileSet
-	sync.RWMutex
 	files map[*gt.File]*tokfile
+	sync.RWMutex
 }
 
-func _fileset() *fileset {
-	return &fileset{
-		FileSet: gt.NewFileSet(),
-		files:   make(map[*gt.File]*tokfile),
-	}
-}
+func new_fileset() *fileset { return &fileset{
+	FileSet: gt.NewFileSet(),
+	files: make(map[*gt.File]*tokfile),
+}}
 
 func (s *fileset) AddFile(filename string, base, size int) *tokfile {
 	gf := s.FileSet.AddFile(filename, base, size)
@@ -21221,7 +21212,7 @@ func (l ul) declareNew(ctx Context, pos Pos, name Symbol, filename string, opts 
 		absPath = __string(ctx, sco.finddef(symSlash))
 	}
 
-	var spec, _ = filepath.Rel(workBaseDir, absPath)
+	var spec, _ = filepath.Rel(baseWorkDir, absPath)
 
 	if l.declares == nil { l.declares = make(map[Symbol]*declare) }
 
@@ -21247,7 +21238,7 @@ func (l ul) declareNew(ctx Context, pos Pos, name Symbol, filename string, opts 
 	d.s = l.loader.scope
 
 	// name is safely passed as the scope name
-	d.scope = newscope(sco, d.project, name.String())
+	d.scope = new_scope(sco, d.project, name.String())
 	d.scope.elems[intern(".self")] = self{d.project} // Map keys in def_map must be Symbol!
 	d.scope.elems[intern(".usee")] = d.use
 	d.use.owner_ = d.project
@@ -22235,15 +22226,12 @@ func (l ul) include(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 }
 
 func (l ul) openscope(comment string) *scope {
-    if false && l.traceLaunch { defer un(l_trace(l_launch, "openscope")) }
-
     var t = &term{} ; *t = l.term
-    l.term = term{t, newscope(l.scope(), l.project, comment)}
+    l.term = term{t, new_scope(l.scope(), l.project, comment)}
     return t.scope
 }
 
 func (l ul) closescope(s *scope) {
-    if false && l.traceLaunch { defer un(l_trace(l_launch, "closescope")) }
     if x, y := l.term.Context.(*term); y {
         var ctx Context = l.loader
         if l.p != nil { ctx = pc(l.loader, l.p.pos) }
@@ -22259,15 +22247,12 @@ func (l ul) closescope(s *scope) {
 
 // project example (base(var=value))
 func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
-    if l.traceLaunch { defer un(l_trace(l_launch, "ul.bases")) }
-
-    // For &(foobar) set from command line args
-    if true { ctx = closure_with(ctx, l.scope) }
-
     var implicitBases []Value
 
-    if f := _stat(ctx, dot_base, l.project) ; f != nil {
-        if !f.info.IsDir() && (l.project.spec == symDotBase /*|| l.project.spec == symDotConfigure*/) {
+    if true { ctx = closure_with(ctx, l.scope) }
+
+    if f := _stat(ctx, dot_base, l.project); f != nil {
+        if !f.info.IsDir() && l.project.spec == symDotBase {
             // skip the regular file .base to avoid self loading recursively
         } else {
             implicitBases = append(implicitBases, f)
@@ -22701,7 +22686,7 @@ func (l ul) parseConfigDir(ctx Context, pathname, linked string) (err error) {
         erro(ctx, "invalid package name %s", ident)
     }
 
-	var sof, _ = filepath.Rel(workBaseDir, pathname)
+	var sof, _ = filepath.Rel(baseWorkDir, pathname)
     defer l.closescope(l.openscope(bases(2, sof, true)))
 
     var scope = l.scope()
@@ -22871,7 +22856,7 @@ func (l ul) directory(ctx Context, spec, absDir string, filter func(os.FileInfo)
         ctx = lo.loader
     }
 
-	var sof, _ = filepath.Rel(workBaseDir, absDir)
+	var sof, _ = filepath.Rel(baseWorkDir, absDir)
     defer lo.closescope(lo.openscope(bases(2, sof, true)))
     defer lo.saveConfiguration(ctx)
 
@@ -23800,7 +23785,7 @@ func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string)
             if true || gc.debug>0 {
                 debug(ctx, "touch %v → %v (%v)", gc.target, file, tv, callstack{num:gc.debug})
             }
-            tv = launchTime //time.Now() // ...
+            tv = _universe(ctx).launchTime //time.Now()
             if err, tt = os.Chtimes(gc.targetFullName, tv, tv), tv; err != nil {
                 erro(ctx, "chtimes failed: %v", err)
             }
@@ -28405,7 +28390,7 @@ func (ctx *__subst) x() (_ any) {
     return res
 }
 
-func coupleval(ctx Context, v Value, str string) (_ Value) {
+func coupleVal(ctx Context, v Value, str string) (_ Value) {
 	// Use unbox just in case v is wrapped in *loc or *argumented
 	switch unbox(v).(type) { 
 	case *strlit, *strcomp:
@@ -28502,7 +28487,7 @@ func (ctx *__patsubst) x() (_ any) {
 				// TIER 3: If VFS totally rejects it, degrade to a pure string substitution
 				if dst == nil {
 					if str != "" {
-						res = append(res, coupleval(pc(ctx, dstPat), src, str))
+						res = append(res, coupleVal(pc(ctx, dstPat), src, str))
 					}
 					continue // Safely move to next pattern
 				}
@@ -28516,8 +28501,8 @@ func (ctx *__patsubst) x() (_ any) {
 				}
 			} else {
 				if str := __string(ctx, val); str != "" {
-					// Uses the coupleval function for standard string replacements
-					res = append(res, coupleval(pc(ctx, dstPat), src, str))
+					// Uses the coupleVal function for standard string replacements
+					res = append(res, coupleVal(pc(ctx, dstPat), src, str))
 				}
 			}
 		}

@@ -328,54 +328,6 @@ func split_dir_lc(dir, lc string) (s string) {
 	return
 }
 
-type testcase_erros struct{ string; int }
-func (t *testcase_erros) Error() string {
-	return fmt.Sprintf("%d errors in test case `%s`", t.int, t.string)
-}
-
-func loadcase(t *testing.T, dir, spec, name string, ii ...any) (res *testcase) {
-	if !filepath.IsAbs(dir) { dir = filepath.Join(workBaseDir, dir) }
-	if _, e := os.Stat(dir); e != nil { panic(e) }
-
-	if false { fmt.Printf("%s: testcase: %s %s\n", dir, name, spec) }
-
-	ctx := new_universe(ii...)
-	ctx.statcache = make(map[string]*filebase) // must reset the statcache
-	ctx.panicFailureOnFlushedErrors = false
-	ctx.globe.main = nil
-	ctx.workdir = dir
-
-	if false { defer func() {
-		if ctx.flush(ctx); ctx.erros > 0 || diagCount(ctx, diagError) > 0 {
-			var s = name
-			if s == "" { s = spec }
-			if s == "" { s = dir }
-			panic(&testcase_erros{s, ctx.erros + diagCount(ctx, diagError)})
-		}
-	}()}
-
-	if !test_mode {
-		debug(ctx, "not test mode", trace{})
-	}
-
-	if testHasModule("configure") && !ctx.paths.has(modules_s) {
-		ctx.paths = append(ctx.paths, modules_s)
-	}
-
-	res = &testcase{ctx, t, spec, make(map[string]struct{})}
-
-	ctx.load(res)
-
-	if m := ctx.globe.main; m == nil {
-		debug(ctx, "%s", dir, trace{})
-	} else if name != "" && m.name.String() != name {
-		debug(ctx, "project %v != %v", m.name, name, trace{})
-	} else {
-		res.Context = closure_with(ctx, m)
-	}
-	return
-}
-
 func (tc *testcase) inner() Context { return tc.Context }
 func (tc *testcase) cast(t reflect.Type) Context { return icast(tc,t) }
 func (tc *testcase) ts(string) string { return "{=test "+tc.spec+" "+ts(tc.Context)+"}" }
@@ -519,8 +471,48 @@ func testRemoveConfigureDir(ctx *testcase, p *project) {
 	for _, base := range p.bases { testRemoveConfigureDir(ctx, base) }
 }
 
+type testcase_erros struct{ string; int }
+func (t *testcase_erros) Error() string {
+	return fmt.Sprintf("%d errors in test case `%s`", t.int, t.string)
+}
+
+func loadcase(t *testing.T, spec, name string, ii ...any) (res *testcase) {
+	dir := filepath.Join(baseWorkDir, "testdata", spec)
+	ctx := new_universe(append(ii, set_workdir{dir})...)
+
+	if false { defer func() {
+		if ctx.flush(ctx); ctx.erros > 0 || diagCount(ctx, diagError) > 0 {
+			var s = name
+			if s == "" { s = spec }
+			if s == "" { s = dir }
+			panic(&testcase_erros{s, ctx.erros + diagCount(ctx, diagError)})
+		}
+	}()}
+
+	if !test_mode {
+		debug(ctx, "not test mode", trace{})
+	}
+
+	if testHasModule("configure") && !ctx.paths.has(modules_s) {
+		ctx.paths = append(ctx.paths, modules_s)
+	}
+
+	res = &testcase{ctx, t, spec, make(map[string]struct{})}
+
+	ctx.load(res)
+
+	if m := ctx.globe.main; m == nil {
+		debug(ctx, "%s", dir, trace{})
+	} else if name != "" && m.name.String() != name {
+		debug(ctx, "project %v != %v", m.name, name, trace{})
+	} else {
+		res.Context = closure_with(ctx, m)
+	}
+	return
+}
+
 func runcase(t *testing.T, name, spec string, f testcase_f0, ii ...any) {
-	ctx := loadcase(t, "testdata/"+spec, spec, name, ii...)
+	ctx := loadcase(t, spec, name, ii...)
 
 	if false { defer func() {
 		if e := recover(); e != nil {
@@ -951,7 +943,7 @@ project foo
 include modules/*.smart
 `)
     filename := filepath.Join("test", "TestPositionExample")
-    fs := _fileset()
+    fs := new_fileset()
     f := fs.AddFile(filename, fs.Base(), len(src))
     f.SetLinesForContent(src)
     if x := f.LineCount(); x < 2 {
