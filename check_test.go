@@ -480,6 +480,8 @@ func loadcase(t *testing.T, spec, name string, ii ...any) (res *testcase) {
 	dir := filepath.Join(baseWorkDir, "testdata", spec)
 	ctx := new_universe(append(ii, set_workdir{dir})...)
 
+	// TODO: set specific test/.smart/modules to avoid conflicts with production .smart/modules
+
 	if false { defer func() {
 		if ctx.flush(ctx); ctx.erros > 0 || diagCount(ctx, diagError) > 0 {
 			var s = name

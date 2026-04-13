@@ -10102,10 +10102,17 @@ const (
 	symDotBase      // .base
 	symDotConfigure // .configure
 	symDotContainer // .container
+	symOS        // os
+	symMode      // mode
+	symGoals     // goals
+	symSmart     // smart
 
 	symCWD // Current Work Directory, aliases `$/`
 	symCRD // Current Relative Directory, aliases `$.`
 	symCTD // Current Temp Directory, aliases `$,`
+	symSMART      // aka os.Args[0]
+	symSMART_ARGS // aka os.Args[1:]
+
 	symTrue
 	symFalse
 	symYes
@@ -10309,6 +10316,8 @@ const (
 	symWildcard
 	symReadDir
 	symPrintf
+	symClean
+
 	symChdir
 	symRename
 	symRemove
@@ -10328,8 +10337,11 @@ const (
 var coreSymbols = []string{
 	"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 	"_", "-", "$", "&", "@", "|", "^", "<", ">", "%", "*", "?", "**", "*?", "+", "~",
-	"/", ",", ".", "..", dot_base, dot_configure, dot_container,
-	"CWD", "CRD", "CTD", "true", "false", "yes", "no", "on", "off",
+	"/", ",", ".", "..", dot_base, dot_configure, dot_container, "os", "mode", "goals", "smart",
+
+	"CWD", "CRD", "CTD", "SMART", "SMART_ARGS",
+
+	"true", "false", "yes", "no", "on", "off",
 
 	"shell", "python", "perl", "dock", "plain", "plainline", "text", "json", "xml", "yaml",
 	"assert", "append", "eval", "value", "configure",
@@ -10355,7 +10367,7 @@ var coreSymbols = []string{
 	"base", "base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "bases", "chopdir",
 	"dir", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9", "dirs",  
 	"undir", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9", "undirs",
-	"reldir", "relative-dir", "file", "stat", "wildcard", "read-dir", "printf",
+	"reldir", "relative-dir", "file", "stat", "wildcard", "read-dir", "printf", "clean",
 	"chdir", "rename", "remove", "link", "symlink", "truncate", "return", "serve-http",
 }
 
@@ -14050,43 +14062,52 @@ func positionForDir(dir string) (pos Position) {
     return
 }
 
-func (ctx *universe) loadSeachPaths(s string) (paths []string) {
-    var f, err = os.Open(filepath.Join(s, ".search"))
-    if err != nil { return }
+func (ctx *universe) loadSearchPaths(s string) (paths []string) {
+	// 1. Bulk I/O: Read the entire file at once instead of line-by-line syscalls
+	data, err := os.ReadFile(filepath.Join(s, ".search"))
+	if err != nil {
+		return // File doesn't exist or can't be read, return nil
+	}
 
-    defer f.Close()
+	// Iterate over bytes directly to avoid string allocations for comments/blank lines
+	lines := bytes.Split(data, []byte{'\n'})
+	
+	// Pre-allocate paths slice to minimize dynamic array resizing
+	paths = make([]string, 0, len(lines))
 
-    for r := bufio.NewReader(f); err == nil; {
-        var fi os.FileInfo
-        var line string
-        if line, err = r.ReadString('\n'); err != nil {
-            if err != io.EOF {
-                fmt.Fprintf(stderr, "%v", err)
-            } else {
-                err = nil
-                if line == "" { break }
-            }
-        } else {
-            line = strings.TrimSpace(line)
-        }
+	for _, bLine := range lines {
+		// Fast in-place byte trimming
+		bLine = bytes.TrimSpace(bLine)
+		
+		// Zero-allocation checks for empty lines and comments
+		if len(bLine) == 0 || bLine[0] == '#' {
+			continue
+		}
 
-        if strings.HasPrefix(line, "#") { continue }
+		// Only allocate a string once we know it's a valid path payload
+		line := string(bLine)
 
-        if filepath.IsAbs(line) {
-            line = filepath.Clean(line)
-        } else {
-            line = filepath.Clean(filepath.Join(s, line))
-        }
+		if filepath.IsAbs(line) {
+			line = filepath.Clean(line)
+		} else {
+			// PERF: filepath.Join inherently calls filepath.Clean internally. 
+			// Doing Clean(Join()) was doing double-work.
+			line = filepath.Join(s, line)
+		}
 
-        if fi, err = os.Stat(line); err == nil && fi.IsDir() {
-            ctx.paths = append(ctx.paths, line)
-        }
-    }
+		// Syscall: Stat the file to ensure it's a directory
+		if fi, err := os.Stat(line); err == nil && fi.IsDir() {
+			paths = append(paths, line)
+		}
+	}
 
-    if err != nil {
-        fmt.Fprintf(stderr, "%v: %v", f, err)
-    }
-    return
+	// Bugfix: The original code appended to ctx.paths but returned an empty `paths` slice.
+	// This safely updates the context AND returns the discovered paths.
+	if len(paths) > 0 {
+		ctx.paths = append(ctx.paths, paths...)
+	}
+
+	return paths
 }
 
 type main_ctx struct{ Context }
@@ -14216,7 +14237,6 @@ type universe struct {
     workdir string
     prefix  string // FIXME: prefix for distribution
     paths   searchlist
-    packages  map[string]packageinfo
     statcache map[string]*filebase // file.fullname() -> File
     statmutex sync.Mutex
 
@@ -14391,11 +14411,10 @@ func new_universe(ii ...any) (ctx *universe) {
 	}
 	if cl { ctx.commandline = _commandline() }
 
-	var bin  = ease(ctx, os.Args[0])
+	var arg0  = ease(ctx, os.Args[0])
 	var args = ease(ctx, os.Args[1:])
-	ctx.scope.def(ctx, defVoid, intern("SMART.ARGS"), args)
-	ctx.scope.def(ctx, defVoid, intern("SMART.BIN"),  bin)
-	ctx.scope.def(ctx, defVoid, intern("SMART"),      bin)
+	ctx.scope.def(ctx, defVoid, symSMART,      arg0)
+	ctx.scope.def(ctx, defVoid, symSMART_ARGS, args)
 
 	for name, f := range builtins {
 		if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
@@ -14418,22 +14437,20 @@ func new_universe(ii ...any) (ctx *universe) {
     ctx.globe.goals = ctx.globe.def(ctx, defVoid, intern(".goals"), _none(pos))
     ctx.globe.mode  = ctx.globe.def(ctx, defVoid, intern(".mode"),  _null(pos))
 
-    var modulesPaths, packagePaths searchlist
+    var modulesPaths searchlist
     walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
         if baseTmpPath == "" { baseTmpPath = s }
-        packagePaths = append(packagePaths, filepath.Join(s, ".smart", "packages"))
         modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
         return true
     })
 
-    var userLib = filepath.Join(ctx.prefix, "user", "lib", "smart")
-    packagePaths = append(packagePaths, filepath.Join(userLib, "packages"))
+    var userLib = filepath.Join(ctx.prefix, "usr", "lib", "smart") // e.g. /usr/lib/smart
     modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
 
     // make sure that .smart dirs have higher priority.
     ctx.paths = append(modulesPaths, ctx.paths...)
 
-    for _, s := range modulesPaths { ctx.loadSeachPaths(s) }
+    for _, s := range modulesPaths { ctx.loadSearchPaths(s) }
     return
 }
 
@@ -14536,7 +14553,7 @@ func (l ul) parseArgs(base string, a ...string) {
         case *pair: l.globe.pairs = append(l.globe.pairs, t)
         case  flag: l.globe.flags = append(l.globe.flags, t)
             if s := __string(l.universe, t.Value); s == "clean" {
-                mode.pos, mode.s = t.Pos(), intern("clean") 
+                mode.pos, mode.s = t.Pos(), symClean 
             }
         case *argumented:
             l.globe.args[t.Value] = t.args
@@ -14550,7 +14567,7 @@ func (l ul) parseArgs(base string, a ...string) {
         }
     }
 
-    if mode.s == symEmpty { mode.s = intern("goals") }
+    if mode.s == symEmpty { mode.s = symGoals }
 
     l.globe.mode.value = mode
 }
