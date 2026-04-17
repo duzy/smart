@@ -37,6 +37,16 @@ type testcase1  struct{ *testcase ; i any }
 type test_arg   struct{ name string; val any }
 type test_final struct{}
 
+var resourceDir = func() (res string) {
+	var bufout, buferr bytes.Buffer
+	sh := exec.Command("clang", "--print-resource-dir")
+	sh.Stdout, sh.Stderr = &bufout, &buferr
+	if sh.Run() == nil { res = strings.TrimSpace(bufout.String()) }
+	bufout.Reset()
+	buferr.Reset()
+	return
+}()
+
 // Unix Name Properties (works for all Unix platforms: Linux, macOS, etc.)
 // uname.all       != uname -a # --all
 // uname.os        != uname -o # --operating-system  - the operating system name
@@ -55,27 +65,28 @@ var uname = func() (res []string) {
 	bufout.Reset()
 	buferr.Reset()
 	return
-} ()
+}()
 
-var uname_release = strings.Split(uname[1], ".")
-
-var triple = sf("%s-apple-%s%s-macho", uname[2], uname[0], uname[1]) //"arm64-apple-Darwin25.4.0-macho"
-var workout_s = "/Volumes/workout"
-var workspace_s = "/Volumes/workspace"
-var modules_s = workspace_s+"/.smart/modules"
-var modules_l = strings.Split(modules_s, pathSep)
-var modules_a = strings.Join(modules_l, " ")
-var modules_i = func() int {
-	for i, s := range modules_l { if s == "modules" { return i } }
-	return -1
-} ()
+// var uname_release = strings.Split(uname[1], ".") // "arm64-apple-Darwin25.4.0-macho"
+var triple = sf("%s-apple-%s%s-macho", uname[2], uname[0], uname[1])
 
 var test_mode bool
-var testdata_s = testdata_dir()
+var testdata_s = filepath.Join(dirs(1,get_filename(1)), "testdata")
 var testdata_l = strings.Split(testdata_s, pathSep)
 var testdata_a = strings.Join(testdata_l, " ")
 var testdata_i = func() int {
 	for i, s := range testdata_l { if s == "testdata" { return i } }
+	return -1
+}()
+
+var workspace_s = dirs(5,get_filename(1))
+var workext_s = filepath.Join(workspace_s, "external")
+var workout_s = filepath.Join(filepath.Dir(workspace_s), "workout")
+var modules_s = filepath.Join(testdata_s, ".smart", "modules")
+var modules_l = strings.Split(modules_s, pathSep)
+var modules_a = strings.Join(modules_l, " ")
+var modules_i = func() int {
+	for i, s := range modules_l { if s == "modules" { return i } }
 	return -1
 } ()
 
@@ -310,9 +321,6 @@ func testdata_m(a ...any) (m map[string]any) {
 	return m
 }
 
-func testdata_dir() string {
-    return filepath.Join(filepath.Dir(get_filename(1)), "testdata")
-}
 func split_dir_lc(dir, lc string) (s string) {
 	var ss = strings.Split(dir, pathSep)
 	for i, t := range ss {
@@ -6244,9 +6252,9 @@ func test__join(ctx *testcase) {
 		ctx.err("val3")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "&(target.arch)-&(target.vendor)-&(target.os)-&(target.abi)"; s != t {
+	} else if s, t := v.String(), "{=join (-) &(target.arch) &(target.vendor) &(target.os) &(target.abi)}"; s != t {
 		ctx.err("%s != %s", s, t, d.pos)
-	} else if s, t := __string(src(ctx,d), v), "foo-bar--0"; s != t {
+	} else if s, t := __string(src(ctx,d), v), "foo-bar-0"; s != t {
 		ctx.err("%s != %s", s, t, d.pos)
 	}
 
@@ -6254,7 +6262,7 @@ func test__join(ctx *testcase) {
 		ctx.err("val4")
 	} else if v := d.value; v == nil {
 		ctx.err("%v", d)
-	} else if s, t := v.String(), "{{&(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi)}-}"; s != t {
+	} else if s, t := v.String(), "{=join (-) &(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi)}"; s != t {
 		ctx.err("%s != %s", s, t, d.pos)
 	} else if s, t := __string(src(ctx,d), v), "foo-bar-0"; s != t {
 		ctx.err("%s != %s", s, t, d.pos)
@@ -8013,7 +8021,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		ctx.err("%v", &proj.entries)
 	}
 
-	if w := joinpath(modules_s, "configure"); proj.configure.absPath != w {
+	if w := joinPathSegs(modules_s, "configure"); proj.configure.absPath != w {
 		ctx.err("%v.%v: %s != %s", proj, proj.configure, proj.configure.absPath, w)
 	} else if len(proj.configure.bases) != 1 {
 		ctx.err("%v", proj.configure.bases)
@@ -8033,13 +8041,13 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 
 	if workout = proj.configure.resolveDef(ctx, intern("workout")); workout == nil || workout.value == nil {
 		ctx.err("%v", tst{workout})
-	} else if workout.value.String() != joinpath(filepath.Dir(ws), "workout") {
+	} else if workout.value.String() != joinPathSegs(filepath.Dir(ws), "workout") {
 		ctx.err("%v", tst{workout})
 	}
 
 	if workext := proj.configure.resolveDef(ctx, intern("workext")); workext == nil || workext.value == nil {
 		ctx.err("%v", tst{workext})
-	} else if workext.value.String() != joinpath(ws, "external") {
+	} else if workext.value.String() != joinPathSegs(ws, "external") {
 		ctx.err("%v", tst{workext})
 	}
 
@@ -8161,7 +8169,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 			ctx.err("tempdir: %s != %s (%v)", t, outtmp, d)
 		}
 
-		confsm = joinpath(outtmp, configuration_sm)
+		confsm = joinPathSegs(outtmp, configuration_sm)
 	}
 
 	if _, y := ctx.srcs[confsm]; y {
@@ -8316,14 +8324,14 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 
 	if x := proj.resolveDef(ctx, intern("outtmp")); x == nil { // $//tmp
 		ctx.err("%v", proj)
-	} else if s, t := __string(ctx, x.value), joinpath(proj.absPath, "tmp"); s != t { // $//tmp
+	} else if s, t := __string(ctx, x.value), joinPathSegs(proj.absPath, "tmp"); s != t { // $//tmp
 		ctx.err("%v : {=%v %v} : %s != %s", proj, typeof(x.value), x.value, s, t)
-	} else if t := joinpath(_workdir(ctx), "tmp"); s != t { // $//tmp
+	} else if t := joinPathSegs(_workdir(ctx), "tmp"); s != t { // $//tmp
 		ctx.err("%v : {=%v %v} : %s != %s", proj, typeof(x.value), x.value, s, t)
 	} else if p, y := x.value.(*path); !y {
 		ctx.err("%v : {=%v %v}", proj, typeof(x.value), x.value)
-	} else if !strings.HasSuffix(__string(ctx, p), joinpath("", spec, "tmp")) { // $//tmp
-		ctx.err("%v : %v (%s)", proj, p, joinpath("", spec, "tmp"))
+	} else if !strings.HasSuffix(__string(ctx, p), joinPathSegs("", spec, "tmp")) { // $//tmp
+		ctx.err("%v : %v (%s)", proj, p, joinPathSegs("", spec, "tmp"))
 	} else if __string(ctx, x.value) != __string(closure_with(ctx, proj.configure), x.value) {
 		ctx.err("%v : %v", proj, x.value)
 	} else if o := proj.configure.resolveDef(ctx, intern("outtmp")); o == nil || o.value == nil { // &(target.tmp)/&(rel.remnant)
@@ -8332,7 +8340,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		ctx.err("%v: %v == %v", proj, o, x)
 	} else {
 		outtmp = __string(ctx, x) // //tmp
-		confsm = joinpath(outtmp, configuration_sm)
+		confsm = joinPathSegs(outtmp, configuration_sm)
 	}
 
 	if _, y := ctx.srcs[confsm]; y {
@@ -8366,7 +8374,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		}
 	}
 
-	if joinpath(modules_s, "configure") != proj.configure.absPath {
+	if joinPathSegs(modules_s, "configure") != proj.configure.absPath {
 		ctx.err("%v", proj)
 	} else if o := proj.configure.resolve(ctx, intern("configure.cc")); o == nil {
 		ctx.err("%v", proj.configure)
@@ -8901,13 +8909,13 @@ func testVariantTargetVars1(ctx *testcase) {
 		if loaded[spec] = p; false { debug(pc(ctx,s), "%s", spec) }
 	}
 	for _, s := range []string {
-		"general",
-		"variant/.target/.base",
-		"variant/.target/darwin",
-		"variant/.target/darwin/arm64",
-		"variant/.target",
-		"variant",
-		"variant/bootstrap",
+		"testdata/.smart/modules/general",
+		"testdata/.smart/modules/variant/.target/.base",
+		"testdata/.smart/modules/variant/.target/darwin",
+		"testdata/.smart/modules/variant/.target/darwin/arm64",
+		"testdata/.smart/modules/variant/.target",
+		"testdata/.smart/modules/variant",
+		"testdata/.smart/modules/variant/bootstrap",
 		"testdata/modules/target",
 		"testdata/modules/target/arm64-darwin",
 	}{ if _, ok := loaded[s]; !ok { debug(ctx, "%s", s, trace{}) } }
@@ -10826,8 +10834,8 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if i := strings.Index(outtmp, "/testdata/"); i <= 0 {
 		ctx.err("%v: %v → %v", proj, outtmp_val, outtmp)
 	} else if !strings.HasSuffix(proj.absPath, outtmp[i:]) {
-		note(ctx, "%v: %v (%v, %v)", proj, proj.absPath, proj.spec, proj.rel)
-		ctx.err("%v: %v → %v", proj, outtmp_val, outtmp)
+		ctx.err("%v: %v → %v", proj, outtmp_val, outtmp,
+			_f("%v: %v (%v, %v)", proj, proj.absPath, proj.spec, proj.rel))
 	}
 
 	s = "root1"
@@ -11011,10 +11019,10 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: %s != %s", v, s, t)
 	} else if __string(ctx, v) == c.fullname() {
 		ctx.err("%v: %v", proj, base)
-	} else if __string(ctx, v) != joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", v, __string(ctx, v))
-		note(ctx, "%v: %v/%v", v, outtmp, configuration_sm)
-		ctx.err("%v: different (%v)", v, proj)
+	} else if __string(ctx, v) != joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different (%v)", v, proj,
+			_f("%v: %v", v, __string(ctx, v)),
+			_f("%v: %v/%v", v, outtmp, configuration_sm))
 	}
 
 	s = "val2"
@@ -11028,10 +11036,10 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v", tst{v})
 	} else if f.fullname() == c.fullname() {
 		ctx.err("%v: %v", proj, base)
-	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", v, f.fullname())
-		note(ctx, "%v: %v/%v", v, outtmp, configuration_sm)
-		ctx.err("%v: different (%v)", v, proj)
+	} else if f.fullname() != joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different (%v)", v, proj,
+			_f("%v: %v", v, f.fullname()),
+			_f("%v: %v/%v", v, outtmp, configuration_sm))
 	}
 
 	var srcinc string
@@ -11066,9 +11074,9 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if _, y := v2.(*path); !y {
 		ctx.err("%v: %v", proj.name, tst{v2})
 	} else if s1, s2 := __string(ctx,v1), __string(ctx,v2); s1 != s2 {
-		note(ctx, "%v: %s", proj.name, s1)
-		note(ctx, "%v: %s", proj.name, s2)
-		ctx.err("%v: %v != %v", proj.name, tst{v1}, tst{v2})
+		ctx.err("%v: %v != %v", proj.name, tst{v1}, tst{v2},
+			_f("%v: %s", proj.name, s1),
+			_f("%v: %s", proj.name, s2))
 	}
 
 	s = "val4"
@@ -11089,9 +11097,9 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if _, y := v2.(*path); false && !y {
 		ctx.err("%v: %v", proj.name, tst{v2})
 	} else if s1, s2 := __string(ctx,v1), __string(ctx,v2); s1 != s2 {
-		note(ctx, "%v: %s", proj.name, s1)
-		note(ctx, "%v: %s", proj.name, s2)
-		ctx.err("%v: %v != %v", proj.name, tst{v1}, tst{v2})
+		ctx.err("%v: %v != %v", proj.name, tst{v1}, tst{v2},
+			_f("%v: %s", proj.name, s1),
+			_f("%v: %s", proj.name, s2))
 	}
 
 	if f := proj.file(closure_with(ctx.Context, proj), configuration_sm); f == nil {
@@ -11110,11 +11118,11 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: nil %s", proj, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", f, f.fullname())
-		note(ctx, "%v: %v", x, x.fullname())
-		note(ctx, "%v: %v/%v", f, outtmp, configuration_sm)
-		ctx.err("%v: different (%s)", f, proj.absPath)
+	} else if f.fullname() != joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different (%s)", f, proj.absPath,
+			_f("%v: %v", f, f.fullname()),
+			_f("%v: %v", x, x.fullname()),
+			_f("%v: %v/%v", f, outtmp, configuration_sm))
 	}
 
 	if f := base.file(closure_with(ctx.Context, proj), configuration_sm); f == nil {
@@ -11133,10 +11141,10 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: nil %s", base, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", f, f.fullname())
-		note(ctx, "%v: %v/%v", f, outtmp, configuration_sm)
-		ctx.err("%v: different (%s)", f, proj.absPath)
+	} else if f.fullname() != joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different (%s)", f, proj.absPath,
+			_f("%v: %v", f, f.fullname()),
+			_f("%v: %v/%v", f, outtmp, configuration_sm))
 	}
 
 	if f := proj.tempfile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
@@ -11155,10 +11163,10 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: nil %s", proj, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", f, f.fullname())
-		note(ctx, "%v: %v/%v", f, outtmp, configuration_sm)
-		ctx.err("%v: different (%s)", f, proj.absPath)
+	} else if f.fullname() != joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different (%s)", f, proj.absPath,
+			_f("%v: %v", f, f.fullname()),
+			_f("%v: %v/%v", f, outtmp, configuration_sm))
 	}
 
 	if f := base.tempfile(closure_with(ctx.Context, proj), configuration_sm); f == nil {
@@ -11177,10 +11185,10 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: nil %s", base, configuration_sm)
 	} else if f.fullname() == x.fullname() {
 		ctx.err("%v: %v %v", f, f.fullname(), x.fullname())
-	} else if f.fullname() != joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", f, f.fullname())
-		note(ctx, "%v: %v/%v", f, outtmp, configuration_sm)
-		ctx.err("%v: different (%s)", f, proj.absPath)
+	} else if f.fullname() != joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different (%s)", f, proj.absPath,
+			_f("%v: %v", f, f.fullname()),
+			_f("%v: %v/%v", f, outtmp, configuration_sm))
 	}
 
 	if f := base.configuration_sm(closure_with(ctx.Context, base.configure)); f == nil {
@@ -11194,13 +11202,13 @@ func testLLVMConfig1(ctx *testcase) {
 	} else if !filepath.IsAbs(c.fullname()) {
 		ctx.err("%v: %v", f.name, base)
 	} else if false && f.fullname() != c.fullname() {
-		note(ctx, "%v: %v", f.name, f.fullname())
-		note(ctx, "%v: %v", c.name, c.fullname())
-		ctx.err("%v: %v", f.name, proj)
-	} else if false && f.fullname() == joinpath(outtmp, configuration_sm) {
-		note(ctx, "%v: %v", f.name, f.fullname())
-		note(ctx, "%v: %v/%v", f.name, outtmp, configuration_sm)
-		ctx.err("%v: different", f.name)
+		ctx.err("%v: %v", f.name, proj,
+			_f("%v: %v", f.name, f.fullname()),
+			_f("%v: %v", c.name, c.fullname()))
+	} else if false && f.fullname() == joinPathSegs(outtmp, configuration_sm) {
+		ctx.err("%v: different", f.name,
+			_f("%v: %v", f.name, f.fullname()),
+			_f("%v: %v/%v", f.name, outtmp, configuration_sm))
 	}
 
 	// configure(&exec_check{unmap_uncheck_ctx{ctx},

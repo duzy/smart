@@ -7,8 +7,7 @@
 
 package smart
 
-// NOTE: cannot decalre `checkpoints` as `const` because it's compile-time evaled.
-var checkpoints = false
+const checkpoints = false
 
 func check__string_com(_ Context, _ *compound, _ Value) {}
 func check_prefix(_ Context, _ string, _, _ Value, _ *Value) {}

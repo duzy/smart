@@ -634,8 +634,8 @@ func splitpath(ctx Context, a any) (ss []string) {
 	return
 }
 
-// joinpath is different from filepath.Join, which trims and discards empty segments
-func joinpath(segs ...string) string { return strings.Join(segs, pathSep) }
+// joinPathSegs is different from filepath.Join, which trims and discards empty segments
+func joinPathSegs(segs ...string) string { return strings.Join(segs, pathSep) }
 func joinp(ctx Context, a any) string { s, _ := _joinpath(ctx, a); return s }
 func _joinpath(ctx Context, a any) (s string, ss []string) {
 	ss = splitpath(ctx, a)
@@ -1110,6 +1110,7 @@ func hash(ctx Context, x Value) (u uint64) {
 	case *pair: return fnv1(ctx, p, p.key, p.val)
 	case *escaped: return fnv1(ctx, p, p.s)
 	case *disjunction: return fnv1(ctx, p.kind(), p.val)
+	case *conjunction: return fnv1(ctx, p.kind(), p.sep, p.list)
 	case *barefile: return fnv1(ctx, p.kind(), p.Value)
 	case *globrange: return fnv1(ctx, p.kind(), p.Value)
 	case *globmeta: return fnv1(ctx, p.kind(), p.token.String())
@@ -1136,7 +1137,6 @@ func hash(ctx Context, x Value) (u uint64) {
 	case flag: return fnv1(ctx, p, p.Value.kind(), p.Value)
 	case fullname: return fnv1(ctx, p, p.Value)
 	case negative: return fnv1(ctx, p, p.Value)
-	case conjunction: return fnv1(ctx, p.kind(), p.sep, p.list)
 	}
 	return fnv1(ctx, x.kind(), x)
 }
@@ -1801,6 +1801,22 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		default: return &pair{tx.key, prefix(ctx, tx.val, y)}
 		}
 	case *path:
+		switch ty := y.(type) {
+		case *path:
+			if len(ty.elems) > 0 {
+				if _, ok := ty.elems[0].(*punct); ok {
+					tail := ty.elems[1:]
+					if len(tail) == 0 {
+						tail = []Value{&word{valbase{ty.Pos()}, symEmpty}}
+					}
+					return &path{elements{append(dup(tx.elems), tail...)}}
+				}
+				fused := prefix(ctx, tx.elems[len(tx.elems)-1], ty.elems[0])
+				res := append(dup(tx.elems[:len(tx.elems)-1]), fused)
+				return &path{elements{append(res, ty.elems[1:]...)}}
+			}
+			return tx
+		}
 		return &path{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
 	case *globpat:
 		switch ty := y.(type) {
@@ -1809,16 +1825,30 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		default: return &globpat{elements{append(tx.elems, y)}}
 		}
 	case *percpat: 
-		// CRITICAL FIX: Left-hand Smart Fusion
 		return &percpat{tx.valbase, tx.Prefix, prefix(ctx, tx.Suffix, y)}
 	case *compound:
 		switch ty := y.(type) {
-		case *path: return &path{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
+		case *path: 
+			if len(ty.elems) > 0 {
+				if _, ok := ty.elems[0].(*punct); ok {
+					tail := ty.elems[1:]
+					if len(tail) == 0 {
+						tail = []Value{&word{valbase{ty.Pos()}, symEmpty}}
+					}
+					return &path{elements{append([]Value{tx}, tail...)}}
+				}
+				return &path{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
+			}
+			return tx
 		case *compound: return &compound{elements{append(tx.elems, ty.elems...)}}
 		case *globpat: return &globpat{elements{append(tx.elems, ty.elems...)}}
-		case *qualword: // CRITICAL FIX: Compound + qualword fusion!
+		case *qualword: 
 			if len(ty.elems) == 0 { return tx }
-			return &qualword{elements{append([]Value{prefix(ctx, tx, ty.elems[0])}, ty.elems[1:]...)}}
+			// CRITICAL FIX 1: Allow the qualword to attach to the INNERMOST element of the compound
+			if i := len(tx.elems)-1; 0 <= i {
+				return &compound{elements{append(dup(tx.elems[:i]), prefix(ctx, tx.elems[i], ty))}}
+			}
+			return tx
 		}
 		if i := len(tx.elems)-1; 0 <= i {
 			switch t := tx.elems[i].(type) {
@@ -1829,20 +1859,24 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 			}
 		}
 		return &compound{elements{append(dup(tx.elems), y)}}
-	case *qualword: // CRITICAL FIX: Left-hand qualword fusion!
+	case *qualword: 
 		if len(tx.elems) == 0 { return y }
 		switch ty := y.(type) {
-		case *qualword: // qualword + qualword
+		case *qualword: 
 			if len(ty.elems) == 0 { return tx }
+			// CRITICAL FIX 2: If the last element is complex (like a compound), pass the ENTIRE right-hand qualword into it!
+			switch tx.elems[len(tx.elems)-1].(type) {
+			case *compound, *path, *globpat, *percpat:
+				return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], ty))}}
+			}
+			// Otherwise flatten the qualwords normally
 			return &qualword{elements{append(append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], ty.elems[0])), ty.elems[1:]...)}}
 		case *punct: 
-			// CRITICAL FIX: Do not let the qualword "swallow" the punctuation (e.g., .H + >)
-			// EXCEPT for TILDE (~), which acts as an internal name separator and must bind tightly!
 			if ty.token == TILDE {
 				return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
 			}
 			return &compound{elements{[]Value{tx, ty}}}
-		default: // qualword + scalar
+		default: 
 			return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
 		}
 	}
@@ -1863,16 +1897,46 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		case *valbase, *null, *none, nil: 
 			return &percpat{ty.valbase, ty.Prefix, ty.Suffix}
 		default: 
-			// CRITICAL FIX: Right-hand Smart Fusion
 			return &percpat{ty.valbase, prefix(ctx, x, ty.Prefix), ty.Suffix}
 		}
-	case *qualword: // CRITICAL FIX: Right-hand qualword fusion!
+	case *qualword: 
 		if len(ty.elems) == 0 { return x }
-		return &qualword{elements{append([]Value{prefix(ctx, x, ty.elems[0])}, ty.elems[1:]...)}}
+		// CRITICAL FIX: If the qualword starts with a placeholder, x replaces it!
+		switch ty.elems[0].(type) {
+		case *valbase, *null, *none, nil:
+			res := dup(ty.elems)
+			res[0] = x
+			return &qualword{elements{res}}
+		default:
+			return &qualword{elements{append([]Value{prefix(ctx, x, ty.elems[0])}, ty.elems[1:]...)}}
+		}
+	case *path:
+		if len(ty.elems) > 0 {
+			if _, ok := ty.elems[0].(*punct); ok {
+				tail := ty.elems[1:]
+				if len(tail) == 0 {
+					tail = []Value{&word{valbase{ty.Pos()}, symEmpty}}
+				}
+				return &path{elements{append([]Value{x}, tail...)}}
+			}
+			// CRITICAL FIX: If the path starts with a placeholder, x replaces it!
+			switch ty.elems[0].(type) {
+			case *valbase, *null, *none, nil:
+				res := dup(ty.elems)
+				res[0] = x
+				return &path{elements{res}}
+			}
+			return &path{elements{append([]Value{prefix(ctx, x, ty.elems[0])}, ty.elems[1:]...)}}
+		}
+		return x
 	case *compound:
 		switch ty.elems[0].(type) {
 		case *pair: erro(ctx, "%v", ty.elems)
-		case *valbase, *null, *none, nil: return &compound{elements{dup(ty.elems)}}
+		// CRITICAL FIX: Avoid completely losing `x` by safely replacing the placeholder
+		case *valbase, *null, *none, nil:
+			res := dup(ty.elems)
+			res[0] = x
+			return &compound{elements{res}}
 		default: return &compound{elements{append([]Value{x}, ty.elems...)}}
 		}
 	}
@@ -2252,75 +2316,119 @@ func (p *elements) true(ctx Context) bool { // (or elems...)
 	return false
 }
 
-type conjunction struct{ *list ; sep Value }
-func (p conjunction) kind() Kind { return KindConjunction }
-func (p conjunction) String() (s string) {
-    if p.sep != nil { s = p.sep.String() }
-    return "{{"+p.list.String()+"}"+s+"}"
+type conjunction struct{ list ; sep Value }
+func (p *conjunction) kind() Kind { return KindConjunction }
+func (p *conjunction) String() (s string) {
+	if list := p.list.String(); p.sep == nil || isTrivial(p.sep) {
+		if list == "" {
+			return "{=join}"
+		} else {
+			return "{=join "+list+"}"
+		}
+	} else if sep := p.sep.String(); list == "" {
+		return "{=join ("+sep+")}"
+	} else {
+		return "{=join ("+sep+") "+list+"}"
+	}
 }
 
 func redis(v Value) Value { v, _ = _redis(v); return v }
-func _redis(v Value) (res Value, dis bool) {
+
+func _redis(v Value) (Value, bool) {
 	if v == nil { return nil, false }
+	
 	switch t := v.(type) {
 	case *closure, *delegate:
-		return &disjunction{valbase{v.Pos()},v}, true
+		return &disjunction{valbase{v.Pos()}, v}, true
 	case *loc:
-		res, dis = _redis(t.Value)
-		res = &loc{res, t.pos}
-		return
+		if res, dis := _redis(t.Value); dis {
+			return &loc{res, t.pos}, true
+		}
 	case *xloc:
-		res, dis = _redis(t.Value)
-		res = &xloc{res, t.pos}
-		return
+		if res, dis := _redis(t.Value); dis {
+			return &xloc{res, t.pos}, true
+		}
 	case flag:
-		res, dis = _redis(t.Value)
-		res = flag{res}
-		return
+		if res, dis := _redis(t.Value); dis {
+			return flag{res}, true
+		}
 	case *pair:
-		var key, d1 = _redis(t.key)
-		var val, d2 = _redis(t.val)
-		res, dis = &pair{key, val}, d1 || d2
-		return
+		key, d1 := _redis(t.key)
+		val, d2 := _redis(t.val)
+		if d1 || d2 {
+			return &pair{key, val}, true
+		}
 	case *arrow:
-		var o, d1 = _redis(t.o)
-		var s, d2 = _redis(t.s)
-		res, dis = &arrow{t.valbase, t.t, o, s}, d1 || d2
-		return
+		o, d1 := _redis(t.o)
+		s, d2 := _redis(t.s)
+		if d1 || d2 {
+			return &arrow{t.valbase, t.t, o, s}, true
+		}
 	case *percpat:
-		var p, d1 = _redis(t.Prefix)
-		var s, d2 = _redis(t.Suffix)
-		res, dis = &percpat{t.valbase, p, s}, d1 || d2
-		return
+		p, d1 := _redis(t.Prefix)
+		s, d2 := _redis(t.Suffix)
+		if d1 || d2 {
+			return &percpat{t.valbase, p, s}, true
+		}
 	case *compound:
-		res = &compound{elements{_redis_elems(t.elems, &dis)}}
-		return
+		if e, dis := _redis_elems(t.elems); dis {
+			return &compound{elements{e}}, true
+		}
 	case *path:
-		res = &path{elements{_redis_elems(t.elems, &dis)}}
-		return
+		if e, dis := _redis_elems(t.elems); dis {
+			return &path{elements{e}}, true
+		}
 	case *list:
-		res = &list{elements{_redis_elems(t.elems, &dis)}}
-		return
+		if e, dis := _redis_elems(t.elems); dis {
+			return &list{elements{e}}, true
+		}
 	case *globpat:
-		res = &globpat{elements{_redis_elems(t.elems, &dis)}}
-		return
+		if e, dis := _redis_elems(t.elems); dis {
+			return &globpat{elements{e}}, true
+		}
 	case *strcomp:
-		res = &strcomp{elements{_redis_elems(t.elems, &dis)}}
-		return
+		if e, dis := _redis_elems(t.elems); dis {
+			return &strcomp{elements{e}}, true
+		}
 	}
-    return v, false
+	
+	// Fast Path: No children changed, so return the exact original pointer!
+	return v, false
 }
-func _redis_elems(vals []Value, dis *bool) (res []Value) {
-	for _, val := range vals {
-		e, d := _redis(val); if d { *dis = true }
-		res = append(res, e)
+
+// _redis_elems uses a lazy Copy-on-Write strategy. 
+// It returns the exact original slice if no children are modified.
+func _redis_elems(vals []Value) ([]Value, bool) {
+	var res []Value
+	var changed bool
+	
+	for i, val := range vals {
+		e, d := _redis(val)
+		if d {
+			if !changed {
+				// Lazy allocation! We only allocate a new backing array 
+				// the exact moment we detect a modification.
+				res = make([]Value, len(vals))
+				copy(res, vals[:i]) // Copy the unmodified prefix
+				changed = true
+			}
+			res[i] = e
+		} else if changed {
+			res[i] = e
+		}
 	}
-	return
+	
+	if changed {
+		return res, true
+	}
+	
+	// Zero allocations if nothing changed
+	return vals, false 
 }
 
 type  ex_disjunction struct{}
 type     disjunction struct{ valbase ; val Value }
-func (p *disjunction) kind() Kind { return KindDisjunction/* |p.Value.kind() */ }
+func (p *disjunction) kind() Kind { return KindDisjunction }
 func (p *disjunction) String() string { return "{"+p.val.String()+"}" }
 
 func _disjunction(v Value) (res Value) {
@@ -2416,7 +2524,7 @@ func com_qualword(ctx *comctx, a, elems []Value) (res []Value) {
 			return
 		case *loc:
 			for _, v := range com_qualword(ctx, nil, []Value{t.Value}) {
-				// CRITICAL FIX: Strip location wrappers ONLY for paths during concatenation!
+				// Strip location wrappers ONLY for paths during concatenation!
 				// This bubbles the path up to fuse with `.c` while preserving braces for lists.
 				if _, isPath := v.(*path); isPath && (len(a) > 0 || len(tail) > 0) {
 					res = append(res, com_qualword(ctx, dup(a), append([]Value{v}, tail...))...)
@@ -4197,7 +4305,7 @@ func __string(ctx Context, v any) (res string) {
 			}
 			return __string(ctx, v)
 		}
-	case conjunction: // see also $(join ...)
+	case *conjunction: // see also $(join ...)
 		var ( sep = __string(ctx, t.sep); ss []string )
 		for _, v := range t.elems { if s := __string(ctx, v); s != "" { ss = append(ss, s) } }
 		return strings.Join(ss, sep)
@@ -4686,7 +4794,7 @@ func expand(ctx Context, v Value) (res Value) {
 				cc := expand_closure_delegate{ctx, 0}
 				if rv := evoke(&cc, xv, o, a); cc.state == not_evoker {
 					// Execution failed.
-					// CRITICAL FIX: Only rebuild if the resolved target actually exists!
+					// Only rebuild if the resolved target actually exists!
 					if !isNull(xv) && truly(ctx, keep_autos{}) {
 						dv := &delegate{t.valbase, t.l, xv, o, a}
 						vals = append(vals, dv)
@@ -4871,6 +4979,10 @@ func expand(ctx Context, v Value) (res Value) {
         }
     case *compound:
         var vals = com(&comctx{ctx,0}, nil, t.elems)
+		if t.String() == `{&(target.arch)}{&(target.sub)}-{&(target.vendor)}-{&(target.sys)}-{&(target.abi)}` {
+			var v = t.elems[0].(*disjunction).val
+			debug(ctx, "%v %v, %v %v", t, vals, v, __string(ctx, v))
+		}
         if res = ease(pc(ctx,v), vals); checkpoints && false { check(ctx, res, v) }
         return
 	case *qualword:
@@ -4895,10 +5007,47 @@ func expand(ctx Context, v Value) (res Value) {
             if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
             return
         }
-    case conjunction:
-        c := conjunction{&list{elements{expands(ctx, t.list.elems...)}}, nil}
-        if c.sep != nil { c.sep = expand(ctx, t.sep) }
-        return c
+	case *conjunction:
+		// 1. Expand the children
+		sep := expand(ctx, t.sep)
+		vals := expands(ctx, t.list.elems...)
+
+		// 2. Check if they are fully expanded (no closures remaining)
+		_, dynamicVals := _redis_elems(vals)
+		_, dynamicSep := _redis(sep)
+
+		// 3. If still dynamic, preserve the conjunction
+		if dynamicVals || dynamicSep {
+			return &conjunction{list{elements{vals}}, sep}
+		}
+
+		// 4. FAST PATH: All expanded! Eagerly collapse into a compound.
+		var valid []Value
+		for _, v := range vals {
+			if !isEmpty(v) {
+				valid = append(valid, v)
+			}
+		}
+
+		if len(valid) == 0 {
+			// Using t.list.Pos() to safely return a positional null
+			return _null(t.list.Pos()) 
+		}
+
+		c := &compound{}
+		c.app(valid[0])
+		
+		if sep != nil {
+			for _, v := range valid[1:] {
+				c.app(sep, v)
+			}
+		} else {
+			for _, v := range valid[1:] {
+				c.app(v)
+			}
+		}
+
+		return c		
     case *disjunction:
         var vals []Value
         for _, v := range merge(expand(ctx, t.val)) { vals = append(vals, redis(v)) }
@@ -8145,9 +8294,9 @@ func patterned(ctx Context, v any) (res bool) {
     case *rule: return patterned(ctx, t.target)
     case *recipe: return patterned(ctx, t.elems)
     case *disjunction: return patterned(ctx, t.val)
+    case *conjunction: return patterned(ctx, t.list.elems) || patterned(ctx, t.sep)
     case *argumented: return patterned(ctx, t.Value) || patterned(ctx, t.args)
     case *quote: return patterned(ctx, t.elems)
-    case conjunction: return patterned(ctx, t.list.elems) || patterned(ctx, t.sep)
     case fullname: return patterned(ctx, t.Value)
     case negative: return patterned(ctx, t.Value)
     case *plain: return patterned(ctx, t.elems)
@@ -8440,12 +8589,12 @@ func ease(ctx Context, a any) (res Value) {
     case []string: for _, s := range t { elems = append(elems, _strlit(_pos(ctx), s )) }
     case   []bare: for _, s := range t { elems = append(elems, _word(_pos(ctx), intern(string(s)))) }
 	case  []*file: for _, f := range t { elems = append(elems, f) }
-    default: erro(ctx, "unsupported value: %v", ts(t))
+    default: erro(ctx, "unsupported value: %v", ts(t,ctx), callstack{num:16})
     }
 
     switch len(elems) {
-    case 0: return _null(_pos(ctx))
-    case 1: return elems[0]
+    case 0 : return _null(_pos(ctx))
+    case 1 : return elems[0]
     default: return &list{elements{elems}}
     }
 }
@@ -8504,11 +8653,11 @@ func lp(ctx Context, ap any, t string, a ...any) (s string) {
 		// Fallback: If we have a valid Pos integer but no Context to resolve it, print the offset!
 		s += fmt.Sprintf("@%d", rawPos)
 	} else {
-		// Only print 0:0 if the node ACTUALLY has no position data whatsoever
-		s += "0:0"
+		// If the node ACTUALLY has no position data whatsoever
+		s += "="//"0:0"
 	}
 
-	if t != "" { s += ":" + t }
+	if s == "=" { s += t } else if t != "" { s += ":" + t }
 
 	// CRITICAL FIX: Push the local position into the context for variadic children!
 	var local = ctx
@@ -8626,10 +8775,9 @@ func ts(i any, o ...any) (s string) {
 		return "{"+lp(c, x.pos, t)+" "+s+"}"
 	case *disjunction:
 		return "{"+lp(c, x.pos, t, x.val)+"}"
-	case conjunction:
-		// CRITICAL FIX: Use the global ts() since elements.ts no longer exists!
-		return fmt.Sprintf("{=%s %s%s}", t, ts(x.list, cc), ts(x.sep, cc))
-		
+	case *conjunction:
+		return fmt.Sprintf("{=%s %s %s}", t, ts(&x.list, cc), ts(x.sep, cc))
+
 	case slicer:
 		// Safely extract the compact Pos
 		var pos Pos
@@ -8738,7 +8886,7 @@ func list_t[T Value](ii ...T) *list {
 
 func makePair(k, v Value) (p *pair) { return &pair{k, v} }
 func makePath(segments ...Value) *path { return &path{elements{segments}} }
-func makePunct(pos Pos, t token) *punct { return &punct{valbase{pos},t} }
+func makePunct(pos Pos, t token) *punct { return &punct{valbase{pos}, t} }
 func makePercpat(pos Pos, prefix, suffix Value) *percpat {
     if prefix == nil { prefix = &valbase{pos} }
     if suffix == nil { suffix = &valbase{pos} }
@@ -9936,7 +10084,7 @@ func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string
     } else if s, y := res.(string); y {
         name = s
     } else if a, y := res.([]string); y {
-        name = joinpath(a...)
+        name = joinPathSegs(a...)
     } else {
         erro(ctx, "unexpected result: %v", ts(res))
     }
@@ -10102,6 +10250,10 @@ const (
 	symDotBase      // .base
 	symDotConfigure // .configure
 	symDotContainer // .container
+	symDotOS     // .os
+	symDotMode   // .mode
+	symDotGoals  // .goals
+	symDotSmart  // .smart
 	symOS        // os
 	symMode      // mode
 	symGoals     // goals
@@ -10334,10 +10486,12 @@ const (
 	symUnderline = symUnderscore
 )
 
+// coreSymbols are symbols don't need to be serialized on compilation.
 var coreSymbols = []string{
 	"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 	"_", "-", "$", "&", "@", "|", "^", "<", ">", "%", "*", "?", "**", "*?", "+", "~",
-	"/", ",", ".", "..", dot_base, dot_configure, dot_container, "os", "mode", "goals", "smart",
+	"/", ",", ".", "..", dot_base, dot_configure, dot_container,
+	".os", ".mode", ".goals", ".smart", "os", "mode", "goals", "smart",
 
 	"CWD", "CRD", "CTD", "SMART", "SMART_ARGS",
 
@@ -14100,13 +14254,6 @@ func (ctx *universe) loadSearchPaths(s string) (paths []string) {
 			paths = append(paths, line)
 		}
 	}
-
-	// Bugfix: The original code appended to ctx.paths but returned an empty `paths` slice.
-	// This safely updates the context AND returns the discovered paths.
-	if len(paths) > 0 {
-		ctx.paths = append(ctx.paths, paths...)
-	}
-
 	return paths
 }
 
@@ -14317,9 +14464,9 @@ type commandline struct {
     debugPrompt     bool `dp,dbprom,debug-prompt`
     debugSyntax []string `ds,dbsyntax,debug-syntax`
 
-    autoProfs       bool `ap,autoprof,auto-profiles,auto-profile`
-    cpuProf         string `cpuprof,cpu-profile`
-    memProf         string `memprof,memory-profile`
+    profile         bool `profile`
+    cpuProfile      string `cpu-profile`
+    memProfile      string `mem-profile`
 
     printConfig     bool `opts,print-options,printoptions`
     printFlags      bool `flags,print-flags,printflags`
@@ -14391,86 +14538,104 @@ func _commandline() commandline { return commandline{
 func new_universe(ii ...any) (ctx *universe) {
 	ctx = &universe{
 		launchTime: time.Now(),
-		scope: new_scope(nil, nil, `universe`),
-		statcache: make(map[string]*filebase),
-		fset: new_fileset(),
-		paths: searchPaths,
-		workdir: baseWorkDir,
+		statcache:  make(map[string]*filebase),
+		scope:      new_scope(nil, nil, `universe`),
+		fset:       new_fileset(),
+		paths:      searchPaths,
+		workdir:    baseWorkDir,
 	}
 
 	cl := true
 	for _, i := range ii {
 		switch t := i.(type) {
-		case  hooks: ctx.hooks =  t
-		case *hooks: ctx.hooks = *t
+		case  hooks:       ctx.hooks =  t
+		case *hooks:       ctx.hooks = *t
 		case  commandline: ctx.commandline, cl =  t, false
 		case *commandline: ctx.commandline, cl = *t, false
-		case  set_workdir: ctx.workdir = t.s
-			if _, e := os.Stat(t.s); e != nil { panic(e) }
+		case set_workdir:
+			ctx.workdir = t.s
+			if _, e := os.Stat(t.s); e != nil {
+				panic(e)
+			}
 		}
 	}
 	if cl { ctx.commandline = _commandline() }
 
-	var arg0  = ease(ctx, os.Args[0])
-	var args = ease(ctx, os.Args[1:])
-	ctx.scope.def(ctx, defVoid, symSMART,      arg0)
-	ctx.scope.def(ctx, defVoid, symSMART_ARGS, args)
+	// Bootstrap top-level AST arguments
+	ctx.scope.def(ctx, defVoid, symSMART, ease(ctx, os.Args[0]))
+	ctx.scope.def(ctx, defVoid, symSMART_ARGS, ease(ctx, os.Args[1:]))
 
+	// Pre-register all builtin functions
 	for name, f := range builtins {
 		if _, alt := ctx.scope.builtin(ctx, name, f); alt != nil {
 			panic(fmt.Sprintf("builtin '%s' already defined", name))
 		}
 	}
 
-    var pos Pos = 0 // ctx._position()
-	var os Value = ease(ctx, []Value{_raw(pos, runtime.GOOS)}) // darwin, freebsd, linux
-
 	ctx.globe = &globe{
-		scope: new_scope(ctx.scope, nil, `globe`),
+		scope:       new_scope(ctx.scope, nil, `globe`),
+		args:        make(map[Value][]Value),
 		flagEntries: make(map[string][]entry),
-		loaded: make(map[string]*project),
-		args: make(map[Value][]Value),
+		loaded:      make(map[string]*project),
 	}
 
-    // FIXME: ctx.scope.scopename(ctx, ".GLOBE", ctx.globe.Scope)
-    ctx.globe.os    = ctx.globe.def(ctx, defVoid, intern(".os"),    os)
-    ctx.globe.goals = ctx.globe.def(ctx, defVoid, intern(".goals"), _none(pos))
-    ctx.globe.mode  = ctx.globe.def(ctx, defVoid, intern(".mode"),  _null(pos))
+	var pos Pos = 0 // ctx._position()
+	ctx.globe.os    = ctx.globe.def(ctx, defVoid, symDotOS, _raw(pos, runtime.GOOS))
+	ctx.globe.mode  = ctx.globe.def(ctx, defVoid, symDotMode, _null(pos))
+	ctx.globe.goals = ctx.globe.def(ctx, defVoid, symDotGoals, _none(pos))
 
-    var modulesPaths searchlist
-    walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
-        if baseTmpPath == "" { baseTmpPath = s }
-        modulesPaths = append(modulesPaths, filepath.Join(s, ".smart", "modules"))
-        return true
-    })
+	// Pre-allocate to prevent heap thrashing during directory walk
+	var paths = make(searchlist, 0, 4)
 
-    var userLib = filepath.Join(ctx.prefix, "usr", "lib", "smart") // e.g. /usr/lib/smart
-    modulesPaths = append(modulesPaths, filepath.Join(userLib, "modules"))
+	// == Hermetic Test Isolation ==
+	// Inject the testdata modules as the highest priority search path
+	if checkpoints {
+		paths = append(paths, filepath.Join(baseWorkDir, "testdata", ".smart", "modules"))
+	} else {
+		walkSmartBaseDirs(ctx, ctx.workdir, func(s string) bool {
+			if baseTmpPath == "" { baseTmpPath = s }
+			paths = append(paths, filepath.Join(s, ".smart", "modules"))
+			return true
+		})
+	}
 
-    // make sure that .smart dirs have higher priority.
-    ctx.paths = append(modulesPaths, ctx.paths...)
+	// NOTE: yields <prefix>usr/lib/smart/modules
+	// NOTE: ctx.prefix could be empty, thus starting from root "/" if so.
+	prefix := ctx.prefix ; if prefix == "" { prefix = pathSep }
+	usrLib := filepath.Join(prefix+"usr", "lib", "smart", "modules") // e.g. /usr/lib/smart/modules
+	paths = append(paths, filepath.Clean(usrLib))
 
-    for _, s := range modulesPaths { ctx.loadSearchPaths(s) }
-    return
+	// Allocate a perfectly sized new array to safely prepend the paths.
+	cache := make([]string, 0, len(paths)+len(ctx.paths))
+	ctx.paths = append(append(cache, paths...), ctx.paths...)
+
+	// Load dynamic search directories
+	for _, s := range paths {
+		if t := ctx.loadSearchPaths(s); len(t) > 0 { ctx.paths = t }
+	}
+	return ctx
 }
 
-func (ctx *universe) addPaths(paths... string) (err error) {
-    for _, s := range paths {
-        if s, err = filepath.Abs(s); err != nil { break }
-        if fi, _ := os.Stat(s); fi != nil && fi.IsDir() {
-            ctx.paths = append(ctx.paths, s)
-        } else {
-            return fmt.Errorf("path '%s' is not dir", s)
-        }
-    }
-    return nil
+func (ctx *universe) addPaths(paths ...string) (err error) {
+	for _, s := range paths {
+		if s, err = filepath.Abs(s); err != nil { break }
+		if i, _ := os.Stat(s); i != nil && i.IsDir() {
+			debug(ctx, "%s", s)
+			ctx.paths = append(ctx.paths, s)
+		} else {
+			erro(ctx, "not a directory: '%s'", s, trace{})
+		}
+	}
+	return nil
 }
 
-func cpu_profile(ctx Context, name string, heap ...bool) (stop func()) {
+func cpu_profile(ctx Context, name string, heap ...bool) func() {
     var fn string
-    if filepath.IsAbs(name) { fn = name } else
-    if m := _universe(ctx).globe.main; m == nil {} else
-    if f := m.tempfile(ctx, name); f == nil {
+    if filepath.IsAbs(name) {
+		fn = name
+	} else if m := _universe(ctx).globe.main; m == nil {
+		erro(ctx, "%s: main project is nil", name, trace{})
+	} else if f := m.tempfile(ctx, name); f == nil {
         fn = filepath.Join(_workdir(ctx), name)
     } else {
         fn = f.fullname()
@@ -14478,26 +14643,28 @@ func cpu_profile(ctx Context, name string, heap ...bool) (stop func()) {
 
     f, e := os.Create(fn)
     if e != nil {
-        erro(ctx, "%T: %v", e, e)
+        erro(ctx, "%s", ts(e), trace{})
     } else if e = pprof.StartCPUProfile(f); e != nil {
-        erro(ctx, "%T: %v", e, e)
+        erro(ctx, "%s", ts(e), trace{})
     }
     return func() { if f != nil {
         if e != nil { pprof.StopCPUProfile() }
         if heap != nil && heap[0] { runtime.GC() // update memory statistics
             if e = pprof.WriteHeapProfile(f); e != nil {
-                erro(ctx, "WriteHeapProfile: %v", e)
+                erro(ctx, "WriteHeapProfile: %v", e, trace{})
             }
         }
         f.Close()
     }}
 }
 
-func heap_profile(ctx Context, name string) (stop func()) {
+func heap_profile(ctx Context, name string) func() {
     var fn string
-    if filepath.IsAbs(name) { fn = name } else
-    if m := _universe(ctx).globe.main; m == nil {} else
-    if f := m.tempfile(ctx, name); f == nil {
+    if filepath.IsAbs(name) {
+		fn = name
+	} else if m := _universe(ctx).globe.main; m == nil {
+		erro(ctx, "%s: main project is nil", name, trace{})
+	} else if f := m.tempfile(ctx, name); f == nil {
         fn = filepath.Join(_workdir(ctx), name)
     } else {
         fn = f.fullname()
@@ -14505,33 +14672,37 @@ func heap_profile(ctx Context, name string) (stop func()) {
 
     f, e := os.Create(fn)
     if e != nil {
-        erro(ctx, "%T: %v", e, e)
+        erro(ctx, "%s", ts(e), trace{})
     }
     return func() { if f != nil {
         if e != nil { pprof.StopCPUProfile() }
         runtime.GC() // update memory statistics
-        if e = pprof.WriteHeapProfile(f); e != nil {
-            erro(ctx, "WriteHeapProfile: %v", e)
-        }
+
+		e = pprof.WriteHeapProfile(f)
         f.Close()
+
+        if e != nil {
+            erro(ctx, "%v", ts(e), trace{})
+        }
     }}
 }
 
 func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
     switch g := goal.(type) {
     case *rule:
-        var y bool
-        if result, y = execute_entry(ctx, g, args...); !y {
+        var ok bool
+        if result, ok = execute_entry(ctx, g, args...); !ok {
             erro(ctx, "update '%v' failed", g)
         }
     default:
-        erro(ctx, "not an entry: %v", ts(goal))
+        erro(ctx, "not an entry: %v", ts(goal, ctx))
     }
     return
 }
 
-func (l ul) parseArgs(base string, a ...string) {
+func (l ul) parseArgs(a []string) {
     var args []Value
+	var base = l.workdir
 
 	if s := strings.Join(a, " "); s != "" {
 		if v := l.text(l.universe, base, s); v != nil {
@@ -14577,9 +14748,6 @@ func (u *universe) load(ctx Context) {
 
     if false { loadGrepCache(ctx) }
 
-    if s := filepath.Join(u.workdir, ".smart", "modules"); s != "" {
-        if _, e := os.Stat(s); e == nil { u.addPaths(s) }
-    }
     if s := filepath.Join(u.workdir, mainFileName); s != "" {
         if _, e := os.Stat(s); e != nil {
             s = filepath.Join(u.workdir, deprFileName)
@@ -14590,30 +14758,32 @@ func (u *universe) load(ctx Context) {
     u.globe.top = &loader{term:term{ctx, u.globe.scope}}
 
     l := ul{u, u.globe.top}
-    l.parseArgs(u.workdir, os.Args[1:]...)
+    l.parseArgs(os.Args[1:])
 
-    if u.autoProfs {
-        if f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof")); e != nil {
-            erro(ctx, "%v", e)
-        } else {
-            defer f.Close()
-            if e := pprof.StartCPUProfile(f); e != nil {
-                erro(ctx, "could not start CPU profile: %v", e)
-            }
-            defer pprof.StopCPUProfile()
-        }
+    if u.profile {
+		f, e := os.Create(filepath.Join(baseWorkDir, "load.cpu.auto.prof"))
+        if e != nil {
+            erro(ctx, "%v", e, trace{})
+			return
+        } else if e := pprof.StartCPUProfile(f); e != nil {
+			erro(ctx, "could not start CPU profile: %v", e, trace{})
+			return
+		}
         defer func() {
-            var prof string //= u.memProf
-            if prof == "" { prof = filepath.Join(baseWorkDir, "load.mem.auto.prof") }
-            if f, e := os.Create(prof); e != nil {
-                erro(ctx, "%v", e)
-            } else {
-                defer f.Close()
-                runtime.GC() // update memory statistics
-                if e := pprof.WriteHeapProfile(f); e != nil {
-                    erro(ctx, "could not start CPU profile: %v", e)
-                }
+			pprof.StopCPUProfile()
+			f.Close()
+
+			f, e = os.Create(filepath.Join(baseWorkDir, "load.mem.auto.prof"))
+            if e != nil {
+                erro(ctx, "%v", e, trace{})
             }
+
+			runtime.GC() // update memory statistics
+
+			e = pprof.WriteHeapProfile(f)
+			if f.Close(); e != nil {
+				erro(ctx, "could not start CPU profile: %v", e, trace{})
+			}
         } ()
     }
 
@@ -14633,7 +14803,7 @@ func (u *universe) load(ctx Context) {
     l.directory(l.loader, spec, u.workdir, nil)
 
     if l.globe.main == nil {
-        erro(ctx, "nothing loaded")
+        erro(ctx, "nothing loaded", trace{})
     }
     return
 }
@@ -14643,7 +14813,7 @@ func (u *universe) run() (result []Value) {
 
 	var main = u.globe.main
 	if main == nil {
-		erro(u, "no targets to update `%v`", u.globe.goals)
+		erro(u, "no targets to update `%v`", u.globe.goals, trace{})
 	}
 
 	var ctx Context = closure_with(u, main.scope)
@@ -14651,13 +14821,14 @@ func (u *universe) run() (result []Value) {
 
 	removeTempDirs(ctx)
 
-	if u.cpuProf != "" || u.autoProfs {
-		var name = u.cpuProf
-		if name == "" { name = "run.cpu.auto.prof" }
+	if u.profile || u.cpuProfile != "" {
+		var name = u.cpuProfile
+		if name == "" { name = "cpu.profile" }
 		defer cpu_profile(ctx, name, true)()
-	} else if u.memProf != "" || u.autoProfs {
-		var name = u.memProf
-		if name == "" { name = "run.mem.auto.prof" }
+	}
+	if u.profile || u.memProfile != "" {
+		var name = u.memProfile
+		if name == "" { name = "mem.profile" }
 		defer heap_profile(ctx, name)()
 	}
 
@@ -16923,10 +17094,12 @@ func (p *grep_txt) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
+type is_rule_ctx struct{}
 func (p p_rule_ctx) cast(t reflect.Type) Context { return icast(p,t) }
 func (p p_rule_ctx) inner() Context { return p.Context }
 func (p p_rule_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
+	case is_rule_ctx: return true
 	case is_auto:
 		if sym_0 <= t.s && t.s <= sym_9 { return true }
 		if _, y := rule_autos[t.s]; y { return true }
@@ -17068,6 +17241,10 @@ func (p *parser) forwardLine(ctx Context) {
 	}
 }
 
+func (p *parser) emptyLines(ctx Context) {
+	for p.spaces(ctx); p.tok == LINEND; p.spaces(ctx) { p.step(ctx) }
+}
+
 func (p *parser) comment(ctx Context) (res *comment, endline int) {
 	// /*-style comments may end on a different line than where they start.
 	// Scan the comment for '\n' chars and adjust endline accordingly.
@@ -17099,7 +17276,6 @@ func (p *parser) commentgroup(ctx Context, n int) (res *commentgroup, endline in
 	return
 }
 
-func (p *parser) valbase(Context) valbase { return valbase{p.pos} }
 func (p *parser) loc(a Pos) Position { return p.scanner.file.Position(a) }
 func (p *parser) Position() (r Position) { return p.loc(p.pos) }
 
@@ -17191,84 +17367,89 @@ func (l ul) braced(ctx Context) (x Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "braced")) }
 
 	pos := l.p.pos
-	l.p.expect(ctx, LBRACE)
+
+	if l.p.expect(ctx, LBRACE); truly(ctx, is_rule_ctx{}) {
+		if l.p.tok == LINEND && l.p.tok != ASSIGN { l.p.emptyLines(ctx) }
+	}
 
 	ctx = braced{ctx}
-
-	if l.p.tok == RBRACE {
-		x = &null{l.p.valbase(ctx)}
-		l.p.spaces(ctx)
-		l.p.step(ctx) // consumes }
-		return
-	}
 
 	switch l.p.tok {
 	case LBRACK: // obsolete syntax: {[...]}
 		erro(ctx, "syntax error, use {(modifier)} for modification")
-		return
+	case LBRACE:
+		erro(ctx, "syntax error, use {=join (sep) list} for conjunction")
+		if false { // conjunction: {{list}sep}
+			l.p.next(ctx, true) // consume the inner '{'
+			
+			v := l.values(ctx)  // parse the inner list elements
+			l.p.spaces(ctx)
+			l.p.expect(ctx, RBRACE) // consume the inner '}'
+			
+			s := l.values(ctx)  // parse the separator
+
+			x = &conjunction{list{elements{v}}, ease(ctx, s)}
+
+			l.p.spaces(ctx)
+			l.p.expect(ctx, RBRACE) // consume the outer '}'
+		}
 	case LPAREN:
 		x = l.modification(ctx)
 		l.p.spaces(ctx)
 		l.p.expect(ctx, RBRACE)
-		return
 	case ASSIGN: // =
-		l.p.step(ctx) // skips =
-		switch l.p.tok {
-		case AND:     return l.braced_and(ctx)
-		case OR:      return l.braced_or(ctx)
-		case FOR:     return l.braced_for(ctx)
-		case FOREACH: return l.braced_foreach(ctx)
+		switch l.p.step(ctx); l.p.tok {
+		case AND:     x = l.braced_and(ctx)
+		case OR:      x = l.braced_or(ctx)
+		case FOR:     x = l.braced_for(ctx)
+		case FOREACH: x = l.braced_foreach(ctx)
 		case PROJECT: // {=project ...}
 			l.p.next(ctx, true)
 			x = l.braced_project(ctx)
 			l.p.expect(ctx, RBRACE)
-			return
 
 		case BARE: // {=bare ...}
 			l.p.next(ctx, true)
 			x = l.p.bare(ctx)
 			l.p.spaces(ctx)
 			l.p.expect(ctx, RBRACE)
-			return
 
 		case RAW: // {=raw ...}
 			l.p.next(ctx, true)
-			x = &raw{l.p.valbase(ctx), __string(ctx, l.expr(ctx))}
+			x = &raw{valbase{l.p.pos}, __string(ctx, l.expr(ctx))}
 			l.p.spaces(ctx)
 			l.p.expect(ctx, RBRACE)
-			return
 
 		case UNDEF: // {=undef ...}
 			l.p.next(ctx, true)
 			x = undef{l.expr(ctx)}
 			l.p.spaces(ctx)
 			l.p.expect(ctx, RBRACE)
-			return
 
 		case NULL: // {=null}
-			return l.braced_null(ctx)
+			x = l.braced_null(ctx)
 
 		case NONE: // {=none ...}
-			return l.braced_none(ctx)
+			x = l.braced_none(ctx)
 
 		case ANSWER, BOOL, BOOLEAN, BIN, OCT, INT, HEX, FLOAT: // {=bin ...}, {=oct ...}, {=int ...}, {=hex ...}, {=float ...}
-			return l.braced_type(ctx, l.p.tok)
+			x = l.braced_type(ctx, l.p.tok)
 
 		case TRUE, FALSE, YES, NO, ON, OFF: // {=true}, {=false}, {=yes}, {=no}, {=on}, {=off}
-			return l.braced_const(ctx, l.p.tok)
+			x = l.braced_const(ctx, l.p.tok)
 
 		case FILE: // {=file ...}
-			return l.braced_file(ctx)
+			x = l.braced_file(ctx)
 
 		case PATH: // {=path ...}
-			return l.braced_path(ctx)
+			x = l.braced_path(ctx)
 
 		case GLOB: // {=glob ...}
 			l.p.next(ctx, true)
 			g := l.glob(ctx, nil)
 			l.p.spaces(ctx)
 			l.p.expect(ctx, RBRACE)
-			return &globbrace{*g}
+			x = &globbrace{*g}
 
 		case REGEX: // {=regex ...}
 			l.p.step(ctx)
@@ -17277,10 +17458,32 @@ func (l ul) braced(ctx Context) (x Value) {
 			// Trim leading spaces differently to avoid messing the scan states.
 			// NOTE: the first SPACE and WORD do not become RAW.
 			for l.p.tok == SPACE || (l.p.tok == RAW && l.p.lit == " ") { l.p.step(ctx) }
-			return l.regex(ctx)
+			x = l.regex(ctx)
 
 		case WORD:
 			switch l.p.sym {
+			case symJoin: // {=join [(sep)] [list...]}
+				l.p.next(ctx, true) // consume 'join'
+				l.p.spaces(ctx)
+
+				var sep Value
+				if l.p.tok == LPAREN {
+					l.p.next(ctx, true) // consume '('
+
+					s := l.values(ctx)  // parse the separator
+					l.p.spaces(ctx)
+					l.p.expect(ctx, RPAREN) // consume ')'
+					l.p.spaces(ctx)
+
+					sep = ease(ctx, s)
+				}
+
+				v := l.values(ctx) // parse the rest of the list
+
+				x = &conjunction{list{elements{v}}, sep}
+
+				l.p.expect(ctx, RBRACE) // consume '}'
+
 			case symHere:
 				l.p.next(ctx, true)
 				l.p.expect(ctx, RBRACE)
@@ -17290,76 +17493,67 @@ func (l ul) braced(ctx Context) (x Value) {
 					_decimal(l.p.pos, int64(p.Line)), _punct(ctx, COLON),
 					_decimal(l.p.pos, int64(p.Column)), _punct(ctx, COLON),
 				}}}
-				return
 
 			case symPlain:
 				x = &plain{elements{l.braced_plain(ctx)}, l.p.sym}
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symPlainLine:
 				x = &plainline{elements{l.braced_plain(ctx)}}
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symSelf:
 				l.p.next(ctx, true)
 				x = self{l.braced_project(ctx)}
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symStr: // $(string ...)
 				x = l.braced_str(ctx)
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symQuote: // $(quote ...)
 				x = l.braced_quote(ctx)
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symWord:
 				x = l.braced_word(ctx)
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symGrep:
 				if false {
 					x = l.braced_word(ctx)
 					l.p.expect(ctx, RBRACE)
-					return
 				}
 
 			case symDefs:
 				x = l.braced_defs(ctx)
 				l.p.expect(ctx, RBRACE)
-				return
 
 			case symFullname:
 				x = l.braced_fullname(ctx)
 				l.p.expect(ctx, RBRACE)
-				return
-			}
 
-			erro(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit)
-			return
+			default:
+				erro(pc(ctx,l.p), "unsupported braced type: %v %v", l.p.tok, l.p.lit)
+			}
 
 		default:
 			l.p.next(ctx, true)
-			return
 		}
+	case RBRACE:
+		x = &null{valbase{l.p.pos}}
+		l.p.spaces(ctx)
+		l.p.step(ctx) // consumes }
 	default: // {...}
-		if v := l.values(ctx); len(v) == 0 {
-			x = _null(pos)
-		} else if len(v) == 1 {
-			x = &disjunction{valbase{pos},v[0]}
-		} else {
-			x = &disjunction{valbase{pos},_list(v...)}
+		switch v := l.values(ctx); len(v) {
+		case 0 : x = _null(pos)
+		case 1 : x = &disjunction{valbase{pos},v[0]}
+		default: x = &disjunction{valbase{pos},_list(v...)}
 		}
 		l.p.spaces(ctx)
 		l.p.expect(ctx, RBRACE)
-		return
 	}
+	return 
 }
 
 func (l ul) braced_elems(ctx Context) (elems []Value) {
@@ -17760,13 +17954,13 @@ func (l ul) negative(ctx Context) negative {
 
 func (l ul) punct(ctx Context) *punct {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "punctuation")) }
-	p := &punct{l.p.valbase(ctx), l.p.tok}
+	p := &punct{valbase{l.p.pos}, l.p.tok}
 	l.p.step(ctx)
 	return p
 }
 
 func (l ul) escape(ctx Context) *escaped {
-	v := &escaped{l.p.valbase(ctx), l.p.lit}
+	v := &escaped{valbase{l.p.pos}, l.p.lit}
 	l.p.expect(ctx, ESCAPE)
 	return v
 }
@@ -17896,18 +18090,20 @@ func (l ul) path(ctx Context, start Value) (res *path) {
 	}
 
 	for l.p.tok == PCON {
+		var pos = l.p.pos
 		for l.p.step(ctx); l.p.tok == PCON; l.p.step(ctx) {} // repeated '/'
 
 		switch l.p.tok {
 		case LPAREN, LBRACE, RPAREN, RBRACE, COMMA, SPACE, LINEND:
-			res.elems = append(res.elems, &punct{l.p.valbase(ctx),PTAIL}) // after the last '/'
+			res.elems = append(res.elems, &punct{valbase{pos}, PTAIL}) // after the last '/'
 			return
 		}
 
-		var p = l.p.pos
+		pos = l.p.pos
+
 		var elem = l.unary(ctx)
-		if l.p.pos == p { erro(ctx, "syntax error") }
-		if x, y := elem.(*list); false && y && x.len() == 1 { elem = x.elems[0] }
+		if l.p.pos == pos { erro(ctx, "syntax error", trace{}) }
+		if false { if x, y := elem.(*list); y && x.len() == 1 { elem = x.elems[0] } }
 
 		switch l.p.tok {
 		case DOT: // .
@@ -18064,7 +18260,7 @@ hostloop:
 
 pathloop:
 	for l.p.tok == PCON {
-		if p == nil { p = makePath(&punct{l.p.valbase(ctx),PROOT}) }
+		if p == nil { p = makePath(&punct{valbase{l.p.pos}, PROOT}) }
 
 		l.p.step(ctx) // '/'
 
@@ -18292,11 +18488,11 @@ func (l ul) calling(ctx Context) (result Value) {
 				args = append(args, _list(l.values(cc)...))
 				cc = optional_ident(cc)
 			case symForeach:
-				a := &auto{knownobject{objbase{l.p.valbase(ctx),l.scope()},symUnderscore}}
+				a := &auto{knownobject{objbase{valbase{l.p.pos}, l.scope()}, symUnderscore}}
 				args = append(args, _list(l.values(cc)...))
 				cc = &foreach_txt{cc, a}
 			case symGrep:
-				cc = &grep_txt{cc, objbase{l.p.valbase(ctx), l.scope()}, nil}
+				cc = &grep_txt{cc, objbase{valbase{l.p.pos}, l.scope()}, nil}
 				args = append(args, _list(l.values(cc)...))
 			default:
 				args = append(args, _list(l.values(cc)...))
@@ -18328,7 +18524,7 @@ func (l ul) calling(ctx Context) (result Value) {
 		switch l.p.sym { // CRITICAL FIX: Read the scanner's high-speed integer channel!
 		case symUnderscore: // "_"
 			tok, sym = UNDERLINE, symUnderscore
-			name = &punct{l.p.valbase(ctx),tok}
+			name = &punct{valbase{l.p.pos}, tok}
 			obj = l.resolve(ctx, name, sym)
 			l.p.step(ctx)
 		default:
@@ -18495,7 +18691,7 @@ func (l ul) unary(ctx Context) (x Value) {
 		return l.negative(ctx)
 
 	case PCON: // The root of the path
-		return &punct{l.p.valbase(ctx),PROOT}
+		return &punct{valbase{l.p.pos}, PROOT}
 
 	case TILDE: // ~
 		return l.punct(ctx)
@@ -18506,7 +18702,7 @@ func (l ul) unary(ctx Context) (x Value) {
 	case DOTDOT: // . ..
 		tok, pos := l.p.tok, l.p.pos
 		if l.p.step(ctx) ; l.p.tok == PCON {
-			return &punct{l.p.valbase(ctx),tok}
+			return &punct{valbase{l.p.pos}, tok}
 		} else {
 			return &punct{valbase{pos}, tok}
 		}
@@ -19103,7 +19299,7 @@ func (l ul) braced_none(ctx Context) (x Value) {
 func (l ul) braced_null(ctx Context) (x Value) {
 	l.p.next(ctx, true)
 
-	x = &null{l.p.valbase(ctx)}
+	x = &null{valbase{l.p.pos}}
 	l.p.spaces(ctx)
 	l.p.expect(ctx, RBRACE)
 	return
@@ -19258,12 +19454,11 @@ func (l ul) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 }
 
 func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	// CRITICAL FIX: Prevent index out of bounds panic!
 	if len(g.spec) == 0 {
-		erro(ctx, "missing file specification properties")
-		return // Halt immediately
-	} else if len(g.spec) > 1 {
-		erro(ctx, "too many properties: %v", g.spec)
+		erro(ctx, "missing file specification properties", trace{}) // Halt immediately
+	}
+	if len(g.spec) > 1 {
+		erro(ctx, "too many properties: %v", g.spec, trace{})
 	}
 
 	var p Value
@@ -19287,7 +19482,7 @@ func (l ul) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 
 	// Expand the left-hand side (Patterns) eagerly
 	if t := expand(original{ctx,defExpand1}, g.spec[0]); t == nil {
-		erro(ctx, "nil file pattern: %v", g.spec[0])
+		erro(ctx, "nil file pattern: %v", g.spec[0], trace{})
 	} else if x, y := t.(*group); y {
 		patts = merge(x.elems...)
 	} else {
@@ -19990,7 +20185,7 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 		} else if n > 1 {
 			elems = append(elems, &list{elements{va}})
 		} else {
-			elems = append(elems, &null{l.p.valbase(ctx)})
+			elems = append(elems, &null{valbase{l.p.pos}})
 		}
 
 		if l.p.tok == COMMA { l.p.next(ctx, true) }
@@ -20014,13 +20209,13 @@ func (l ul) modifier(ctx Context) (res *modifier) {
 func (l ul) modification(ctx Context) *modification {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "modification")) }
 
-	var vb = l.p.valbase(ctx)
 	var elems []*modifier
+	var pos = l.p.pos
 	
 	for l.p.tok != RBRACE && l.p.tok != EOF {
 		l.p.spaces(ctx)
 		
-		// CRITICAL FIX: Use 'continue' to safely consume consecutive newlines and comments.
+		// Use 'continue' to safely consume consecutive newlines and comments.
 		if l.p.tok == SPACE || l.p.tok == LINEND || l.p.tok == COMMENT {
 			l.p.next(ctx, true)
 			continue
@@ -20035,7 +20230,7 @@ func (l ul) modification(ctx Context) *modification {
 	if l.p.tok == COLON {
 		erro(ctx, "unexpected colon after modifer")
 	}
-    return &modification{vb, elems}
+    return &modification{valbase{pos}, elems}
 }
 
 // 
@@ -21843,14 +22038,6 @@ func nonTrivialDefsFromBase(ctx Context, p *project, name Symbol) (dd []*def) {
 
 func (l ul) scope() *scope { return l.loader.scope }
 func (l ul) search(ctx Context, spec string) (absPath string, isDir bool) {
-    if checkpoints && l.project != nil && l.project.name.String() == "variant.bootstrap" {
-        defer func() {
-            if absPath == "" {
-                debug(ctx, "%v → %s %v", spec, absPath, isDir)
-            }
-        } ()
-    }
-
     if spec == "." {
         erro(ctx, "self-search is not possible")
     } else if filepath.IsAbs(spec) {
@@ -22016,7 +22203,6 @@ func (l ul) use_spec(ctx Context, opts useopts, specVal Value, params ...Value) 
         if proj, res, isb = up.has_loaded(ctx, loaded, traveUseLoop); isb {
             debug(ctx, "`%s` is already base of `%s` (%s)", loaded, up, proj)
         } else if res && !use.opts.reuse && !loaded.opt.multiUseAllowed {
-            warn(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
             debug(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
         }
     }
@@ -25112,26 +25298,25 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
     }
 
     if isTrivial(target) {
-        erro(ctx, "target for reading is invalid (%T) (%v)", target, args)
+        erro(ctx, "%v: target is trivial (%v)", target, args)
     } else if file, filename, _ = as_fullname_file(ctx, target); file == nil {
         if val := auto_get(ctx, symRAngle); val != nil {
             panic(traveTargetNotDefinedFile)
         } else if true {
-            erro(ctx, _f("not a file: %v (%T)", target, target))
+            erro(ctx, _f("%v: not a file: %s", target, ts(target,ctx)))
         }
         return
     } else if filename == "" {
         erro(ctx, "%v: empty fullname", target)
     }
 
-    var ( bytes []byte ; err error )
-    if bytes, err = ioutil.ReadFile(filename); err == nil {
+	if bytes, err := ioutil.ReadFile(filename); err == nil {
 		var b strings.Builder
-        
-        // Pre-grow the buffer to exactly the size we need to prevent re-allocations
-        headStr, footStr := "", ""
-        if ctx.head != nil { headStr = __string(ctx, ctx.head) }
-        if ctx.foot != nil { footStr = __string(ctx, ctx.foot) }
+		
+		// Pre-grow the buffer to exactly the size we need to prevent re-allocations
+		headStr, footStr := "", ""
+		if ctx.head != nil { headStr = __string(ctx, ctx.head) }
+		if ctx.foot != nil { footStr = __string(ctx, ctx.foot) }
 
         b.Grow(len(headStr) + len(bytes) + len(footStr))
         b.WriteString(headStr)
@@ -25141,10 +25326,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
         auto_set(ctx.Context, defVoid, symDash, _raw(_pos(ctx), b.String()))
         auto_set(ctx.Context, defVoid, intern("-file"), file)
     } else {
-        erro(ctx, "%v", err)
-    }
-    if 0 < ctx.debug && err != nil {
-        debug(ctx, "%v: %v ; stems=%v\n", target, err, _stems(ctx))
+        erro(ctx, "%v: %v ; stems=%v", target, err, _stems(ctx))
     }
     return
 }
@@ -27010,7 +27192,6 @@ func (ctx *__foreach) cast(t reflect.Type) Context {
 	if reflect.TypeOf(ctx) == t { return ctx }
 	return ctx.builtinbase.cast(t)
 }
-
 func (ctx *__foreach) x() (res any) {
 	if len(ctx.a) == 0 {
 		return
@@ -27062,61 +27243,6 @@ func (ctx *__foreach) x() (res any) {
 			vals = append(vals, v)
 		}
 	}
-	return vals
-}
-func (ctx *__foreach) _x() (res any) {
-	if len(ctx.a) == 0 {
-		return
-	}
-
-	var vals []Value
-	
-	// FIX 1: Use []Value to safely handle hash collisions
-	var um map[uint64][]Value
-	if ctx.unique {
-		um = make(map[uint64][]Value)
-	}
-
-	d := ctx.a[0].String() == `$1 $2 $3 $4 $5 $6 $7 $8 $9`
-
-	for _, val := range merge(expand(ctx, ctx.a[0])) {
-		if !ctx.empty && isEmpty(val) {
-			continue
-		} else if ctx.unique {
-			var t = hash(ctx, val)
-			var isDuplicate bool
-			
-			// Resolve potential hash collisions via structural equality
-			if existing, found := um[t]; found {
-				for _, ev := range existing {
-					if equal(ctx, ev, val) {
-						isDuplicate = true
-						break
-					}
-				}
-			}
-			
-			if isDuplicate {
-				continue
-			}
-			um[t] = append(um[t], val)
-		}
-
-		// NOTE: don't use defStatic (it's for codeblock auto)
-		ctx.set(ctx, defVoid, symUnderscore, redis(val))
-
-		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
-			if !ctx.empty && isEmpty(v) {
-				continue
-			}
-			// FIX 2: Safely fallback to the macro's position to avoid nil panic
-			if v == nil {
-				v = _null(_pos(ctx))
-			}
-			vals = append(vals, v)
-		}
-	}
-	if d { debug(ctx, "%v → %v", ctx.a[0], vals) }
 	return vals
 }
 
@@ -27622,7 +27748,7 @@ func (ctx *__unique) x() (_ any) {
             d6 = t7.Sub(t6)
             erro(ctx, "unique: %v", d6)
         }
-    } () }
+    }()}
 
     t1 = time.Now()
 
@@ -27647,24 +27773,59 @@ func (ctx *__join) cast(t reflect.Type) Context {
     if reflect.TypeOf(ctx) == t { return ctx }
     return ctx.builtinbase.cast(t)
 }
-func (ctx *__join) x() (_ any) {
-    if l := len(ctx.a); 0 < l {
-        var t = &compound{}
-        if l < 2 {
-            t.app(merge(ctx.a...)...)
-        } else {
-            var sep = scalarize(ctx.a[l-1])
-            for i, v := range merge(ctx.a[:l-1]...) {
-                if 0 < i {
-                    t.app(sep, v)
-                } else {
-                    t.app(v)
-                }
-            }
-        }
-        return t
-    }
-    return
+func (ctx *__join) x() any {
+	l := len(ctx.a)
+	if l == 0 {
+		return nil
+	}
+
+	var sep Value
+	var vals []Value
+
+	if l == 1 {
+		vals = merge(ctx.a...)
+	} else {
+		sep = scalarize(ctx.a[l-1])
+		vals = merge(ctx.a[:l-1]...)
+	}
+
+	// 1. Use the Re-Disjunction pass purely for DETECTION.
+	// We deliberately discard the mutated AST to prevent `*disjunction` wrapping!
+	_, dynamicVals := _redis_elems(vals)
+	_, dynamicSep := _redis(sep)
+
+	// 2. If dynamic closures exist, return the pure, unmutated conjunction.
+	// The conjunction natively handles its own closures without redis!
+	if dynamicVals || dynamicSep {
+		return &conjunction{list{elements{vals}}, sep}
+	}
+
+	// 3. FAST PATH: All elements are perfectly static. Eagerly join them!
+	var valid []Value
+	for _, v := range vals {
+		if !isEmpty(v) {
+			valid = append(valid, v)
+		}
+	}
+
+	if len(valid) == 0 {
+		return nil
+	}
+
+	t := &compound{}
+	t.app(valid[0])
+	
+	if sep != nil {
+		for _, v := range valid[1:] {
+			t.app(sep, v)
+		}
+	} else {
+		for _, v := range valid[1:] {
+			t.app(v)
+		}
+	}
+
+	return t
 }
 
 type __conjunct struct { builtinbase }
@@ -27675,11 +27836,11 @@ func (ctx *__conjunct) cast(t reflect.Type) Context {
 }
 func (ctx *__conjunct) x() (_ any) {
 	if l := len(ctx.a); 0 < l {
-		var con conjunction
+		var con = new(conjunction)
 		if l < 2 {
-			con.list = _list(merge(ctx.a...)...)
+			con.elems = merge(ctx.a...)
 		} else {
-			con.list = _list(merge(ctx.a[:l-1]...)...)
+			con.elems = merge(ctx.a[:l-1]...)
 			con.sep  = ctx.a[l-1]
 		}
 		return con
@@ -29376,6 +29537,14 @@ func (ctx *__base9) cast(t reflect.Type) Context {
 }
 func (ctx *__base9) x() any { ctx.n = 9; return ctx.__bases.x() }
 
+func dirs(n int, s string) (_ string) {
+    for n > 0 {
+        s = filepath.Dir(s)
+        n -= 1
+    }
+    return s
+}
+
 type __dir struct { __dirs ; sub Value `has,contain,contains` }
 func (ctx *__dir) inner() Context { return &ctx.__dirs }
 func (ctx *__dir) cast(t reflect.Type) Context {
@@ -29410,14 +29579,6 @@ func (ctx *__dir) x() (_ any) {
         }
     }
     return l
-}
-
-func dirs(n int, s string) (_ string) {
-    for n > 0 {
-        s = filepath.Dir(s)
-        n -= 1
-    }
-    return s
 }
 
 type __dirs struct { builtinbase ; n int `num,size,count` }
@@ -30445,7 +30606,7 @@ func (ctx *__wildcard) directory(topDir string, pats ...Value) {
 	NamesLoop:
 		for _, name := range names {
 			dn := name
-			if dir != "" && dir != "." { dn = joinpath(dir, name) }
+			if dir != "" && dir != "." { dn = joinPathSegs(dir, name) }
 
 			// 1. Exclude Check (Must be an absolute match!)
 			dnPath := _pathStr(ctx, dn)
