@@ -1650,23 +1650,23 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 				var resS = res.String()
 				for _, s := range tv {
 					if resS == s {
-						if t.t == nil { return true, nil } else { goto ts_check }
+						if t.t == nil { return true, nil } else { dps = nil; goto ts_check }
 					}
 					dps = append(dps, _f("!= : %v", s))
 				}
 				return false, dps
 			case string:
 				if res.String() == tv {
-					if t.t == nil { return true, nil } else { goto ts_check }
+					if t.t == nil { return true, nil } else { dps = nil; goto ts_check }
 				}
 			}
 			dps = append(dps, _f("!= : %v", t.v))
 			return false, dps
 
 		ts_check:
+			var resT = ts(res, ctx)
 			switch tt := t.t.(type) {
 			case []string:
-				var resT = ts(res, ctx)
 				for _, s := range tt {
 					if resT == s { return true, nil }
 					dps = append(dps, _f("%v → %v: %s != %s", p, res, resT, s))
@@ -1675,7 +1675,10 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 			case string:
 				if ts(res, ctx) == tt { return true, nil }
 			}
-			dps = append(dps, _f("!= : %v", t.t))
+			dps = append(dps,
+				_f("got: %v → %v", res, resT),
+				_f("!= : %v → %v", res, t.t),
+			)
 			return false, dps
 
 		case sorted_list:
@@ -1724,12 +1727,26 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 				dps = append(dps, d...)
 			}
 		case map[string]any:
-			if s, ok := t[actual]; !ok {
+			if tss, ok := t[actual]; !ok {
 				dps = append(dps, _f("%v: <no-expected-ts>", res))
-			} else {
-				matched, d := compare(k, s, ts(res, ctx), is_ts)
+			} else if true {
+				matched, d := compare(k, tss, ts(res, ctx), true)
 				if matched { return } // Passed!
 				dps = append(dps, d...)
+			} else {
+				_ts := ts(res, ctx)
+				switch t := tss.(type) {
+				case []string:
+					for _, s := range t {
+						if s == _ts { return } // Passed!
+						dps = append(dps, _f("%v: %s != %s", res, _ts, s))
+					}
+				case string:
+					if t == actual { return } // Passed!
+					dps = append(dps, _f("%v: %s != %s", res, _ts, t))
+				default:
+					dps = append(dps, _f("%v: %s != %v", res, _ts, t))
+				}
 			}
 		case map[string]string:
 			if s, ok := t[actual]; !ok {
