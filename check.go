@@ -915,23 +915,33 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 				`{22:48 {22:23:word x}}`,
 			},
 		},
-		`$(a2)`:[]any{
-			checkresult{`$(a2)`,`{19:52:delegate {19:54:auto a2}}`},
-			checkresult{`$(a2)`,`{20:52:delegate {20:54:auto a2}}`},
-			checkresult{`y`,`{19:52 {22:28:word y}}`},
-			checkresult{`y`,`{22:53 {22:28:word y}}`},
+		`$(a2)`:map[string]any{
+			`$(a2)`:[]string{
+				`{19:52:delegate {19:54:auto a2}}`,
+				`{20:52:delegate {20:54:auto a2}}`,
+			},
+			`y`:[]string{
+				`{19:52 {22:28:word y}}`,
+				`{22:53 {22:28:word y}}`,
+			},
 		},
 		`$(a3)`:[]any{
 			checkresult{`$(a3)`,`{19:58:delegate {19:33:auto a3}}`},
-			checkresult{`3`,`{19:58 {19:33:decimal 3}}`},
-			checkresult{`3`,`{20:58 {20:33:decimal 3}}`},
+			checkresult{`3`,[]string{
+				`{19:58 {19:33:decimal 3}}`,
+				`{20:58 {20:33:decimal 3}}`,
+			}},
 			checkresult{`z`,`{22:58 {22:33:word z}}`},
 		},
 		`$(auto(a3=3) $(a1)-$(a2)-$(a3))`:[]any{
-			checkresult{`$(a1)-$(a2)-3`,`{20:13 {=compound {20:46:delegate {20:48:auto a1}} {=flag {=compound {20:52:delegate {20:54:auto a2}} {=flag {20:58 {20:33:decimal 3}}}}}}}`},
+			checkresult{`$(a1)-$(a2)-3`,[]string{
+				`{19:13 {=compound {19:46:delegate {19:48:auto a1}} {=flag {=compound {19:52:delegate {19:54:auto a2}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,
+				`{20:13 {=compound {20:46:delegate {20:48:auto a1}} {=flag {=compound {20:52:delegate {20:54:auto a2}} {=flag {20:58 {20:33:decimal 3}}}}}}}`,
+			}},
 			checkresult{`x-y-3`,`{19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`},
 		},
 		`$(.test.x0)`:[]any{
+			checkresult{`$(a1)-$(a2)-3`,`{24:36 {19:13 {=compound {19:46:delegate {19:48:auto a1}} {=flag {=compound {19:52:delegate {19:54:auto a2}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`},
 			checkresult{`x-y-3`,`{22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`},
 		},
 		`$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))`:[]any{
@@ -1729,30 +1739,37 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 		case map[string]any:
 			if tss, ok := t[actual]; !ok {
 				dps = append(dps, _f("%v: <no-expected-ts>", res))
-			} else if true {
+			} else if false {
 				matched, d := compare(k, tss, ts(res, ctx), true)
 				if matched { return } // Passed!
 				dps = append(dps, d...)
 			} else {
-				_ts := ts(res, ctx)
+				resT := ts(res, ctx)
 				switch t := tss.(type) {
 				case []string:
 					for _, s := range t {
-						if s == _ts { return } // Passed!
-						dps = append(dps, _f("%v: %s != %s", res, _ts, s))
+						if s == resT { return } // Passed!
+						dps = append(dps, _f("!= : %v → %s", res, s))
 					}
+					dps = append([]*diag_point{_f("got: %v → %v", res, resT)}, dps...)
+					goto done_dps
 				case string:
 					if t == actual { return } // Passed!
-					dps = append(dps, _f("%v: %s != %s", res, _ts, t))
-				default:
-					dps = append(dps, _f("%v: %s != %v", res, _ts, t))
 				}
+				dps = append(dps,
+					_f("got: %v → %v", res, resT),
+					_f("!= : %v → %v", res, tss),
+				)
+			done_dps:
 			}
 		case map[string]string:
 			if s, ok := t[actual]; !ok {
 				dps = append(dps, _f("%v: <no-expected-ts>", res))
-			} else if _ts := ts(res, ctx); s != _ts {
-				dps = append(dps, _f("%v: %s != %s", res, _ts, s))
+			} else if resT := ts(res, ctx); s != resT {
+				dps = append(dps,
+					_f("got: %v → %v", res, resT),
+					_f("!= : %v → %v", res, s),
+				)
 			} else {
 				return // Passed!
 			}
