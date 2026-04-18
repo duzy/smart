@@ -25,5 +25,5 @@ val9 = $(addprefix fo-,&(.test.$1.x.$2.y.$3.z))
 .test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z := a1 b2 c3
 
 val41 = $(addprefix std=,&(.test.{$1}))
-val91 = $(addprefix fo-,&(.test.{$1}.x.{$2}.y.{$3}.z))
 val81 = $(addprefix foo &(.test.{$1}),=&(.test.{$1}))
+val91 = $(addprefix fo-,&(.test.{$1}.x.{$2}.y.{$3}.z))

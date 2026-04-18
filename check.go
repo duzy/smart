@@ -26,13 +26,13 @@ var rxIgnoredChecks = regexp.MustCompile(`^(?:[0-9@<^>_/\-])(?:⇒.+)?$`)
 var rxSquareBracket = regexp.MustCompile(`\[?(.+?)\]?`)
 var rxUnwrapLocMarker = regexp.MustCompile(`\{=unwrap-loc-([^\s{}]+)\s`)
 var rxCheckReplacements = regexp.MustCompile(
-	`%\[(?:(tolower|toupper|dir|base|trim\((.+?)\))(?:\.([0-9]+))?:)?`+
+	`%\[(?:(tolower|toupper|dir|base|(?:trim|sep)\((.+?)\))(?:\.([0-9]+))?:)?`+
 	`(testdata|modules|workspace|workout|user|home|platforms`+
 	`|(?:target|host)(?:\.(?:abi|arch|os|release|sys|vendor|triple|bin|out|tmp))?`+
 	`|uname(?:\.(?:os|kernel|machine|processor|release))?`+
 	`|variant(?:\.(?:tag|targets|lib\.c\+\+))?`+
 	`|toolchain(?:\.(?:resourceDir))?`+
-	`)(?:\.([0-9]+))?(?::((?:trim|len|join|each|/)\((.+?)\)([+\-][0-9]+)?))?\]`,
+	`)(?:\.([0-9]+))?(?::((?:trim|len|join|each|[./])\((.+?)\)([+\-][0-9]+)?))?\]`,
 )
 
 func getUname(i int) string { if i < len(uname) { return uname[i] } else { return "" } }
@@ -43,14 +43,14 @@ var variables = map[string]any{
 	"uname":          uname,
 	"uname.os":       getUname(0),
 	"uname.kernel":   getUname(0),
-	"uname.release":  strings.Split(getUname(1), "."),
+	"uname.release":  getUname(1),
 	"uname.machine":  getUname(2),
 	"uname.processor":getUname(3),
 	"toolchain.resourceDir": resourceDir,
 	"toolchain":      filepath.Join(dirs(4,resourceDir)),
 	"platforms":      filepath.Join(dirs(6,resourceDir),"Platforms"),
 	"sysroot":        filepath.Join(dirs(6,resourceDir),"Platforms","MacOSX.platform","Developer","SDKs","MacOSX.sdk"),
-	"target.abi":     "macho",
+	"target.abi":     "macho", // TODO: ...
 	"target.os":      strings.ToLower(getUname(0)),
 	"target.release": strings.ToLower(getUname(1)),
 	"target.arch":    strings.ToLower(getUname(2)),
@@ -76,6 +76,31 @@ var variables = map[string]any{
 	"testdata":       testdata_s,
 	"modules":        modules_s,
 	// Add remaining host/target mappings here...
+}
+
+func unfix(str string) string {
+	type kv struct{ k, v string }
+	var vars []kv
+	for _, s := range []string{
+		"uname.os",
+		"target.abi", "target.arch", "target.os", "target.release", "target.vendor",
+		"variant.tag", "variant.target",
+		"toolchain.resourceDir", "toolchain", "platforms", "sysroot",
+		"testdata", "modules", "workspace", "workout", "workext",
+		"PATH", "user",
+	}{
+		if v, ok := variables[s]; ok {
+			vars = append(vars, kv{v.(string),`%[`+s+`]`})
+		}
+	}
+	vars = append(vars,
+		kv{getUname(0),`%[uname.0]`},
+		kv{getUname(1),`%[uname.1]`},
+		kv{getUname(2),`%[uname.2]`},
+		kv{getUname(3),`%[uname.3]`},
+	)
+	for _, t := range vars { str = strings.ReplaceAll(str, t.k, t.v) }
+	return strings.ReplaceAll(str, "\n", `\n`)
 }
 
 func fixCheckpoint(s string) string {
@@ -129,6 +154,8 @@ func fixCheckpoint(s string) string {
 
 			if strings.HasPrefix(preAct, "trim(") {
 				val = strings.TrimPrefix(val, preArg)
+			} else if strings.HasPrefix(preAct, "sep(") {
+				vals = strings.Split(val, preArg)
 			} else {
 				n := 1 // Default to 1 if no index is provided
 				if preIdx != "" {
@@ -173,21 +200,23 @@ func fixCheckpoint(s string) string {
 				}
 			} else if strings.HasPrefix(sufAct, "each(") {
 				var b strings.Builder
-				if len(vals) == 0 && val != "" {
-					vals = strings.Fields(val)
-				}
+				if len(vals) == 0 && val != "" { vals = strings.Fields(val) }
 				for i, s := range vals {
-					if i > 0 {
-						b.WriteString(" ")
-					}
+					if i > 0 { b.WriteString(" ") }
 					// Apply format string to the slice element
+					fmt.Fprintf(&b, sufArg, s)
+				}
+				return b.String()
+			} else if strings.HasPrefix(sufAct, ".(") {
+				var b strings.Builder
+				for i, s := range strings.Split(val, ".") {
+					if i > 0 { b.WriteString(" ") }
 					fmt.Fprintf(&b, sufArg, s)
 				}
 				return b.String()
 			} else if strings.HasPrefix(sufAct, "/(") {
 				var b strings.Builder
-				var segs = strings.Split(val, pathSep)
-				for i, s := range segs {
+				for i, s := range strings.Split(val, pathSep) {
 					if i == 0 && s == "" { // Handle root slash
 						fmt.Fprintf(&b, sufArg, "punct", "PROOT", s)
 					} else {
@@ -834,13 +863,8 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(foo)`:[]string{`foobar`,`x`},
 	},
 	`testdata/value`: map[string]any{
-		`&(something)`:[]string{`&(something)`,`{}`},
-		`atomic.h`:checkresult{`atomic.h`,`{=qualword {50:18:word atomic} {50:25:word h}}`},
-		`test.txt`:`test.txt`,
-		`ext.pub`:`ext.pub`,
-		`extbit.io`:`extbit.io`,
-		`extbit.com`:`extbit.com`,
-		`configure.types`:`configure.types`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(something)`:`{}`,
 		`configure.types."atomic.h"`:checkresult{`configure.types."atomic.h"`,
 			`{=qualword {49:1:word configure} {49:11:word types} {=strcomp {49:18:raw atomic.h}}}`},
 		`configure.types.<atomic.h`:checkresult{`configure.types.<atomic.h`,
@@ -881,14 +905,21 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 			`{=list {56:19 {56:45 {1:1:raw foo.o}}} {56:19 {56:45 {2:1:raw foo-x.o}}} {56:19 {56:45 {3:1:raw foo-x-y.o}}} {56:19 {56:45 {4:1:raw foo-x-y-z.o}}} {56:19 {56:45 {5:1:raw foobar.o}}}}`},
 	},
 	`testdata/value/auto`: map[string]any{
-		`&(foobar)`:`&(foobar)`,
-		`$(foobar?)`:checkresult{`$(foobar?)`,`{5:19:delegate {=glob {5:21:word foobar} {5:27:meta ?}}}`},
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(foobar)`:checkresult{`{}`,`{%[testdata]/value/auto/do.smart:5:9:null}`},
+		`$(foobar?)`:`{}`,
 		`$(a)`:[]any{
 			checkresult{`$(a)`,`{6:29:delegate {6:31:auto a}}`},
 			checkresult{`2`,`{6:29 {7:18:decimal 2}}`},
 			checkresult{`2`,`{7:29 {7:18:decimal 2}}`},
+			checkresult{`{}`,`{10:30 {10:32:null}}`},
+			checkresult{`x`,`{10:30 {1:9:word x}}`},
 		},
-		`$(auto $(a))`:checkresult{`$(a)`,`{6:9 {6:29:delegate {6:31:auto a}}}`},
+		`$(auto $(a))`:[]any{
+			checkresult{`$(a)`,`{6:9 {6:29:delegate {6:31:auto a}}}`},
+			checkresult{`{}`,`{%[testdata]/value/auto/do.smart:10:9 {10:30 {10:32:null}}}`},
+			checkresult{`x`,`{10:9 {10:30 {1:9:word x}}}`},
+		},
 		`$(auto(a=2) $(val1),$(a))`:checkresult{`2 2`,`{=list {7:9 {7:21 {6:9 {6:29 {7:18:decimal 2}}}}} {7:9 {7:29 {7:18:decimal 2}}}}`},
 		`$(auto(a=3) $(val2))`:checkresult{`2 2`,`{=list {8:9 {8:21 {7:9 {7:21 {6:9 {6:29 {7:18:decimal 2}}}}}}} {8:9 {8:21 {7:9 {7:29 {7:18:decimal 2}}}}}}`},
 		`$(val1)`:checkresult{`2`,`{7:21 {6:9 {6:29 {7:18:decimal 2}}}}`},
@@ -896,456 +927,554 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(val3)`:checkresult{`2 2`,`{=list {9:21 {8:9 {8:21 {7:9 {7:21 {6:9 {6:29 {7:18:decimal 2}}}}}}}} {9:21 {8:9 {8:21 {7:9 {7:29 {7:18:decimal 2}}}}}}}`},
 
 		`.test.x0`:checkresult{`.test.x0`,`{=qualword {19:1} {19:2:word test} {19:7:word x0}}`},
-		`.test.x1`:`.test.x1`,
-		`.test.y0`:`.test.y0`,
-		`.test.y1`:`.test.y1`,
-		`.test.z0`:`.test.z0`,
-		`.test.z1`:`.test.z1`,
-		`.test.0`:checkresult{`.test.0`,``},
-		`.test.1`:`.test.1`,
-		`.test.2`:`.test.2`,
+		`.test.0`:checkresult{`.test.0`,`{=qualword {26:1} {26:2:word test} {26:7:decimal 0}}`},
 
 		`$(a1)`:map[string]any{
-			`$(a1)`:[]string{
-				`{19:46:delegate {19:48:auto a1}}`,
-				`{20:46:delegate {20:48:auto a1}}`,
-			},
 			`x`:[]string{
+				`{19:46 {1:9:word x}}`,
+				`{19:46 {21:23:word x}}`,
 				`{19:46 {22:23:word x}}`,
+				`{19:46 {22:23:word x}}`,
+				`{20:46 {1:9:word x}}`,
+				`{21:48 {21:23:word x}}`,
 				`{22:48 {22:23:word x}}`,
+				`{23:48 {1:9:word x}}`,
+				`{24:48 {1:9:word x}}`,
+			},
+			`a`:[]string{
+				`{19:46 {28:22:word a}}`,
+				`{23:48 {28:22:word a}}`,
+			},
+			`{}`:[]string{
+				`{19:46 {19:48:null}}`,
+				`{23:48 {23:50:null}}`,
+				`{%[testdata]/value/auto/do.smart:19:46 {19:48:null}}`,
+				`{%[testdata]/value/auto/do.smart:24:48 {24:50:null}}`,
 			},
 		},
 		`$(a2)`:map[string]any{
-			`$(a2)`:[]string{
-				`{19:52:delegate {19:54:auto a2}}`,
-				`{20:52:delegate {20:54:auto a2}}`,
-			},
 			`y`:[]string{
+				`{19:52 {1:9:word y}}`,
+				`{19:52 {21:28:word y}}`,
 				`{19:52 {22:28:word y}}`,
+				`{20:52 {1:9:word y}}`,
+				`{21:53 {21:28:word y}}`,
 				`{22:53 {22:28:word y}}`,
+				`{23:53 {1:9:word y}}`,
+				`{24:53 {1:9:word y}}`,
+			},
+			`b`:[]string{
+				`{19:52 {28:27:word b}}`,
+				`{23:53 {28:27:word b}}`,
+			},
+			`{}`:[]string{
+				`{19:52 {19:54:null}}`,
+				`{23:53 {23:55:null}}`,
+				`{%[testdata]/value/auto/do.smart:19:52 {19:54:null}}`,
+				`{%[testdata]/value/auto/do.smart:24:53 {24:55:null}}`,
 			},
 		},
 		`$(a3)`:[]any{
-			checkresult{`$(a3)`,`{19:58:delegate {19:33:auto a3}}`},
 			checkresult{`3`,[]string{
 				`{19:58 {19:33:decimal 3}}`,
 				`{20:58 {20:33:decimal 3}}`,
 			}},
-			checkresult{`z`,`{22:58 {22:33:word z}}`},
+			checkresult{`z`,[]string{
+				`{21:58 {21:33:word z}}`,
+				`{22:58 {22:33:word z}}`,
+			}},
+			`c`, `{}`,
 		},
 		`$(auto(a3=3) $(a1)-$(a2)-$(a3))`:[]any{
 			checkresult{`$(a1)-$(a2)-3`,[]string{
 				`{19:13 {=compound {19:46:delegate {19:48:auto a1}} {=flag {=compound {19:52:delegate {19:54:auto a2}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,
 				`{20:13 {=compound {20:46:delegate {20:48:auto a1}} {=flag {=compound {20:52:delegate {20:54:auto a2}} {=flag {20:58 {20:33:decimal 3}}}}}}}`,
 			}},
-			checkresult{`x-y-3`,`{19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`},
+			checkresult{`x-y-3`,[]string{
+				`{19:13 {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,
+				`{19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,
+				`{19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}`,
+			}},
+			`a-b-3`,
+			`{}-{}-3`,
 		},
-		`$(.test.x0)`:[]any{
-			checkresult{`$(a1)-$(a2)-3`,`{24:36 {19:13 {=compound {19:46:delegate {19:48:auto a1}} {=flag {=compound {19:52:delegate {19:54:auto a2}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`},
-			checkresult{`x-y-3`,`{22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`},
+		`$(.test.x0)`:map[string]any{
+			`$(a1)-$(a2)-3`:`{24:36 {19:13 {=compound {19:46:delegate {19:48:auto a1}} {=flag {=compound {19:52:delegate {19:54:auto a2}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
+			`x-y-3`:[]string{
+				`{21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
+				`{22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
+				`{23:36 {19:13 {=compound {19:46 {1:9:word x}} {=flag {=compound {19:52 {1:9:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
+			},
+			`a-b-3`:`{23:36 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
+			`{}-{}-3`:`{23:36 {19:13 {=compound {19:46 {19:48:null}} {=flag {=compound {19:52 {19:54:null}} {=flag {19:58 {19:33:decimal 3}}}}}}}}`,
 		},
-		`$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))`:[]any{
-			checkresult{`x-y-3-xyz`,`{22:13 {=compound {22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {22:48 {22:23:word x}} {22:53 {22:28:word y}} {22:58 {22:33:word z}}}}}}`},
+		`$(.test.y0)`:map[string]any{
+			`x-y-3-xyz`:[]string{
+				`{26:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}`,
+				`{27:35 {21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}}`,
+			},
 		},
+		`$(.test.z0)`:checkresult{`a-b-3-abc`,`{28:35 {23:13 {=compound {23:36 {19:13 {=compound {19:46 {28:22:word a}} {=flag {=compound {19:52 {28:27:word b}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {23:48 {28:22:word a}} {23:53 {28:27:word b}} {23:58 {28:32:word c}}}}}}}`},
+		`$(auto(a1=x a2=y a3=z) $(.test.x0)-$(a1)$(a2)$(a3))`:map[string]any{
+			`x-y-3-xyz`:[]string{
+				`{21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}`,
+				`{22:13 {=compound {22:36 {19:13 {=compound {19:46 {22:23:word x}} {=flag {=compound {19:52 {22:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {22:48 {22:23:word x}} {22:53 {22:28:word y}} {22:58 {22:33:word z}}}}}}`,
+				`{%[testdata]/value/auto/do.smart:21:13 {=compound {21:36 {19:13 {=compound {19:46 {21:23:word x}} {=flag {=compound {19:52 {21:28:word y}} {=flag {19:58 {19:33:decimal 3}}}}}}}} {=flag {=compound {21:48 {21:23:word x}} {21:53 {21:28:word y}} {21:58 {21:33:word z}}}}}}`,
+			},
+		},
+		`$(auto $(.test.x0)-$(a1)$(a2)$(a3))`:[]string{
+			`$(a1)-$(a2)-3-$(a1)$(a2)$(a3)`, `a-b-3-abc`, `{}-{}-3-{}{}{}`, `x-y-3-xy{}`,
+		},
+		`$(auto(a1=a a2=b a3=c) $(.test.y0))`:`x-y-3-xyz`,
+		`$(auto(a1=a a2=b a3=c) $(.test.z0))`:`a-b-3-abc`,
 	},
 	`testdata/value/closure`: map[string]any{
-		`$(&(foo.tail)) {%[testdata]/value/closure/do.smart:8:16:delegate {8:18:closure {=qualword {8:20:word foo} {8:24:word tail}}}}`:`foo {%[testdata]/value/closure/do.smart:8:16 {13:20:word foo}}`,
-		`$(&(foo.tail)) {%[testdata]/value/closure/do.smart:9:16:delegate {9:18:closure {=qualword {9:20:word foo} {9:24:word tail}}}}`:`foo {%[testdata]/value/closure/do.smart:9:16 {13:20:word foo}}`,
-		`&(&(foo.tail)) {%[testdata]/value/closure/do.smart:10:16:closure {10:18:closure {=qualword {10:20:word foo} {10:24:word tail}}}}`:`foo {%[testdata]/value/closure/do.smart:10:16 {13:20:word foo}}`,
-		`&(&(foo.tail)) {12:16:closure {12:18:closure {11:13:def foo.tail}}}`:`&(foo.xxxx) {12:16:closure {12:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}}`,
-		`&(&(foo.tail)) {14:16:closure {14:18:closure {11:13:def foo.tail}}}`:`foo {14:16 {13:20:word foo}}`,
-		`&(foo.pos) {%[testdata]/value/closure/do.smart:5:12:closure {=qualword {5:14:word foo} {5:18:word pos}}}`:`foo {%[testdata]/value/closure/do.smart:5:12 {6:12:word foo}}`,
-		`&(foo.pre) {%[testdata]/value/closure/do.smart:4:12:closure {3:9:def foo.pre}}`:`foo {%[testdata]/value/closure/do.smart:4:12 {3:12:word foo}}`,
-		`&(foo.tail) {%[testdata]/value/closure/do.smart:10:18:closure {=qualword {10:20:word foo} {10:24:word tail}}}`:`foo.xxxx {%[testdata]/value/closure/do.smart:10:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
-		`&(foo.tail) {%[testdata]/value/closure/do.smart:8:18:closure {=qualword {8:20:word foo} {8:24:word tail}}}`:`foo.xxxx {%[testdata]/value/closure/do.smart:8:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
-		`&(foo.tail) {%[testdata]/value/closure/do.smart:9:18:closure {=qualword {9:20:word foo} {9:24:word tail}}}`:`foo.xxxx {%[testdata]/value/closure/do.smart:9:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
-		`&(foo.tail) {12:18:closure {11:13:def foo.tail}}`:`foo.xxxx {12:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
-		`&(foo.tail) {14:18:closure {11:13:def foo.tail}}`:`foo.xxxx {14:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
-		`&(foo.xxxx) {%[testdata]/value/closure/do.smart:12:16:closure {12:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}}`:`foo {%[testdata]/value/closure/do.smart:12:16 {13:20:word foo}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(foo.pre)`:checkresult{`foo`,`{%[testdata]/value/closure/do.smart:4:12 {3:12:word foo}}`},
+		`&(foo.pos)`:checkresult{`foo`,`{%[testdata]/value/closure/do.smart:5:12 {6:12:word foo}}`},
+		`&(foo.tail)`:checkresult{`foo.xxxx`,[]string{
+			`{12:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+			`{14:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+			`{%[testdata]/value/closure/do.smart:8:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+			`{%[testdata]/value/closure/do.smart:9:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+			`{%[testdata]/value/closure/do.smart:10:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+			`{%[testdata]/value/closure/do.smart:12:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+			`{%[testdata]/value/closure/do.smart:14:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}`,
+		}},
+		`$(&(foo.tail))`:checkresult{`foo`,[]string{
+			`{%[testdata]/value/closure/do.smart:8:16 {13:20:word foo}}`,
+			`{%[testdata]/value/closure/do.smart:9:16 {13:20:word foo}}`,
+		}},
+		`&(&(foo.tail))`:[]any{
+			checkresult{`&(&(foo.tail))`,`{10:16:closure {10:18:closure {=qualword {10:20:word foo} {10:24:word tail}}}}`},
+			checkresult{`&(foo.xxxx)`,`{12:16:closure {12:18 {=qualword {11:20:word foo} {11:24:word xxxx}}}}`},
+			checkresult{`foo`,[]string{
+				`{14:16 {13:20:word foo}}`,
+				`{%[testdata]/value/closure/do.smart:10:16 {13:20:word foo}}`,
+			}},
+		},
+		`&(foo.xxxx)`:checkresult{`foo`,`{%[testdata]/value/closure/do.smart:12:16 {13:20:word foo}}`},
 	},
 	`testdata/value/disjunction`: map[string]any{
-		`&(.test) {%[testdata]/value/disjunction/do.smart:3:13:closure {=qualword {3:15} {3:16:word test}}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {3:13 {8:10:word a}} {3:13 {8:12:word b}} {3:13 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:4:9:closure {=qualword {4:11} {4:12:word test}}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {4:9 {8:10:word a}} {4:9 {8:12:word b}} {4:9 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:5:16:closure {=qualword {5:18} {5:19:word test}}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {5:16 {8:10:word a}} {5:16 {8:12:word b}} {5:16 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:6:12:closure {=qualword {6:14} {6:15:word test}}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {6:12 {8:10:word a}} {6:12 {8:12:word b}} {6:12 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:3:13:closure {8:7:def .test}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {3:13 {8:10:word a}} {3:13 {8:12:word b}} {3:13 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:4:9:closure {8:7:def .test}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {4:9 {8:10:word a}} {4:9 {8:12:word b}} {4:9 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:5:16:closure {8:7:def .test}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {5:16 {8:10:word a}} {5:16 {8:12:word b}} {5:16 {8:14:word c}}}`,
-		`&(.test) {%[testdata]/value/disjunction/do.smart:6:12:closure {8:7:def .test}}`:`a b c {%[testdata]/value/disjunction/do.smart:list {6:12 {8:10:word a}} {6:12 {8:12:word b}} {6:12 {8:14:word c}}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(.test)`:checkresult{`a b c`,[]string{
+			`{%[testdata]/value/disjunction/do.smart:list {3:13 {8:10:word a}} {3:13 {8:12:word b}} {3:13 {8:14:word c}}}`,
+			`{%[testdata]/value/disjunction/do.smart:list {4:9 {8:10:word a}} {4:9 {8:12:word b}} {4:9 {8:14:word c}}}`,
+			`{%[testdata]/value/disjunction/do.smart:list {5:16 {8:10:word a}} {5:16 {8:12:word b}} {5:16 {8:14:word c}}}`,
+			`{%[testdata]/value/disjunction/do.smart:list {6:12 {8:10:word a}} {6:12 {8:12:word b}} {6:12 {8:14:word c}}}`,
+		}},
 	},
 	`testdata/value/placeholder`: map[string]any{
-		`$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_) {5:9:delegate {5:11:builtin foreach} {=list {5:19:delegate {5:20:auto 1}} {5:22:delegate {5:23:auto 2}} {5:25:delegate {5:26:auto 3}} {5:28:delegate {5:29:auto 4}} {5:31:delegate {5:32:auto 5}} {5:34:delegate {5:35:auto 6}} {5:37:delegate {5:38:auto 7}} {5:40:delegate {5:41:auto 8}} {5:43:delegate {5:44:auto 9}}} {=list {5:46:delegate {5:47:auto _}}}}`:`1 2 3 4 5 6 7 8 9 {=list {5:9 {5:46 {5:19 {1:9:word 1}}}} {5:9 {5:46 {5:22 {1:9:word 2}}}} {5:9 {5:46 {5:25 {1:9:word 3}}}} {5:9 {5:46 {5:28 {1:9:word 4}}}} {5:9 {5:46 {5:31 {1:9:word 5}}}} {5:9 {5:46 {5:34 {1:9:word 6}}}} {5:9 {5:46 {5:37 {1:9:word 7}}}} {5:9 {5:46 {5:40 {1:9:word 8}}}} {5:9 {5:46 {5:43 {1:9:word 9}}}}}`,
-		`$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_) {7:9:delegate {7:11:builtin foreach} {=list {7:19:delegate {7:20:auto 1}} {7:22:delegate {7:23:auto 2}} {7:25:delegate {7:26:auto 3}} {7:28:delegate {7:29:auto 4}} {7:31:delegate {7:32:auto 5}} {7:34:delegate {7:35:auto 6}} {7:37:delegate {7:38:auto 7}} {7:40:delegate {7:41:auto 8}} {7:43:delegate {7:44:auto 9}}} {=list {7:46:delegate {7:47:auto _}}}}`:`{$1} {$2} {$3} {$4} {$5} {$6} {$7} {$8} {$9} {=list {7:9 {7:46 {7:19:disjunction {7:19:delegate {7:20:auto 1}}}}} {7:9 {7:46 {7:22:disjunction {7:22:delegate {7:23:auto 2}}}}} {7:9 {7:46 {7:25:disjunction {7:25:delegate {7:26:auto 3}}}}} {7:9 {7:46 {7:28:disjunction {7:28:delegate {7:29:auto 4}}}}} {7:9 {7:46 {7:31:disjunction {7:31:delegate {7:32:auto 5}}}}} {7:9 {7:46 {7:34:disjunction {7:34:delegate {7:35:auto 6}}}}} {7:9 {7:46 {7:37:disjunction {7:37:delegate {7:38:auto 7}}}}} {7:9 {7:46 {7:40:disjunction {7:40:delegate {7:41:auto 8}}}}} {7:9 {7:46 {7:43:disjunction {7:43:delegate {7:44:auto 9}}}}}}`,
-		`$(foreach 1 2 3 4 5 6 7 8 9,$_) {5:9:delegate {5:11:builtin foreach} {=list {5:19 {1:9:word 1}} {5:22 {1:9:word 2}} {5:25 {1:9:word 3}} {5:28 {1:9:word 4}} {5:31 {1:9:word 5}} {5:34 {1:9:word 6}} {5:37 {1:9:word 7}} {5:40 {1:9:word 8}} {5:43 {1:9:word 9}}} {=list {5:46:delegate {4:32:auto _}}}}`: `1 2 3 4 5 6 7 8 9 {=list {5:9 {5:46 {5:19 {1:9:word 1}}}} {5:9 {5:46 {5:22 {1:9:word 2}}}} {5:9 {5:46 {5:25 {1:9:word 3}}}} {5:9 {5:46 {5:28 {1:9:word 4}}}} {5:9 {5:46 {5:31 {1:9:word 5}}}} {5:9 {5:46 {5:34 {1:9:word 6}}}} {5:9 {5:46 {5:37 {1:9:word 7}}}} {5:9 {5:46 {5:40 {1:9:word 8}}}} {5:9 {5:46 {5:43 {1:9:word 9}}}}}`,
-		`$(foreach a b c d e f,$_) {4:9:delegate {4:11:builtin foreach} {=list {4:19:word a} {4:21:word b} {4:23:word c} {4:25:word d} {4:27:word e} {4:29:word f}} {=list {4:31:delegate {4:32:auto _}}}}`:`a b c d e f {=list {4:9 {4:31 {4:19:word a}}} {4:9 {4:31 {4:21:word b}}} {4:9 {4:31 {4:23:word c}}} {4:9 {4:31 {4:25:word d}}} {4:9 {4:31 {4:27:word e}}} {4:9 {4:31 {4:29:word f}}}}`,
-		`$(foreach a b c d e f,$_) {6:9:delegate {6:11:builtin foreach} {=list {6:19:word a} {6:21:word b} {6:23:word c} {6:25:word d} {6:27:word e} {6:29:word f}} {=list {6:31:delegate {6:32:auto _}}}}`:`a b c d e f {=list {6:9 {6:31 {6:19:word a}}} {6:9 {6:31 {6:21:word b}}} {6:9 {6:31 {6:23:word c}}} {6:9 {6:31 {6:25:word d}}} {6:9 {6:31 {6:27:word e}}} {6:9 {6:31 {6:29:word f}}}}`,
-		`$(foreach $1 xx $2,$_) {17:9:delegate {17:11:builtin foreach} {=list {17:19:delegate {17:20:auto 1}} {17:23 {15:9:word xx}} {17:25:delegate {17:26:auto 2}}} {=list {17:28:delegate {17:29:auto _}}}}`:`{$1} xx {$2} {=list {17:9 {17:28 {17:19:disjunction {17:19:delegate {17:20:auto 1}}}}} {17:9 {17:28 {17:23 {15:9:word xx}}}} {17:9 {17:28 {17:25:disjunction {17:25:delegate {17:26:auto 2}}}}}}`,
-		`$(foreach $1 yy $2,$_) {17:9:delegate {17:11:builtin foreach} {=list {17:19:delegate {17:20:auto 1}} {17:23 {15:12:word yy}} {17:25:delegate {17:26:auto 2}}} {=list {17:28:delegate {17:29:auto _}}}}`:`{$1} yy {$2} {=list {17:9 {17:28 {17:19:disjunction {17:19:delegate {17:20:auto 1}}}}} {17:9 {17:28 {17:23 {15:12:word yy}}}} {17:9 {17:28 {17:25:disjunction {17:25:delegate {17:26:auto 2}}}}}}`,
-		`$(foreach $1 zz $2,$_) {17:9:delegate {17:11:builtin foreach} {=list {17:19:delegate {17:20:auto 1}} {17:23 {15:15:word zz}} {17:25:delegate {17:26:auto 2}}} {=list {17:28:delegate {17:29:auto _}}}}`:`{$1} zz {$2} {=list {17:9 {17:28 {17:19:disjunction {17:19:delegate {17:20:auto 1}}}}} {17:9 {17:28 {17:23 {15:15:word zz}}}} {17:9 {17:28 {17:25:disjunction {17:25:delegate {17:26:auto 2}}}}}}`,
+		`$(foreach a b c d e f,$_)`:`a b c d e f`,
+		`$(foreach $1 $2 $3 $4 $5 $6 $7 $8 $9,$_)`:[]any{
+			`{$1} {$2} {$3} {$4} {$5} {$6} {$7} {$8} {$9}`,
+			checkresult{`1 2 3 4 5 6 7 8 9`,
+				`{=list {5:9 {5:46 {5:19 {1:9:word 1}}}} {5:9 {5:46 {5:22 {1:9:word 2}}}} {5:9 {5:46 {5:25 {1:9:word 3}}}} {5:9 {5:46 {5:28 {1:9:word 4}}}} {5:9 {5:46 {5:31 {1:9:word 5}}}} {5:9 {5:46 {5:34 {1:9:word 6}}}} {5:9 {5:46 {5:37 {1:9:word 7}}}} {5:9 {5:46 {5:40 {1:9:word 8}}}} {5:9 {5:46 {5:43 {1:9:word 9}}}}}`},
+		},
+		`$(foreach $1 xx $2,$_)`:`{$1} xx {$2}`,
+		`$(foreach $1 yy $2,$_)`:`{$1} yy {$2}`,
+		`$(foreach $1 zz $2,$_)`:`{$1} zz {$2}`,
 	},
 	`testdata/value/optional`: map[string]any{
-		`$($_→bar?) {27:27:delegate {=arrow {27:29:delegate {27:30:auto _}}→{=glob {27:32:word bar} {27:35:meta ?}}}}`:`$({=project foo}→bar?) {27:27:delegate {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{=glob {27:32:word bar} {27:35:meta ?}}}}`,
-		`$($_→name) {25:27:delegate {=arrow {25:29:delegate {25:30:auto _}}→{25:32:word name}}}`:`{=self foo} {25:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}`,
-		`$($_→name?) {26:27:delegate {=arrow {26:29:delegate {26:30:auto _}}→{=glob {26:32:word name} {26:36:meta ?}}}}`:`{=self foo} {26:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}`,
-		`$(foo?→name?→item?) {31:10:delegate {=arrow {=arrow {=glob {31:12:word foo} {31:15:meta ?}}→{=glob {31:17:word name} {31:21:meta ?}}}→{=glob {31:23:word item} {31:27:meta ?}}}}`:`{=yes} {31:10 {%[testdata]/value/optional/foo/do.smart:4:14:yes}}`,
-		`$(foo?→name?→item?) {31:10:delegate {=arrow {=arrow {=glob {31:12:word foo} {31:15:meta ?}}→{=glob {31:19:word name} {31:23:meta ?}}}→{=glob {31:27:word item} {31:31:meta ?}}}}`:`{=yes} {31:10 {%[testdata]/value/optional/foo/do.smart:4:14:yes}}`,
-		`$(foreach $({=project foo}),$($_→bar?)) {27:10:delegate {27:12:builtin foreach} {=list {27:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}} {=list {27:27:delegate {=arrow {27:29:delegate {27:30:auto _}}→{=glob {27:32:word bar} {27:35:meta ?}}}}}}`:`$({=project foo}→bar?) {27:10 {27:27:delegate {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{=glob {27:32:word bar} {27:35:meta ?}}}}}`,
-		`$(foreach $({=project foo}),$($_→bar?)) {27:10:delegate {27:12:builtin foreach} {=list {27:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}} {=list {27:27:delegate {=arrow {27:29:delegate {27:30:auto _}}→{=glob {27:34:word bar} {27:37:meta ?}}}}}}`:`$({=project foo}→bar?) {27:10 {27:27:delegate {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{=glob {27:34:word bar} {27:37:meta ?}}}}}`,
-		`$(foreach $({=project foo}),$($_→name)) {25:10:delegate {25:12:builtin foreach} {=list {25:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}} {=list {25:27:delegate {=arrow {25:29:delegate {25:30:auto _}}→{25:32:word name}}}}}`:`{=self foo} {25:10 {25:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}}`,
-		`$(foreach $({=project foo}),$($_→name?)) {26:10:delegate {26:12:builtin foreach} {=list {26:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}} {=list {26:27:delegate {=arrow {26:29:delegate {26:30:auto _}}→{=glob {26:32:word name} {26:36:meta ?}}}}}}`:`{=self foo} {26:10 {26:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}}`,
-		`$({=project foo}) {19:10:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`:`{=project foo} {19:10 {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`,
-		`$({=project foo}) {25:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`:`{=project foo} {25:20 {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`,
-		`$({=project foo}) {26:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`:`{=project foo} {26:20 {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`,
-		`$({=project foo}) {27:20:delegate {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`:`{=project foo} {27:20 {%[testdata]/value/optional/foo/do.smart:1:8:project foo}}`,
-		`$({=project foo}→name?) {21:10:delegate {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{=glob {21:16:word name} {21:20:meta ?}}}}`:`{=self foo} {21:10 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}`,
-		`$({=project foo}→name?→item?) {30:10:delegate {=arrow {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{=glob {30:16:word name} {30:20:meta ?}}}→{=glob {30:22:word item} {30:26:meta ?}}}}`:`{=yes} {30:10 {%[testdata]/value/optional/foo/do.smart:4:14:yes}}`,
-		`$({=project foo}→name→item?) {29:10:delegate {=arrow {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{29:16:word name}}→{=glob {29:21:word item} {29:25:meta ?}}}}`:`{=yes} {29:10 {%[testdata]/value/optional/foo/do.smart:4:14:yes}}`,
-		`$({=project foo}→name→xxxx?) {28:10:delegate {=arrow {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{28:16:word name}}→{=glob {28:21:word xxxx} {28:25:meta ?}}}}`:`$({=self foo}→xxxx?) {28:10:delegate {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:self foo}→{=glob {28:21:word xxxx} {28:25:meta ?}}}}`,
+		`.`:checkresult{`.`,`{=qualword {3:5} {3:6}}`},
+		`$(name?)`:[]any{
+			checkresult{`$(name?)`,`{20:10:delegate {=glob {20:12:word name} {20:16:meta ?}}}`},
+		},
+		`$({=self foo})`:checkresult{`{=self foo}`,`{3:9 {1:8:self foo}}`},
+		`$({=project foo})`:`{=project foo}`,
+		`$({=project foo}→name?)`:[]any{
+			`{=self foo}`,
+		},
+		`$({=project foo}→baz?)`:[]any{
+			checkresult{`$({=project foo}→baz?)`,`{22:10:delegate {=arrow {%[testdata]/value/optional/foo/do.smart:1:8:project foo}→{=glob {22:16:word baz} {22:19:meta ?}}}}`},
+		},
+		`$(fo?→bar)`:checkresult{`$(fo?→bar)`,`{23:10:delegate {=arrow {=glob {23:12:word fo} {23:14:meta ?}}→{23:16:word bar}}}`},
+		`$(fo?→bar?)`:checkresult{`$(fo?→bar?)`,`{24:10:delegate {=arrow {=glob {24:12:word fo} {24:14:meta ?}}→{=glob {24:16:word bar} {24:19:meta ?}}}}`},
+		`$($_→name)`:checkresult{`{=self foo}`,`{25:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}`},
+		`$($_→name?)`:checkresult{`{=self foo}`,`{26:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}`},
+		`$($_→bar?)`:checkresult{`$({=project foo}→bar?)`,`{27:27:delegate {=arrow {/Volumes/workspace/go/src/extbit.io/smart/testdata/value/optional/foo/do.smart:1:8:project foo}→{=glob {27:32:word bar} {27:35:meta ?}}}}`},
+		`$(foreach $({=project foo}),$($_→name))`:checkresult{`{=self foo}`,`{25:10 {25:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}}`},
+		`$(foreach $({=project foo}),$($_→name?))`:checkresult{`{=self foo}`,`{26:10 {26:27 {%[testdata]/value/optional/foo/do.smart:3:9 {1:8:self foo}}}}`},
+		`$(foreach $({=project foo}),$($_→bar?))`:checkresult{`$({=project foo}→bar?)`,`{27:10 {27:27:delegate {=arrow {/Volumes/workspace/go/src/extbit.io/smart/testdata/value/optional/foo/do.smart:1:8:project foo}→{=glob {27:32:word bar} {27:35:meta ?}}}}}`},
+		`$({=project foo}→name→xxxx?)`:checkresult{`$({=self foo}→xxxx?)`,`{28:10:delegate {=arrow {/Volumes/workspace/go/src/extbit.io/smart/testdata/value/optional/foo/do.smart:1:8:self foo}→{=glob {28:21:word xxxx} {28:25:meta ?}}}}`},
+		`$({=project foo}→name→item?)`:checkresult{`{=yes}`,`{29:10 {/Volumes/workspace/go/src/extbit.io/smart/testdata/value/optional/foo/do.smart:4:14:yes}}`},
+		`$({=project foo}→name?→item?)`:checkresult{`{=yes}`,`{30:10 {/Volumes/workspace/go/src/extbit.io/smart/testdata/value/optional/foo/do.smart:4:14:yes}}`},
+		`$(foo?→name?→item?)`:checkresult{`{=yes}`,`{31:10 {/Volumes/workspace/go/src/extbit.io/smart/testdata/value/optional/foo/do.smart:4:14:yes}}`},
 	},
 	`testdata/value/optional/foo`: map[string]any{
-		`$({=self foo}) {3:9:delegate {1:8:self foo}}`:`{=self foo} {3:9 {1:8:self foo}}`,
+		`$({=self foo})`:checkresult{`{=self foo}`,`{3:9 {1:8:self foo}}`},
 	},
 	`testdata/value/glob`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`pat.0`:checkresult{`pat.0`,`{=qualword {3:1:word pat} {3:5:decimal 0}}`},
+		`pat1.0`:`pat1.0`, `pat1.1`:`pat1.1`, `pat1.2`:`pat1.2`, `pat1.3`:`pat1.3`, `pat1.4`:`pat1.4`, `pat1.5`:`pat1.5`, `pat1.6`:`pat1.6`, `pat1.01`:`pat1.01`,
+		`pat2._`:checkresult{`pat2._`,`{=qualword {11:1:word pat2} {11:6:word _}}`},
+		`pat2.0`:`pat2.0`, `pat2.1`:`pat2.1`, `pat2.2`:`pat2.2`, `pat2.01`:`pat2.01`,
+		`pat3.0`:`pat3.0`, `pat3.1`:`pat3.1`, `pat3.2`:`pat3.2`, `pat3.01`:`pat3.01`,
+		`pat4.0`:`pat4.0`, `pat4.1`:`pat4.1`, `pat4.2`:`pat4.2`, `pat4.01`:`pat4.01`,
+		`pat5.0`:`pat5.0`, `pat5.1`:`pat5.1`, `pat5.2`:`pat5.2`, `pat5.01`:`pat5.01`,
+		`pat6.0`:`pat6.0`, `pat6.1`:`pat6.1`, `pat6.2`:`pat6.2`, `pat6.01`:`pat6.01`,
+		`pat7.0`:`pat7.0`, `pat7.1`:`pat7.1`, `pat7.2`:`pat7.2`, `pat7.01`:`pat7.01`,
+		`pat8.0`:`pat8.0`, `pat8.1`:`pat8.1`, `pat8.2`:`pat8.2`,
+		`pat10.0`:`pat10.0`, `pat10.1`:`pat10.1`, `pat10.2`:`pat10.2`, `pat10.3`:`pat10.3`,
+		`pat11.0`:`pat11.0`, `pat11.1`:`pat11.1`, `pat11.2`:`pat11.2`, `pat11.3`:`pat11.3`,
+		`pat12.0`:`pat12.0`, `pat12.1`:`pat12.1`, `pat12.2`:`pat12.2`, `pat12.3`:`pat12.3`, `pat12.4`:`pat12.4`, `pat12.5`:`pat12.5`,
+		`pat13.0`:`pat13.0`, `pat13.1`:`pat13.1`, `pat13.2`:`pat13.2`,
 	},
 	`testdata/value/1`: map[string]any{
-		`$(.test.foo) {4:20:delegate {3:11:def .test.foo}}`: `- {4:20 {=flag {3:15}}}`,
-		`$(.test.foo) {4:62:delegate {3:11:def .test.foo}}`: `- {4:62 {=flag {3:15}}}`,
-		`$(.test.foo) {5:28:delegate {3:11:def .test.foo}}`: `- {5:28 {=flag {3:15}}}`,
-		`$(.test.foo) {5:70:delegate {3:11:def .test.foo}}`: `- {5:70 {=flag {3:15}}}`,
-		`$(.test.foo)foobar {=compound {4:20:delegate {3:11:def .test.foo}} {4:32:word foobar}}`: `-foobar {=compound {4:20 {=flag {3:15}}} {4:32:word foobar}}`,
-		`$(.test.foo)foobar {=compound {4:62:delegate {3:11:def .test.foo}} {4:74:word foobar}}`: `-foobar {=compound {4:62 {=flag {3:15}}} {4:74:word foobar}}`,
-		`$(.test.foo)foobar {=compound {5:28:delegate {3:11:def .test.foo}} {5:40:word foobar}}`: `-foobar {=compound {5:28 {=flag {3:15}}} {5:40:word foobar}}`,
-		`$(.test.foo)foobar {=compound {5:70:delegate {3:11:def .test.foo}} {5:82:word foobar}}`: `-foobar {=compound {5:70 {=flag {3:15}}} {5:82:word foobar}}`,
-		`$(equal $(.test.foo)foobar,-foobar) {4:12:delegate {4:14:builtin equal} {=list {=compound {4:20:delegate {3:11:def .test.foo}} {4:32:word foobar}}} {=list {=flag {4:40:word foobar}}}}`:`{=true} {4:12 {4:14:true}}`,
-		`$(equal -foobar,$(.test.foo)foobar) {5:12:delegate {5:14:builtin equal} {=list {=flag {5:21:word foobar}}} {=list {=compound {5:28:delegate {3:11:def .test.foo}} {5:40:word foobar}}}}`:`{=true} {5:12 {5:14:true}}`,
-		`$(equal(-str) $(.test.foo)foobar,-foobar) {4:48:delegate {4:50:builtin equal} [{=flag {4:57:word str}}] {=list {=compound {4:62:delegate {3:11:def .test.foo}} {4:74:word foobar}}} {=list {=flag {4:82:word foobar}}}}`:`{=true} {4:48 {4:50:true}}`,
-		`$(equal(-str) -foobar,$(.test.foo)foobar) {5:48:delegate {5:50:builtin equal} [{=flag {5:57:word str}}] {=list {=flag {5:63:word foobar}}} {=list {=compound {5:70:delegate {3:11:def .test.foo}} {5:82:word foobar}}}}`:`{=true} {5:48 {5:50:true}}`,
-
-		`$(.test.foo) {8:20:delegate {7:11:def .test.foo}}`: `-foo {8:20 {=flag {7:15:word foo}}}`,
-		`$(.test.foo) {8:59:delegate {7:11:def .test.foo}}`: `-foo {8:59 {=flag {7:15:word foo}}}`,
-		`$(.test.foo) {9:28:delegate {7:11:def .test.foo}}`: `-foo {9:28 {=flag {7:15:word foo}}}`,
-		`$(.test.foo) {9:67:delegate {7:11:def .test.foo}}`: `-foo {9:67 {=flag {7:15:word foo}}}`,
-		`$(.test.foo)bar {=compound {8:20:delegate {7:11:def .test.foo}} {8:32:word bar}}`: `-foobar {=compound {8:20 {=flag {7:15:word foo}}} {8:32:word bar}}`,
-		`$(.test.foo)bar {=compound {8:59:delegate {7:11:def .test.foo}} {8:71:word bar}}`: `-foobar {=compound {8:59 {=flag {7:15:word foo}}} {8:71:word bar}}`,
-		`$(.test.foo)bar {=compound {9:28:delegate {7:11:def .test.foo}} {9:40:word bar}}`: `-foobar {=compound {9:28 {=flag {7:15:word foo}}} {9:40:word bar}}`,
-		`$(.test.foo)bar {=compound {9:67:delegate {7:11:def .test.foo}} {9:79:word bar}}`: `-foobar {=compound {9:67 {=flag {7:15:word foo}}} {9:79:word bar}}`,
-		`$(equal $(.test.foo)bar,-foobar) {8:12:delegate {8:14:builtin equal} {=list {=compound {8:20:delegate {7:11:def .test.foo}} {8:32:word bar}}} {=list {=flag {8:37:word foobar}}}}`:`{=true} {8:12 {8:14:true}}`,
-		`$(equal -foobar,$(.test.foo)bar) {9:12:delegate {9:14:builtin equal} {=list {=flag {9:21:word foobar}}} {=list {=compound {9:28:delegate {7:11:def .test.foo}} {9:40:word bar}}}}`:`{=true} {9:12 {9:14:true}}`,
-		`$(equal(-str) $(.test.foo)bar,-foobar) {8:45:delegate {8:47:builtin equal} [{=flag {8:54:word str}}] {=list {=compound {8:59:delegate {7:11:def .test.foo}} {8:71:word bar}}} {=list {=flag {8:76:word foobar}}}}`:`{=true} {8:45 {8:47:true}}`,
-		`$(equal(-str) -foobar,$(.test.foo)bar) {9:45:delegate {9:47:builtin equal} [{=flag {9:54:word str}}] {=list {=flag {9:60:word foobar}}} {=list {=compound {9:67:delegate {7:11:def .test.foo}} {9:79:word bar}}}}`:`{=true} {9:45 {9:47:true}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(equal $(.test.foo)foobar,-foobar)`:`{=true}`,
+		`$(equal $(.test.foo)bar,-foobar)`:`{=true}`,
+		`$(equal -foobar,$(.test.foo)foobar)`:`{=true}`,
+		`$(equal -foobar,$(.test.foo)bar)`:`{=true}`,
+		`$(equal(-str) $(.test.foo)bar,-foobar)`:`{=true}`,
+		`$(equal(-str) $(.test.foo)foobar,-foobar)`:`{=true}`,
+		`$(equal(-str) -foobar,$(.test.foo)foobar)`:`{=true}`,
+		`$(equal(-str) -foobar,$(.test.foo)bar)`:`{=true}`,
+		`$(.test.foo)`:[]any{
+			checkresult{`-`,[]string{
+				`{4:20 {=flag {3:15}}}`,
+				`{4:62 {=flag {3:15}}}`,
+				`{5:28 {=flag {3:15}}}`,
+				`{5:70 {=flag {3:15}}}`,
+			}},
+			`-foo`,
+		},
 	},
 	`testdata/value/2/0`: map[string]any{
-		`$(&(.test.x) $1$1,$2$2) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28:delegate {10:29:auto 1}} {10:30:delegate {10:31:auto 1}}}} {=list {=compound {10:33:delegate {10:34:auto 2}} {10:35:delegate {10:36:auto 2}}}}}`: []string{
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=list {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`,
-			`foo_ab-aa-bb {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=flag {3:22 {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}}}}}`,
-			`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}`,
-			`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {31:22:word x}} {10:30 {31:22:word x}}}} {=flag {3:22 {=compound {10:33 {31:24:word y}} {10:35 {31:24:word y}}}}}}}}}`,
-			`foo_ba-bb-aa {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {24:23:word b}} {10:35 {24:23:word b}}}} {=flag {4:22 {=compound {10:28 {24:21:word a}} {10:30 {24:21:word a}}}}}}}}}`,
-			`foo_ba-yy-xx {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {20:24:word y}} {10:35 {20:24:word y}}}} {=flag {4:22 {=compound {10:28 {20:22:word x}} {10:30 {20:22:word x}}}}}}}}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(.test a,b,c)`:[]any{
+			checkresult{`1 abc 10`,[]string{
+				`{=list {7:13 {6:13:decimal 1}} {7:13 {=compound {6:15 {7:21:word a}} {6:17 {7:23:word b}} {6:19 {7:25:word c}}}} {7:13 {6:22:decimal 10}}}`,
+				`{=list {8:13 {6:13:decimal 1}} {8:13 {=compound {6:15 {8:21:word a}} {6:17 {8:23:word b}} {6:19 {8:25:word c}}}} {8:13 {6:22:decimal 10}}}`,
+			}},
+			checkresult{`1 abc 10 2 $(&(.test.x) aa,bb) 20`,[]string{
+				`{=list {11:13 {6:13:decimal 1}} {11:13 {=compound {6:15 {11:21:word a}} {6:17 {11:23:word b}} {6:19 {11:25:word c}}}} {11:13 {6:22:decimal 10}} {11:13 {10:13:decimal 2}} {11:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}} {11:13 {10:39:decimal 20}}}`,
+				`{=list {12:13 {6:13:decimal 1}} {12:13 {=compound {6:15 {12:21:word a}} {6:17 {12:23:word b}} {6:19 {12:25:word c}}}} {12:13 {6:22:decimal 10}} {12:13 {10:13:decimal 2}} {12:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}} {12:13 {10:39:decimal 20}}}`,
+			}},
+			checkresult{`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30`,[]string{
+				`{=list {23:13 {6:13:decimal 1}} {23:13 {=compound {6:15 {23:21:word a}} {6:17 {23:23:word b}} {6:19 {23:25:word c}}}} {23:13 {6:22:decimal 10}} {23:13 {10:13:decimal 2}} {23:13 {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=list {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}} {23:13 {10:39:decimal 20}} {23:13 {22:13:decimal 3}} {23:13 {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}} {23:13 {22:39:decimal 30}}}`,
+			}},
+			checkresult{`1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30`,
+				`{=list {24:13 {6:13:decimal 1}} {24:13 {=compound {6:15 {24:21:word a}} {6:17 {24:23:word b}} {6:19 {24:25:word c}}}} {24:13 {6:22:decimal 10}} {24:13 {10:13:decimal 2}} {24:13 {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {24:23:word b}} {10:35 {24:23:word b}}}} {=flag {4:22 {=compound {10:28 {24:21:word a}} {10:30 {24:21:word a}}}}}}}}}} {24:13 {10:39:decimal 20}} {24:13 {22:13:decimal 3}} {24:13 {22:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {22:33 {24:23:word b}} {22:35 {24:21:word a}}}} {=flag {4:22 {=compound {22:28 {24:21:word a}} {22:30 {24:23:word b}}}}}}}}}} {24:13 {22:39:decimal 30}}}`},
 		},
-		`&(&(.test.x) $1$2,$2$1) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28:delegate {22:29:auto 1}} {22:30:delegate {22:31:auto 2}}}} {=list {=compound {22:33:delegate {22:34:auto 2}} {22:35:delegate {22:36:auto 1}}}}}`:[]string{
-			`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {1:9:word a}} {22:30 {1:9:word b}}}} {=list {=compound {22:33 {1:9:word b}} {22:35 {1:9:word a}}}}}`,
-			`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}`,
-			`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}`,
-			`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {24:21:word a}} {22:30 {24:23:word b}}}} {=list {=compound {22:33 {24:23:word b}} {22:35 {24:21:word a}}}}}`,
-			`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {1:9:word a}} {22:30 {1:9:word b}}}} {=list {=compound {22:33 {1:9:word b}} {22:35 {1:9:word a}}}}}`,
-			`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {31:22:word x}} {22:30 {31:24:word y}}}} {=list {=compound {22:33 {31:24:word y}} {22:35 {31:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`,
-			`foo_ab-ab-ba {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {1:9:word a}} {22:30 {1:9:word b}}}} {=flag {3:22 {=compound {22:33 {1:9:word b}} {22:35 {1:9:word a}}}}}}}}}`,
-			`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}`,
-			`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {31:22:word x}} {22:30 {31:24:word y}}}} {=flag {3:22 {=compound {22:33 {31:24:word y}} {22:35 {31:22:word x}}}}}}}}}`,
-			`foo_ba-ba-ab {22:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {22:33 {24:23:word b}} {22:35 {24:21:word a}}}} {=flag {4:22 {=compound {22:28 {24:21:word a}} {22:30 {24:23:word b}}}}}}}}}`,
+		`$(.test x,y)`:[]any{
+			checkresult{`1 xy$3 10 2 $(&(.test.x) xx,yy) 20`,[]string{
+				`{=list {17:14 {6:13:decimal 1}} {17:14 {=compound {6:15 {17:22:word x}} {6:17 {17:24:word y}} {6:19:delegate {6:20:auto 3}}}} {17:14 {6:22:decimal 10}} {17:14 {10:13:decimal 2}} {17:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}} {17:14 {10:39:decimal 20}}}`,
+				`{=list {19:14 {6:13:decimal 1}} {19:14 {=compound {6:15 {19:22:word x}} {6:17 {19:24:word y}} {6:19:delegate {6:20:auto 3}}}} {19:14 {6:22:decimal 10}} {19:14 {10:13:decimal 2}} {19:14 {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}} {19:14 {10:39:decimal 20}}}`,
+			}},
+			checkresult{`1 xy$3 10 2 foo_ba-yy-xx 20`,[]string{
+				`{=list {20:14 {6:13:decimal 1}} {20:14 {=compound {6:15 {20:22:word x}} {6:17 {20:24:word y}} {6:19:delegate {6:20:auto 3}}}} {20:14 {6:22:decimal 10}} {20:14 {10:13:decimal 2}} {20:14 {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {20:24:word y}} {10:35 {20:24:word y}}}} {=flag {4:22 {=compound {10:28 {20:22:word x}} {10:30 {20:22:word x}}}}}}}}}} {20:14 {10:39:decimal 20}}}`,
+			}},
+			checkresult{`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40`,
+				`{=list {30:14 {6:13:decimal 1}} {30:14 {=compound {6:15 {30:22:word x}} {6:17 {30:24:word y}} {6:19:delegate {6:20:auto 3}}}} {30:14 {6:22:decimal 10}} {30:14 {10:13:decimal 2}} {30:14 {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}} {30:14 {10:39:decimal 20}} {30:14 {22:13:decimal 3}} {30:14 {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}} {30:14 {22:39:decimal 30}} {30:14 {26:13:decimal 4}} {30:14 {26:15:delegate {26:16:auto 3}}} {30:14 {26:18:decimal 40}}}`},
+			checkresult{`1 xy$3 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 $3 40`,
+				`{=list {31:14 {6:13:decimal 1}} {31:14 {=compound {6:15 {31:22:word x}} {6:17 {31:24:word y}} {6:19:delegate {6:20:auto 3}}}} {31:14 {6:22:decimal 10}} {31:14 {10:13:decimal 2}} {31:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {31:22:word x}} {10:30 {31:22:word x}}}} {=flag {3:22 {=compound {10:33 {31:24:word y}} {10:35 {31:24:word y}}}}}}}}}} {31:14 {10:39:decimal 20}} {31:14 {22:13:decimal 3}} {31:14 {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {31:22:word x}} {22:30 {31:24:word y}}}} {=flag {3:22 {=compound {22:33 {31:24:word y}} {22:35 {31:22:word x}}}}}}}}}} {31:14 {22:39:decimal 30}} {31:14 {26:13:decimal 4}} {31:14 {26:15:delegate {26:16:auto 3}}} {31:14 {26:18:decimal 40}}}`},
+			checkresult{`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40`,
+				`{%[testdata]/value/2/0/do.smart:list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`},
+			checkresult{`1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40`,
+				`{=list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`},
+			checkresult{`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40`,
+				`{=list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`},
 		},
-		`&(&(.test.x) $1$2,$2$1) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28:delegate {22:29:auto 1}} {22:30:delegate {22:31:auto 2}}}} {=list {=compound {22:33:delegate {22:34:auto 2}} {22:35:delegate {22:36:auto 1}}}}}`:[]string{
-			`&(&(.test.x) ab,ba) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {1:9:word a}} {22:30 {1:9:word b}}}} {=list {=compound {22:33 {1:9:word b}} {22:35 {1:9:word a}}}}}`,
-			`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`,
-			`foo_ab-ab-ba {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {1:9:word a}} {22:30 {1:9:word b}}}} {=flag {3:22 {=compound {22:33 {1:9:word b}} {22:35 {1:9:word a}}}}}}}}}`,
-			`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}`,
-			`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {31:22:word x}} {22:30 {31:24:word y}}}} {=flag {3:22 {=compound {22:33 {31:24:word y}} {22:35 {31:22:word x}}}}}}}}}`,
+		`&(.test.x)`:[]any{
+			checkresult{`&(.test.x)`,[]string{
+				`{10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`,
+				`{10:17:closure {18:11:def .test.x}}`,
+				`{10:17:closure {28:11:def .test.x}}`,
+				`{22:17:closure {18:11:def .test.x}}`,
+				`{22:17 {=qualword {18:16} {18:17:word test} {18:22:word ba}}}`,
+				`{22:17:closure {28:11:def .test.x}}`,
+			}},
+			checkresult{`.test.ba`, []string{
+				`{10:17 {=qualword {18:16} {18:17:word test} {18:22:word ba}}}`,
+				`{22:17 {=qualword {18:16} {18:17:word test} {18:22:word ba}}}`,
+			}},
+			checkresult{`.test.ab`,[]string{
+				`{10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
+				`{22:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
+				`{%[testdata]/value/2/0/do.smart:10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
+				`{%[testdata]/value/2/0/do.smart:22:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
+			}},
 		},
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`: `foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=flag {3:22 {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`: `foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=flag {3:22 {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=flag {3:22 {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=flag {3:22 {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=flag {3:22 {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`:`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=flag {3:22 {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`:`foo_ab-xy-yx {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=flag {3:22 {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}}}}}`,
-		`$(.test a,b,c) {11:13:delegate {6:11:def .test} {=list {11:21:word a}} {=list {11:23:word b}} {=list {11:25:word c}}}`:`1 abc 10 2 $(&(.test.x) aa,bb) 20 {=list {11:13 {6:13:decimal 1}} {11:13 {=compound {6:15 {11:21:word a}} {6:17 {11:23:word b}} {6:19 {11:25:word c}}}} {11:13 {6:22:decimal 10}} {11:13 {10:13:decimal 2}} {11:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}} {11:13 {10:39:decimal 20}}}`,
-		`$(.test a,b,c) {12:13:delegate {6:11:def .test} {=list {12:21:word a}} {=list {12:23:word b}} {=list {12:25:word c}}}`:`1 abc 10 2 $(&(.test.x) aa,bb) 20 {=list {12:13 {6:13:decimal 1}} {12:13 {=compound {6:15 {12:21:word a}} {6:17 {12:23:word b}} {6:19 {12:25:word c}}}} {12:13 {6:22:decimal 10}} {12:13 {10:13:decimal 2}} {12:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}} {12:13 {10:39:decimal 20}}}`,
-		`$(.test a,b,c) {23:13:delegate {6:11:def .test} {=list {23:21:word a}} {=list {23:23:word b}} {=list {23:25:word c}}}`:`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 {=list {23:13 {6:13:decimal 1}} {23:13 {=compound {6:15 {23:21:word a}} {6:17 {23:23:word b}} {6:19 {23:25:word c}}}} {23:13 {6:22:decimal 10}} {23:13 {10:13:decimal 2}} {23:13 {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=list {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}} {23:13 {10:39:decimal 20}} {23:13 {22:13:decimal 3}} {23:13 {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}} {23:13 {22:39:decimal 30}}}`,
-		`$(.test a,b,c) {24:13:delegate {6:11:def .test} {=list {24:21:word a}} {=list {24:23:word b}} {=list {24:25:word c}}}`: []string{
-			`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 {=list {24:13 {6:13:decimal 1}} {24:13 {=compound {6:15 {24:21:word a}} {6:17 {24:23:word b}} {6:19 {24:25:word c}}}} {24:13 {6:22:decimal 10}} {24:13 {10:13:decimal 2}} {24:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {24:21:word a}} {10:30 {24:21:word a}}}} {=list {=compound {10:33 {24:23:word b}} {10:35 {24:23:word b}}}}}} {24:13 {10:39:decimal 20}} {24:13 {22:13:decimal 3}} {24:13 {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {24:21:word a}} {22:30 {24:23:word b}}}} {=list {=compound {22:33 {24:23:word b}} {22:35 {24:21:word a}}}}}} {24:13 {22:39:decimal 30}}}`,
-			`1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30 {=list {24:13 {6:13:decimal 1}} {24:13 {=compound {6:15 {24:21:word a}} {6:17 {24:23:word b}} {6:19 {24:25:word c}}}} {24:13 {6:22:decimal 10}} {24:13 {10:13:decimal 2}} {24:13 {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {24:23:word b}} {10:35 {24:23:word b}}}} {=flag {4:22 {=compound {10:28 {24:21:word a}} {10:30 {24:21:word a}}}}}}}}}} {24:13 {10:39:decimal 20}} {24:13 {22:13:decimal 3}} {24:13 {22:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {22:33 {24:23:word b}} {22:35 {24:21:word a}}}} {=flag {4:22 {=compound {22:28 {24:21:word a}} {22:30 {24:23:word b}}}}}}}}}} {24:13 {22:39:decimal 30}}}`,
+		`$(&(.test.x) $1$1,$2$2)`:[]any{
+			checkresult{`$(&(.test.x) aa,bb)`,[]string{
+				`{10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}`,
+				`{10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}`,
+				`{10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=list {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}`,
+				`{10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`,
+			}},
+			checkresult{`$(&(.test.x) xx,yy)`,[]string{
+				`{10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`,
+				`{10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`,
+				`{10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}`,
+				`{10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`,
+			}},
+			checkresult{`foo_ba-yy-xx`,[]string{
+				`{10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {20:24:word y}} {10:35 {20:24:word y}}}} {=flag {4:22 {=compound {10:28 {20:22:word x}} {10:30 {20:22:word x}}}}}}}}}`,
+			}},
+			checkresult{`foo_ba-bb-aa`,[]string{
+				`{10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {24:23:word b}} {10:35 {24:23:word b}}}} {=flag {4:22 {=compound {10:28 {24:21:word a}} {10:30 {24:21:word a}}}}}}}}}`,
+			}},
+			`foo_ab-xx-yy`, `foo_ab-aa-bb`,
 		},
-		`$(.test a,b,c) {7:13:delegate {6:11:def .test} {=list {7:21:word a}} {=list {7:23:word b}} {=list {7:25:word c}}}`:`1 abc 10 {=list {7:13 {6:13:decimal 1}} {7:13 {=compound {6:15 {7:21:word a}} {6:17 {7:23:word b}} {6:19 {7:25:word c}}}} {7:13 {6:22:decimal 10}}}`,
-		`$(.test a,b,c) {8:13:delegate {6:11:def .test} {=list {8:21:word a}} {=list {8:23:word b}} {=list {8:25:word c}}}`:`1 abc 10 {=list {8:13 {6:13:decimal 1}} {8:13 {=compound {6:15 {8:21:word a}} {6:17 {8:23:word b}} {6:19 {8:25:word c}}}} {8:13 {6:22:decimal 10}}}`,
-		`$(.test x,y) {17:14:delegate {6:11:def .test} {=list {17:22:word x}} {=list {17:24:word y}}}`:`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 {=list {17:14 {6:13:decimal 1}} {17:14 {=compound {6:15 {17:22:word x}} {6:17 {17:24:word y}} {6:19:delegate {6:20:auto 3}}}} {17:14 {6:22:decimal 10}} {17:14 {10:13:decimal 2}} {17:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}} {17:14 {10:39:decimal 20}}}`,
-		`$(.test x,y) {19:14:delegate {6:11:def .test} {=list {19:22:word x}} {=list {19:24:word y}}}`:`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 {=list {19:14 {6:13:decimal 1}} {19:14 {=compound {6:15 {19:22:word x}} {6:17 {19:24:word y}} {6:19:delegate {6:20:auto 3}}}} {19:14 {6:22:decimal 10}} {19:14 {10:13:decimal 2}} {19:14 {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}} {19:14 {10:39:decimal 20}}}`,
-		`$(.test x,y) {20:14:delegate {6:11:def .test} {=list {20:22:word x}} {=list {20:24:word y}}}`:`1 xy$3 10 2 foo_ba-yy-xx 20 {=list {20:14 {6:13:decimal 1}} {20:14 {=compound {6:15 {20:22:word x}} {6:17 {20:24:word y}} {6:19:delegate {6:20:auto 3}}}} {20:14 {6:22:decimal 10}} {20:14 {10:13:decimal 2}} {20:14 {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {20:24:word y}} {10:35 {20:24:word y}}}} {=flag {4:22 {=compound {10:28 {20:22:word x}} {10:30 {20:22:word x}}}}}}}}}} {20:14 {10:39:decimal 20}}}`,
-		`$(.test x,y) {29:14:delegate {6:11:def .test} {=list {29:22:word x}} {=list {29:24:word y}}}`:[]string{
-			// `1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 {=list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`,
-			`1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 {=list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`,
-			`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 {=list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`,
+		`&(&(.test.x) $1$2,$2$1)`:[]any{
+			checkresult{`&(&(.test.x) ab,ba)`, []string{
+				`{22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}`,
+				`{22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {1:9:word a}} {22:30 {1:9:word b}}}} {=list {=compound {22:33 {1:9:word b}} {22:35 {1:9:word a}}}}}`,
+			}},
+			checkresult{`foo_ba-ba-ab`,`{22:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {22:33 {24:23:word b}} {22:35 {24:21:word a}}}} {=flag {4:22 {=compound {22:28 {24:21:word a}} {22:30 {24:23:word b}}}}}}}}}`},
+			checkresult{`&(&(.test.x) xy,yx)`, []string{
+				`{22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`,
+				`{22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`,
+			}},
+			`foo_ab-xy-yx`, `foo_ab-ab-ba`,
 		},
-		`$(.test x,y) {30:14:delegate {6:11:def .test} {=list {30:22:word x}} {=list {30:24:word y}}}`:[]string{
-			// `1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40 {=list {30:14 {6:13:decimal 1}} {30:14 {=compound {6:15 {30:22:word x}} {6:17 {30:24:word y}} {6:19:delegate {6:20:auto 3}}}} {30:14 {6:22:decimal 10}} {30:14 {10:13:decimal 2}} {30:14 {10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}} {30:14 {10:39:decimal 20}} {30:14 {22:13:decimal 3}} {30:14 {22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}} {30:14 {22:39:decimal 30}} {30:14 {26:13:decimal 4}} {30:14 {26:15:delegate {26:16:auto 3}}} {30:14 {26:18:decimal 40}}}`,
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40 {=list {30:14 {6:13:decimal 1}} {30:14 {=compound {6:15 {30:22:word x}} {6:17 {30:24:word y}} {6:19:delegate {6:20:auto 3}}}} {30:14 {6:22:decimal 10}} {30:14 {10:13:decimal 2}} {30:14 {10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}} {30:14 {10:39:decimal 20}} {30:14 {22:13:decimal 3}} {30:14 {22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}} {30:14 {22:39:decimal 30}} {30:14 {26:13:decimal 4}} {30:14 {26:15:delegate {26:16:auto 3}}} {30:14 {26:18:decimal 40}}}`,
+		`$(&(.test.x) aa,bb)`:`foo_ab-aa-bb`,
+		`&(&(.test.x) ab,ba)`:`foo_ab-ab-ba`,
+		`$(&(.test.x) xx,yy)`:[]any{
+			checkresult{`$(&(.test.x) xx,yy)`,[]string{
+				`{10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`,
+				`{10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`,
+				`{10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`,
+			}},
+			`foo_ab-xx-yy`,
 		},
-		`$(.test x,y) {31:14:delegate {6:11:def .test} {=list {31:22:word x}} {=list {31:24:word y}}}`:`1 xy$3 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 $3 40 {=list {31:14 {6:13:decimal 1}} {31:14 {=compound {6:15 {31:22:word x}} {6:17 {31:24:word y}} {6:19:delegate {6:20:auto 3}}}} {31:14 {6:22:decimal 10}} {31:14 {10:13:decimal 2}} {31:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {31:22:word x}} {10:30 {31:22:word x}}}} {=flag {3:22 {=compound {10:33 {31:24:word y}} {10:35 {31:24:word y}}}}}}}}}} {31:14 {10:39:decimal 20}} {31:14 {22:13:decimal 3}} {31:14 {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {31:22:word x}} {22:30 {31:24:word y}}}} {=flag {3:22 {=compound {22:33 {31:24:word y}} {22:35 {31:22:word x}}}}}}}}}} {31:14 {22:39:decimal 30}} {31:14 {26:13:decimal 4}} {31:14 {26:15:delegate {26:16:auto 3}}} {31:14 {26:18:decimal 40}}}`,
-		`$(.test x,y) {%[testdata]/value/2/0/do.smart:29:14:delegate {6:11:def .test} {=list {29:22:word x}} {=list {29:24:word y}}}`:`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 {%[testdata]/value/2/0/do.smart:list {29:14 {6:13:decimal 1}} {29:14 {=compound {6:15 {29:22:word x}} {6:17 {29:24:word y}} {6:19 {6:20:null}}}} {29:14 {6:22:decimal 10}} {29:14 {10:13:decimal 2}} {29:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}} {29:14 {10:39:decimal 20}} {29:14 {22:13:decimal 3}} {29:14 {22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}} {29:14 {22:39:decimal 30}} {29:14 {26:13:decimal 4}} {29:14 {26:15 {26:16:null}}} {29:14 {26:18:decimal 40}}}`,
-		`&(.test.x) {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`: []string{`&(.test.x) {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`,`.test.ab {10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,`&(.test.x) {10:17:closure {18:11:def .test.x}}`,`.test.ab {10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,`&(.test.x) {10:17:closure {18:11:def .test.x}}`,`.test.ba {10:17 {=qualword {18:16} {18:17:word test} {18:22:word ba}}}`,`{} {10:17:null}`,},
-		`&(.test.x) {10:17:closure {18:11:def .test.x}}`:`.test.ab {10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {10:17:closure {28:11:def .test.x}}`:`.test.ab {10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {22:17:closure {18:11:def .test.x}}`:`.test.ba {22:17 {=qualword {18:16} {18:17:word test} {18:22:word ba}}}`,
-		`&(.test.x) {22:17:closure {28:11:def .test.x}}`:`.test.ab {22:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/0/do.smart:10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`:`.test.ab {%[testdata]/value/2/0/do.smart:10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/0/do.smart:10:17:closure {18:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/0/do.smart:10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/0/do.smart:10:17:closure {28:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/0/do.smart:10:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/0/do.smart:22:17:closure {18:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/0/do.smart:22:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/0/do.smart:22:17:closure {28:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/0/do.smart:22:17 {=qualword {28:16} {28:17:word test} {28:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/4/do.smart:29:24:closure {23:12:def .test.x}}`:`.test.v {%[testdata]/value/4/do.smart:29:24 {=qualword {23:12} {23:13:word test} {23:18:word v}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=list {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=flag {3:22 {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=list {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {23:21:word a}} {10:30 {23:21:word a}}}} {=flag {3:22 {=compound {10:33 {23:23:word b}} {10:35 {23:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=flag {3:22 {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=flag {3:22 {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=flag {3:22 {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=flag {3:22 {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=flag {3:22 {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {18:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=flag {3:22 {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=flag {3:22 {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=list {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {19:22:word x}} {10:30 {19:22:word x}}}} {=flag {3:22 {=compound {10:33 {19:24:word y}} {10:35 {19:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=list {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {29:22:word x}} {10:30 {29:22:word x}}}} {=flag {3:22 {=compound {10:33 {29:24:word y}} {10:35 {29:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/0/do.smart:10:15:delegate {10:17:closure {28:11:def .test.x}} {=list {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=list {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/0/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {30:22:word x}} {10:30 {30:22:word x}}}} {=flag {3:22 {=compound {10:33 {30:24:word y}} {10:35 {30:24:word y}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {%[testdata]/value/2/0/do.smart:22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}`:`foo_ab-ab-ba {%[testdata]/value/2/0/do.smart:22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=flag {3:22 {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {%[testdata]/value/2/0/do.smart:22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=list {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}`:`foo_ab-ab-ba {%[testdata]/value/2/0/do.smart:22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {23:21:word a}} {22:30 {23:23:word b}}}} {=flag {3:22 {=compound {22:33 {23:23:word b}} {22:35 {23:21:word a}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/0/do.smart:22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/0/do.smart:22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/0/do.smart:22:15:closure {22:17:closure {18:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/0/do.smart:22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=flag {3:22 {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/0/do.smart:22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=list {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/0/do.smart:22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {29:22:word x}} {22:30 {29:24:word y}}}} {=flag {3:22 {=compound {22:33 {29:24:word y}} {22:35 {29:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/0/do.smart:22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/0/do.smart:22:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=flag {3:22 {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}}}}}`,
+		`&(&(.test.x) xy,yx)`:[]any{
+			checkresult{`&(&(.test.x) xy,yx)`,[]string{
+				`{22:15:closure {22:17:closure {28:11:def .test.x}} {=list {=compound {22:28 {30:22:word x}} {22:30 {30:24:word y}}}} {=list {=compound {22:33 {30:24:word y}} {22:35 {30:22:word x}}}}}`,
+			}},
+			`foo_ab-xy-yx`,
+		},
 	},
 	`testdata/value/2/1`: map[string]any{
-		`$(&(.test.x) $1$1,$2$2) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28:delegate {10:29:auto 1}} {10:30:delegate {10:31:auto 1}}}} {=list {=compound {10:33:delegate {10:34:auto 2}} {10:35:delegate {10:36:auto 2}}}}}`: []string{
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}`,
-			`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {21:21:word a}} {10:30 {21:21:word a}}}} {=list {=compound {10:33 {21:23:word b}} {10:35 {21:23:word b}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`,
-			`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {28:22:word x}} {10:30 {28:22:word x}}}} {=list {=compound {10:33 {28:24:word y}} {10:35 {28:24:word y}}}}}`,
-			`foo_ab-{}{}-{}{} {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {10:29:null}} {10:30 {10:31:null}}}} {=flag {3:22 {=compound {10:33 {10:34:null}} {10:35 {10:36:null}}}}}}}}}`,
-			`foo_ab-aa-bb {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=flag {3:22 {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}}}}}`,
-			`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=flag {3:22 {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}}}}}`,
-			`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {28:22:word x}} {10:30 {28:22:word x}}}} {=flag {3:22 {=compound {10:33 {28:24:word y}} {10:35 {28:24:word y}}}}}}}}}`,
-			`foo_ba-bb-aa {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {21:23:word b}} {10:35 {21:23:word b}}}} {=flag {4:22 {=compound {10:28 {21:21:word a}} {10:30 {21:21:word a}}}}}}}}}`,
-			`foo_ba-yy-xx {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}} {=flag {4:22 {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}}}}}}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(.test a,b,c)`:[]any{
+			`1 abc 10`,
+			`1 abc 10 2 $(&(.test.x) aa,bb) 20`,
+			`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30`,
+			`1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30`,
 		},
-		`&(&(.test.x) $1$2,$2$1) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28:delegate {19:29:auto 1}} {19:30:delegate {19:31:auto 2}}}} {=list {=compound {19:33:delegate {19:34:auto 2}} {19:35:delegate {19:36:auto 1}}}}}`: []string{
-			`&(&(.test.x) ab,ba) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=list {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}`,
-			`&(&(.test.x) ab,ba) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=list {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}`,
-			`&(&(.test.x) ab,ba) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {21:21:word a}} {19:30 {21:23:word b}}}} {=list {=compound {19:33 {21:23:word b}} {19:35 {21:21:word a}}}}}`,
-			`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {28:22:word x}} {19:30 {28:24:word y}}}} {=list {=compound {19:33 {28:24:word y}} {19:35 {28:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}`,
-			`foo_ab-ab-ba {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=flag {3:22 {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}}}}}`,
-			`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}`,
-			`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {28:22:word x}} {19:30 {28:24:word y}}}} {=flag {3:22 {=compound {19:33 {28:24:word y}} {19:35 {28:22:word x}}}}}}}}}`,
-			`foo_ba-ba-ab {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {19:33 {21:23:word b}} {19:35 {21:21:word a}}}} {=flag {4:22 {=compound {19:28 {21:21:word a}} {19:30 {21:23:word b}}}}}}}}}`,
-			`foo_ab-{}{}-{}{} {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {19:29:null}} {19:30 {19:31:null}}}} {=flag {3:22 {=compound {19:33 {19:34:null}} {19:35 {19:36:null}}}}}}}}}`,
+		`&(.test.x)`:[]any{`&(.test.x)`,`.test.ba`,`.test.ab`},
+		`$(.test x,y)`:[]any{
+			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20`,
+			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40`,
+			`1 xy$3 10 2 foo_ba-yy-xx 20`,
+			`1 xy$3 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 $3 40`,
+			`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40`,
+			`1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40`,
 		},
-		`&(&(.test.x) $1$2,$2$1) {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28:delegate {19:29:auto 1}} {19:30:delegate {19:31:auto 2}}}} {=list {=compound {19:33:delegate {19:34:auto 2}} {19:35:delegate {19:36:auto 1}}}}}`:[]string{
-			`&(&(.test.x) ab,ba) {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=list {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}`,
-			`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}`,
-			`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}`,
-			`foo_ab-ab-ba {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=flag {3:22 {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}}}}}`,
-			`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}`,
-			`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {28:22:word x}} {19:30 {28:24:word y}}}} {=flag {3:22 {=compound {19:33 {28:24:word y}} {19:35 {28:22:word x}}}}}}}}}`,
-		},
-		`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`:`foo_ab-aa-bb {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=flag {3:22 {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}`:`foo_ab-aa-bb {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=flag {3:22 {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}`:`foo_ab-aa-bb {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=flag {3:22 {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}`:`foo_ab-aa-bb {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=flag {3:22 {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=flag {3:22 {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=flag {3:22 {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=flag {3:22 {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=flag {3:22 {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=flag {3:22 {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=flag {3:22 {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`:`foo_ab-xx-yy {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=flag {3:22 {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=list {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}`:`foo_ab-ab-ba {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=flag {3:22 {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=list {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}`:`foo_ab-ab-ba {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=flag {3:22 {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}`:`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}`:`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=flag {3:22 {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}`:`foo_ab-xy-yx {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=flag {3:22 {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}}}}}`,
-		`$(.test a,b,c) {7:13:delegate {6:10:def .test} {=list {7:21:word a}} {=list {7:23:word b}} {=list {7:25:word c}}}`:`1 abc 10 {=list {7:13 {6:13:decimal 1}} {7:13 {=compound {6:15 {7:21:word a}} {6:17 {7:23:word b}} {6:19 {7:25:word c}}}} {7:13 {6:22:decimal 10}}}`,
-		`$(.test a,b,c) {8:13:delegate {6:10:def .test} {=list {8:21:word a}} {=list {8:23:word b}} {=list {8:25:word c}}}`:`1 abc 10 {=list {8:13 {6:13:decimal 1}} {8:13 {=compound {6:15 {8:21:word a}} {6:17 {8:23:word b}} {6:19 {8:25:word c}}}} {8:13 {6:22:decimal 10}}}`,
-		`$(.test a,b,c) {11:13:delegate {6:10:def .test} {=list {11:21:word a}} {=list {11:23:word b}} {=list {11:25:word c}}}`:`1 abc 10 2 $(&(.test.x) aa,bb) 20 {=list {11:13 {6:13:decimal 1}} {11:13 {=compound {6:15 {11:21:word a}} {6:17 {11:23:word b}} {6:19 {11:25:word c}}}} {11:13 {6:22:decimal 10}} {11:13 {10:13:decimal 2}} {11:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}} {11:13 {10:39:decimal 20}}}`,
-		`$(.test a,b,c) {12:13:delegate {6:10:def .test} {=list {12:21:word a}} {=list {12:23:word b}} {=list {12:25:word c}}}`:`1 abc 10 2 $(&(.test.x) aa,bb) 20 {=list {12:13 {6:13:decimal 1}} {12:13 {=compound {6:15 {12:21:word a}} {6:17 {12:23:word b}} {6:19 {12:25:word c}}}} {12:13 {6:22:decimal 10}} {12:13 {10:13:decimal 2}} {12:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}} {12:13 {10:39:decimal 20}}}`,
-		`$(.test a,b,c) {20:13:delegate {6:10:def .test} {=list {20:21:word a}} {=list {20:23:word b}} {=list {20:25:word c}}}`:[]string{
-			`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 {=list {20:13 {6:13:decimal 1}} {20:13 {=compound {6:15 {20:21:word a}} {6:17 {20:23:word b}} {6:19 {20:25:word c}}}} {20:13 {6:22:decimal 10}} {20:13 {10:13:decimal 2}} {20:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}} {20:13 {10:39:decimal 20}} {20:13 {19:13:decimal 3}} {20:13 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=list {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}} {20:13 {19:39:decimal 30}}}`,
-			`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 {=list {20:13 {6:13:decimal 1}} {20:13 {=compound {6:15 {20:21:word a}} {6:17 {20:23:word b}} {6:19 {20:25:word c}}}} {20:13 {6:22:decimal 10}} {20:13 {10:13:decimal 2}} {20:13 {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}} {20:13 {10:39:decimal 20}} {20:13 {19:13:decimal 3}} {20:13 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=list {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}} {20:13 {19:39:decimal 30}}}`,
-		},
-		`$(.test a,b,c) {21:13:delegate {6:10:def .test} {=list {21:21:word a}} {=list {21:23:word b}} {=list {21:25:word c}}}`:[]string{
-			`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(&(.test.x) ab,ba) 30 {=list {21:13 {6:13:decimal 1}} {21:13 {=compound {6:15 {21:21:word a}} {6:17 {21:23:word b}} {6:19 {21:25:word c}}}} {21:13 {6:22:decimal 10}} {21:13 {10:13:decimal 2}} {21:13 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {21:21:word a}} {10:30 {21:21:word a}}}} {=list {=compound {10:33 {21:23:word b}} {10:35 {21:23:word b}}}}}} {21:13 {10:39:decimal 20}} {21:13 {19:13:decimal 3}} {21:13 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {21:21:word a}} {19:30 {21:23:word b}}}} {=list {=compound {19:33 {21:23:word b}} {19:35 {21:21:word a}}}}}} {21:13 {19:39:decimal 30}}}`,
-			`1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30 {=list {21:13 {6:13:decimal 1}} {21:13 {=compound {6:15 {21:21:word a}} {6:17 {21:23:word b}} {6:19 {21:25:word c}}}} {21:13 {6:22:decimal 10}} {21:13 {10:13:decimal 2}} {21:13 {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {21:23:word b}} {10:35 {21:23:word b}}}} {=flag {4:22 {=compound {10:28 {21:21:word a}} {10:30 {21:21:word a}}}}}}}}}} {21:13 {10:39:decimal 20}} {21:13 {19:13:decimal 3}} {21:13 {19:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {19:33 {21:23:word b}} {19:35 {21:21:word a}}}} {=flag {4:22 {=compound {19:28 {21:21:word a}} {19:30 {21:23:word b}}}}}}}}}} {21:13 {19:39:decimal 30}}}`,
-		},
-		`$(.test x,y) {14:14:delegate {6:10:def .test} {=list {14:22:word x}} {=list {14:24:word y}}}`:`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 {=list {14:14 {6:13:decimal 1}} {14:14 {=compound {6:15 {14:22:word x}} {6:17 {14:24:word y}} {6:19:delegate {6:20:auto 3}}}} {14:14 {6:22:decimal 10}} {14:14 {10:13:decimal 2}} {14:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}} {14:14 {10:39:decimal 20}}}`,
-		`$(.test x,y) {16:14:delegate {6:10:def .test} {=list {16:22:word x}} {=list {16:24:word y}}}`:[]string{
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 {=list {16:14 {6:13:decimal 1}} {16:14 {=compound {6:15 {16:22:word x}} {6:17 {16:24:word y}} {6:19:delegate {6:20:auto 3}}}} {16:14 {6:22:decimal 10}} {16:14 {10:13:decimal 2}} {16:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}} {16:14 {10:39:decimal 20}}}`,
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 {=list {16:14 {6:13:decimal 1}} {16:14 {=compound {6:15 {16:22:word x}} {6:17 {16:24:word y}} {6:19:delegate {6:20:auto 3}}}} {16:14 {6:22:decimal 10}} {16:14 {10:13:decimal 2}} {16:14 {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}} {16:14 {10:39:decimal 20}}}`,
-		},
-		`$(.test x,y) {17:14:delegate {6:10:def .test} {=list {17:22:word x}} {=list {17:24:word y}}}`:[]string{
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 {=list {17:14 {6:13:decimal 1}} {17:14 {=compound {6:15 {17:22:word x}} {6:17 {17:24:word y}} {6:19:delegate {6:20:auto 3}}}} {17:14 {6:22:decimal 10}} {17:14 {10:13:decimal 2}} {17:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}} {=list {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}}}} {17:14 {10:39:decimal 20}}}`,
-			`1 xy$3 10 2 foo_ba-yy-xx 20 {=list {17:14 {6:13:decimal 1}} {17:14 {=compound {6:15 {17:22:word x}} {6:17 {17:24:word y}} {6:19:delegate {6:20:auto 3}}}} {17:14 {6:22:decimal 10}} {17:14 {10:13:decimal 2}} {17:14 {10:15 {=compound {4:12:word foo_ba} {=flag {=compound {4:19 {=compound {10:33 {17:24:word y}} {10:35 {17:24:word y}}}} {=flag {4:22 {=compound {10:28 {17:22:word x}} {10:30 {17:22:word x}}}}}}}}}} {17:14 {10:39:decimal 20}}}`,
-		},
-		`$(.test x,y) {26:14:delegate {6:10:def .test} {=list {26:22:word x}} {=list {26:24:word y}}}`:[]string{
-			// `1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15 {26:22:word x}} {6:17 {26:24:word y}} {6:19 {6:20:null}}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15 {23:16:null}}} {26:14 {23:18:decimal 40}}}`,
-			`1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15 {26:22:word x}} {6:17 {26:24:word y}} {6:19 {6:20:null}}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15 {23:16:null}}} {26:14 {23:18:decimal 40}}}`,
-			`1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15 {26:22:word x}} {6:17 {26:24:word y}} {6:19 {6:20:null}}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15 {6:20:null}}} {26:14 {23:18:decimal 40}}}`,
-			`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 {=list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15 {26:22:word x}} {6:17 {26:24:word y}} {6:19 {6:20:null}}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=flag {3:22 {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}}}}}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15 {23:16:null}}} {26:14 {23:18:decimal 40}}}`,
-		},
-		`$(.test x,y) {27:14:delegate {6:10:def .test} {=list {27:22:word x}} {=list {27:24:word y}}}`:[]string{
-			// `1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40 {=list {27:14 {6:13:decimal 1}} {27:14 {=compound {6:15 {27:22:word x}} {6:17 {27:24:word y}} {6:19:delegate {6:20:auto 3}}}} {27:14 {6:22:decimal 10}} {27:14 {10:13:decimal 2}} {27:14 {10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}} {27:14 {10:39:decimal 20}} {27:14 {19:13:decimal 3}} {27:14 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}} {27:14 {19:39:decimal 30}} {27:14 {23:13:decimal 4}} {27:14 {23:15:delegate {23:16:auto 3}}} {27:14 {23:18:decimal 40}}}`,
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40 {=list {27:14 {6:13:decimal 1}} {27:14 {=compound {6:15 {27:22:word x}} {6:17 {27:24:word y}} {6:19:delegate {6:20:auto 3}}}} {27:14 {6:22:decimal 10}} {27:14 {10:13:decimal 2}} {27:14 {10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}} {27:14 {10:39:decimal 20}} {27:14 {19:13:decimal 3}} {27:14 {19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}} {27:14 {19:39:decimal 30}} {27:14 {23:13:decimal 4}} {27:14 {23:15:delegate {23:16:auto 3}}} {27:14 {23:18:decimal 40}}}`,
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40 {=list {27:14 {6:13:decimal 1}} {27:14 {=compound {6:15 {27:22:word x}} {6:17 {27:24:word y}} {6:19:delegate {6:20:auto 3}}}} {27:14 {6:22:decimal 10}} {27:14 {10:13:decimal 2}} {27:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}} {27:14 {10:39:decimal 20}} {27:14 {19:13:decimal 3}} {27:14 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}} {27:14 {19:39:decimal 30}} {27:14 {23:13:decimal 4}} {27:14 {23:15:delegate {6:20:auto 3}}} {27:14 {23:18:decimal 40}}}`,
-		},
-		`$(.test x,y) {28:14:delegate {6:10:def .test} {=list {28:22:word x}} {=list {28:24:word y}}}`:[]string{
-			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(&(.test.x) xy,yx) 30 4 $3 40 {=list {28:14 {6:13:decimal 1}} {28:14 {=compound {6:15 {28:22:word x}} {6:17 {28:24:word y}} {6:19:delegate {6:20:auto 3}}}} {28:14 {6:22:decimal 10}} {28:14 {10:13:decimal 2}} {28:14 {10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {28:22:word x}} {10:30 {28:22:word x}}}} {=list {=compound {10:33 {28:24:word y}} {10:35 {28:24:word y}}}}}} {28:14 {10:39:decimal 20}} {28:14 {19:13:decimal 3}} {28:14 {19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {28:22:word x}} {19:30 {28:24:word y}}}} {=list {=compound {19:33 {28:24:word y}} {19:35 {28:22:word x}}}}}} {28:14 {19:39:decimal 30}} {28:14 {23:13:decimal 4}} {28:14 {23:15:delegate {6:20:auto 3}}} {28:14 {23:18:decimal 40}}}`,
-			`1 xy$3 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 $3 40 {=list {28:14 {6:13:decimal 1}} {28:14 {=compound {6:15 {28:22:word x}} {6:17 {28:24:word y}} {6:19:delegate {6:20:auto 3}}}} {28:14 {6:22:decimal 10}} {28:14 {10:13:decimal 2}} {28:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {28:22:word x}} {10:30 {28:22:word x}}}} {=flag {3:22 {=compound {10:33 {28:24:word y}} {10:35 {28:24:word y}}}}}}}}}} {28:14 {10:39:decimal 20}} {28:14 {19:13:decimal 3}} {28:14 {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {28:22:word x}} {19:30 {28:24:word y}}}} {=flag {3:22 {=compound {19:33 {28:24:word y}} {19:35 {28:22:word x}}}}}}}}}} {28:14 {19:39:decimal 30}} {28:14 {23:13:decimal 4}} {28:14 {23:15:delegate {23:16:auto 3}}} {28:14 {23:18:decimal 40}}}`,
-		},
-		`$(&(.test.x) $1$1,$2$2) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28:delegate {10:29:auto 1}} {10:30:delegate {10:31:auto 1}}}} {=list {=compound {10:33:delegate {10:34:auto 2}} {10:35:delegate {10:36:auto 2}}}}}`:`foo_ab-{}{}-{}{} {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {10:29:null}} {10:30 {10:31:null}}}} {=flag {3:22 {=compound {10:33 {10:34:null}} {10:35 {10:36:null}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=flag {3:22 {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=flag {3:22 {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=list {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {1:9:word a}} {10:30 {1:9:word a}}}} {=flag {3:22 {=compound {10:33 {1:9:word b}} {10:35 {1:9:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=list {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {20:21:word a}} {10:30 {20:21:word a}}}} {=flag {3:22 {=compound {10:33 {20:23:word b}} {10:35 {20:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=list {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {11:21:word a}} {10:30 {11:21:word a}}}} {=flag {3:22 {=compound {10:33 {11:23:word b}} {10:35 {11:23:word b}}}}}}}}}`,
-		`$(&(.test.x) aa,bb) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=list {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}`:`foo_ab-aa-bb {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {12:21:word a}} {10:30 {12:21:word a}}}} {=flag {3:22 {=compound {10:33 {12:23:word b}} {10:35 {12:23:word b}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=flag {3:22 {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=flag {3:22 {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=flag {3:22 {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {15:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=flag {3:22 {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=flag {3:22 {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=list {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {16:22:word x}} {10:30 {16:22:word x}}}} {=flag {3:22 {=compound {10:33 {16:24:word y}} {10:35 {16:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=list {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=flag {3:22 {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {25:11:def .test.x}} {=list {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=list {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {27:22:word x}} {10:30 {27:22:word x}}}} {=flag {3:22 {=compound {10:33 {27:24:word y}} {10:35 {27:24:word y}}}}}}}}}`,
-		`$(&(.test.x) xx,yy) {%[testdata]/value/2/1/do.smart:10:15:delegate {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}} {=list {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=list {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}`:`foo_ab-xx-yy {%[testdata]/value/2/1/do.smart:10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {14:22:word x}} {10:30 {14:22:word x}}}} {=flag {3:22 {=compound {10:33 {14:24:word y}} {10:35 {14:24:word y}}}}}}}}}`,
-		`$(.test x,y) {%[testdata]/value/2/1/do.smart:26:14:delegate {6:10:def .test} {=list {26:22:word x}} {=list {26:24:word y}}}`:`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ab-xy-yx 30 4 {} 40 {%[testdata]/value/2/1/do.smart:list {26:14 {6:13:decimal 1}} {26:14 {=compound {6:15 {26:22:word x}} {6:17 {26:24:word y}} {6:19 {6:20:null}}}} {26:14 {6:22:decimal 10}} {26:14 {10:13:decimal 2}} {26:14 {10:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {10:28 {26:22:word x}} {10:30 {26:22:word x}}}} {=flag {3:22 {=compound {10:33 {26:24:word y}} {10:35 {26:24:word y}}}}}}}}}} {26:14 {10:39:decimal 20}} {26:14 {19:13:decimal 3}} {26:14 {19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}} {26:14 {19:39:decimal 30}} {26:14 {23:13:decimal 4}} {26:14 {23:15 {23:16:null}}} {26:14 {23:18:decimal 40}}}`,
-		`&(&(.test.x) $1$2,$2$1) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28:delegate {19:29:auto 1}} {19:30:delegate {19:31:auto 2}}}} {=list {=compound {19:33:delegate {19:34:auto 2}} {19:35:delegate {19:36:auto 1}}}}}`:`foo_ab-{}{}-{}{} {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {19:29:null}} {19:30 {19:31:null}}}} {=flag {3:22 {=compound {19:33 {19:34:null}} {19:35 {19:36:null}}}}}}}}}`,
-		`&(&(.test.x) $1$2,$2$1) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28:delegate {19:29:auto 1}} {19:30:delegate {19:31:auto 2}}}} {=list {=compound {19:33:delegate {19:34:auto 2}} {19:35:delegate {19:36:auto 1}}}}}`:`foo_ab-{}{}-{}{} {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {19:29:null}} {19:30 {19:31:null}}}} {=flag {3:22 {=compound {19:33 {19:34:null}} {19:35 {19:36:null}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=list {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}`:`foo_ab-ab-ba {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=flag {3:22 {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=list {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}`:`foo_ab-ab-ba {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=flag {3:22 {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=list {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}`:`foo_ab-ab-ba {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {1:9:word a}} {19:30 {1:9:word b}}}} {=flag {3:22 {=compound {19:33 {1:9:word b}} {19:35 {1:9:word a}}}}}}}}}`,
-		`&(&(.test.x) ab,ba) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=list {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}`:`foo_ab-ab-ba {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {20:21:word a}} {19:30 {20:23:word b}}}} {=flag {3:22 {=compound {19:33 {20:23:word b}} {19:35 {20:21:word a}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {15:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=flag {3:22 {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=list {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {26:22:word x}} {19:30 {26:24:word y}}}} {=flag {3:22 {=compound {19:33 {26:24:word y}} {19:35 {26:22:word x}}}}}}}}}`,
-		`&(&(.test.x) xy,yx) {%[testdata]/value/2/1/do.smart:19:15:closure {19:17:closure {25:11:def .test.x}} {=list {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=list {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}`:`foo_ab-xy-yx {%[testdata]/value/2/1/do.smart:19:15 {=compound {3:12:word foo_ab} {=flag {=compound {3:19 {=compound {19:28 {27:22:word x}} {19:30 {27:24:word y}}}} {=flag {3:22 {=compound {19:33 {27:24:word y}} {19:35 {27:22:word x}}}}}}}}}`,
-		`&(.test.x) {%[testdata]/value/2/1/do.smart:10:17:closure {15:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/1/do.smart:10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/1/do.smart:10:17:closure {25:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/1/do.smart:10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/1/do.smart:10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`:`.test.ab {%[testdata]/value/2/1/do.smart:10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/1/do.smart:19:17:closure {15:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/1/do.smart:19:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,
-		`&(.test.x) {%[testdata]/value/2/1/do.smart:19:17:closure {25:11:def .test.x}}`:`.test.ab {%[testdata]/value/2/1/do.smart:19:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,
-		`&(.test.x) {10:17:closure {15:11:def .test.x}}`:[]string{`.test.ab {10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,`&(.test.x) {10:17:closure {15:11:def .test.x}}`,},
-		`&(.test.x) {10:17:closure {25:11:def .test.x}}`:`.test.ab {10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,
-		`&(.test.x) {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`: []string{`&(.test.x) {10:17:closure {=qualword {10:19} {10:20:word test} {10:25:word x}}}`,`.test.ab {10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,`&(.test.x) {10:17:closure {15:11:def .test.x}}`,`.test.ab {10:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,`&(.test.x) {10:17:closure {15:11:def .test.x}}`,`.test.ba {10:17 {=qualword {15:16} {15:17:word test} {15:22:word ba}}}`,`{} {10:17:null}`,},
-		`&(.test.x) {19:17:closure {15:11:def .test.x}}`:[]string{`.test.ab {19:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,`.test.ba {19:17 {=qualword {15:16} {15:17:word test} {15:22:word ba}}}`,`&(.test.x) {19:17:closure {15:11:def .test.x}}`,},
-		`&(.test.x) {19:17:closure {25:11:def .test.x}}`:[]string{`.test.ab {19:17 {=qualword {25:16} {25:17:word test} {25:22:word ab}}}`,},
+		`$(&(.test.x) $1$1,$2$2)`:[]any{`$(&(.test.x) $1$1,$2$2)`,`$(&(.test.x) aa,bb)`,`$(&(.test.x) xx,yy)`,`foo_ba-yy-xx`,`foo_ba-bb-aa`,`foo_ab-xx-yy`,`foo_ab-aa-bb`,`foo_ab-{}{}-{}{}`},
+		`&(&(.test.x) $1$2,$2$1)`:[]any{`&(&(.test.x) $1$2,$2$1)`,`&(&(.test.x) ab,ba)`,`$(&(.test.x) xy,yx)`,`&(&(.test.x) xy,yx)`,`foo_ba-ba-ab`,`foo_ab-xy-yx`,`foo_ab-ab-ba`,`foo_ab-{}{}-{}{}`},
+		`$(&(.test.x) aa,bb)`:`foo_ab-aa-bb`,
+		`&(&(.test.x) ab,ba)`:`foo_ab-ab-ba`,
+		`$(&(.test.x) xx,yy)`:[]any{`$(&(.test.x) xx,yy)`,`foo_ab-xx-yy`},
+		`&(&(.test.x) xy,yx)`:[]any{`&(&(.test.x) xy,yx)`,`foo_ab-xy-yx`},
 	},
 	`testdata/value/2/2`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(.test a,b,c)`:[]any{
+			`1 abc 10`,
+			`1 abc 10 2 $(&(.test.x) aa,bb) 20`,
+			`1 abc 10 2 $(&(.test.x) aa,bb) 20 3 &(.test.ba ab,ba) 30`,
+			`1 abc 10 2 foo_ba-bb-aa 20 3 foo_ba-ba-ab 30`,
+		},
+		`&(.test.x)`:[]any{`&(.test.x)`,`.test.ba`,`.test.ab`},
+		`$(.test x,y)`:[]any{
+			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20`,
+			`1 xy$3 10 2 $(&(.test.x) xx,yy) 20 3 &(.test.ba xy,yx) 30 4 $3 40`,
+			`1 xy{} 10 2 $(&(.test.x) xx,yy) 20 3 &(.test.ba xy,yx) 30 4 {} 40`,
+			`1 xy$3 10 2 foo_ba-yy-xx 20`,
+			`1 xy$3 10 2 foo_ab-xx-yy 20 3 foo_ba-yx-xy 30 4 $3 40`,
+			`1 xy{} 10 2 foo_ab-xx-yy 20 3 foo_ba-yx-xy 30 4 {} 40`,
+		},
+		`$(&(.test.x) $1$1,$2$2)`:[]any{`$(&(.test.x) $1$1,$2$2)`,`$(&(.test.x) aa,bb)`,`$(&(.test.x) xx,yy)`,`foo_ba-yy-xx`,`foo_ba-bb-aa`,`foo_ab-xx-yy`,`foo_ab-aa-bb`,`foo_ab-{}{}-{}{}`},
+		`&(&(.test.x) $1$2,$2$1)`:[]any{`&(.test.ba $1$2,$2$1)`,`foo_ba-ba-ab`,`foo_ba-{}{}-{}{}`},
+		`$(&(.test.x) xx,yy)`:[]any{`$(&(.test.x) xx,yy)`,`foo_ab-xx-yy`},
+		`$(&(.test.x) aa,bb)`:[]any{`foo_ab-aa-bb`},
+		`&(.test.ba $1$2,$2$1)`:[]any{`&(.test.ba ab,ba)`,`&(.test.ba xy,yx)`,`foo_ba-ba-ab`,`foo_ba-yx-xy`,`foo_ba-{}{}-{}{}`},
+		`&(.test.ba ab,ba)`:`foo_ba-ba-ab`,
+		`&(.test.ba xy,yx)`:[]any{`&(.test.ba xy,yx)`,`foo_ba-yx-xy`},
 	},
 	`testdata/value/3`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(.test)`:map[string]any{
+			`&(.test)`:`{3:16:closure {3:11:def .test}}`,
+			`{}`:`{3:16 {3:11:null}}`,
+			`{} {} v-{}-{}-{}-{}-{} {} v-x-{}-{}-{}-{} {} v-x-y-{}-{}-{} {} v-x-y-z-{}-{} {} {}`:`{%[testdata]/value/3/do.smart:list {3:16 {3:13 {3:14:null}}} {3:16 {3:16 {3:11:null}}} {3:16 {3:25 {=compound {8:13:word v} {=flag {=compound {8:15 {8:16:null}} {=flag {=compound {8:18 {8:19:null}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:16 {3:25 {8:30 {4:13 {3:11:null}}}}} {3:16 {3:36 {=compound {8:13:word v} {=flag {=compound {8:15 {3:46:word x}} {=flag {=compound {8:18 {8:19:null}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:16 {3:36 {8:30 {4:13 {3:11:null}}}}} {3:16 {3:49 {=compound {8:13:word v} {=flag {=compound {8:15 {3:59:word x}} {=flag {=compound {8:18 {3:61:word y}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:16 {3:49 {8:30 {4:13 {3:11:null}}}}} {3:16 {3:64 {=compound {8:13:word v} {=flag {=compound {8:15 {3:74:word x}} {=flag {=compound {8:18 {3:76:word y}} {=flag {=compound {8:21 {3:78:word z}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:16 {3:64 {8:30 {4:13 {3:11:null}}}}} {3:16 {3:81 {3:11:null}}}}`,
+		},
+		`&(.test.5)`:[]any{
+			checkresult{`&(.test.5)`,[]string{
+				`{3:25:closure {=qualword {3:27} {3:28:word test} {3:33:decimal 5}}}`,
+				`{3:25:closure {8:11:def .test.5}}`,
+			}},
+			checkresult{`v-{}-{}-{}-{}-{} {}`,`{=list {3:25 {=compound {8:13:word v} {=flag {=compound {8:15 {8:16:null}} {=flag {=compound {8:18 {8:19:null}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}} {3:25 {8:30 {4:13 {3:11:null}}}}}`},
+			`{}`, `v-{}-{}-{}-{}-{} a {} {} {} {} {} {}`,
+		},
+		`&(.test.5 x)`:[]any{
+			checkresult{`&(.test.5 x)`,[]string{
+				`{3:36:closure {=qualword {3:38} {3:39:word test} {3:44:decimal 5}} {=list {3:46:word x}}}`,
+				`{3:36:closure {8:11:def .test.5} {=list {3:46:word x}}}`,
+			}},
+			checkresult{`v-x-{}-{}-{}-{} {}`,`{=list {3:36 {=compound {8:13:word v} {=flag {=compound {8:15 {3:46:word x}} {=flag {=compound {8:18 {8:19:null}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}} {3:36 {8:30 {4:13 {3:11:null}}}}}`},
+			`{}`, `v-x-{}-{}-{}-{} a {} {} {} {} {} {}`,
+		},
+		`&(.test.5 x,y)`:[]any{
+			checkresult{`&(.test.5 x,y)`,[]string{
+				`{3:49:closure {=qualword {3:51} {3:52:word test} {3:57:decimal 5}} {=list {3:59:word x}} {=list {3:61:word y}}}`,
+				`{3:49:closure {8:11:def .test.5} {=list {3:59:word x}} {=list {3:61:word y}}}`,
+			}},
+			checkresult{`v-x-y-{}-{}-{} {}`,`{=list {3:49 {=compound {8:13:word v} {=flag {=compound {8:15 {3:59:word x}} {=flag {=compound {8:18 {3:61:word y}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}} {3:49 {8:30 {4:13 {3:11:null}}}}}`},
+			`{}`, `v-x-y-{}-{}-{} a {} {} {} {} {} {}`,
+		},
+		`&(.test.5 x,y,z)`:[]any{
+			checkresult{`&(.test.5 x,y,z)`,[]string{
+				`{3:64:closure {=qualword {3:66} {3:67:word test} {3:72:decimal 5}} {=list {3:74:word x}} {=list {3:76:word y}} {=list {3:78:word z}}}`,
+				`{3:64:closure {8:11:def .test.5} {=list {3:74:word x}} {=list {3:76:word y}} {=list {3:78:word z}}}`,
+			}},
+			checkresult{`v-x-y-z-{}-{} {}`,`{=list {3:64 {=compound {8:13:word v} {=flag {=compound {8:15 {3:74:word x}} {=flag {=compound {8:18 {3:76:word y}} {=flag {=compound {8:21 {3:78:word z}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}} {3:64 {8:30 {4:13 {3:11:null}}}}}`},
+			`{}`, `v-x-y-z-{}-{} a {} {} {} {} {} {}`,
+		},
+		`&(.test aa)`:map[string]any{
+			`&(.test aa)`:`{3:81:closure {3:11:def .test} {=list {3:89:word aa}}}`,
+			`{}`:`{3:81 {3:11:null}}`,
+			`aa {} v-{}-{}-{}-{}-{} {} v-x-{}-{}-{}-{} {} v-x-y-{}-{}-{} {} v-x-y-z-{}-{} {} {}`:`{%[testdata]/value/3/do.smart:list {3:81 {3:13 {3:89:word aa}}} {3:81 {3:16 {3:11:null}}} {3:81 {3:25 {=compound {8:13:word v} {=flag {=compound {8:15 {8:16:null}} {=flag {=compound {8:18 {8:19:null}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:81 {3:25 {8:30 {4:13 {3:11:null}}}}} {3:81 {3:36 {=compound {8:13:word v} {=flag {=compound {8:15 {3:46:word x}} {=flag {=compound {8:18 {8:19:null}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:81 {3:36 {8:30 {4:13 {3:11:null}}}}} {3:81 {3:49 {=compound {8:13:word v} {=flag {=compound {8:15 {3:59:word x}} {=flag {=compound {8:18 {3:61:word y}} {=flag {=compound {8:21 {8:22:null}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:81 {3:49 {8:30 {4:13 {3:11:null}}}}} {3:81 {3:64 {=compound {8:13:word v} {=flag {=compound {8:15 {3:74:word x}} {=flag {=compound {8:18 {3:76:word y}} {=flag {=compound {8:21 {3:78:word z}} {=flag {=compound {8:24 {8:25:null}} {=flag {8:27 {8:28:null}}}}}}}}}}}}}} {3:81 {3:64 {8:30 {4:13 {3:11:null}}}}} {3:81 {3:81 {3:11:null}}}}`,
+		},
+		`$(.test a,b,c,d,e,f)`:[]any{
+			checkresult{`a &(.test) &(.test.5) &(.test.5 x) &(.test.5 x,y) &(.test.5 x,y,z) &(.test aa)`,`{=list {5:13 {3:13 {5:21:word a}}} {5:13 {3:16:closure {3:11:def .test}}} {5:13 {3:25:closure {=qualword {3:27} {3:28:word test} {3:33:decimal 5}}}} {5:13 {3:36:closure {=qualword {3:38} {3:39:word test} {3:44:decimal 5}} {=list {3:46:word x}}}} {5:13 {3:49:closure {=qualword {3:51} {3:52:word test} {3:57:decimal 5}} {=list {3:59:word x}} {=list {3:61:word y}}}} {5:13 {3:64:closure {=qualword {3:66} {3:67:word test} {3:72:decimal 5}} {=list {3:74:word x}} {=list {3:76:word y}} {=list {3:78:word z}}}} {5:13 {3:81:closure {3:11:def .test} {=list {3:89:word aa}}}}}`},
+			checkresult{`{}`,[]string{`{4:13 {3:11:null}}`,`{8:30 {4:13 {3:11:null}}}`}},
+			`a {} &(.test.5) &(.test.5 x) &(.test.5 x,y) &(.test.5 x,y,z) {}`,
+			`a {} {} {} {} {} {}`,
+		},
+		`$(.test.0 a1,a2,a3,a4,a5)`:[]any{
+			checkresult{`{}`,`{8:30 {4:13 {3:11:null}}}`},
+			`a {} {} {} {} {} {}`,
+		},
 	},
 	`testdata/value/4`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.D.c.0`:checkresult{`.test.D.c.0`,[]string{
+			`{=qualword {8:2} {8:3:word test} {8:10 {5:11:word D}} {8:18 {6:12:word c}} {8:24:decimal 0}}`,
+			`{=qualword {17:1} {17:2:word test} {17:7:word D} {17:9:word c} {17:11:decimal 0}}`,
+			`{=qualword {19:1} {19:2:word test} {19:7:word D} {19:9:word c} {19:11:decimal 0}}`,
+			`{=qualword {25:1} {25:2:word test} {25:7:word D} {25:9:word c} {25:11:decimal 0}}`,
+			`{=qualword {28:1} {28:2:word test} {28:7:word D} {28:9:word c} {28:11:decimal 0}}`,
+			`{=qualword {30:1} {30:2:word test} {30:7:word D} {30:9:word c} {30:11:decimal 0}}`,
+			`{=qualword {32:1} {32:2:word test} {32:7:word D} {32:9:word c} {32:11:decimal 0}}`,
+			`{=qualword {34:1} {34:2:word test} {34:7:word D} {34:9:word c} {34:11:decimal 0}}`,
+			`{=qualword {39:1} {39:2:word test} {39:7:word D} {39:9:word c} {39:11:decimal 0}}`,
+			`{=qualword {41:1} {41:2:word test} {41:7:word D} {41:9:word c} {41:11:decimal 0}}`,
+		}},
+		`.test.D.c++.0`:checkresult{`.test.D.c++.0`,`{=qualword {8:2} {8:3:word test} {8:10 {5:11:word D}} {8:18 {6:14:word c++}} {8:24:decimal 0}}`},
+		`.test.x.$_`:[]any{`.test.x.{$1}`,},
+		`.test.x.{$1}`:[]any{`.test.x.{$1}`,},
+		`$(.test.x)`:`.test.v`,
+		`&(.test.x)`:[]any{`&(.test.x)`,`.test.v`},
+		`&(.test.none)`:[]any{`&(.test.none)`,`{}`},
+		`&(.test.x.$_)`:[]any{`&(.test.x.{$1})`,},
+		`$(.test.foreach $1,&(.test.none))`:[]any{`$(.test.foreach $1,&(.test.none))`,`({})`},
+		`$(value &(.test.x))`:[]any{`$(value &(.test.x))`,`xx`},
+		`&(value $(.test.x))`:[]any{`&(value .test.v)`,`xx`},
+		`&(value &(.test.x))`:[]any{`&(value &(.test.x))`,`xx`},
+		`$(value $(.test.x))`:`xx`,
+		`$(value .test.v)`:[]any{`{}`,`xx`},
+		`&(value .test.v)`:`xx`,
+		`$(foreach $1,&(.test.x.$_))`:[]any{`&(.test.x.{$1})`,`{}`},
 	},
 	`testdata/value/5`: map[string]any{
-		`$(.test.z1 $1) {6:13:delegate {4:10:def .test.z1} {=list {6:24:delegate {6:25:auto 1}}}}`: []string{
-			`z-a {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {1:9:word a}}}}}}}}`,
-			`z-{} {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {10:25:null}}}}}}}}`,
-		},
-		`$(.test.y1 $1) {8:13:delegate {6:10:def .test.y1} {=list {8:24:delegate {8:25:auto 1}}}}`: []string{
-			`z-a {8:13 {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {1:9:word a}}}}}}}}}`,
-			`z-{} {8:13 {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {10:25:null}}}}}}}}}`,
-		},
-		`$(.test.x1 $1) {10:13:delegate {8:10:def .test.x1} {=list {10:24:delegate {10:25:auto 1}}}}`: []string{
-			`z-a {10:13 {8:13 {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {1:9:word a}}}}}}}}}}`,
-			`z-{} {10:13 {8:13 {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {10:25:null}}}}}}}}}}`,
-		},
-		`$(.test.x0 $1) {9:13:delegate {7:11:def .test.x0} {=list {9:24:delegate {9:25:auto 1}}}}`: []string{
-			`z-a {9:13 {7:13 {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {1:9:word a}}}}}}}}}}`,
-			`z-{} {9:13 {7:13 {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {9:25:null}}}}}}}}}}`,
-		},
-		`$(.test.y0 $1) {7:13:delegate {5:11:def .test.y0} {=list {7:24:delegate {7:25:auto 1}}}}`: []string{
-			`z-a {7:13 {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {1:9:word a}}}}}}}}}`,
-			`z-{} {7:13 {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {9:25:null}}}}}}}}}`,
-		},
-		`$(.test.z0 $1) {5:13:delegate {3:11:def .test.z0} {=list {5:24:delegate {5:25:auto 1}}}}`:[]string{
-			`z-a {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {1:9:word a}}}}}}}}`,
-			`z-{} {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {9:25:null}}}}}}}}`,
-		},
-		`$(.test.z y-$1) {4:11:delegate {3:11:def .test.z} {=list {=compound {4:21:word y} {=flag {4:23:delegate {4:24:auto 1}}}}}}`:`z-y-x-a {4:11 {=compound {3:11:word z} {=flag {3:13 {=compound {4:21:word y} {=flag {4:23 {=compound {5:21:word x} {=flag {5:23 {6:21:word a}}}}}}}}}}}`,
-		`$(.test.x0 $1) {%[testdata]/value/5/do.smart:9:13:delegate {7:11:def .test.x0} {=list {9:24:delegate {9:25:auto 1}}}}`:`z-{} {%[testdata]/value/5/do.smart:9:13 {7:13 {5:13 {=compound {3:13:word z} {=flag {3:15 {5:24 {7:24 {9:24 {9:25:null}}}}}}}}}}`,
-		`$(.test.x1 $1) {%[testdata]/value/5/do.smart:10:13:delegate {8:10:def .test.x1} {=list {10:24:delegate {10:25:auto 1}}}}`:`z-{} {%[testdata]/value/5/do.smart:10:13 {8:13 {6:13 {=compound {4:13:word z} {=flag {4:15 {6:24 {8:24 {10:24 {10:25:null}}}}}}}}}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(.test.x0 $1)`:[]any{`z-{}`,`z-a`},
+		`$(.test.y0 $1)`:[]any{`z-{}`,`z-a`},
+		`$(.test.z0 $1)`:[]any{`z-{}`,`z-a`},
+		`$(.test.x1 $1)`:[]any{`$(.test.x1 $1)`,`z-{}`,`z-a`},
+		`$(.test.y1 $1)`:[]any{`$(.test.y1 $1)`,`z-{}`,`z-a`},
+		`$(.test.z1 $1)`:[]any{`$(.test.z1 $1)`,`z-{}`,`z-a`},
 	},
 	`testdata/value/6`: map[string]any{
-		`$(.test.z y-$1) {4:11:delegate {3:9:def .test.z} {=list {=compound {4:21:word y} {=flag {4:23:delegate {4:24:auto 1}}}}}}`:`z-y-x-a {4:11 {=compound {3:11:word z} {=flag {3:13 {=compound {4:21:word y} {=flag {4:23 {=compound {5:21:word x} {=flag {5:23 {6:21:word a}}}}}}}}}}}`,
-		`$(.test.y x-$1) {5:11:delegate {4:9:def .test.y} {=list {=compound {5:21:word x} {=flag {5:23:delegate {5:24:auto 1}}}}}}`:`z-y-x-a {5:11 {4:11 {=compound {3:11:word z} {=flag {3:13 {=compound {4:21:word y} {=flag {4:23 {=compound {5:21:word x} {=flag {5:23 {6:21:word a}}}}}}}}}}}}`,
-		`$(.test.x a) {6:11:delegate {5:9:def .test.x} {=list {6:21:word a}}}`:`z-y-x-a {6:11 {5:11 {4:11 {=compound {3:11:word z} {=flag {3:13 {=compound {4:21:word y} {=flag {4:23 {=compound {5:21:word x} {=flag {5:23 {6:21:word a}}}}}}}}}}}}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(.test.x a)`:`z-y-x-a`,
+		`$(.test.y x-$1)`:`z-y-x-a`,
+		`$(.test.z y-$1)`:`z-y-x-a`,
 	},
 	`testdata/value/7`: map[string]any{
-		`$(.test.z y$1,y$2) {4:11:delegate {3:9:def .test.z} {=list {=compound {4:21:word y} {4:22:delegate {4:23:auto 1}}}} {=list {=compound {4:25:word y} {4:26:delegate {4:27:auto 2}}}}}`:`z-yxa-yxb {4:11 {=compound {3:11:word z} {=flag {=compound {3:13 {=compound {4:21:word y} {4:22 {=compound {5:21:word x} {5:22 {6:22 {1:9:word a}}}}}}} {=flag {3:16 {=compound {4:25:word y} {4:26 {=compound {5:25:word x} {5:26 {6:26 {1:9:word b}}}}}}}}}}}}`,
-		`$(.test.y x$1,x$2) {5:11:delegate {4:9:def .test.y} {=list {=compound {5:21:word x} {5:22:delegate {5:23:auto 1}}}} {=list {=compound {5:25:word x} {5:26:delegate {5:27:auto 2}}}}}`:`z-yxa-yxb {5:11 {4:11 {=compound {3:11:word z} {=flag {=compound {3:13 {=compound {4:21:word y} {4:22 {=compound {5:21:word x} {5:22 {6:22 {1:9:word a}}}}}}} {=flag {3:16 {=compound {4:25:word y} {4:26 {=compound {5:25:word x} {5:26 {6:26 {1:9:word b}}}}}}}}}}}}}`,
-		`$(.test.x $1,$2) {6:11:delegate {5:9:def .test.x} {=list {6:22:delegate {6:23:auto 1}}} {=list {6:26:delegate {6:27:auto 2}}}}`:`z-yxa-yxb {6:11 {5:11 {4:11 {=compound {3:11:word z} {=flag {=compound {3:13 {=compound {4:21:word y} {4:22 {=compound {5:21:word x} {5:22 {6:22 {1:9:word a}}}}}}} {=flag {3:16 {=compound {4:25:word y} {4:26 {=compound {5:25:word x} {5:26 {6:26 {1:9:word b}}}}}}}}}}}}}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(.test.x $1,$2)`:`z-yxa-yxb`,
+		`$(.test.x y$1,y$2)`:`z-yxa-yxb`,
+		`$(.test.y x$1,x$2)`:`z-yxa-yxb`,
+		`$(.test.z y$1,y$2)`:`z-yxa-yxb`,
 	},
 	`testdata/value/8`: map[string]any{
-		`.test$1 {=qualword {3:14} {=compound {3:15:word test} {3:19:delegate {3:20:auto 1}}}}`:`.test.u {=qualword {3:14} {=compound {3:15:word test} {3:19 {1:9:word .u}}}}`,
-		`$(.test$1) {3:12:delegate {=qualword {3:14} {=compound {3:15:word test} {3:19:delegate {3:20:auto 1}}}}}`: `foobar {3:12 {4:12:word foobar}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test$1`:checkresult{`.test.u`,`{=qualword {3:14} {=compound {3:15:word test} {3:19 {1:9:word .u}}}}`},
+		`$(.test$1)`:`foobar`,
 	},
 	`testdata/value/9`: map[string]any{
-		`.$1 {=qualword {4:21} {4:22:delegate {4:23:auto 1}}}`:`.w {=qualword {4:21} {4:22 {1:9:word w}}}`,
-		`$(.test.x .$1) {4:11:delegate {3:9:def .test.x} {=list {=qualword {4:21} {4:22:delegate {4:23:auto 1}}}}}`:`foobar {4:11 {3:11 {5:12:word foobar}}}`,
-		`.test$1 {=qualword {3:13} {=compound {3:14:word test} {3:18:delegate {3:19:auto 1}}}}`:`.test.w {=qualword {3:13} {=compound {3:14:word test} {3:18 {=qualword {4:21} {4:22 {1:9:word w}}}}}}`,
-		`$(.test$1) {3:11:delegate {=qualword {3:13} {=compound {3:14:word test} {3:18:delegate {3:19:auto 1}}}}}`:`foobar {3:11 {5:12:word foobar}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.$1`:checkresult{`.w`,`{=qualword {4:21} {4:22 {1:9:word w}}}`},
+		`.test$1`:checkresult{`.test.w`,
+			`{=qualword {3:13} {=compound {3:14:word test} {3:18 {=qualword {4:21} {4:22 {1:9:word w}}}}}}`},
+		`$(.test$1)`:`foobar`, `$(.test.x .$1)`:`foobar`,
 	},
 	`testdata/value/10`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/value/11`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test$1`:[]any{
+			checkresult{`.test$1`,`{=qualword {4:15} {=compound {4:16:word test} {4:20:delegate {4:21:auto 1}}}}`},
+			checkresult{`.test{}`,[]string{
+				`{=qualword {4:15} {=compound {4:16:word test} {4:20 {4:21:null}}}}`,
+				`{%[testdata]/value/11/do.smart:qualword {3:15} {=compound {3:16:word test} {3:20 {3:21:null}}}}`,
+				`{%[testdata]/value/11/do.smart:qualword {4:15} {=compound {4:16:word test} {4:20 {4:21:null}}}}`,
+			}},
+			`.test.s1`, `.test.s2`,
+			checkresult{`.test⌜.s1 .s2⌟`,
+				`{=qualword {3:15} {=compound {3:16:word test} {=list {3:20 {1:9:word .s1}} {3:20 {1:9:word .s2}}}}}`},
+		},
+		`.test{$1}`:[]any{`.test.s1 .test.s2`,`{}`},
+		`&(.test$1)`:[]any{`&(.test$1)`,`&(.test.s1)`,`&(.test.s2)`,`&(.test⌜.s1 .s2⌟)`,`{}`},
+		`&(.test{$1})`:[]any{`&(.test.s1) &(.test.s2)`,`{}`},
+		`$(.test.x)`:[]any{`&(.test$1)`,`{}`},
+		`&(.test.s1)`:`foo`,
+		`&(.test.s2)`:`bar`,
+		`&(.test⌜.s1 .s2⌟)`:`foobar`,
 	},
 	`testdata/value/12`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.$1`:[]any{`.w`,`.{}`}, `.test$1`:[]any{`.test.w`,`.test.{}`}, `.{}`:checkresult{`.{}`,`{=qualword {4:21} {4:22 {7:22 {7:23:null}}}}`},
+		`&(.test$1)`:[]any{`&(.test.w)`,`foobaz`, `www`},
+		`$(.test.x $1)`:[]any{`$(.test.x $1)`,`&(.test.w)`,`foobaz`,`www`},
+		`$(.test.y .$1)`:[]any{`&(.test.w)`,`foobaz`,`www`},
+		`&(.test.w)`:`foobaz`,
 	},
 	`testdata/value/13`: map[string]any{
-		`&(-g!foobar) {%[testdata]/value/13/do.smart:3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`:`not-foobar {%[testdata]/value/13/do.smart:3:8 {=compound {5:14:word not} {=flag {5:18:word foobar}}}}`,
-		`&(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`: []string{
-			`&(-g!foobar) {3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`,
-			`not-foobar {3:8 {=compound {5:14:word not} {=flag {5:18:word foobar}}}}`,
+		`&(-g!foobar)`:[]any{
+			checkresult{`&(-g!foobar)`,`{3:8:closure {=flag {=compound {3:11:word g} {=negative {3:13:word foobar}}}}}`},
+			`not-foobar`,
 		},
 	},
 	`testdata/builtins/addprefix`: map[string]any{
-		`.test.$1`:[]string{`.test.a`,`.test.⌜a b⌟`,`.test.{}`},
-		`.test.$1.x.$2.y.$3.z`:[]string{`.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z`,`.test.{}.x.{}.y.{}.z`},
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.a.x.1.y.0.z`:checkresult{`.test.a.x.1.y.0.z`,`{=qualword {18:1} {18:2:word test} {18:7:word a} {18:9:word x} {18:11:decimal 1} {18:13:word y} {18:15:decimal 0} {18:17:word z}}`},
+		`.test.{}.x.{}.y.{}.z`:checkresult{`.test.{}.x.{}.y.{}.z`, []string{
+			`{=qualword {11:26} {11:27:word test} {11:32 {11:33:null}} {11:35:word x} {11:37 {11:38:null}} {11:40:word y} {11:42 {11:43:null}} {11:45:word z}}`,
+			`{%[testdata]/builtins/addprefix/do.smart:qualword {11:26} {11:27:word test} {11:32 {11:33:null}} {11:35:word x} {11:37 {11:38:null}} {11:40:word y} {11:42 {11:43:null}} {11:45:word z}}`,
+		}},
+		`.test.$1`:[]any{`.test.a`,`.test.⌜a b⌟`,`.test.{}`},
+		`.test.$1.x.$2.y.$3.z`:[]any{`.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z`,`.test.{}.x.{}.y.{}.z`},
+		`.test.{$1}`:[]any{`{}`,
+			checkresult{`.test.a`,`{=qualword {27:28} {27:29:word test} {27:35 {1:9:word a}}}`},
+			checkresult{`.test.a .test.b`,[]string{
+				`{=list {=qualword {27:28} {27:29:word test} {27:35 {1:9:word a}}} {=qualword {27:28} {27:29:word test} {27:35 {1:9:word b}}}}`,
+				`{=list {=qualword {28:27} {28:28:word test} {28:34 {1:9:word a}}} {=qualword {28:27} {28:28:word test} {28:34 {1:9:word b}}}}`,
+				`{=list {=qualword {28:42} {28:43:word test} {28:49 {1:9:word a}}} {=qualword {28:42} {28:43:word test} {28:49 {1:9:word b}}}}`,
+			}},
+		},
+		`.test.{$1}.x.{$2}.y.{$3}.z`:[]any{`{}`,
+			checkresult{`.test.a.x.1.y.0.z .test.a.x.2.y.0.z .test.a.x.3.y.0.z .test.b.x.1.y.0.z .test.b.x.2.y.0.z .test.b.x.3.y.0.z .test.c.x.1.y.0.z .test.c.x.2.y.0.z .test.c.x.3.y.0.z`,[]string{
+				`{=list {=qualword {29:27} {29:28:word test} {29:34 {1:9:word a}} {29:38:word x} {29:41 {1:9:word 1}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word a}} {29:38:word x} {29:41 {1:9:word 2}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word a}} {29:38:word x} {29:41 {1:9:word 3}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word b}} {29:38:word x} {29:41 {1:9:word 1}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word b}} {29:38:word x} {29:41 {1:9:word 2}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word b}} {29:38:word x} {29:41 {1:9:word 3}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word c}} {29:38:word x} {29:41 {1:9:word 1}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word c}} {29:38:word x} {29:41 {1:9:word 2}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}} {=qualword {29:27} {29:28:word test} {29:34 {1:9:word c}} {29:38:word x} {29:41 {1:9:word 3}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}}}`,
+			}},
+		},
 		`$(addprefix fo-,&(.test.$1.x.$2.y.$3.z))`:[]any{
 			`fo-a1 fo-b2 fo-c3`,
 			`fo-{&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)}`,
@@ -1364,6 +1493,9 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 			`foo={&(.test.)} {&(.test.)}={&(.test.)}`,
 			`foo=test test=test null=test foo=null test=null null=null`,
 			`foo=ax ax=ax ay=ax bx=ax by=ax foo=ay ax=ay ay=ay bx=ay by=ay foo=bx ax=bx ay=bx bx=bx by=bx foo=by ax=by ay=by bx=by by=by`,
+			checkresult{`foo={&(.test.⌜a b⌟)} {&(.test.⌜a b⌟)}={&(.test.⌜a b⌟)}`,
+				`{=list {10:8 {=pair {10:20:word foo} {10:37:disjunction {10:37:closure {24:13:def .test.⌜a b⌟}}}}} {10:8 {=pair {10:24:disjunction {10:24:closure {24:13:def .test.⌜a b⌟}}} {10:37:disjunction {10:37:closure {24:13:def .test.⌜a b⌟}}}}}}`,
+			},
 		},
 		`$(addprefix foo &(.test.$1),=xxx)`:[]any{
 			`foo=xxx {&(.test.)}=xxx`,
@@ -1393,8 +1525,9 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 			`std={&(.test.a)}`,
 			`{}`,
 		},
-		`&(.test.$1)`:[]string{`&(.test.)`,`&(.test.⌜a b⌟)`,`ax ay bx by`,`test null`},
-		`&(.test.{$1})`:[]string{`&(.test.a) &(.test.b)`,`&(.test.a)`,`ax ay az bx by bz`,`ax ay az`,`{}`},
+		`&(.test.$1)`:[]any{`&(.test.)`,`&(.test.a)`,`&(.test.⌜a b⌟)`,`ax ay bx by`,`test null`,
+			checkresult{`ax ay az`,`{=list {6:25 {15:12:word ax}} {6:25 {15:15:word ay}} {6:25 {15:18:word az}}}`}},
+		`&(.test.{$1})`:[]any{`&(.test.a) &(.test.b)`,`&(.test.a)`,`ax ay az bx by bz`,`ax ay az`,`{}`},
 		`&(.test.$1.x.$2.y.$3.z)`:[]string{`&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)`,`&(.test.{}.x.{}.y.{}.z)`,`a1 b2 c3`,`{}`},
 		`&(.test.{$1}.x.{$2}.y.{$3}.z)`:[]string{
 			`&(.test.a.x.1.y.0.z) &(.test.a.x.2.y.0.z) &(.test.a.x.3.y.0.z) &(.test.b.x.1.y.0.z) &(.test.b.x.2.y.0.z) &(.test.b.x.3.y.0.z) &(.test.c.x.1.y.0.z) &(.test.c.x.2.y.0.z) &(.test.c.x.3.y.0.z)`,
@@ -1406,27 +1539,65 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(addprefix -foo=,bar &(none))`:[]string{`-foo=bar`,`-foo=bar -foo={&(none)}`},
 		`$(addprefix foo,bar &(none))`:[]string{`foobar`,`foobar foo{&(none)}`},
 		`$(addprefix foo bar,=xxx)`:`foo=xxx bar=xxx`,
-		`&(.test.)`:`test null`,
-		`&(.test.a)`:`ax ay az`,
-		`&(.test.b)`:`bx by bz`,
-		`&(.test.a.x.1.y.0.z)`: `ax ay az`,
-		`&(.test.a.x.2.y.0.z)`: `{}`,
-		`&(.test.a.x.3.y.0.z)`: `{}`,
-		`&(.test.b.x.1.y.0.z)`: `bx by bz`,
-		`&(.test.b.x.2.y.0.z)`: `cx cy cz`,
-		`&(.test.b.x.3.y.0.z)`: `{}`,
-		`&(.test.c.x.1.y.0.z)`: `dx dy dz`,
-		`&(.test.c.x.2.y.0.z)`: `ex ey ez`,
-		`&(.test.c.x.3.y.0.z)`: `fx fy fz`,
-		`&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)`:`a1 b2 c3`,
-		`&(.test.⌜a b⌟)`:`ax ay bx by`,
-		`&(.test.{}.x.{}.y.{}.z)`:`{}`,
+		`&(.test.)`:[]any{`test null`,checkresult{`&(.test.)`,[]string{
+			`{9:24:closure {13:10:def .test.}}`,
+			`{10:24:closure {13:10:def .test.}}`,
+			`{10:37:closure {13:10:def .test.}}`,
+		}}},
+		`&(.test.a)`:[]any{`ax ay az`,checkresult{`&(.test.a)`,[]string{
+			`{6:25:closure {15:9:def .test.a}}`,
+			`{27:26:closure {15:9:def .test.a}}`,
+			`{28:25:closure {15:9:def .test.a}}`,
+			`{28:40:closure {15:9:def .test.a}}`,
+		}}},
+		`&(.test.b)`:[]any{`bx by bz`,checkresult{`&(.test.b)`,[]string{
+			`{27:26:closure {16:9:def .test.b}}`,
+			`{28:25:closure {16:9:def .test.b}}`,
+			`{28:40:closure {16:9:def .test.b}}`,
+		}}},
+		`&(.test.a.x.1.y.0.z)`:[]any{`ax ay az`,checkresult{`&(.test.a.x.1.y.0.z)`,[]string{
+			`{29:25:closure {18:19:def .test.a.x.1.y.0.z}}`,
+		}}},
+		`&(.test.a.x.2.y.0.z)`:[]any{`{}`,checkresult{`&(.test.a.x.2.y.0.z)`,[]string{
+			`{29:25:closure {=qualword {29:27} {29:28:word test} {29:34 {1:9:word a}} {29:38:word x} {29:41 {1:9:word 2}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}}}`,
+		}}},
+		`&(.test.a.x.3.y.0.z)`:[]any{`{}`,checkresult{`&(.test.a.x.3.y.0.z)`,[]string{
+			`{29:25:closure {=qualword {29:27} {29:28:word test} {29:34 {1:9:word a}} {29:38:word x} {29:41 {1:9:word 3}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}}}`,
+		}}},
+		`&(.test.b.x.1.y.0.z)`:[]any{`bx by bz`,checkresult{`&(.test.b.x.1.y.0.z)`,[]string{
+			`{29:25:closure {19:19:def .test.b.x.1.y.0.z}}`,
+		}}},
+		`&(.test.b.x.2.y.0.z)`:[]any{`cx cy cz`,checkresult{`&(.test.b.x.2.y.0.z)`,`{29:25:closure {20:19:def .test.b.x.2.y.0.z}}`}},
+		`&(.test.b.x.3.y.0.z)`:[]any{`{}`,checkresult{`&(.test.b.x.3.y.0.z)`,[]string{
+			`{29:25:closure {=qualword {29:27} {29:28:word test} {29:34 {1:9:word b}} {29:38:word x} {29:41 {1:9:word 3}} {29:45:word y} {29:48 {1:9:word 0}} {29:52:word z}}}`,
+		}}},
+		`&(.test.c.x.1.y.0.z)`:[]any{`dx dy dz`,checkresult{`&(.test.c.x.1.y.0.z)`,[]string{`{29:25:closure {21:19:def .test.c.x.1.y.0.z}}`}}},
+		`&(.test.c.x.2.y.0.z)`:[]any{`ex ey ez`,checkresult{`&(.test.c.x.2.y.0.z)`,`{29:25:closure {22:19:def .test.c.x.2.y.0.z}}`}},
+		`&(.test.c.x.3.y.0.z)`:[]any{`fx fy fz`,checkresult{`&(.test.c.x.3.y.0.z)`,`{29:25:closure {23:19:def .test.c.x.3.y.0.z}}`}},
+		`&(.test.⌜a b⌟)`:[]any{`ax ay bx by`,checkresult{`&(.test.⌜a b⌟)`,[]string{
+			`{6:25:closure {24:13:def .test.⌜a b⌟}}`,
+			`{9:24:closure {24:13:def .test.⌜a b⌟}}`,
+			`{10:24:closure {24:13:def .test.⌜a b⌟}}`,
+			`{10:37:closure {24:13:def .test.⌜a b⌟}}`,
+		}}},
+		`&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)`:[]any{`a1 b2 c3`,
+			checkresult{`&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)`,
+				`{11:24:closure {25:31:def .test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z}}`,
+			},
+		},
+		`&(.test.{}.x.{}.y.{}.z)`:[]any{`{}`,
+			checkresult{`&(.test.{}.x.{}.y.{}.z)`,
+				`{11:24:closure {=qualword {11:26} {11:27:word test} {11:32 {11:33:null}} {11:35:word x} {11:37 {11:38:null}} {11:40:word y} {11:42 {11:43:null}} {11:45:word z}}}`,
+			},
+		},
 		`&(none)`:[]string{`&(none)`,`{}`},
 		`&({})`:`{}`,
 	},
 	`testdata/builtins/addsuffix`: map[string]any{
-		`&(.test.{})`:`{}`,
-		`&(.test.$1)`:[]string{`&(.test.{})`,`{}`},
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.$1`:checkresult{`.test.{}`,`{%[testdata]/builtins/addsuffix/do.smart:qualword {5:27} {5:28:word test} {5:33 {5:34:null}}}`},
+		`&(.test.$1)`:[]any{`{}`,checkresult{`&(.test.{})`,`{%[testdata]/builtins/addsuffix/do.smart:5:25:closure {=qualword {5:27} {5:28:word test} {5:33 {5:34:null}}}}`}},
+		`&(.test.{})`:[]any{`{}`,checkresult{`&(.test.{})`,`{5:25:closure {=qualword {5:27} {5:28:word test} {5:33 {5:34:null}}}}`}},
 		`$(addsuffix =xxx,&(.test.$1))`:[]any{
 			checkresult{`{&(.test.{})}=xxx`,
 				`{%[testdata]/builtins/addsuffix/do.smart:5:8 {=pair {5:25:disjunction {5:25:closure {=qualword {5:27} {5:28:word test} {5:33 {5:34:null}}}}} {5:21:word xxx}}}`},
@@ -1438,191 +1609,1027 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 			`{%[testdata]/builtins/addsuffix/do.smart:3:8 {=pair {3:25:word foo} {3:21:word xxx}}}`},
 	},
 	`testdata/builtins/trimprefix`: map[string]any{
+		`$(dir $/)`:`%[testdata]/builtins`,
+		`$(dir2 $/)`:`%[testdata]`,
+		`$(pat0)`:`**/testdata`,
+		`$(pat1)`:`%%/testdata`,
+		`$(pat2)`:`/**/testdata`,
+		`$(pat3)`:`/%%/testdata`,
+		`$(pat4)`:`*?/testdata`,
+		`$(pat5)`:`/*?/testdata`,
+		`$(trim-prefix $(dir $/),$/)`:`/trimprefix`,
+		`$(trim-prefix $(pat0)/ $(dir2 $/),$/)`:`builtins/trimprefix`,
+		`$(trim-prefix $(pat0)/,$/)`:`builtins/trimprefix`,
+		`$(trim-prefix $(pat1)/,$/)`:`builtins/trimprefix`,
+		`$(trim-prefix $(pat2)/,$/)`:`builtins/trimprefix`,
+		`$(trim-prefix $(pat3)/,$/)`:`builtins/trimprefix`,
+		`$(trim-prefix $(pat4)/,$/)`:`builtins/trimprefix`,
+		`$(trim-prefix $(pat5)/,$/)`:`builtins/trimprefix`,
+		`$(trim-prefix **/testdata/**,$/)`:`{}`,
+		`$(trim-prefix **/testdata/**/,$//)`:`{}`,
+		`$(trim-prefix *?/testdata/*?,$/)`:`{}`,
+		`$(trim-prefix *?/testdata/*?/,$//)`:`{}`,
+		`$(trim-prefix /**/ trimprefix,$/)`:`{}`,
+		`$(trim-prefix /**/ trimprefix/,$//)`:`{}`,
+		`$(trim-prefix /**/*data/*?/,$//)`:`{}`,
+		`$(trim-prefix /**/testdata /builtins,$/)`: `/trimprefix`,
+		`$(trim-prefix /**/testdata/ builtins,$/)`: `/trimprefix`,
+		`$(trim-prefix /**/testdata/**,$/)`:`{}`,
+		`$(trim-prefix /**/testdata/**/,$//)`:`{}`,
+		`$(trim-prefix /*?/*data/*?/,$//)`:`{}`,
+		`$(trim-prefix /*?/,$//)`:`{}`,
+		`$(trim-prefix /*?/t*a/*?/,$//)`:`{}`,
+		`$(trim-prefix /*?/test*/**/,$//)`:`{}`,
+		`$(trim-prefix /*?/test*/*?/,$//)`:`{}`,
+		`$(trim-prefix /*?/testdata/*?,$/)`:`{}`,
+		`$(trim-prefix /*?/testdata/*?/,$//)`:`{}`,
+		`$(trim-prefix /*?/testdata/,$/)`:`builtins/trimprefix`,
 	},
 	`testdata/builtins/trimsuffix`: map[string]any{
+		`$(base2 $/)`:`builtins/trimsuffix`,
+		`$(base3 $/)`:`testdata/builtins/trimsuffix`,
+		`$(dir3 $/)`:`%[dir:testdata]`,
+		`$(pat0)`:`testdata/**`,
+		`$(pat1)`:`testdata/%%`,
+		`$(pat2)`:`testdata/**/`,
+		`$(pat3)`:`testdata/%%/`,
+		`$(trim-suffix $(base3 $/),$/)`:`%[dir:testdata]/`,
+		`$(trim-suffix $(pat0) $(base2 $/),$/)`:`%[dir:testdata]/`,
+		`$(trim-suffix $(pat0),$/)`:`%[dir:testdata]/`,
+		`$(trim-suffix **/testdata/**,$/)`:`{}`,
+		`$(trim-suffix **/testdata/**/,$//)`:`{}`,
+		`$(trim-suffix *?/testdata/*?,$/)`:`{}`,
+		`$(trim-suffix *?/testdata/*?/,$//)`:`{}`,
+		`$(trim-suffix /$(pat1),$/)`:`%[dir:testdata]`,
+		`$(trim-suffix /$(pat2),$//)`:`%[dir:testdata]`,
+		`$(trim-suffix /$(pat3),$//)`:`%[dir:testdata]`,
+		`$(trim-suffix /**/*data/*?/,$//)`:`{}`,
+		`$(trim-suffix /**/,$//)`:`{}`,
+		`$(trim-suffix /**/testdata/**,$/)`:`{}`,
+		`$(trim-suffix /**/testdata/**/,$//)`:`{}`,
+		`$(trim-suffix /*?/*data/*?/,$//)`:`{}`,
+		`$(trim-suffix /*?/,$//)`:`{}`,
+		`$(trim-suffix /*?/t*a/*?/,$//)`:`{}`,
+		`$(trim-suffix /*?/test*/**/,$//)`:`{}`,
+		`$(trim-suffix /*?/test*/*?/,$//)`:`{}`,
+		`$(trim-suffix /*?/testdata/*?,$/)`:`{}`,
+		`$(trim-suffix /*?/testdata/*?/,$//)`:`{}`,
+		`$(trim-suffix /testdata/**,$/)`:`%[dir:testdata]`,
+		`$(trim-suffix /testdata/**/,$//)`:`%[dir:testdata]`,
+		`$(trim-suffix testdata/**,$/)`:`%[dir:testdata]/`,
+		`$(trim-suffix testdata/**/,$//)`:`%[dir:testdata]/`,
 	},
 	`testdata/builtins/if`: map[string]any{
-	},
-	`testdata/builtins/foreach`: map[string]any{
-	},
-	`testdata/builtins/foreach/1`: map[string]any{
-	},
-	`testdata/builtins/foreach/2`: map[string]any{
-	},
-	`testdata/builtins/foreach/3`: map[string]any{
-	},
-	`testdata/builtins/foreach/4`: map[string]any{
-	},
-	`testdata/builtins/foreach/5`: map[string]any{
-	},
-	`testdata/builtins/wildcard`: map[string]any{
-		`$(wildcard(-sort -dir=$/) inc/**.h) {18:10:delegate {18:12:builtin wildcard} [{=flag {18:22:word sort}} {=pair {=flag {18:28:word dir}} {18:32:delegate {1:1:def /}}}] {=list {=path {18:36:word inc} {=glob {18:40:meta **} {18:42:punct .} {18:43:word h}}}}}`:`{=file inc/bar.h} {=file inc/foo.h} {=file inc/foo/bar/v1.h} {=file inc/foo/bar/v2.h} {=file inc/foo/bar/zz/x.h} {=file inc/foo/v1.h} {=file inc/foo/v2.h} {=file inc/foo/xv1y.h} {=file inc/foo/xv22y.h} {=file inc/foo/xv333y.h} {=file inc/foobar/config/x.h} {=file inc/foobar/x.h} {=list {18:10 {=file inc/bar.h}} {18:10 {=file inc/foo.h}} {18:10 {=file inc/foo/bar/v1.h}} {18:10 {=file inc/foo/bar/v2.h}} {18:10 {=file inc/foo/bar/zz/x.h}} {18:10 {=file inc/foo/v1.h}} {18:10 {=file inc/foo/v2.h}} {18:10 {=file inc/foo/xv1y.h}} {18:10 {=file inc/foo/xv22y.h}} {18:10 {=file inc/foo/xv333y.h}} {18:10 {=file inc/foobar/config/x.h}} {18:10 {=file inc/foobar/x.h}}}`,
-		`$(wildcard(-sort -dir=$/) inc/*.h inc/*/*.h inc/*/*/*.h) {17:10:delegate {17:12:builtin wildcard} [{=flag {17:22:word sort}} {=pair {=flag {17:28:word dir}} {17:32:delegate {1:1:def /}}}] {=list {=path {17:36:word inc} {=glob {17:40:meta *} {17:41:punct .} {17:42:word h}}} {=path {17:44:word inc} {=glob {17:48:meta *}} {=glob {17:50:meta *} {17:51:punct .} {17:52:word h}}} {=path {17:54:word inc} {=glob {17:58:meta *}} {=glob {17:60:meta *}} {=glob {17:62:meta *} {17:63:punct .} {17:64:word h}}}}}`:`{=file inc/bar.h} {=file inc/foo.h} {=file inc/foo/bar/v1.h} {=file inc/foo/bar/v2.h} {=file inc/foo/v1.h} {=file inc/foo/v2.h} {=file inc/foo/xv1y.h} {=file inc/foo/xv22y.h} {=file inc/foo/xv333y.h} {=file inc/foobar/config/x.h} {=file inc/foobar/x.h} {=list {17:10 {=file inc/bar.h}} {17:10 {=file inc/foo.h}} {17:10 {=file inc/foo/bar/v1.h}} {17:10 {=file inc/foo/bar/v2.h}} {17:10 {=file inc/foo/v1.h}} {17:10 {=file inc/foo/v2.h}} {17:10 {=file inc/foo/xv1y.h}} {17:10 {=file inc/foo/xv22y.h}} {17:10 {=file inc/foo/xv333y.h}} {17:10 {=file inc/foobar/config/x.h}} {17:10 {=file inc/foobar/x.h}}}`,
-		`$(wildcard(-sort -dir=$//inc) **.h) {19:10:delegate {19:12:builtin wildcard} [{=flag {19:22:word sort}} {=pair {=flag {19:28:word dir}} {=path {19:32:delegate {1:1:def /}} {19:35:word inc}}}] {=list {=glob {19:40:meta **} {19:42:punct .} {19:43:word h}}}}`:`{=file bar.h} {=file foo.h} {=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/bar/zz/x.h} {=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=file foobar/config/x.h} {=file foobar/x.h} {=list {19:10 {=file bar.h}} {19:10 {=file foo.h}} {19:10 {=file foo/bar/v1.h}} {19:10 {=file foo/bar/v2.h}} {19:10 {=file foo/bar/zz/x.h}} {19:10 {=file foo/v1.h}} {19:10 {=file foo/v2.h}} {19:10 {=file foo/xv1y.h}} {19:10 {=file foo/xv22y.h}} {19:10 {=file foo/xv333y.h}} {19:10 {=file foobar/config/x.h}} {19:10 {=file foobar/x.h}}}`,
-		`$(wildcard(-sort -dir=$//inc) foobar/config/*.def.am) {26:10:delegate {26:12:builtin wildcard} [{=flag {26:22:word sort}} {=pair {=flag {26:28:word dir}} {=path {26:32:delegate {1:1:def /}} {26:35:word inc}}}] {=list {=path {26:40:word foobar} {26:47:word config} {=glob {26:54:meta *} {26:55:punct .} {26:56:word def} {26:59:punct .} {26:60:word am}}}}}`:`{=file foobar/config/a.def.am} {26:10 {=file foobar/config/a.def.am}}`,
-		`$(wildcard(-sort -dir=$//inc) foobar/config/*.def.in) {27:10:delegate {27:12:builtin wildcard} [{=flag {27:22:word sort}} {=pair {=flag {27:28:word dir}} {=path {27:32:delegate {1:1:def /}} {27:35:word inc}}}] {=list {=path {27:40:word foobar} {27:47:word config} {=glob {27:54:meta *} {27:55:punct .} {27:56:word def} {27:59:punct .} {27:60:word in}}}}}`:`{=file foobar/config/a.def.in} {=file foobar/config/b.def.in} {=list {27:10 {=file foobar/config/a.def.in}} {27:10 {=file foobar/config/b.def.in}}}`,
-		`$(wildcard(-sort) **.h) {20:10:delegate {20:12:builtin wildcard} [{=flag {20:22:word sort}}] {=list {=glob {20:28:meta **} {20:30:punct .} {20:31:word h}}}}`:`{=file bar.h} {=file foo.h} {=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/bar/zz/x.h} {=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=file foobar/config/x.h} {=file foobar/x.h} {=list {20:10 {=file bar.h}} {20:10 {=file foo.h}} {20:10 {=file foo/bar/v1.h}} {20:10 {=file foo/bar/v2.h}} {20:10 {=file foo/bar/zz/x.h}} {20:10 {=file foo/v1.h}} {20:10 {=file foo/v2.h}} {20:10 {=file foo/xv1y.h}} {20:10 {=file foo/xv22y.h}} {20:10 {=file foo/xv333y.h}} {20:10 {=file foobar/config/x.h}} {20:10 {=file foobar/x.h}}}`,
-		`$(wildcard(-sort) *.h) {21:10:delegate {21:12:builtin wildcard} [{=flag {21:22:word sort}}] {=list {=glob {21:29:meta *} {21:30:punct .} {21:31:word h}}}}`:`{=file bar.h} {=file foo.h} {=list {21:10 {=file bar.h}} {21:10 {=file foo.h}}}`,
-		`$(wildcard(-sort) foobar/config/*.def.am) {24:10:delegate {24:12:builtin wildcard} [{=flag {24:22:word sort}}] {=list {=path {24:40:word foobar} {24:47:word config} {=glob {24:54:meta *} {24:55:punct .} {24:56:word def} {24:59:punct .} {24:60:word am}}}}}`:`{=file foobar/config/a.def.am} {24:10 {=file foobar/config/a.def.am}}`,
-		`$(wildcard(-sort) foobar/config/*.def.in) {25:10:delegate {25:12:builtin wildcard} [{=flag {25:22:word sort}}] {=list {=path {25:40:word foobar} {25:47:word config} {=glob {25:54:meta *} {25:55:punct .} {25:56:word def} {25:59:punct .} {25:60:word in}}}}}`:`{} {25:10 {25:12:null}}`,
-	},
-	`testdata/builtins/wildcard/1`: map[string]any{
-		`$(dir $/) {4:66:delegate {4:68:builtin dir} {=list {4:72:delegate {1:1:def /}}}}`: testdata_f(`%[1]s/builtins/wildcard {4:66 {=path %[3]s {4:72:raw builtins} {4:72:raw wildcard}}}`,line_column_s(`4:72`)),
-		`$(wildcard(-sort) *.h) {7:10:delegate {7:12:builtin wildcard} [{=flag {7:22:word sort}}] {=list {=glob {7:29:meta *} {7:30:punct .} {7:31:word h}}}}`:`{} {7:10 {7:12:null}}`,
-		`$(wildcard(-sort) **.h) {8:10:delegate {8:12:builtin wildcard} [{=flag {8:22:word sort}}] {=list {=glob {8:28:meta **} {8:30:punct .} {8:31:word h}}}}`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/bar/zz/x.h} {=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=file foobar/x.h} {=list {8:10 {=file foo/bar/v1.h}} {8:10 {=file foo/bar/v2.h}} {8:10 {=file foo/bar/zz/x.h}} {8:10 {=file foo/v1.h}} {8:10 {=file foo/v2.h}} {8:10 {=file foo/xv1y.h}} {8:10 {=file foo/xv22y.h}} {8:10 {=file foo/xv333y.h}} {8:10 {=file foobar/x.h}}}`,
-		`$(wildcard(-sort) foo/*.h) {9:10:delegate {9:12:builtin wildcard} [{=flag {9:22:word sort}}] {=list {=path {9:28:word foo} {=glob {9:32:meta *} {9:33:punct .} {9:34:word h}}}}}`:`{=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=list {9:10 {=file foo/v1.h}} {9:10 {=file foo/v2.h}} {9:10 {=file foo/xv1y.h}} {9:10 {=file foo/xv22y.h}} {9:10 {=file foo/xv333y.h}}}`,
-		`$(wildcard(-sort) foo/bar/*.h) {10:10:delegate {10:12:builtin wildcard} [{=flag {10:22:word sort}}] {=list {=path {10:28:word foo} {10:32:word bar} {=glob {10:36:meta *} {10:37:punct .} {10:38:word h}}}}}`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=list {10:10 {=file foo/bar/v1.h}} {10:10 {=file foo/bar/v2.h}}}`,
-		`$(wildcard(-sort) foo/bar/*/*.h) {11:10:delegate {11:12:builtin wildcard} [{=flag {11:22:word sort}}] {=list {=path {11:28:word foo} {11:32:word bar} {=glob {11:36:meta *}} {=glob {11:38:meta *} {11:39:punct .} {11:40:word h}}}}}`:`{=file foo/bar/zz/x.h} {11:10 {=file foo/bar/zz/x.h}}`,
-		`$(wildcard(-sort) foo/bar/z?/?.h) {12:10:delegate {12:12:builtin wildcard} [{=flag {12:22:word sort}}] {=list {=path {12:28:word foo} {12:32:word bar} {=glob {12:36:word z} {12:37:meta ?}} {=glob {12:39:meta ?} {12:40:punct .} {12:41:word h}}}}}`:`{=file foo/bar/zz/x.h} {12:10 {=file foo/bar/zz/x.h}}`,
-		`$(wildcard(-sort) foo/bar/zz/?.h) {13:10:delegate {13:12:builtin wildcard} [{=flag {13:22:word sort}}] {=list {=path {13:28:word foo} {13:32:word bar} {13:36:word zz} {=glob {13:39:meta ?} {13:40:punct .} {13:41:word h}}}}}`:`{=file foo/bar/zz/x.h} {13:10 {=file foo/bar/zz/x.h}}`,
-		`$(wildcard(-sort) foo/bar/v1.h foo/bar/v2.h) {14:10:delegate {14:12:builtin wildcard} [{=flag {14:22:word sort}}] {=list {=path {14:28:word foo} {14:32:word bar} {=qualword {14:36:word v1} {14:39:word h}}} {=path {14:41:word foo} {14:45:word bar} {=qualword {14:49:word v2} {14:52:word h}}}}}`: `{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=list {14:10 {=file foo/bar/v1.h}} {14:10 {=file foo/bar/v2.h}}}`,
-		`$(wildcard(-sort) foo/bar/*.hh) {15:10:delegate {15:12:builtin wildcard} [{=flag {15:22:word sort}}] {=list {=path {15:28:word foo} {15:32:word bar} {=glob {15:36:meta *} {15:37:punct .} {15:38:word hh}}}}}`:`{=file foo/bar/v3.hh} {15:10 {=file foo/bar/v3.hh}}`,
-	},
-	`testdata/builtins/wildcard/2`: map[string]any{
-		`$(dir $/) {4:39:delegate {4:41:builtin dir} {=list {4:45:delegate {1:1:def /}}}}`: testdata_f(`%[1]s/builtins/wildcard {4:39 {=path %[3]s {4:45:raw builtins} {4:45:raw wildcard}}}`,line_column_s(`4:45`)),
-		`$(wildcard(-sort) foo/xv1y.h foo/bar/v2.h foo/bar/v1.h) {7:10:delegate {7:12:builtin wildcard} [{=flag {7:22:word sort}}] {=list {=path {7:28:word foo} {=qualword {7:32:word xv1y} {7:37:word h}}} {=path {7:39:word foo} {7:43:word bar} {=qualword {7:47:word v2} {7:50:word h}}} {=path {7:52:word foo} {7:56:word bar} {=qualword {7:60:word v1} {7:63:word h}}}}}`: `{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/xv1y.h} {=list {7:10 {=file foo/bar/v1.h}} {7:10 {=file foo/bar/v2.h}} {7:10 {=file foo/xv1y.h}}}`,
-		`$(wildcard(-sort) foo/b?r/v?.h) {8:10:delegate {8:12:builtin wildcard} [{=flag {8:22:word sort}}] {=list {=path {8:28:word foo} {=glob {8:32:word b} {8:33:meta ?} {8:34:word r}} {=glob {8:36:word v} {8:37:meta ?} {8:38:punct .} {8:39:word h}}}}}`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=list {8:10 {=file foo/bar/v1.h}} {8:10 {=file foo/bar/v2.h}}}`,
-		`$(wildcard(-sort) foo/xv*y.h) {9:10:delegate {9:12:builtin wildcard} [{=flag {9:22:word sort}}] {=list {=path {9:28:word foo} {=glob {9:32:word xv} {9:34:meta *} {9:35:word y} {9:36:punct .} {9:37:word h}}}}}`:`{=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=list {9:10 {=file foo/xv1y.h}} {9:10 {=file foo/xv22y.h}} {9:10 {=file foo/xv333y.h}}}`,
-		`$(wildcard(-sort) foo/**/x.h) {10:10:delegate {10:12:builtin wildcard} [{=flag {10:22:word sort}}] {=list {=path {10:28:word foo} {=glob {10:32:meta **}} {=qualword {10:35:word x} {10:37:word h}}}}}`:`{=file foo/bar/zz/x.h} {10:10 {=file foo/bar/zz/x.h}}`,
-		`$(wildcard(-sort) fo?/**/x.h) {11:10:delegate {11:12:builtin wildcard} [{=flag {11:22:word sort}}] {=list {=path {=glob {11:28:word fo} {11:30:meta ?}} {=glob {11:32:meta **}} {=qualword {11:35:word x} {11:37:word h}}}}}`:`{=file foo/bar/zz/x.h} {11:10 {=file foo/bar/zz/x.h}}`,
-	},
-	`testdata/builtins/wildcard/3`: map[string]any{
-		`$(dir $/) {4:39:delegate {4:41:builtin dir} {=list {4:45:delegate {1:1:def /}}}}`: testdata_f(`%[1]s/builtins/wildcard {4:39 {=path %[3]s {4:45:raw builtins} {4:45:raw wildcard}}}`,line_column_s(`4:45`)),
-		`$(wildcard(-sort) foo/bar/v2.h foo/bar/v1.h) {7:10:delegate {7:12:builtin wildcard} [{=flag {7:22:word sort}}] {=list {=path {7:28:word foo} {7:32:word bar} {=qualword {7:36:word v2} {7:39:word h}}} {=path {7:41:word foo} {7:45:word bar} {=qualword {7:49:word v1} {7:52:word h}}}}}`: `{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=list {7:10 {=file foo/bar/v1.h}} {7:10 {=file foo/bar/v2.h}}}`,
-		`$(wildcard(-sort) foo/bar/xyz???.h) {8:10:delegate {8:12:builtin wildcard} [{=flag {8:22:word sort}}] {=list {=path {8:28:word foo} {8:32:word bar} {=glob {8:36:word xyz} {8:39:meta ?} {8:40:meta ?} {8:41:meta ?} {8:42:punct .} {8:43:word h}}}}}`:`{} {8:10 {8:12:null}}`,
-		`$(wildcard(-sort) foo/bar/xyz???.txt) {9:10:delegate {9:12:builtin wildcard} [{=flag {9:22:word sort}}] {=list {=path {9:28:word foo} {9:32:word bar} {=glob {9:36:word xyz} {9:39:meta ?} {9:40:meta ?} {9:41:meta ?} {9:42:punct .} {9:43:word txt}}}}}`:`{=file foo/bar/xyz000.txt} {9:10 {=file foo/bar/xyz000.txt}}`,
-	},
-	`testdata/builtins/closure`: map[string]any{
-		`&(.test) {4:12:closure {=qualword {4:14} {4:15:word test}}}`: `&(.test) {4:12:closure {=qualword {4:14} {4:15:word test}}}`,
-		`&(&(.test)) {4:10:closure {4:12:closure {=qualword {4:14} {4:15:word test}}}}`: `&(&(.test)) {4:10:closure {4:12:closure {=qualword {4:14} {4:15:word test}}}}`,
-		`&(.test) {5:12:closure {=qualword {5:14} {5:15:word test}}}`: `{} {5:12:null}`,
-		`&(&(.test)) {5:10:closure {5:12:closure {=qualword {5:14} {5:15:word test}}}}`: `{} {5:10:null}`,
-	},
-	`testdata/builtins/delegate`: map[string]any{
-	},
-	`testdata/builtins/logic`: map[string]any{
-	},
-	`testdata/builtins/contains`: map[string]any{
-	},
-	`testdata/builtins/join`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(none)`:[]any{`{}`,checkresult{`&(none)`,[]string{`{11:13:closure {11:15:word none}}`,`{13:13:closure {13:15:word none}}`}}},
+		`&(some)`:[]any{`thing`,checkresult{`&(some)`,[]string{`{12:13:closure {3:6:def some}}`}}},
+		`$(if &(none),yes,no)`:[]any{`no`,`$(if &(none),yes,no)`},
+		`$(if &(some),yes,no)`:[]any{`yes`,checkresult{`$(if &(some),yes,no)`,`{12:8:delegate {12:10:builtin if} {=list {12:13:closure {3:6:def some}}} {=list {12:21:word yes}} {=list {12:25:word no}}}`}},
+		`$(if {=no},yes,no)`:`no`,
+		`$(if {=yes},yes,no)`:`yes`,
+		`$(ifarg 1,yes,no)`:[]any{`no`,`yes`},
+		`$(ifdef none,yes,no)`:`no`,
+		`$(x1)`:`yes`,
+		`$(x2)`:`no`,
 	},
 	`testdata/builtins/xor`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`$(xor {=false},{=false})`:`{}`,
 		`$(xor {=false},{=true})`:`{=true}`,
 		`$(xor {=true},{=false})`:`{=true}`,
 		`$(xor {=true},{=true})`:`{}`,
 	},
 	`testdata/builtins/or`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`$(or -no,-yes,xx)`:`-yes`,
 		`$(or -yes,-no,xx)`:`-yes`,
 		`$(or -false,-no,xx)`:`xx`,
 	},
+	`testdata/builtins/foreach`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.$_.$(or $4,$3)`:[]any{`.test.x.{}`,`.test.y.{}`,`.test.x.a`,`.test.y.a`,`.test.x.b`,`.test.y.b`},
+		`.test.$_`:[]any{`.test.foo`,`.test.bar`},
+		`&(.test.h)`:[]any{`&(.test.h)`,`-`},
+		`&(.test.$_)`:[]string{
+			`&(.test.a)`,
+			`&(.test.B)`,
+			`&(.test.b)`,
+			`&(.test.foo)`,
+			`&(.test.bar)`,
+			`test-B`,
+			`test-b`,
+			`{}`,
+		},
+		`&(.test.x.{})`:[]any{`{}`},
+		`&(.test.y.{})`:[]any{`{}`},
+		`$(.test.x $1,B b)`:[]string{
+			`&(.test.s) $(value .test~&(.test.s)) &(.test.a) &(.test~&(.test.s).a) &(.test.B) &(.test~&(.test.s).B) &(.test.b) &(.test~&(.test.s).b)`,
+			`&(.test.s) test-foo &(.test.a) &(.test~&(.test.s).a) &(.test.B) &(.test~&(.test.s).B) &(.test.b) &(.test~&(.test.s).b)`,
+			`foo test-foo test-B test-foo-B test-b test-foo-b`,
+		},
+		`&(.test.$_.$(or $4,$3))`:[]any{`&(.test.x.{})`,`&(.test.y.{})`,`&(.test.x.a)`,`&(.test.x.b)`,`&(.test.y.a)`,`&(.test.y.b)`,`.test.y.a`},
+		`&(.test~&(.test.s).$_)`:[]string{
+			`&(.test~&(.test.s).B)`,
+			`&(.test~&(.test.s).a)`,
+			`&(.test~&(.test.s).b)`,
+			`test-foo-b`,
+			`test-foo-B`,
+		},
+		`&(.test~&(.test.s).a)`:`test-foo-a`,
+		`&(.test~&(.test.s).b)`:`test-foo-b`,
+		`&(.test~&(.test.s).B)`:`test-foo-B`,
+		`&(.test.xx)`:[]any{`&(.test.xx)`,`{}`},
+		`&(.test.s)`:[]any{`&(.test.s)`,`foo`},
+		`&(.test.foo)`:[]any{`{}`},
+		`&(.test.bar)`:[]any{`{}`},
+		`&(.test.a)`:`test-a`,
+		`&(.test.b)`:`test-b`,
+		`&(.test.B)`:`test-B`,
+		`&(.test.x $_)`:[]any{`{=file do.smart}`,`&(.test.x do.smart)`},
+		`&(.test.x do.smart)`:`{=file do.smart}`,
+		`&(.test.x.a)`:`xa`,
+		`&(.test.x.b)`:`xb`,
+		`&(.test.y.a)`:`ya`,
+		`&(.test.y.b)`:`yb`,
+		`&(.test.z)`:[]any{`&(.test.z)`,`w`},
+		`$(.test.61)`:`{} {} {} {}`,
+		`$(foreach $1 $2,&(.test.$_) &(.test~&(.test.s).$_))`: []string{
+			`&(.test.a) &(.test~&(.test.s).a) &(.test.B) &(.test~&(.test.s).B) &(.test.b) &(.test~&(.test.s).b)`,
+			`test-B test-foo-B test-b test-foo-b`,
+		},
+		`$(foreach $1,&(.test.h)$_)`:[]any{`&(.test.h){$1}`,`-{$1}`,`{}`,`&(.test.h)a &(.test.h)b &(.test.h)c`,`-a -b -c`},
+		`$(foreach $1,&(.test.xx)$_)`:[]any{`&(.test.xx)a &(.test.xx)b &(.test.xx)c`,`{}aa {}bb {}cc`},
+		`$(foreach $1 $2,&(.test.$_.$(or $4,$3)))`:[]any{`{}`,`&(.test.x.{}) &(.test.y.{})`,`&(.test.x.a) &(.test.y.a)`,`&(.test.x.b) &(.test.y.b)`},
+		`$(foreach $1,&(.test.$_)$1{}88)`:[]any{`{}`,`&(.test.foo)⌜foo bar⌟{}88 &(.test.bar)⌜foo bar⌟{}88`,`{}⌜foo bar⌟{}88 {}⌜foo bar⌟{}88`},
+		`$(foreach $1,&(.test.$_)$1{}99)`:[]any{`{}`,`&(.test.foo)⌜foo bar⌟{}99 &(.test.bar)⌜foo bar⌟{}99`,`{}⌜foo bar⌟{}99 {}⌜foo bar⌟{}99`},
+		`$(foreach $1,&(.test.z)$_{}zz)`:[]any{`&(.test.z)y1{}zz &(.test.z)y2{}zz &(.test.z)y3{}zz`,`{}`,`wy1{}zz wy2{}zz wy3{}zz`},
+		`$(foreach &(.test.h) $(foreach $1,&(.test.h)$_),x$_)`:`x- x-{$1}`,
+		`$(foreach q p $(foreach $1,&(.test.h)$_),x$_)`:[]any{`xq xp x{&(.test.h)}{$1}`,`xq xp x{&(.test.h)}a x{&(.test.h)}b x{&(.test.h)}c`,`xq xp`,`xq xp x-a x-b x-c`},
+		`$(foreach q p $(foreach $1,&(.test.xx)$_),x$_)`:[]any{`xq xp x{&(.test.xx)}a x{&(.test.xx)}b x{&(.test.xx)}c`,`xq xp x{}aa x{}bb x{}cc`},
+		`$(foreach do.smart,&(.test.x $_))`:[]any{`{=file do.smart}`,`&(.test.x do.smart)`},
+		`$(foreach a $(foreach $1,&(.test.z)$_{}zz) b,x$_)`:[]any{`xa xb`,`xa x{&(.test.z)}y1{}zz x{&(.test.z)}y2{}zz x{&(.test.z)}y3{}zz xb`,`xa xwy1{}zz xwy2{}zz xwy3{}zz xb`},
+		`$(or $4,$3)`:[]any{`{}`,`a`,`b`},
+		`$(value .test~&(.test.s))`:`test-foo`,
+		`$(stat $1)`:`{=file do.smart}`,
+	},
+	`testdata/builtins/foreach/1`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test~foo.b`:checkresult{`.test~foo.b`,`{=qualword {18:1} {=compound {18:2:word test} {18:6:punct ~} {=qualword {18:7:word foo} {18:11:word b}}}}`},
+		`.test~&(.test.s)`:[]any{`.test~&(.test.s)`,
+			checkresult{`.test~foo`,[]string{
+				`{%[testdata]/builtins/foreach/1/do.smart:qualword {3:30} {=compound {3:31:word test} {3:35:punct ~} {3:36 {8:16:word foo}}}}`,
+				`{=qualword {3:30} {=compound {3:31:word test} {3:35:punct ~} {3:36 {8:16:word foo}}}}`,
+			}},
+		},
+		`.test~&(.test.s).$_`:[]any{`.test~foo.A`,`.test~foo.a`,`.test~foo.B`,`.test~foo.b`,`.test~&(.test.s).A`,`.test~&(.test.s).a`,`.test~&(.test.s).B`,`.test~&(.test.s).b`},
+		`.test~&(.test.s).a`:[]any{`.test~&(.test.s).a`,`.test~foo.a`,`foo.a`},
+		`.test~&(.test.s).B`:[]any{`.test~&(.test.s).B`,`.test~foo.B`,`foo.B`},
+		`.test~&(.test.s).b`:[]any{`.test~&(.test.s).b`,`.test~foo.b`,`foo.b`},
+		`.test.$_`:[]any{`.test.A`,`.test.a`,`.test.B`,`.test.b`},
+		`foo.A`:`foo.A`, `foo.a`:`foo.a`, `foo.B`:`foo.B`, `foo.b`:`foo.b`,
+		`$(foreach $1 $2,&(.test.$_) &(.test~&(.test.s).$_))`: []string{
+			`&(.test.a) &(.test~&(.test.s).a) &(.test.B) &(.test~&(.test.s).B) &(.test.b) &(.test~&(.test.s).b)`,
+			`test-B test-foo-B test-b test-foo-b`,
+		},
+		`$(.test.x $1,B b)`:[]string{
+			`&(.test.s) $(value .test~&(.test.s)) &(.test.a) &(.test~&(.test.s).a) &(.test.B) &(.test~&(.test.s).B) &(.test.b) &(.test~&(.test.s).b)`,
+			`&(.test.s) test-foo &(.test.a) &(.test~&(.test.s).a) &(.test.B) &(.test~&(.test.s).B) &(.test.b) &(.test~&(.test.s).b)`,
+			`foo test-foo test-B test-foo-B test-b test-foo-b`,
+		},
+		`&(.test~&(.test.s).$_)`: []string{
+			`&(.test~&(.test.s).B)`,
+			`&(.test~&(.test.s).a)`,
+			`&(.test~&(.test.s).b)`,
+			`test-foo-B`,
+			`test-foo-b`,
+		},
+		`&(.test.$_)`:[]string{
+			`&(.test.a)`,
+			`&(.test.B)`,
+			`&(.test.b)`,
+			`test-B`,
+			`test-b`,
+		},
+		`&(.test~&(.test.s).a)`:`test-foo-a`,
+		`&(.test~&(.test.s).b)`:`test-foo-b`,
+		`&(.test~&(.test.s).B)`:`test-foo-B`,
+		`&(.test.s)`:[]string{`&(.test.s)`,`foo`},
+		`&(.test.s).$_`:[]any{`&(.test.s).A`,`&(.test.s).a`,`&(.test.s).B`,`&(.test.s).b`,`foo.B`,`foo.b`},
+		`&(.test.s).A`:[]any{`&(.test.s).A`,`foo.A`},
+		`&(.test.s).a`:[]any{`&(.test.s).a`,`foo.a`},
+		`&(.test.s).B`:[]any{`&(.test.s).B`,`foo.B`},
+		`&(.test.s).b`:[]any{`&(.test.s).b`,`foo.b`},
+		`&(.test.a)`:`test-a`,
+		`&(.test.b)`:`test-b`,
+		`&(.test.B)`:`test-B`,
+		`$(value .test~&(.test.s))`:[]any{`test-foo`,`$(value .test~&(.test.s))`},
+	},
+	`testdata/builtins/foreach/2`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.foreach.d.$_`:[]any{`.test.foreach.d.1`,`.test.foreach.d.2`},
+		`.test.foreach.x.$_`:[]any{`.test.foreach.x.3`,`.test.foreach.x.4`},
+		`$(.test.foreach.a x$1 y$1 z$1,xx$2 yy$2)`:`bx{} by{} bz{} baxx{} bayy{}`,
+		`$(.test.foreach.b)`:`bx{} by{} bz{} baxx{} bayy{}`,
+		`$(.test.foreach.c)`:`bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)}`,
+		`$(.test.foreach.c $1,4)`:[]string{
+			`bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)} -x{&(.test.foreach.x.3)} -x{&(.test.foreach.x.4)}`,
+			`bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)} -x{&(.test.foreach.x.3)} -x{&(.test.foreach.x.4)}`,
+			`bx{} by{} bz{} baxx{} bayy{} -x{&(.test.foreach.x)} -x{&(.test.foreach.x.4)}`,
+			`bx{} by{} bz{} baxx{} bayy{} -xvw -xW{}{}`,
+		},
+		`$(.test.foreach.d)`:`{}`,
+		`$(.test.foreach.d.$_ $3,$4)`:[]string{
+			`-xa -xb`,
+			`-ya -yb`,
+			`{}`,
+			`{}`,
+		},
+		`$(foreach $1 $(foreach $2,a$_),b$_)`:`bx{} by{} bz{} baxx{} bayy{}`,
+		`$(foreach $1 $2,$(.test.foreach.d.$_ $3,$4))`:[]string{
+			`-xa -xb -ya -yb`,
+			`{}`,
+		},
+		`$(foreach $1 $2,&(.test.foreach.x.$_))`:[]string{
+			`&(.test.foreach.x.3) &(.test.foreach.x.4)`,
+			`&(.test.foreach.x.4)`,
+			`W{}{}`,
+			`{}`,
+		},
+		`$(foreach $1 $2,-x$_)`:[]string{
+			`-xa -xb`,
+			`{}`,
+		},
+		`$(foreach $1 $2,-y$_)`:[]string{
+			`-ya -yb`,
+			`{}`,
+		},
+		`$(foreach $2,a$_)`:`axx{} ayy{}`,
+		`$(foreach &(.test.foreach.x) $(foreach $1 $2,&(.test.foreach.x.$_)),-x$_)`:[]string{
+			`-x{&(.test.foreach.x)} -x{&(.test.foreach.x.3)} -x{&(.test.foreach.x.4)}`,
+			`-x{&(.test.foreach.x)} -x{&(.test.foreach.x.3)} -x{&(.test.foreach.x.4)}`,
+			`-x{&(.test.foreach.x)} -x{&(.test.foreach.x.4)}`,
+			`-x{&(.test.foreach.x)}`,
+			`-x{&(.test.foreach.x)}`,
+			`-xvw -xW{}{}`,
+		},
+		`&(.test.foreach.x)`: []string{
+			`&(.test.foreach.x)`,
+			`vw`,
+		},
+		`&(.test.foreach.x.$_)`:[]string{
+			`&(.test.foreach.x.3)`,
+			`&(.test.foreach.x.4)`,
+			`W{}{}`,
+		},
+		`&(.test.foreach.x.3)`: []string{
+			`&(.test.foreach.x.3)`,
+			`V{}{}`,
+		},
+		`&(.test.foreach.x.4)`: []string{
+			`&(.test.foreach.x.4)`,
+			`W{}{}`,
+		},
+	},
+	`testdata/builtins/foreach/3`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.$_`:[]any{`.test.a`,`.test.b`,`.test.x`,`.test.y`,`.test.z`,`.test.if.x`,`.test.if.y`,`.test.if.z`, `.test.zzz`},
+		`$(.test.$_)`:[]string{
+			`xxx`,
+			`yyy`,
+			`{}`,
+		},
+		`$(addprefix std=,&(.test.$_))`:[]string{
+			`std=xxx`,
+			`std=yyy`,
+			`std={&(.test.a)}`,
+			`std={&(.test.b)}`,
+			`std={&(.test.if.x)}`,
+			`std={&(.test.if.y)}`,
+			`std={&(.test.if.z)}`,
+			`{}`,
+		},
+		`$(foreach $1 $2,$(addprefix std=,&(.test.$_)))`:[]string{
+			`std={&(.test.a)}`,
+			`std={&(.test.b)}`,
+			`std={&(.test.a)} std={&(.test.b)}`,
+			`std={&(.test.if.x)} std={&(.test.if.y)} std={&(.test.if.z)}`,
+			`std=xxx std=yyy`,
+		},
+		`$(foreach $1 $2,$(if &(.test.$_),std=&(.test.$_)))`:[]string{
+			`$(if &(.test.zzz),std=&(.test.zzz))`,
+			`$(if &(.test.if.x),std=&(.test.if.x)) $(if &(.test.if.y),std=&(.test.if.y))`,
+			`$(if &(.test.if.x),std=&(.test.if.x))`,
+			`$(if &(.test.if.y),std=&(.test.if.y))`,
+			`std=xxx std=yyy`,
+			`std=xxx`,
+			`{}`,
+		},
+		`$(foreach $1 $2,$(if $(.test.$_),std=&(.test.$_)))`:[]string{
+			`$(if {},std=&(.test.zzz))`,
+			`$(if xxx,std=&(.test.if.x)) $(if yyy,std=&(.test.if.y))`,
+			`$(if xxx,std=&(.test.if.x))`,
+			`$(if yyy,std=&(.test.if.y))`,
+			`std=&(.test.if.x) std=&(.test.if.y)`,
+			`std=&(.test.if.x)`,
+			`std=&(.test.if.y)`,
+			`std=xxx std=yyy`,
+			`std=xxx`,
+			`{}`,
+		},
+		`$(foreach $1 $2,$_$3)`: []string{
+			`acc bcc`,
+			`1x 2x 3x`,
+			`a{} b{}`,
+			`ax bx`,
+			`{}`,
+		},
+		`$(if &(.test.$_),std=&(.test.$_))`:[]string{
+			`$(if &(.test.zzz),std=&(.test.zzz))`,
+			`$(if &(.test.if.x),std=&(.test.if.x))`,
+			`$(if &(.test.if.y),std=&(.test.if.y))`,
+			`std=xxx`,
+			`std=yyy`,
+			`{}`,
+		},
+		`$(if $(.test.$_),std=&(.test.$_))`:[]string{
+			`$(if {},std=&(.test.zzz))`,
+			`$(if xxx,std=&(.test.if.x))`,
+			`$(if yyy,std=&(.test.if.y))`,
+			`std=&(.test.if.x)`,
+			`std=&(.test.if.y)`,
+			`std=xxx`,
+			`std=yyy`,
+			`{}`,
+		},
+		`&(.test.$_)`:[]string{
+			`&(.test.a)`,
+			`&(.test.b)`,
+			`&(.test.if.x)`,
+			`&(.test.if.y)`,
+			`&(.test.if.z)`,
+			`&(.test.zzz)`,
+			`xxx`,
+			`yyy`,
+			`{}`,
+		},
+		`&(.test.a)`:[]any{`&(.test.a)`,`.test.a`,`{}`},
+		`&(.test.b)`:[]any{`&(.test.b)`,`.test.b`,`{}`},
+		`&(.test.if.x)`:[]string{`xxx`,`&(.test.if.x)`,},
+		`&(.test.if.y)`:[]string{`yyy`,`&(.test.if.y)`,},
+		`&(.test.if.z)`:[]string{`{}`,`&(.test.if.z)`},
+		`&(.test.zzz)`:[]string{`{}`,`&(.test.zzz)`},
+		`$(if &(.test.if.x),std=&(.test.if.x))`:`std=xxx`,
+		`$(if &(.test.if.y),std=&(.test.if.y))`:`std=yyy`,
+		`$(if &(.test.zzz),std=&(.test.zzz))`:`{}`,
+		`$(if xxx,std=&(.test.if.x))`:`std=xxx`,
+		`$(if yyy,std=&(.test.if.y))`:`std=yyy`,
+		`$(if {},std=&(.test.zzz))`:`{}`,
+	},
+	`testdata/builtins/foreach/4`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.x$_`:[]any{`.test.x{$1}`,`.test.x{$2}`,`.test.xa`,`.test.xb`},
+		`.test.x{$1}`:[]any{`.test.x{$1}`,`.test.xa .test.xb`},
+		`.test.x{$2}`:[]any{`.test.x{$2}`,`.test.xc`},
+		`$(.test.x $1,b)`:[]any{`Xxb X{&(.test.xb)}`,`$(.test.x $1,b)`},
+		`$(.test.xa $1,b)`:[]any{`~1~`,`$(.test.xa $1,b)`},
+		`$(.test.xb $1,b)`:[]any{`~2~`,`$(.test.xb $1,b)`},
+		`&(.test.x$_)`: []any{
+			`&(.test.x{$1})`,
+			`&(.test.x{$2})`,
+			`&(.test.xa)`,
+			`&(.test.xb)`,
+			`~1~ {} {} {} {}`,
+			`~2~ {} {} {} {}`,
+			`~1~`,
+			`~2~`,
+		},
+		`&(.test.x{$1})`:[]any{`&(.test.xa) &(.test.xb)`,`&(.test.x{$1})`},
+		`&(.test.x{$2})`:[]any{`&(.test.xc)`,`&(.test.x{$2})`},
+		`&(.test.xa)`:[]any{`&(.test.xa)`,`~1~`,`~1~ {} {} {} {}`},
+		`&(.test.xb)`:[]any{`&(.test.xb)`,`~2~`,`~2~ {} {} {} {}`},
+		`&(.test.xc)`:[]any{`{}`},
+		`$(.test.y)`:[]any{`y $(.test.x $1,b)`},
+		`$(.test.z)`:[]any{`z y $(.test.x $1,b)`},
+		`$(foreach $(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_),~$_)`:`{}`,
+		`$(foreach $(foreach $(foreach $1 $2,~$_),~$_),~$_)`:`{}`,
+		`$(foreach $(foreach $(foreach $1 $2,&(.test.x$_)),X$_),Y$_)`:[]string{
+			`YX{&(.test.x{$1})} YX{&(.test.x{$2})}`,
+			`YX{&(.test.xa)} YX{&(.test.xb)}`,
+			`YX~1~ YX~2~`,
+		},
+		`$(foreach $(foreach $1 $2,&(.test.x$_)),X$_)`:[]string{
+			`X{&(.test.x{$1})} X{&(.test.x{$2})}`,
+			`X{&(.test.xa)} X{&(.test.xb)}`,
+			`X~1~ X~2~`,
+			`{}`,
+		},
+		`$(foreach $(foreach $1 $2,x$_),X$_)`:[]string{
+			`Xx{$1} Xx{$2}`,
+			`Xxa Xxb`,
+			`Xxb`,
+			`{}`,
+		},
+		`$(foreach $(foreach $1 $2,z-$_),~1~$_)`:[]any{`~1~z-b`,`{}`,},
+		`$(foreach $(foreach $1 $2,z-$_),~2~$_)`:[]any{`~2~z-b`,`{}`,},
+		`$(foreach $(foreach $1 $2,~$_),~$_)`:`{}`,
+		`$(foreach $1 $2,x$_)`:[]any{`x{$1} x{$2}`,`xa xb`,`xb`,`{}`},
+		`$(foreach $1 $2,x-$_)`:[]any{`x-b`,`{}`,},
+		`$(foreach $1 $2,z-$_)`:[]any{`z-b`,`{}`,},
+		`$(foreach $1 $2,~$_)`:[]any{`{}`},
+		`$(foreach $1 $2,&(.test.x$_))`:[]any{
+			`&(.test.x{$1}) &(.test.x{$2})`,
+			`&(.test.xa) &(.test.xb)`,
+			`~1~ ~2~`,
+			`{}`,
+		},
+	},
+	`testdata/builtins/foreach/5`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.test.x.$_`:[]any{`.test.x.{$1}`,`.test.x.{$2}`,`.test.x.a`,`.test.x.b`,`.test.x.c`},
+		`.test.x.{$1}`:[]any{`.test.x.{$1}`,`{}`,`.test.x.a`,`.test.x.a .test.x.b`,},
+		`.test.x.{$2}`:[]any{`.test.x.{$2}`,`{}`,`.test.x.b`,`.test.x.c`},
+		`.test.x.&(.test.o).$_`:[]any{`.test.x.&(.test.o).{$1}`,`.test.x.&(.test.o).{$2}`,`.test.x.&(.test.o).a`,`.test.x.&(.test.o).b`,`.test.x.&(.test.o).c`},
+		`.test.x.&(.test.o).{$1}`:[]any{`.test.x.&(.test.o).{$1}`,`{}`,`.test.x.&(.test.o).a`,`.test.x.&(.test.o).a .test.x.&(.test.o).b`},
+		`.test.x.&(.test.o).{$2}`:[]any{`.test.x.&(.test.o).{$2}`,`{}`,`.test.x.&(.test.o).b`,`.test.x.&(.test.o).c`},
+		`.test.x.&(.test.o).a`:[]any{`.test.x.&(.test.o).a`,`.test.x.o.a`},
+		`.test.x.&(.test.o).b`:[]any{`.test.x.&(.test.o).b`,`.test.x.o.b`},
+		`.test.x.&(.test.o).c`:[]any{`.test.x.&(.test.o).c`,`.test.x.o.c`},
+		`.test.x.o.$_`:[]any{`.test.x.o.a`,`.test.x.o.b`,`.test.x.o.c`},
+		`$(.test.x.o.$_)`:[]any{`x.o.a`,`x.o.b`,`x.o.c`},
+		`$(.test.x.x)`:[]any{
+			`&(.test.x.{$1}) &(.test.x.&(.test.o).{$1}) &(.test.x.{$2}) &(.test.x.&(.test.o).{$2})`,
+			`&(.test.x.a a,$2)`,
+			`{}`,
+		},
+		`$(.test.x.x $1)`:[]any{`$(.test.x.x $1)`,
+			`&(.test.x.a) &(.test.x.&(.test.o).a)`,
+			`{}`,
+		},
+		`$(.test.x.x $1,$2)`:[]any{`$(.test.x.x $1,$2)`,
+			`&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b) &(.test.x.c) &(.test.x.&(.test.o).c)`,
+			`&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)`,
+			`{}`,
+		},
+		`$(.test.x.y $1)`:[]any{
+			`&(.test.x.a a b c,{}) &(.test.x.&(.test.o).a) &(.test.x.b a b c,{}) &(.test.x.&(.test.o).b) &(.test.x.c a b c,{}) &(.test.x.&(.test.o).c)`,
+			`&(.test.x.a a,{}) &(.test.x.&(.test.o).a)`,
+			`{}`,
+		},
+		`$(.test.x.y $1,$2)`:[]any{`&(.test.x.a a,b) &(.test.x.&(.test.o).a) &(.test.x.b a,b) &(.test.x.&(.test.o).b)`,`{}`,},
+		`$(.test.x.y ,$2)`:[]any{`&(.test.x.b {},b) &(.test.x.&(.test.o).b)`,`&(.test.x.b`,`{}`,},
+		`$(.test.x.y ,b)`:[]any{
+			`&(.test.x.{$1} $1,b) &(.test.x.&(.test.o).{$1}) &(.test.x.b $1,b) &(.test.x.&(.test.o).b)`,
+			`{}`,
+		},
+		`$(.test.x.y a)`: []any{
+			`&(.test.x.a a,$2) &(.test.x.&(.test.o).a) &(.test.x.{$2} a,$2) &(.test.x.&(.test.o).{$2})`,
+			`{}`,
+		},
+		`$(.test.x.y a,b)`: `&(.test.x.a a,b) &(.test.x.&(.test.o).a) &(.test.x.b a,b) &(.test.x.&(.test.o).b)`,
+		`&(.test.x.$_ $1,$2)`:[]string{
+			`&(.test.x.a a b c,{})`,
+			`&(.test.x.a a,$2)`,
+			`&(.test.x.a a,b)`,
+			`&(.test.x.a a,{})`,
+			`&(.test.x.b $1,b)`,
+			`&(.test.x.b a b c,{})`,
+			`&(.test.x.b a,b)`,
+			`&(.test.x.b {},b)`,
+			`&(.test.x.c a b c,{})`,
+			`&(.test.x.{$1} $1,b)`,
+			`&(.test.x.{$2} a,$2)`,
+		},
+		`&(.test.x.$_)`: []string{
+			`&(.test.x.{$1})`,
+			`&(.test.x.{$2})`,
+			`&(.test.x.a)`,
+			`&(.test.x.b)`,
+			`&(.test.x.c)`,
+		},
+		`&(.test.x.&(.test.o).$_)`:[]string{
+			`&(.test.x.&(.test.o).a)`,
+			`&(.test.x.&(.test.o).b)`,
+			`&(.test.x.&(.test.o).c)`,
+			`&(.test.x.&(.test.o).{$1})`,
+			`&(.test.x.&(.test.o).{$2})`,
+		},
+		`&(.test.x.&(.test.o).{$1})`:[]string{
+			`&(.test.x.&(.test.o).a) &(.test.x.&(.test.o).b)`,
+			`&(.test.x.&(.test.o).b) &(.test.x.&(.test.o).b)`,
+			`&(.test.x.&(.test.o).a)`,
+			`{}`,
+		},
+		`&(.test.x.&(.test.o).{$2})`:[]string{
+			`&(.test.x.&(.test.o).b)`,
+			`&(.test.x.&(.test.o).c)`,
+			`{}`,
+		},
+		`&(.test.x.&(.test.o).a)`:[]any{`x.o.a`,`&(.test.x.&(.test.o).a)`,},
+		`&(.test.x.&(.test.o).b)`:[]any{`&(.test.x.&(.test.o).b)`,`x.o.b`,},
+		`&(.test.x.&(.test.o).c)`:[]any{`x.o.c`},
+		`&(.test.x.a a b c,{})`:[]any{`a~ -aox.o.a -aox.o.b -aox.o.c ~a`,},
+		`&(.test.x.a a,$2)`:[]string{`&(.test.x.a a,b)`,`a~ -aox.o.a ~a`,},
+		`&(.test.x.a a,b)`: []string{`&(.test.x.a a,b)`,`a~ -aox.o.a -aox.o.b ~a`,},
+		`&(.test.x.a a,{})`:[]string{`&(.test.x.a a,{})`,`a~ -aox.o.a ~a`,},
+		`&(.test.x.a)`:[]any{`a~`,`a~ {} ~a`},
+		`&(.test.x.b $1,b)`:[]any{`&(.test.x.b a,b)`,`b~ -box.o.b ~b`,},
+		`&(.test.x.b a b c,{})`:`b~ -box.o.a -box.o.b -box.o.c ~b`,
+		`&(.test.x.b a,b)`:[]any{`&(.test.x.b a,b)`,`b~ -box.o.a -box.o.b ~b`,},
+		`&(.test.x.b)`:[]any{`b~`,`b~ {} ~b`},
+		`&(.test.x.c a b c,{})`:`~c~`,
+		`&(.test.x.c)`:`~c~`,
+		`&(.test.x.o.$_)`:[]any{
+			`&(.test.x.o.a)`,
+			`&(.test.x.o.b)`,
+			`x.o.a`,
+			`x.o.b`,
+			`x.o.c`,
+		},
+		`&(.test.x.o.a)`: `&(.test.x.o.a)`,
+		`&(.test.x.o.b)`: `&(.test.x.o.b)`,
+		`&(.test.x.{$1})`:[]string{
+			`&(.test.x.a) &(.test.x.b)`,
+			`&(.test.x.b) &(.test.x.b)`,
+			`{}`,
+		},
+		`&(.test.x.{$1} $1,b)`:[]any{
+			`&(.test.x.a a,b)`,
+			`{}`,
+		},
+		`&(.test.x.{$2} a,$2)`:[]any{
+			`&(.test.x.b a,b)`,
+			`{}`,
+		},
+		`&(.test.x.{$2})`:[]any{
+			`&(.test.x.c)`,
+			`{}`,
+		},
+		`&(.test).x.a a,b)`:`a~ -aox.o.a -aox.o.b ~a`,
+		`&(.test.x.b {},b)`:[]any{`b~`,`b~ -box.o.b ~b`},
+		`&(.test.o)`:[]any{`&(.test.o)`,`o`,},
+		`$(foreach $(foreach $1 $2,$(.test.x.o.$_)),-ao$_)`:[]any{
+			`-aox.o.a -aox.o.b -aox.o.c`,
+			`-aox.o.a -aox.o.b`,
+			`-aox.o.a`,
+			`{}`,
+		},
+		`$(foreach $(foreach $1 $2,&(.test.x.o.$_)),-bo$_)`:[]any{
+			`-box.o.a -box.o.b -box.o.c`,
+			`-box.o.a -box.o.b`,
+			`-box.o.b`,
+			`-bo{&(.test.x.o.a)} -bo{&(.test.x.o.b)}`,
+			`{}`,
+		},
+		`$(foreach $1 $2,$(.test.x.o.$_))`:[]any{
+			`x.o.a x.o.b x.o.c`,
+			`x.o.a x.o.b`,
+			`x.o.a`,
+			`{}`,
+		},
+		`$(foreach $1 $2,&(.test.x.$_ $1,$2) &(.test.x.&(.test.o).$_))`:[]string{
+			`&(.test.x.a a b c,{}) &(.test.x.&(.test.o).a) &(.test.x.b a b c,{}) &(.test.x.&(.test.o).b) &(.test.x.c a b c,{}) &(.test.x.&(.test.o).c)`,
+			`&(.test.x.a a,$2) &(.test.x.&(.test.o).a) &(.test.x.{$2} a,$2) &(.test.x.&(.test.o).{$2})`,
+			`&(.test.x.a a,b) &(.test.x.&(.test.o).a) &(.test.x.b a,b) &(.test.x.&(.test.o).b)`,
+			`&(.test.x.a a,{}) &(.test.x.&(.test.o).a)`,
+			`&(.test.x.b {},b) &(.test.x.&(.test.o).b)`,
+			`&(.test.x.{$1} $1,b) &(.test.x.&(.test.o).{$1}) &(.test.x.b $1,b) &(.test.x.&(.test.o).b)`,
+			`{}`,
+		},
+		`$(foreach $1 $2,&(.test.x.$_) &(.test.x.&(.test.o).$_))`:[]string{
+			`&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b) &(.test.x.c) &(.test.x.&(.test.o).c)`,
+			`&(.test.x.a) &(.test.x.&(.test.o).a) &(.test.x.b) &(.test.x.&(.test.o).b)`,
+			`&(.test.x.a) &(.test.x.&(.test.o).a)`,
+			`&(.test.x.{$1}) &(.test.x.&(.test.o).{$1}) &(.test.x.{$2}) &(.test.x.&(.test.o).{$2})`,
+			`{}`,
+		},
+		`$(foreach $1 $2,&(.test.x.o.$_))`:[]string{
+			`x.o.a x.o.b x.o.c`,
+			`x.o.a x.o.b`,
+			`x.o.b`,
+			`&(.test.x.o.a) &(.test.x.o.b)`,
+			`{}`,
+		},
+	},
+	`testdata/builtins/wildcard`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(wildcard(-sort -dir=$/) inc/*.h inc/*/*.h inc/*/*/*.h)`:`{=file inc/bar.h} {=file inc/foo.h} {=file inc/foo/bar/v1.h} {=file inc/foo/bar/v2.h} {=file inc/foo/v1.h} {=file inc/foo/v2.h} {=file inc/foo/xv1y.h} {=file inc/foo/xv22y.h} {=file inc/foo/xv333y.h} {=file inc/foobar/config/x.h} {=file inc/foobar/x.h}`,
+		`$(wildcard(-sort -dir=$/) inc/**.h)`:`{=file inc/bar.h} {=file inc/foo.h} {=file inc/foo/bar/v1.h} {=file inc/foo/bar/v2.h} {=file inc/foo/bar/zz/x.h} {=file inc/foo/v1.h} {=file inc/foo/v2.h} {=file inc/foo/xv1y.h} {=file inc/foo/xv22y.h} {=file inc/foo/xv333y.h} {=file inc/foobar/config/x.h} {=file inc/foobar/x.h}`,
+		`$(wildcard(-sort -dir=$//inc) **.h)`:checkresult{`{=file bar.h} {=file foo.h} {=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/bar/zz/x.h} {=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=file foobar/config/x.h} {=file foobar/x.h}`,
+			`{=list {19:10 {=file bar.h}} {19:10 {=file foo.h}} {19:10 {=file foo/bar/v1.h}} {19:10 {=file foo/bar/v2.h}} {19:10 {=file foo/bar/zz/x.h}} {19:10 {=file foo/v1.h}} {19:10 {=file foo/v2.h}} {19:10 {=file foo/xv1y.h}} {19:10 {=file foo/xv22y.h}} {19:10 {=file foo/xv333y.h}} {19:10 {=file foobar/config/x.h}} {19:10 {=file foobar/x.h}}}`},
+		`$(wildcard(-sort) **.h)`:`{=file bar.h} {=file foo.h} {=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/bar/zz/x.h} {=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=file foobar/config/x.h} {=file foobar/x.h}`,
+		`$(wildcard(-sort) *.h)`:checkresult{`{=file bar.h} {=file foo.h}`,`{=list {21:10 {=file bar.h}} {21:10 {=file foo.h}}}`},
+		`$(wildcard(-sort) foobar/config/*.def.am)`:`{=file foobar/config/a.def.am}`,
+		`$(wildcard(-sort) foobar/config/*.def.in)`:`{}`,
+		`$(wildcard(-sort -dir=$//inc) foobar/config/*.def.am)`:`{=file foobar/config/a.def.am}`,
+		`$(wildcard(-sort -dir=$//inc) foobar/config/*.def.in)`:`{=file foobar/config/a.def.in} {=file foobar/config/b.def.in}`,
+	},
+	`testdata/builtins/wildcard/1`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(dir $/)`:`%[testdata]/builtins/wildcard`,
+		`$(wildcard(-sort) *.h)`:`{}`,
+		`$(wildcard(-sort) **.h)`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/bar/zz/x.h} {=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h} {=file foobar/x.h}`,
+		`$(wildcard(-sort) foo/*.h)`:`{=file foo/v1.h} {=file foo/v2.h} {=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h}`,
+		`$(wildcard(-sort) foo/bar/*.h)`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h}`,
+		`$(wildcard(-sort) foo/bar/*/*.h)`:`{=file foo/bar/zz/x.h}`,
+		`$(wildcard(-sort) foo/bar/z?/?.h)`:`{=file foo/bar/zz/x.h}`,
+		`$(wildcard(-sort) foo/bar/zz/?.h)`:`{=file foo/bar/zz/x.h}`,
+		`$(wildcard(-sort) foo/bar/v1.h foo/bar/v2.h)`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h}`,
+		`$(wildcard(-sort) foo/bar/*.hh)`:`{=file foo/bar/v3.hh}`,
+	},
+	`testdata/builtins/wildcard/2`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(dir $/)`:`%[testdata]/builtins/wildcard`,
+		`$(wildcard(-sort) foo/xv1y.h foo/bar/v2.h foo/bar/v1.h)`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h} {=file foo/xv1y.h}`,
+		`$(wildcard(-sort) foo/b?r/v?.h)`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h}`,
+		`$(wildcard(-sort) foo/xv*y.h)`:`{=file foo/xv1y.h} {=file foo/xv22y.h} {=file foo/xv333y.h}`,
+		`$(wildcard(-sort) foo/**/x.h)`:`{=file foo/bar/zz/x.h}`,
+		`$(wildcard(-sort) fo?/**/x.h)`:`{=file foo/bar/zz/x.h}`,
+	},
+	`testdata/builtins/wildcard/3`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(dir $/)`:`%[testdata]/builtins/wildcard`,
+		`$(wildcard(-sort) foo/bar/v2.h foo/bar/v1.h)`:`{=file foo/bar/v1.h} {=file foo/bar/v2.h}`,
+		`$(wildcard(-sort) foo/bar/xyz???.h)`:`{}`,
+		`$(wildcard(-sort) foo/bar/xyz???.txt)`:`{=file foo/bar/xyz000.txt}`,
+	},
+	`testdata/builtins/closure`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(.test)`:`{}`,
+		`&(&(.test))`:`{}`,
+	},
+	`testdata/builtins/delegate`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+	},
+	`testdata/builtins/logic`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(and $1,$2,$3)`: []string{`{}`,`c`,},
+		`$(base $(or &(variant),bootstrap))`:`bootstrap`,
+		`$(base &(variant))`: []any{`$(base &(variant))`,`'.'`,`{}`},
+		`$(or $(base &(variant)),bootstrap)`:[]any{`$(or $(base &(variant)),bootstrap)`,`'.'`,`bootstrap`,},
+		`$(or &(none),a)`:[]any{`a`,`$(or &(none),a)`},
+		`$(or &(variant),bootstrap)`:`bootstrap`,
+		`$(or a,&(none))`:[]any{`a`,`$(or a,&(none))`},
+		`&(none)`:[]any{`&(none)`,`{}`,},
+		`&(variant)`:[]any{`&(variant)`,`{}`},
+	},
+	`testdata/builtins/contains`: map[string]any{
+		`.test.1`:`.test.1`, `.test.2`:`.test.2`, `.test.3`:`.test.3`,
+		`$(contains a,$(val))`:`$(contains a,a b c $1)`,
+		`$(contains a,a b c $1)`:`{=true}`,
+		`$(contains x b c,$(val))`:`$(contains x b c,a b c $1)`,
+		`$(contains x b c,a b c $1)`:`{=true}`,
+		`$(contains x,$(val))`:`$(contains x,a b c $1)`,
+		`$(contains x,a b c $1)`:`{}`,
+		`$(val)`: `a b c $1`,
+	},
+	`testdata/builtins/join`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(join foo bar xx yy zz,-)`:`foo-bar-xx-yy-zz`,
+		`$(join &(target.arch) &(target.vendor) &(target.os) &(target.abi),-)`:checkresult{`{=join (-) &(target.arch) &(target.vendor) &(target.os) &(target.abi)}`,
+			`{5:9 {=conjunction {=list {5:16:closure {=qualword {5:18:word target} {5:25:word arch}}} {5:31:closure {=qualword {5:33:word target} {5:40:word vendor}}} {5:48:closure {=qualword {5:50:word target} {5:57:word os}}} {5:61:closure {=qualword {5:63:word target} {5:70:word abi}}}} {=flag {5:76}}}}`},
+		`$(conjunct &(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi),-)`:`{=join (-) &(target.arch) &(XXX) &(target.vendor) &(target.os) &(target.abi)}`,
+		`&(XXX)`:[]any{`{}`},
+		`&(target.abi)`:[]any{`0`},
+		`&(target.arch)`:[]any{`foo`},
+		`&(target.os)`:[]any{`{}`},
+		`&(target.vendor)`:[]any{`bar`},
+	},
 	`testdata/builtins/file`: map[string]any{
+		`foo.txt`:`foo.txt`,
 		`$(file foo.txt)`:`{=file foo.txt}`,
 	},
 	`testdata/builtins/file/0`: map[string]any{
+		`.test`:checkresult{`.test`,[]string{
+			`{=qualword {5:7} {5:8:word test}}`,
+			`{=qualword {6:7} {6:8:word test}}`,
+			`{=qualword {7:7} {7:8:word test}}`,
+			`{=qualword {8:7} {8:8:word test}}`,
+			`{=qualword {12:28} {12:29:word test}}`,
+			`{=qualword {13:28} {13:29:word test}}`,
+			`{=qualword {15:28} {15:29:word test}}`,
+			`{=qualword {16:28} {16:29:word test}}`,
+			`{=qualword {18:16} {18:17:word test}}`,
+			`{=qualword {19:16} {19:17:word test}}`,
+			`{=qualword {20:16} {20:17:word test}}`,
+			`{=qualword {22:7} {22:8:word test}}`,
+			`{=qualword {23:7} {23:8:word test}}`,
+		}},
+		`foo.c`:`foo.c`,`val1.1`:`val1.1`,`val1.2`:`val1.2`,`val2.1`:`val2.1`,`val2.2`:`val2.2`,`c.auto`:`c.auto`,`c.none`:`c.none`,
+		`$(file .test/a/b/c/foo.c)`:`{=file .test/a/b/c/foo.c}`,
+		`$(file .test/xx/yy/zz/aa/foo.c)`:`{}`,
+		`$(file .test/xx/yy/zz/foo.c)`:`{=file .test/xx/yy/zz/foo.c}`,
+		`$(file .test/xx/yy/foo.c)`:`{=file .test/xx/yy/foo.c}`,
+		`$(file .test/xx/foo.c)`:`{=file .test/xx/foo.c}`,
+		`$(file(-missing) .test/a/b/c/foo.c)`:`{=file .test/a/b/c/foo.c}`,
+		`$(file(-missing) .test/xx/foo.c)`:`{=file .test/xx/foo.c}`,
 	},
 	`testdata/valcache`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(sources)`:`{=file foo.c} {=file foo.c++} {=file foo/bar.c} {=file foo/bar.c++} {=file foo/z.c} {=file x.c++} {=file y.c++}`,
+		`$(patsubst(-nomap) %.c,%.o,$(sources))`:`{=file foo.o} {=file foo.c++} {=file foo/bar.o} {=file foo/bar.c++} {=file foo/z.o} {=file x.c++} {=file y.c++}`,
+		`$(patsubst(-nomap -filter) %.c++,%.o,$(sources))`:`{=file foo.o} {=file foo/bar.o} {=file x.o} {=file y.o}`,
+		`$(wildcard(-sort -missing) **.c **.c++)`:`{=file foo.c} {=file foo.c++} {=file foo/bar.c} {=file foo/bar.c++} {=file foo/z.c} {=file x.c++} {=file y.c++}`,
+		`$(wildcard(-sort -missing) **.gen)`:`{=file a.gen} {=file b.gen} {=file foo/c.gen}`,
+		`$(wildcard(-sort -missing) *.gen)`:`{=file x.gen} {=file y.gen}`,
+		`$(wildcard(-sort) **.gen)`:`{=file foo/c.gen}`,
+		`$(wildcard(-sort) *.gen)`:`{=file x.gen}`,
+		`&(gen)`:[]any{`&(gen)`,`a.gen b.gen foo/c.gen`,`x.gen y.gen foo/z.gen`,`x.c++ y.c++ foo/z.c`},
 	},
 	`testdata/valcache/1`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/valcache/2`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/valcache/3`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/valcache/3/a`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(wildcard(-sort) x.h y.h z.h)`:`{=file x.h} {=file y.h} {=file z.h}`,
+		`$(wildcard(-sort) *.h)`:`{=file x.h} {=file y.h} {=file z.h}`,
+		`$(wildcard main/a.c)`:`{=file main/a.c}`,
+		`&(gen)`:[]any{`x.h y.h z.h`},
 	},
 	`testdata/valcache/4`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/rule/0`: map[string]any{
+		`$(ARG1)`:[]any{`rule0 xyz`,`xxYzz`,`x`},
+		`$(ARG2)`:`y`,
+		`$(ARG3)`:`z`,
+		`$(ARGS)`:[]any{`aa bb cc`,`{}`},
+		`$(foreach $(ARGS),arg-$_)`:[]any{`arg-aa arg-bb arg-cc`,`{}`},
+		`$(foreach $(ARGS),{=plainline arg-$_})`:`{=plainline arg-aa} {=plainline arg-bb} {=plainline arg-cc}`,
+		`$(foreach foo bar,{=plainline line-$_})`:`{=plainline line-foo} {=plainline line-bar}`,
+		`$(items)`:`a b c`,
 	},
 	`testdata/rule/1`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(debug $1 $@ $< $^ $>)`:`{}`,
+		`$(debug ${.test.fxx})`:`{}`,
+		`${.test.foobax}`:`fxxbar{}`,
+		`${.test.foobay}`:`.test.fxx{}`,
+		`${.test.foobaz}`:`.test.fxx{}`,
+		`${.test.fxx}`:`'fxx'`,
+		`&(foo $<)`:`.test.fxx{}`,
+		`&(foo $>)`:`.test.fxx{}`,
+		`&(foo fxxbar)`:`fxxbar{}`,
 	},
 	`testdata/rule/contains`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`${foo}`:`a b c foo`,
 		`$(contains foo,${foo})`:`{=true}`,
 		`$(val $@)`:`a b c foo`,
 	},
 	`testdata/rule/shell/for-stdout`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`${.test $1,$2}`:[]any{`$(debug b a)`,`{}`},
+		`${.test a,b}`:[]any{`$(debug b a)`,`{}`,},
+		`${.test.0 a,b}`:[]any{`$(debug b a)`,`{}`},
+		`$(.test.v3 a,b)`:[]any{
+			checkresult{`$(debug b a)`,[]string{
+				``,
+			}},
+			checkresult{`{}`,[]string{
+				`{17:13 {16:13 {12:2:null}}}`,
+			}},
+		},
+		`$(str)`:[]any{
+			checkresult{`a`,[]string{
+				`{6:18 {8:23:word a}}`,
+				`{6:18 {9:23:word a}}`,
+				`{12:18 {1:9:word a}}`,
+				`{12:18 {14:21:word a}}`,
+				`{12:18 {15:21:word a}}`,
+				`{12:18 {16:21 {1:9:word a}}}`,
+				`{12:18 {16:21 {17:24:word a}}}`,
+			}},
+			checkresult{"'test one\n'",[]string{
+				"{12:18 {19:36 {=strlit 'test one\\n'}}}",
+				"{12:18 {23:36 {=strlit 'test one\\n'}}}",
+			}},
+			checkresult{"'test two\n'",[]string{
+				"{12:18 {19:36 {=strlit 'test two\\n'}}}",
+				"{12:18 {23:36 {=strlit 'test two\\n'}}}",
+			}},
+			checkresult{"'test thr\n'",[]string{
+				"{12:18 {23:36 {=strlit 'test thr\\n'}}}",
+			}},
+			checkresult{`{}`,[]string{
+				`{12:18 {16:21 {16:22:null}}}`,
+			}},
+		},
+		`$(line)`:[]any{
+			checkresult{`b`,[]string{
+				`{6:10 {8:25:word b}}`,
+				`{6:10 {9:25:word b}}`,
+				`{12:10 {1:9:word b}}`,
+				`{12:10 {14:23:word b}}`,
+				`{12:10 {15:23:word b}}`,
+				`{12:10 {16:24 {1:9:word b}}}`,
+				`{12:10 {16:24 {17:26:word b}}}`,
+			}},
+			checkresult{`1`,[]string{
+				`{12:10 {19:39 {=decimal 1}}}`,
+				`{12:10 {23:39 {=decimal 1}}}`,
+			}},
+			checkresult{`2`,[]string{
+				`{12:10 {19:39 {=decimal 2}}}`,
+				`{12:10 {23:39 {=decimal 2}}}`,
+			}},
+			checkresult{`3`,[]string{
+				`{12:10 {23:39 {=decimal 3}}}`,
+			}},
+			checkresult{`{}`,[]string{
+				`{12:10 {16:24 {16:25:null}}}`,
+			}},
+		},
+		`$(debug $(line) $(str))`:[]any{`{}`},
+		`$(debug b a)`:`{}`,
 	},
 	`testdata/template`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)})`:`xxx yyy zzz`,
+		`$(defs(-capture=1 -sort) !{=regex ^var\.([xy]+)})`:`.self .usee var.zzz var2 vars xyz`,
+		`$(defs(-capture=1 -sort)`:`xxx yyy zzz`,
+		`$(defs(-sort) *)`:`.self .test.1 .test.10 .test.11 .test.12 .test.13 .test.14 .test.15 .test.2 .test.3 .test.4 .test.5 .test.6 .test.7 .test.8 .test.9 .usee all t1 t10 t11 t12 t13 t14 t15 t2 t3 t4 t5 t6 t7 t8 t9 var.xxx var.yyy var.zzz var2 vars xyz`,
+		`$(xyz)`:`xxx yyy zzz`,
+	},
+	`testdata/template/foreach`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/modifier`: map[string]any{
 		`$(val)`:`foobar`,
 	},
 	`testdata/configuration/.base`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`$(dir3 $/)`:`%[dir:testdata]`,
 	},
 	`testdata/.smart/modules/general`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(dir(-contains=go/src/extbit.io) $/)`:`%[workspace]`,
+		`&(workout)`:`&(workout)`,
+		`$(workout)`:`%[workout]`,
+		`$(workspace)`:`%[workspace]`,
+		`$(dir $(workspace))`:`%[dir:workspace]`,
+		`&(outtmp)`:`%[workout]/general`,
+		`&(rel.remnant)`:`general`,
+		`&(rel.chop)`:[]any{`**/.smart/modules/`},
+		`$(trim-prefix &(rel.chop),&/)`:[]any{`general`},
 	},
 	`testdata/.smart/modules/variant`: map[string]any{
-		`&(variant.tag)`:`&(variant.tag)`,
-		`&(target.out)`:`&(target.out)`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/variant/.target/.base`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`uname.*`:checkresult{`uname.*`,`{=qualword {4:1:word uname} {=glob {4:7:meta *}}}`},
+		`$(fields $(uname))`:`%[uname.0] %[uname.1] %[uname.2] %[uname.3]`,
+		`$(uname)`:`%[uname]`,
+		`$(uname.*)`:`%[uname.0] %[uname.1] %[uname.2] %[uname.3]`,
+		`$(uname.machine)`:`%[uname.machine]`,
+		`$(uname.os)`:`%[uname.os]`,
+		`$(uname.release)`:`%[uname.release]`,
+		`$(uname.processor)`:`%[uname.processor]`, // e.g. arm
+		`$(lowercase $(uname.machine))`:`%[tolower:uname.machine]`,
+		`$(lowercase $(uname.os))`:`%[tolower:uname.os]`,
+		`$(lowercase $(uname.release))`:`%[tolower:uname.release]`,
+		`$(lowercase $(uname.processor))`:`%[tolower:uname.processor]`,
+		`$(element(0) $(uname.*))`:`%[uname.0]`,
+		`$(element(1) $(uname.*))`:`%[uname.1]`,
+		`$(element(2) $(uname.*))`:`%[uname.2]`,
+		`$(element(3) $(uname.*))`:`%[uname.3]`,
+		`$(join &(host.arch)&(host.sub) &(host.vendor) &(host.sys) &(host.abi),-)`:`{=join (-) &(host.arch)&(host.sub) &(host.vendor) &(host.sys) &(host.abi)}`,
+		`$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)`:`{=join (-) &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi)}`,
+		`$(workout)`:`%[workout]`,
+		`$(.mode)`:`goals`,
+		`$(match $(.mode),configure)`:`{}`,
+		`$(match $(.mode),clean)`:`{}`,
+		`$(match $(.mode),goals)`:`{=true}`,
 	},
 	`testdata/.smart/modules/variant/.target`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(stdheaders.c++)`:`algorithm`,
+		`$(outinc)`:`&(target.out)/include`,
 	},
 	`testdata/.smart/modules/variant/.target/darwin`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.os)`:`darwin`,
+		`$(shell clang --print-resource-dir)`:`%[toolchain.resourceDir]`,
+		`$(path $(shell clang --print-resource-dir))`:`%[toolchain.resourceDir]`,
+		`$(Xcode.toolchain.resourceDir)`:`%[toolchain.resourceDir]`,
 	},
 	`testdata/.smart/modules/variant/.target/darwin/arm64`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/variant/bootstrap`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`.`:checkresult{`.`,`{=qualword {1:28} {1:29}}`},
+		`&(variant)`:`%[target.os]/%[target.arch]/%[variant.tag]`,
+		`$(dir &(variant))`:`%[target.os]/%[target.arch]`,
 	},
 	`testdata/.smart/modules/app/.base/.autoload.appendix`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/app/.base`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(base &(variant))`:`%[variant.tag]`,
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`$(case $(type?) (archive app.base) (shared app.base))`,
+		`$(is.goals)`:`{=true}`,
+		`$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)`:`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)`,
+		`$(name)`:[]string{`app.base`,` {3:36 {1:16:word}}`},
+		`$(name?)`:`{}`,
+		`$(or $(name?),$({=self app.base}))`:[]string{`$(or $(name?),{=self app.base})`,`{=self app.base}`},
+		`$(or &(&(target.os)~vendor),unknown)`:`%[target.arch]`,
+		`$(sources)`:`{}`,
+		`$(trim-prefix &(rel.chop),&/)`:`app/.base`,
+		`$(type?)`:`{}`,
+		`$(workout)`:`%[workout]`,
+		`$({=self app.base})`:`{=self app.base}`,
+		`&(&(target.os)~vendor)`:`%[target.vendor]`,
+		`&(outtmp)`:[]any{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/bootstrap/tmp/app/.base`},
+		`&(rel.chop)`:`**/.smart/modules/ %[modules]/ %[dir:modules]/ %[dir.2:modules]/`,
+		`&(rel.remnant)`:`app/.base`,
+		`&(target.abi)`:[]string{`%[target.abi]`},
+		`&(target.arch)`:[]string{`%[target.arch]`},
+		`&(target.os)`:`%[target.os]`,
+		`&(target.out)`:[]any{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/bootstrap`},
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sub)`:[]any{`{}`},
+		`&(target.sys)`:[]any{`%[uname.os]%[target.release]`},
+		`&(target.tmp)`:[]any{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/bootstrap/tmp`},
+		`&(target.triple)`:[]any{`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`},
+		`&(target.vendor)`:[]any{`%[target.vendor]`},
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant)`:`%[target.os]/%[target.arch]/%[variant.tag]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(wildcard(-missing) *.cpp,*.cxx,*.cc,*.c,*.m,*.mm,*.s,*.S,*.swift)`:[]any{`{}`},
 	},
 	`testdata/.smart/modules/app`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/configure/.base`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/configure`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/lib/std`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/lib/c++inc`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/lib/c++abi`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/lib/c++`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/lib/unwind`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/sys`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/configuration`: map[string]any{
-		`&(rel.remnant) {124:24:closure {9:13:def rel.remnant}}`:`%[modules]`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(rel.remnant)`:`%[modules]`,
 	},
 	`testdata/configuration/two`: map[string]any{
-		`$({=self testdeftwoconfigure}) {6:2:delegate {1:71:self testdeftwoconfigure}}`:`{=self testdeftwoconfigure} {6:2 {1:71:self testdeftwoconfigure}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$({=self testdeftwoconfigure})`:`{=self testdeftwoconfigure}`,
 	},
 	`testdata/configuration/custom/configure`: map[string]any{
-		`$({=self configure}) {3:8:delegate {1:9:self configure}}`:`{=self configure} {3:8 {1:9:self configure}}`,
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$({=self configure})`:`{=self configure}`,
 	},
 	`testdata/bug/01`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/modules/target`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/modules/target/arm64-darwin`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 })
 var checkpoints_ts = fixCheckpoints(map[string]map[string]any{
 	`testdata/value`: map[string]any{
-		`&(something)`:`&(something)`,
 	},
 	`testdata/builtins/join`: map[string]any{
 		`{3:9:delegate {3:11:builtin join} {=list {3:16:word foo} {3:20:word bar} {3:24:word xx} {3:27:word yy} {3:30:word zz}} {=list {=flag {3:34}}}}`:`{3:9 {=compound {3:16:word foo} {=flag {3:34}} {3:20:word bar} {=flag {3:34}} {3:24:word xx} {=flag {3:34}} {3:27:word yy} {=flag {3:34}} {3:30:word zz}}}`,
 		`{4:9:delegate {4:11:builtin join} {=list {4:16:word foo} {4:20:word bar} {4:24:word xx} {4:27:word yy} {4:30:word zz}} {=list {=flag {4:34}}}}`:`{4:9 {=compound {4:16:word foo} {=flag {4:34}} {4:20:word bar} {=flag {4:34}} {4:24:word xx} {=flag {4:34}} {4:27:word yy} {=flag {4:34}} {4:30:word zz}}}`,
-		`{5:9:delegate {5:11:builtin join} {=list {5:16:closure {=qualword {5:18:word target} {5:25:word arch}}} {5:31:closure {=qualword {5:33:word target} {5:40:word vendor}}} {5:48:closure {=qualword {5:50:word target} {5:57:word os}}} {5:61:closure {=qualword {5:63:word target} {5:70:word abi}}}} {=list {=flag {5:76}}}}`:`{5:9 {=compound {5:16:closure {=qualword {5:18:word target} {5:25:word arch}}} {=flag {5:76}} {5:31:closure {=qualword {5:33:word target} {5:40:word vendor}}} {=flag {5:76}} {5:48:closure {=qualword {5:50:word target} {5:57:word os}}} {=flag {5:76}} {5:61:closure {=qualword {5:63:word target} {5:70:word abi}}}}}`,
+		`{5:9:delegate {5:11:builtin join} {=list {5:16:closure {=qualword {5:18:word target} {5:25:word arch}}} {5:31:closure {=qualword {5:33:word target} {5:40:word vendor}}} {5:48:closure {=qualword {5:50:word target} {5:57:word os}}} {5:61:closure {=qualword {5:63:word target} {5:70:word abi}}}} {=list {=flag {5:76}}}}`:`{5:9 {=conjunction {=list {5:16:closure {=qualword {5:18:word target} {5:25:word arch}}} {5:31:closure {=qualword {5:33:word target} {5:40:word vendor}}} {5:48:closure {=qualword {5:50:word target} {5:57:word os}}} {5:61:closure {=qualword {5:63:word target} {5:70:word abi}}}} {=flag {5:76}}}}`,
 		`{6:9:delegate {6:11:builtin conjunct} {=list {6:20:closure {=qualword {6:22:word target} {6:29:word arch}}} {6:35:closure {6:37:word XXX}} {6:42:closure {=qualword {6:44:word target} {6:51:word vendor}}} {6:59:closure {=qualword {6:61:word target} {6:68:word os}}} {6:72:closure {=qualword {6:74:word target} {6:81:word abi}}}} {=list {=flag {6:87}}}}`:`{6:9 {=conjunction {=list {6:20:closure {=qualword {6:22:word target} {6:29:word arch}}} {6:35:closure {6:37:word XXX}} {6:42:closure {=qualword {6:44:word target} {6:51:word vendor}}} {6:59:closure {=qualword {6:61:word target} {6:68:word os}}} {6:72:closure {=qualword {6:74:word target} {6:81:word abi}}}} {=list {=flag {6:87}}}}}`,
-		`{%[testdata]/builtins/join/do.smart:4:9:delegate {4:11:builtin join} {=list {4:16:word foo} {4:20:word bar} {4:24:word xx} {4:27:word yy} {4:30:word zz}} {=list {=flag {4:34}}}}`:`{%[testdata]/builtins/join/do.smart:4:9 {=compound {4:16:word foo} {=flag {4:34}} {4:20:word bar} {=flag {4:34}} {4:24:word xx} {=flag {4:34}} {4:27:word yy} {=flag {4:34}} {4:30:word zz}}}`,
 	},
 })
 func check(ctx Context, res Value, p Value, x ...Value) {
+	var canIgnoreByAsteriskNil, canIgnoreByDelegateNil, canIgnoreByClosureNil bool
 	switch t := unloc(p).(type) {
-	case *delegate: if rxIgnoredChecks.MatchString(t.x.String()) { return }
-	case *closure:  if rxIgnoredChecks.MatchString(t.x.String()) { return }
+	case *delegate: if rxIgnoredChecks.MatchString(t.x.String()) { return }; canIgnoreByDelegateNil = true
+	case *closure:  if rxIgnoredChecks.MatchString(t.x.String()) { return }; canIgnoreByClosureNil = true
+	default: canIgnoreByAsteriskNil = true
 	}
 
 	var spec string
@@ -1638,14 +2645,14 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 	compare = func(k string, expected any, actual string, is_ts bool) (bool, []*diag_point) {
 		// 1. Handle Missing Checkpoints
 		if expected == nil {
-			if is_ts { return true, nil } 
+			if is_ts { return true, nil }
 
 			if previous_spec != spec {
 				if previous_spec != "" { prompt(ctx, "\t},//%s\n", spec) }
 				previous_spec = spec
 				prompt(ctx, "\t`%s`: map[string]any{\n", spec)
 			}
-			prompt(ctx, "\t\t`%v`:`%v`,\n", k, actual)
+			prompt(ctx, "\t\t`%v`:`%v`,\n", unfix(k), unfix(actual))
 			flush(ctx)
 			return false, nil
 		}
@@ -1679,8 +2686,9 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 			case []string:
 				for _, s := range tt {
 					if resT == s { return true, nil }
-					dps = append(dps, _f("%v → %v: %s != %s", p, res, resT, s))
+					dps = append(dps, _f("!= : %v → %s", res, s))
 				}
+				dps = append([]*diag_point{_f("got: %v → %s", res, resT)}, dps...)
 				return false, dps
 			case string:
 				if ts(res, ctx) == tt { return true, nil }
@@ -1723,7 +2731,53 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 		if !exists && is_ts { return }
 
 		var expected any
-		if exists { expected = specMap[k] }
+		if exists { expected, exists = specMap[k] }
+
+		var canIgnoreIdentical bool // a chance to ignore ...
+		if exists { 
+			if canIgnoreByAsteriskNil {
+				if v, ok := specMap["*"]; ok {
+					if v == "*" { canIgnoreIdentical = true } // by: `xxx`:`xxx`,
+				}
+			}
+			if canIgnoreByDelegateNil {
+				if v, ok := specMap["$(*)"]; ok {
+					if v == "$(*)" { canIgnoreIdentical = true } // by: `$(xxx)`:`$(xxx)`,
+				}
+			}
+			if canIgnoreByClosureNil {
+				if v, ok := specMap["&(*)"]; ok {
+					if v == "&(*)" { canIgnoreIdentical = true } // by: `&(xxx)`:`&(xxx)`,
+				}
+			}
+		} else {
+			if canIgnoreByAsteriskNil {
+				if v, ok := specMap["*"]; ok {
+					if v == nil { return } // by: `*`:nil,
+					if v == "*" { canIgnoreIdentical = true } // by: `xxx`:`xxx`,
+				}
+			}
+			if canIgnoreByDelegateNil {
+				if v, ok := specMap["$(*)"]; ok {
+					if v == nil { return } // by: `$(*)`:nil,
+					if v == "$(*)" { canIgnoreIdentical = true } // by: `$(xxx)`:`$(xxx)`,
+				}
+			}
+			if canIgnoreByClosureNil {
+				if v, ok := specMap["&(*)"]; ok {
+					if v == nil { return } // by: `&(*)`:nil,
+					if v == "&(*)" { canIgnoreIdentical = true } // by: `&(xxx)`:`&(xxx)`,
+				}
+			}
+		}
+		if canIgnoreIdentical {
+			if is_ts {
+				if k == ts(res,ctx) { return }
+			} else {
+				if k == res.String() { return }
+			}
+			if false { debug(ctx, "%v %v %s", p, res, ts(res,ctx)) }
+		}
 
 		var actual string
 		if is_ts { actual = ts(res, ctx) } else { actual = res.String() }
@@ -1754,7 +2808,7 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 					dps = append([]*diag_point{_f("got: %v → %v", res, resT)}, dps...)
 					goto done_dps
 				case string:
-					if t == actual { return } // Passed!
+					if t == resT { return } // Passed!
 				}
 				dps = append(dps,
 					_f("got: %v → %v", res, resT),
@@ -1781,7 +2835,7 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 
 		// If we reach here, it means NO matches were found. Dump the traces!
 		debug(pc(pc(ctx, res), p),
-			_f("`%v`:checkresult{`%v`,`%v`},", k, res, ts(res, ctx)),
+			_f("`%v`:checkresult{`%v`,`%v`},", unfix(k), unfix(res.String()), unfix(ts(res, ctx))),
 			_f("got: %s", _if(is_ts, ts(res, ctx), res.String())), dps,
 			_f(`note: %v "%s"`, source, spec),
 			callstack{stop:"smart.runcase"}, trace{})
@@ -4510,18 +5564,605 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=uselist lib.c++} {=project app.base}`:`greater`, //cmp
 	`{=uselist lib.c++} {=project configure}`:`greater`, //cmp
 	`{=uselist lib.c++} {=self app}`:`greater`, //cmp
+	`{=word .self} {=word .test.10}`:`smaller`, //cmp
+	`{=word .self} {=word .test.11}`:`smaller`, //cmp
+	`{=word .self} {=word .test.12}`:`smaller`, //cmp
+	`{=word .self} {=word .test.13}`:`smaller`, //cmp
+	`{=word .self} {=word .test.14}`:`smaller`, //cmp
+	`{=word .self} {=word .test.15}`:`smaller`, //cmp
+	`{=word .self} {=word .test.1}`:`smaller`, //cmp
+	`{=word .self} {=word .test.2}`:`smaller`, //cmp
+	`{=word .self} {=word .test.3}`:`smaller`, //cmp
+	`{=word .self} {=word .test.4}`:`smaller`, //cmp
+	`{=word .self} {=word .test.5}`:`smaller`, //cmp
+	`{=word .self} {=word .test.6}`:`smaller`, //cmp
+	`{=word .self} {=word .test.7}`:`smaller`, //cmp
+	`{=word .self} {=word .test.8}`:`smaller`, //cmp
+	`{=word .self} {=word .test.9}`:`smaller`, //cmp
 	`{=word .self} {=word .usee}`:`smaller`, //cmp: .self .usee
+	`{=word .self} {=word all}`:`smaller`, //cmp
+	`{=word .self} {=word t10}`:`smaller`, //cmp
+	`{=word .self} {=word t11}`:`smaller`, //cmp
+	`{=word .self} {=word t12}`:`smaller`, //cmp
+	`{=word .self} {=word t13}`:`smaller`, //cmp
+	`{=word .self} {=word t14}`:`smaller`, //cmp
+	`{=word .self} {=word t15}`:`smaller`, //cmp
+	`{=word .self} {=word t1}`:`smaller`, //cmp
+	`{=word .self} {=word t2}`:`smaller`, //cmp
+	`{=word .self} {=word t3}`:`smaller`, //cmp
+	`{=word .self} {=word t5}`:`smaller`, //cmp
+	`{=word .self} {=word t7}`:`smaller`, //cmp
+	`{=word .self} {=word t8}`:`smaller`, //cmp
+	`{=word .self} {=word t9}`:`smaller`, //cmp
+	`{=word .self} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .self} {=word var.yyy}`:`smaller`, //cmp
 	`{=word .self} {=word var.zzz}`:`smaller`, //cmp: .self var.zzz
 	`{=word .self} {=word var2}`:`smaller`, //cmp: .self var2
 	`{=word .self} {=word vars}`:`smaller`, //cmp: .self vars
 	`{=word .self} {=word xyz}`:`smaller`, //cmp: .self xyz
+	`{=word .test.10} {=word .self}`:`greater`, //cmp
+	`{=word .test.10} {=word .test.11}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.12}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.13}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.14}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.15}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.1}`:`rprefix`, //cmp
+	`{=word .test.10} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.10} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.10} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.10} {=word all}`:`smaller`, //cmp
+	`{=word .test.10} {=word t10}`:`smaller`, //cmp
+	`{=word .test.10} {=word t11}`:`smaller`, //cmp
+	`{=word .test.10} {=word t12}`:`smaller`, //cmp
+	`{=word .test.10} {=word t13}`:`smaller`, //cmp
+	`{=word .test.10} {=word t14}`:`smaller`, //cmp
+	`{=word .test.10} {=word t15}`:`smaller`, //cmp
+	`{=word .test.10} {=word t1}`:`smaller`, //cmp
+	`{=word .test.10} {=word t2}`:`smaller`, //cmp
+	`{=word .test.10} {=word t3}`:`smaller`, //cmp
+	`{=word .test.10} {=word t5}`:`smaller`, //cmp
+	`{=word .test.10} {=word t7}`:`smaller`, //cmp
+	`{=word .test.10} {=word t8}`:`smaller`, //cmp
+	`{=word .test.10} {=word t9}`:`smaller`, //cmp
+	`{=word .test.10} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.10} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.11} {=word .self}`:`greater`, //cmp
+	`{=word .test.11} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.11} {=word .test.12}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.13}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.14}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.15}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.1}`:`rprefix`, //cmp
+	`{=word .test.11} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.11} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.11} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.11} {=word all}`:`smaller`, //cmp
+	`{=word .test.11} {=word t10}`:`smaller`, //cmp
+	`{=word .test.11} {=word t11}`:`smaller`, //cmp
+	`{=word .test.11} {=word t12}`:`smaller`, //cmp
+	`{=word .test.11} {=word t13}`:`smaller`, //cmp
+	`{=word .test.11} {=word t14}`:`smaller`, //cmp
+	`{=word .test.11} {=word t15}`:`smaller`, //cmp
+	`{=word .test.11} {=word t1}`:`smaller`, //cmp
+	`{=word .test.11} {=word t2}`:`smaller`, //cmp
+	`{=word .test.11} {=word t3}`:`smaller`, //cmp
+	`{=word .test.11} {=word t5}`:`smaller`, //cmp
+	`{=word .test.11} {=word t7}`:`smaller`, //cmp
+	`{=word .test.11} {=word t8}`:`smaller`, //cmp
+	`{=word .test.11} {=word t9}`:`smaller`, //cmp
+	`{=word .test.11} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.11} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.12} {=word .self}`:`greater`, //cmp
+	`{=word .test.12} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.12} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.12} {=word .test.13}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.14}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.15}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.1}`:`rprefix`, //cmp
+	`{=word .test.12} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.12} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.12} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.12} {=word all}`:`smaller`, //cmp
+	`{=word .test.12} {=word t10}`:`smaller`, //cmp
+	`{=word .test.12} {=word t11}`:`smaller`, //cmp
+	`{=word .test.12} {=word t12}`:`smaller`, //cmp
+	`{=word .test.12} {=word t13}`:`smaller`, //cmp
+	`{=word .test.12} {=word t14}`:`smaller`, //cmp
+	`{=word .test.12} {=word t15}`:`smaller`, //cmp
+	`{=word .test.12} {=word t1}`:`smaller`, //cmp
+	`{=word .test.12} {=word t2}`:`smaller`, //cmp
+	`{=word .test.12} {=word t3}`:`smaller`, //cmp
+	`{=word .test.12} {=word t4}`:`smaller`, //cmp
+	`{=word .test.12} {=word t5}`:`smaller`, //cmp
+	`{=word .test.12} {=word t7}`:`smaller`, //cmp
+	`{=word .test.12} {=word t8}`:`smaller`, //cmp
+	`{=word .test.12} {=word t9}`:`smaller`, //cmp
+	`{=word .test.12} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.12} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.13} {=word .self}`:`greater`, //cmp
+	`{=word .test.13} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.13} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.13} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.13} {=word .test.14}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.15}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.1}`:`rprefix`, //cmp
+	`{=word .test.13} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.13} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.13} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.13} {=word all}`:`smaller`, //cmp
+	`{=word .test.13} {=word t10}`:`smaller`, //cmp
+	`{=word .test.13} {=word t11}`:`smaller`, //cmp
+	`{=word .test.13} {=word t12}`:`smaller`, //cmp
+	`{=word .test.13} {=word t13}`:`smaller`, //cmp
+	`{=word .test.13} {=word t14}`:`smaller`, //cmp
+	`{=word .test.13} {=word t15}`:`smaller`, //cmp
+	`{=word .test.13} {=word t1}`:`smaller`, //cmp
+	`{=word .test.13} {=word t2}`:`smaller`, //cmp
+	`{=word .test.13} {=word t3}`:`smaller`, //cmp
+	`{=word .test.13} {=word t5}`:`smaller`, //cmp
+	`{=word .test.13} {=word t7}`:`smaller`, //cmp
+	`{=word .test.13} {=word t8}`:`smaller`, //cmp
+	`{=word .test.13} {=word t9}`:`smaller`, //cmp
+	`{=word .test.13} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.13} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.14} {=word .self}`:`greater`, //cmp
+	`{=word .test.14} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.14} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.14} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.14} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.14} {=word .test.15}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.1}`:`rprefix`, //cmp
+	`{=word .test.14} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.14} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.14} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.14} {=word all}`:`smaller`, //cmp
+	`{=word .test.14} {=word t10}`:`smaller`, //cmp
+	`{=word .test.14} {=word t11}`:`smaller`, //cmp
+	`{=word .test.14} {=word t12}`:`smaller`, //cmp
+	`{=word .test.14} {=word t13}`:`smaller`, //cmp
+	`{=word .test.14} {=word t14}`:`smaller`, //cmp
+	`{=word .test.14} {=word t15}`:`smaller`, //cmp
+	`{=word .test.14} {=word t1}`:`smaller`, //cmp
+	`{=word .test.14} {=word t2}`:`smaller`, //cmp
+	`{=word .test.14} {=word t3}`:`smaller`, //cmp
+	`{=word .test.14} {=word t4}`:`smaller`, //cmp
+	`{=word .test.14} {=word t5}`:`smaller`, //cmp
+	`{=word .test.14} {=word t6}`:`smaller`, //cmp
+	`{=word .test.14} {=word t7}`:`smaller`, //cmp
+	`{=word .test.14} {=word t8}`:`smaller`, //cmp
+	`{=word .test.14} {=word t9}`:`smaller`, //cmp
+	`{=word .test.14} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.14} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.14} {=word var.zzz}`:`smaller`, //cmp
+	`{=word .test.14} {=word var2}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.15} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.15} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.15} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.15} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.15} {=word .test.1}`:`rprefix`, //cmp
+	`{=word .test.15} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.15} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.15} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.15} {=word all}`:`smaller`, //cmp
+	`{=word .test.15} {=word t10}`:`smaller`, //cmp
+	`{=word .test.15} {=word t11}`:`smaller`, //cmp
+	`{=word .test.15} {=word t12}`:`smaller`, //cmp
+	`{=word .test.15} {=word t13}`:`smaller`, //cmp
+	`{=word .test.15} {=word t14}`:`smaller`, //cmp
+	`{=word .test.15} {=word t15}`:`smaller`, //cmp
+	`{=word .test.15} {=word t1}`:`smaller`, //cmp
+	`{=word .test.15} {=word t2}`:`smaller`, //cmp
+	`{=word .test.15} {=word t3}`:`smaller`, //cmp
+	`{=word .test.15} {=word t5}`:`smaller`, //cmp
+	`{=word .test.15} {=word t7}`:`smaller`, //cmp
+	`{=word .test.15} {=word t8}`:`smaller`, //cmp
+	`{=word .test.15} {=word t9}`:`smaller`, //cmp
+	`{=word .test.15} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.15} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.1} {=word .self}`:`greater`, //cmp
+	`{=word .test.1} {=word .test.10}`:`lprefix`, //cmp
+	`{=word .test.1} {=word .test.11}`:`lprefix`, //cmp
+	`{=word .test.1} {=word .test.12}`:`lprefix`, //cmp
+	`{=word .test.1} {=word .test.13}`:`lprefix`, //cmp
+	`{=word .test.1} {=word .test.14}`:`lprefix`, //cmp
+	`{=word .test.1} {=word .test.15}`:`lprefix`, //cmp
+	`{=word .test.1} {=word .test.2}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.1} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.1} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.1} {=word all}`:`smaller`, //cmp
+	`{=word .test.1} {=word t10}`:`smaller`, //cmp
+	`{=word .test.1} {=word t11}`:`smaller`, //cmp
+	`{=word .test.1} {=word t13}`:`smaller`, //cmp
+	`{=word .test.1} {=word t14}`:`smaller`, //cmp
+	`{=word .test.1} {=word t15}`:`smaller`, //cmp
+	`{=word .test.1} {=word t1}`:`smaller`, //cmp
+	`{=word .test.1} {=word t2}`:`smaller`, //cmp
+	`{=word .test.1} {=word t3}`:`smaller`, //cmp
+	`{=word .test.1} {=word t5}`:`smaller`, //cmp
+	`{=word .test.1} {=word t7}`:`smaller`, //cmp
+	`{=word .test.1} {=word t8}`:`smaller`, //cmp
+	`{=word .test.1} {=word t9}`:`smaller`, //cmp
+	`{=word .test.1} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.1} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.2} {=word .self}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.1}`:`greater`, //cmp
+	`{=word .test.2} {=word .test.3}`:`smaller`, //cmp
+	`{=word .test.2} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.2} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.2} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.2} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.2} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.2} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.2} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.2} {=word all}`:`smaller`, //cmp
+	`{=word .test.2} {=word t10}`:`smaller`, //cmp
+	`{=word .test.2} {=word t11}`:`smaller`, //cmp
+	`{=word .test.2} {=word t12}`:`smaller`, //cmp
+	`{=word .test.2} {=word t13}`:`smaller`, //cmp
+	`{=word .test.2} {=word t14}`:`smaller`, //cmp
+	`{=word .test.2} {=word t15}`:`smaller`, //cmp
+	`{=word .test.2} {=word t1}`:`smaller`, //cmp
+	`{=word .test.2} {=word t2}`:`smaller`, //cmp
+	`{=word .test.2} {=word t3}`:`smaller`, //cmp
+	`{=word .test.2} {=word t5}`:`smaller`, //cmp
+	`{=word .test.2} {=word t7}`:`smaller`, //cmp
+	`{=word .test.2} {=word t8}`:`smaller`, //cmp
+	`{=word .test.2} {=word t9}`:`smaller`, //cmp
+	`{=word .test.2} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.2} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.2} {=word xyz}`:`smaller`, //cmp
+	`{=word .test.3} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.1}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.3} {=word .test.4}`:`smaller`, //cmp
+	`{=word .test.3} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.3} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.3} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.3} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.3} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.3} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.3} {=word all}`:`smaller`, //cmp
+	`{=word .test.3} {=word t10}`:`smaller`, //cmp
+	`{=word .test.3} {=word t11}`:`smaller`, //cmp
+	`{=word .test.3} {=word t12}`:`smaller`, //cmp
+	`{=word .test.3} {=word t13}`:`smaller`, //cmp
+	`{=word .test.3} {=word t14}`:`smaller`, //cmp
+	`{=word .test.3} {=word t15}`:`smaller`, //cmp
+	`{=word .test.3} {=word t1}`:`smaller`, //cmp
+	`{=word .test.3} {=word t2}`:`smaller`, //cmp
+	`{=word .test.3} {=word t3}`:`smaller`, //cmp
+	`{=word .test.3} {=word t4}`:`smaller`, //cmp
+	`{=word .test.3} {=word t5}`:`smaller`, //cmp
+	`{=word .test.3} {=word t7}`:`smaller`, //cmp
+	`{=word .test.3} {=word t8}`:`smaller`, //cmp
+	`{=word .test.3} {=word t9}`:`smaller`, //cmp
+	`{=word .test.3} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.3} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.3} {=word var2}`:`smaller`, //cmp
+	`{=word .test.4} {=word .self}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.1}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.3}`:`greater`, //cmp
+	`{=word .test.4} {=word .test.5}`:`smaller`, //cmp
+	`{=word .test.4} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.4} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.4} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.4} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.4} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.4} {=word all}`:`smaller`, //cmp
+	`{=word .test.4} {=word t10}`:`smaller`, //cmp
+	`{=word .test.4} {=word t11}`:`smaller`, //cmp
+	`{=word .test.4} {=word t12}`:`smaller`, //cmp
+	`{=word .test.4} {=word t13}`:`smaller`, //cmp
+	`{=word .test.4} {=word t14}`:`smaller`, //cmp
+	`{=word .test.4} {=word t15}`:`smaller`, //cmp
+	`{=word .test.4} {=word t1}`:`smaller`, //cmp
+	`{=word .test.4} {=word t2}`:`smaller`, //cmp
+	`{=word .test.4} {=word t3}`:`smaller`, //cmp
+	`{=word .test.4} {=word t5}`:`smaller`, //cmp
+	`{=word .test.4} {=word t7}`:`smaller`, //cmp
+	`{=word .test.4} {=word t8}`:`smaller`, //cmp
+	`{=word .test.4} {=word t9}`:`smaller`, //cmp
+	`{=word .test.4} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.4} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.4} {=word var2}`:`smaller`, //cmp
+	`{=word .test.4} {=word xyz}`:`smaller`, //cmp
+	`{=word .test.5} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.3}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.4}`:`greater`, //cmp
+	`{=word .test.5} {=word .test.6}`:`smaller`, //cmp
+	`{=word .test.5} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.5} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.5} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.5} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.5} {=word all}`:`smaller`, //cmp
+	`{=word .test.5} {=word t10}`:`smaller`, //cmp
+	`{=word .test.5} {=word t11}`:`smaller`, //cmp
+	`{=word .test.5} {=word t12}`:`smaller`, //cmp
+	`{=word .test.5} {=word t13}`:`smaller`, //cmp
+	`{=word .test.5} {=word t14}`:`smaller`, //cmp
+	`{=word .test.5} {=word t15}`:`smaller`, //cmp
+	`{=word .test.5} {=word t1}`:`smaller`, //cmp
+	`{=word .test.5} {=word t2}`:`smaller`, //cmp
+	`{=word .test.5} {=word t3}`:`smaller`, //cmp
+	`{=word .test.5} {=word t5}`:`smaller`, //cmp
+	`{=word .test.5} {=word t6}`:`smaller`, //cmp
+	`{=word .test.5} {=word t7}`:`smaller`, //cmp
+	`{=word .test.5} {=word t8}`:`smaller`, //cmp
+	`{=word .test.5} {=word t9}`:`smaller`, //cmp
+	`{=word .test.5} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.5} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.5} {=word var2}`:`smaller`, //cmp
+	`{=word .test.6} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.1}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.3}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.4}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.5}`:`greater`, //cmp
+	`{=word .test.6} {=word .test.7}`:`smaller`, //cmp
+	`{=word .test.6} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.6} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.6} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.6} {=word all}`:`smaller`, //cmp
+	`{=word .test.6} {=word t10}`:`smaller`, //cmp
+	`{=word .test.6} {=word t11}`:`smaller`, //cmp
+	`{=word .test.6} {=word t12}`:`smaller`, //cmp
+	`{=word .test.6} {=word t13}`:`smaller`, //cmp
+	`{=word .test.6} {=word t14}`:`smaller`, //cmp
+	`{=word .test.6} {=word t15}`:`smaller`, //cmp
+	`{=word .test.6} {=word t1}`:`smaller`, //cmp
+	`{=word .test.6} {=word t2}`:`smaller`, //cmp
+	`{=word .test.6} {=word t3}`:`smaller`, //cmp
+	`{=word .test.6} {=word t5}`:`smaller`, //cmp
+	`{=word .test.6} {=word t7}`:`smaller`, //cmp
+	`{=word .test.6} {=word t8}`:`smaller`, //cmp
+	`{=word .test.6} {=word t9}`:`smaller`, //cmp
+	`{=word .test.6} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.6} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.6} {=word var2}`:`smaller`, //cmp
+	`{=word .test.7} {=word .self}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.3}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.4}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.5}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.6}`:`greater`, //cmp
+	`{=word .test.7} {=word .test.8}`:`smaller`, //cmp
+	`{=word .test.7} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.7} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.7} {=word all}`:`smaller`, //cmp
+	`{=word .test.7} {=word t10}`:`smaller`, //cmp
+	`{=word .test.7} {=word t11}`:`smaller`, //cmp
+	`{=word .test.7} {=word t12}`:`smaller`, //cmp
+	`{=word .test.7} {=word t13}`:`smaller`, //cmp
+	`{=word .test.7} {=word t14}`:`smaller`, //cmp
+	`{=word .test.7} {=word t15}`:`smaller`, //cmp
+	`{=word .test.7} {=word t1}`:`smaller`, //cmp
+	`{=word .test.7} {=word t2}`:`smaller`, //cmp
+	`{=word .test.7} {=word t3}`:`smaller`, //cmp
+	`{=word .test.7} {=word t5}`:`smaller`, //cmp
+	`{=word .test.7} {=word t7}`:`smaller`, //cmp
+	`{=word .test.7} {=word t8}`:`smaller`, //cmp
+	`{=word .test.7} {=word t9}`:`smaller`, //cmp
+	`{=word .test.7} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.7} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.7} {=word var2}`:`smaller`, //cmp
+	`{=word .test.8} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.1}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.3}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.4}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.5}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.6}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.7}`:`greater`, //cmp
+	`{=word .test.8} {=word .test.9}`:`smaller`, //cmp
+	`{=word .test.8} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.8} {=word all}`:`smaller`, //cmp
+	`{=word .test.8} {=word t10}`:`smaller`, //cmp
+	`{=word .test.8} {=word t11}`:`smaller`, //cmp
+	`{=word .test.8} {=word t12}`:`smaller`, //cmp
+	`{=word .test.8} {=word t13}`:`smaller`, //cmp
+	`{=word .test.8} {=word t14}`:`smaller`, //cmp
+	`{=word .test.8} {=word t15}`:`smaller`, //cmp
+	`{=word .test.8} {=word t1}`:`smaller`, //cmp
+	`{=word .test.8} {=word t2}`:`smaller`, //cmp
+	`{=word .test.8} {=word t3}`:`smaller`, //cmp
+	`{=word .test.8} {=word t4}`:`smaller`, //cmp
+	`{=word .test.8} {=word t5}`:`smaller`, //cmp
+	`{=word .test.8} {=word t6}`:`smaller`, //cmp
+	`{=word .test.8} {=word t7}`:`smaller`, //cmp
+	`{=word .test.8} {=word t8}`:`smaller`, //cmp
+	`{=word .test.8} {=word t9}`:`smaller`, //cmp
+	`{=word .test.8} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.8} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.8} {=word var2}`:`smaller`, //cmp
+	`{=word .test.9} {=word .test.10}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.11}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.12}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.13}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.14}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.15}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.2}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.3}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.4}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.5}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.6}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.7}`:`greater`, //cmp
+	`{=word .test.9} {=word .test.8}`:`greater`, //cmp
+	`{=word .test.9} {=word .usee}`:`smaller`, //cmp
+	`{=word .test.9} {=word all}`:`smaller`, //cmp
+	`{=word .test.9} {=word t10}`:`smaller`, //cmp
+	`{=word .test.9} {=word t11}`:`smaller`, //cmp
+	`{=word .test.9} {=word t12}`:`smaller`, //cmp
+	`{=word .test.9} {=word t13}`:`smaller`, //cmp
+	`{=word .test.9} {=word t14}`:`smaller`, //cmp
+	`{=word .test.9} {=word t15}`:`smaller`, //cmp
+	`{=word .test.9} {=word t1}`:`smaller`, //cmp
+	`{=word .test.9} {=word t2}`:`smaller`, //cmp
+	`{=word .test.9} {=word t3}`:`smaller`, //cmp
+	`{=word .test.9} {=word t4}`:`smaller`, //cmp
+	`{=word .test.9} {=word t5}`:`smaller`, //cmp
+	`{=word .test.9} {=word t6}`:`smaller`, //cmp
+	`{=word .test.9} {=word t7}`:`smaller`, //cmp
+	`{=word .test.9} {=word t8}`:`smaller`, //cmp
+	`{=word .test.9} {=word t9}`:`smaller`, //cmp
+	`{=word .test.9} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .test.9} {=word var.yyy}`:`smaller`, //cmp
+	`{=word .test.9} {=word var.zzz}`:`smaller`, //cmp
+	`{=word .test.9} {=word var2}`:`smaller`, //cmp
 	`{=word .usee} {=word .self}`:`greater`, //cmp: .usee .self
+	`{=word .usee} {=word .test.10}`:`greater`, //cmp
+	`{=word .usee} {=word .test.11}`:`greater`, //cmp
+	`{=word .usee} {=word .test.12}`:`greater`, //cmp
+	`{=word .usee} {=word .test.13}`:`greater`, //cmp
+	`{=word .usee} {=word .test.14}`:`greater`, //cmp
+	`{=word .usee} {=word .test.15}`:`greater`, //cmp
+	`{=word .usee} {=word .test.2}`:`greater`, //cmp
+	`{=word .usee} {=word .test.3}`:`greater`, //cmp
+	`{=word .usee} {=word .test.4}`:`greater`, //cmp
+	`{=word .usee} {=word .test.5}`:`greater`, //cmp
+	`{=word .usee} {=word .test.6}`:`greater`, //cmp
+	`{=word .usee} {=word .test.7}`:`greater`, //cmp
+	`{=word .usee} {=word .test.8}`:`greater`, //cmp
+	`{=word .usee} {=word .test.9}`:`greater`, //cmp
+	`{=word .usee} {=word all}`:`smaller`, //cmp
+	`{=word .usee} {=word t10}`:`smaller`, //cmp
+	`{=word .usee} {=word t11}`:`smaller`, //cmp
+	`{=word .usee} {=word t12}`:`smaller`, //cmp
+	`{=word .usee} {=word t13}`:`smaller`, //cmp
+	`{=word .usee} {=word t14}`:`smaller`, //cmp
+	`{=word .usee} {=word t15}`:`smaller`, //cmp
+	`{=word .usee} {=word t1}`:`smaller`, //cmp
+	`{=word .usee} {=word t2}`:`smaller`, //cmp
+	`{=word .usee} {=word t3}`:`smaller`, //cmp
+	`{=word .usee} {=word t4}`:`smaller`, //cmp
+	`{=word .usee} {=word t5}`:`smaller`, //cmp
+	`{=word .usee} {=word t7}`:`smaller`, //cmp
+	`{=word .usee} {=word t8}`:`smaller`, //cmp
+	`{=word .usee} {=word t9}`:`smaller`, //cmp
+	`{=word .usee} {=word var.xxx}`:`smaller`, //cmp
+	`{=word .usee} {=word var.yyy}`:`smaller`, //cmp
 	`{=word .usee} {=word var.zzz}`:`smaller`, //cmp: .usee var.zzz
 	`{=word .usee} {=word var2}`:`smaller`, //cmp: .usee var2
 	`{=word .usee} {=word vars}`:`smaller`, //cmp: .usee vars
 	`{=word .usee} {=word xyz}`:`smaller`, //cmp: .usee xyz
 	`{=word FOO} {=word foo}`:`smaller`,
 	`{=word HAVE_STDLIB_H} {=file .configure/header/HAVE_STDLIB_H.c}`:`greater`, //cmp
+	`{=word all} {=word .test.10}`:`greater`, //cmp
+	`{=word all} {=word .test.11}`:`greater`, //cmp
+	`{=word all} {=word .test.12}`:`greater`, //cmp
+	`{=word all} {=word .test.13}`:`greater`, //cmp
+	`{=word all} {=word .test.14}`:`greater`, //cmp
+	`{=word all} {=word .test.15}`:`greater`, //cmp
+	`{=word all} {=word .test.2}`:`greater`, //cmp
+	`{=word all} {=word .test.3}`:`greater`, //cmp
+	`{=word all} {=word .test.4}`:`greater`, //cmp
+	`{=word all} {=word .test.5}`:`greater`, //cmp
+	`{=word all} {=word .test.6}`:`greater`, //cmp
+	`{=word all} {=word .test.7}`:`greater`, //cmp
+	`{=word all} {=word .test.8}`:`greater`, //cmp
+	`{=word all} {=word .test.9}`:`greater`, //cmp
+	`{=word all} {=word .usee}`:`greater`, //cmp
+	`{=word all} {=word t10}`:`smaller`, //cmp
+	`{=word all} {=word t11}`:`smaller`, //cmp
+	`{=word all} {=word t12}`:`smaller`, //cmp
+	`{=word all} {=word t13}`:`smaller`, //cmp
+	`{=word all} {=word t14}`:`smaller`, //cmp
+	`{=word all} {=word t15}`:`smaller`, //cmp
+	`{=word all} {=word t1}`:`smaller`, //cmp
+	`{=word all} {=word t2}`:`smaller`, //cmp
+	`{=word all} {=word t3}`:`smaller`, //cmp
+	`{=word all} {=word t4}`:`smaller`, //cmp
+	`{=word all} {=word t5}`:`smaller`, //cmp
+	`{=word all} {=word t7}`:`smaller`, //cmp
+	`{=word all} {=word t8}`:`smaller`, //cmp
+	`{=word all} {=word t9}`:`smaller`, //cmp
+	`{=word all} {=word var.xxx}`:`smaller`, //cmp
+	`{=word all} {=word var.yyy}`:`smaller`, //cmp
+	`{=word all} {=word var.zzz}`:`smaller`, //cmp
+	`{=word all} {=word var2}`:`smaller`, //cmp
+	`{=word all} {=word vars}`:`smaller`, //cmp
 	`{=word app} {=word app}`:`equal`, //cmp: app app
 	`{=word a} {= {=word a}}`:`equal`, //cmp: a a
 	`{=word a} {=word d}`:`smaller`,
@@ -4614,6 +6255,526 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=word strings} {=word strings}`:`equal`, //cmp: strings strings
 	`{=word string} {=word string}`:`equal`, //cmp: string string
 	`{=word switch} {=word switch}`:`equal`, //cmp: switch switch
+	`{=word t10} {=word .test.10}`:`greater`, //cmp
+	`{=word t10} {=word .test.11}`:`greater`, //cmp
+	`{=word t10} {=word .test.12}`:`greater`, //cmp
+	`{=word t10} {=word .test.13}`:`greater`, //cmp
+	`{=word t10} {=word .test.14}`:`greater`, //cmp
+	`{=word t10} {=word .test.15}`:`greater`, //cmp
+	`{=word t10} {=word .test.2}`:`greater`, //cmp
+	`{=word t10} {=word .test.3}`:`greater`, //cmp
+	`{=word t10} {=word .test.4}`:`greater`, //cmp
+	`{=word t10} {=word .test.5}`:`greater`, //cmp
+	`{=word t10} {=word .test.6}`:`greater`, //cmp
+	`{=word t10} {=word .test.7}`:`greater`, //cmp
+	`{=word t10} {=word .test.8}`:`greater`, //cmp
+	`{=word t10} {=word .test.9}`:`greater`, //cmp
+	`{=word t10} {=word .usee}`:`greater`, //cmp
+	`{=word t10} {=word all}`:`greater`, //cmp
+	`{=word t10} {=word t11}`:`smaller`, //cmp
+	`{=word t10} {=word t12}`:`smaller`, //cmp
+	`{=word t10} {=word t13}`:`smaller`, //cmp
+	`{=word t10} {=word t14}`:`smaller`, //cmp
+	`{=word t10} {=word t15}`:`smaller`, //cmp
+	`{=word t10} {=word t1}`:`rprefix`, //cmp
+	`{=word t10} {=word t2}`:`smaller`, //cmp
+	`{=word t10} {=word t3}`:`smaller`, //cmp
+	`{=word t10} {=word t4}`:`smaller`, //cmp
+	`{=word t10} {=word t5}`:`smaller`, //cmp
+	`{=word t10} {=word t6}`:`smaller`, //cmp
+	`{=word t10} {=word t7}`:`smaller`, //cmp
+	`{=word t10} {=word t8}`:`smaller`, //cmp
+	`{=word t10} {=word t9}`:`smaller`, //cmp
+	`{=word t10} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t10} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t10} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t10} {=word var2}`:`smaller`, //cmp
+	`{=word t11} {=word .test.10}`:`greater`, //cmp
+	`{=word t11} {=word .test.11}`:`greater`, //cmp
+	`{=word t11} {=word .test.12}`:`greater`, //cmp
+	`{=word t11} {=word .test.13}`:`greater`, //cmp
+	`{=word t11} {=word .test.14}`:`greater`, //cmp
+	`{=word t11} {=word .test.15}`:`greater`, //cmp
+	`{=word t11} {=word .test.2}`:`greater`, //cmp
+	`{=word t11} {=word .test.3}`:`greater`, //cmp
+	`{=word t11} {=word .test.4}`:`greater`, //cmp
+	`{=word t11} {=word .test.5}`:`greater`, //cmp
+	`{=word t11} {=word .test.6}`:`greater`, //cmp
+	`{=word t11} {=word .test.7}`:`greater`, //cmp
+	`{=word t11} {=word .test.8}`:`greater`, //cmp
+	`{=word t11} {=word .test.9}`:`greater`, //cmp
+	`{=word t11} {=word .usee}`:`greater`, //cmp
+	`{=word t11} {=word all}`:`greater`, //cmp
+	`{=word t11} {=word t10}`:`greater`, //cmp
+	`{=word t11} {=word t12}`:`smaller`, //cmp
+	`{=word t11} {=word t13}`:`smaller`, //cmp
+	`{=word t11} {=word t14}`:`smaller`, //cmp
+	`{=word t11} {=word t15}`:`smaller`, //cmp
+	`{=word t11} {=word t1}`:`rprefix`, //cmp
+	`{=word t11} {=word t2}`:`smaller`, //cmp
+	`{=word t11} {=word t3}`:`smaller`, //cmp
+	`{=word t11} {=word t4}`:`smaller`, //cmp
+	`{=word t11} {=word t5}`:`smaller`, //cmp
+	`{=word t11} {=word t6}`:`smaller`, //cmp
+	`{=word t11} {=word t7}`:`smaller`, //cmp
+	`{=word t11} {=word t8}`:`smaller`, //cmp
+	`{=word t11} {=word t9}`:`smaller`, //cmp
+	`{=word t11} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t11} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t11} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t11} {=word var2}`:`smaller`, //cmp
+	`{=word t11} {=word vars}`:`smaller`, //cmp
+	`{=word t12} {=word .self}`:`greater`, //cmp
+	`{=word t12} {=word .test.10}`:`greater`, //cmp
+	`{=word t12} {=word .test.11}`:`greater`, //cmp
+	`{=word t12} {=word .test.12}`:`greater`, //cmp
+	`{=word t12} {=word .test.13}`:`greater`, //cmp
+	`{=word t12} {=word .test.14}`:`greater`, //cmp
+	`{=word t12} {=word .test.15}`:`greater`, //cmp
+	`{=word t12} {=word .test.2}`:`greater`, //cmp
+	`{=word t12} {=word .test.3}`:`greater`, //cmp
+	`{=word t12} {=word .test.4}`:`greater`, //cmp
+	`{=word t12} {=word .test.5}`:`greater`, //cmp
+	`{=word t12} {=word .test.6}`:`greater`, //cmp
+	`{=word t12} {=word .test.7}`:`greater`, //cmp
+	`{=word t12} {=word .test.8}`:`greater`, //cmp
+	`{=word t12} {=word .test.9}`:`greater`, //cmp
+	`{=word t12} {=word .usee}`:`greater`, //cmp
+	`{=word t12} {=word all}`:`greater`, //cmp
+	`{=word t12} {=word t10}`:`greater`, //cmp
+	`{=word t12} {=word t11}`:`greater`, //cmp
+	`{=word t12} {=word t13}`:`smaller`, //cmp
+	`{=word t12} {=word t14}`:`smaller`, //cmp
+	`{=word t12} {=word t15}`:`smaller`, //cmp
+	`{=word t12} {=word t1}`:`rprefix`, //cmp
+	`{=word t12} {=word t2}`:`smaller`, //cmp
+	`{=word t12} {=word t3}`:`smaller`, //cmp
+	`{=word t12} {=word t4}`:`smaller`, //cmp
+	`{=word t12} {=word t5}`:`smaller`, //cmp
+	`{=word t12} {=word t6}`:`smaller`, //cmp
+	`{=word t12} {=word t7}`:`smaller`, //cmp
+	`{=word t12} {=word t8}`:`smaller`, //cmp
+	`{=word t12} {=word t9}`:`smaller`, //cmp
+	`{=word t12} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t12} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t12} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t12} {=word var2}`:`smaller`, //cmp
+	`{=word t13} {=word .test.10}`:`greater`, //cmp
+	`{=word t13} {=word .test.11}`:`greater`, //cmp
+	`{=word t13} {=word .test.12}`:`greater`, //cmp
+	`{=word t13} {=word .test.13}`:`greater`, //cmp
+	`{=word t13} {=word .test.14}`:`greater`, //cmp
+	`{=word t13} {=word .test.15}`:`greater`, //cmp
+	`{=word t13} {=word .test.2}`:`greater`, //cmp
+	`{=word t13} {=word .test.3}`:`greater`, //cmp
+	`{=word t13} {=word .test.4}`:`greater`, //cmp
+	`{=word t13} {=word .test.5}`:`greater`, //cmp
+	`{=word t13} {=word .test.6}`:`greater`, //cmp
+	`{=word t13} {=word .test.7}`:`greater`, //cmp
+	`{=word t13} {=word .test.8}`:`greater`, //cmp
+	`{=word t13} {=word .test.9}`:`greater`, //cmp
+	`{=word t13} {=word .usee}`:`greater`, //cmp
+	`{=word t13} {=word all}`:`greater`, //cmp
+	`{=word t13} {=word t10}`:`greater`, //cmp
+	`{=word t13} {=word t11}`:`greater`, //cmp
+	`{=word t13} {=word t12}`:`greater`, //cmp
+	`{=word t13} {=word t14}`:`smaller`, //cmp
+	`{=word t13} {=word t15}`:`smaller`, //cmp
+	`{=word t13} {=word t1}`:`rprefix`, //cmp
+	`{=word t13} {=word t2}`:`smaller`, //cmp
+	`{=word t13} {=word t3}`:`smaller`, //cmp
+	`{=word t13} {=word t4}`:`smaller`, //cmp
+	`{=word t13} {=word t5}`:`smaller`, //cmp
+	`{=word t13} {=word t6}`:`smaller`, //cmp
+	`{=word t13} {=word t7}`:`smaller`, //cmp
+	`{=word t13} {=word t8}`:`smaller`, //cmp
+	`{=word t13} {=word t9}`:`smaller`, //cmp
+	`{=word t13} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t13} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t13} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t13} {=word var2}`:`smaller`, //cmp
+	`{=word t13} {=word xyz}`:`smaller`, //cmp
+	`{=word t14} {=word .test.10}`:`greater`, //cmp
+	`{=word t14} {=word .test.11}`:`greater`, //cmp
+	`{=word t14} {=word .test.12}`:`greater`, //cmp
+	`{=word t14} {=word .test.13}`:`greater`, //cmp
+	`{=word t14} {=word .test.14}`:`greater`, //cmp
+	`{=word t14} {=word .test.15}`:`greater`, //cmp
+	`{=word t14} {=word .test.2}`:`greater`, //cmp
+	`{=word t14} {=word .test.3}`:`greater`, //cmp
+	`{=word t14} {=word .test.4}`:`greater`, //cmp
+	`{=word t14} {=word .test.5}`:`greater`, //cmp
+	`{=word t14} {=word .test.6}`:`greater`, //cmp
+	`{=word t14} {=word .test.7}`:`greater`, //cmp
+	`{=word t14} {=word .test.8}`:`greater`, //cmp
+	`{=word t14} {=word .test.9}`:`greater`, //cmp
+	`{=word t14} {=word .usee}`:`greater`, //cmp
+	`{=word t14} {=word all}`:`greater`, //cmp
+	`{=word t14} {=word t10}`:`greater`, //cmp
+	`{=word t14} {=word t11}`:`greater`, //cmp
+	`{=word t14} {=word t12}`:`greater`, //cmp
+	`{=word t14} {=word t13}`:`greater`, //cmp
+	`{=word t14} {=word t15}`:`smaller`, //cmp
+	`{=word t14} {=word t1}`:`rprefix`, //cmp
+	`{=word t14} {=word t2}`:`smaller`, //cmp
+	`{=word t14} {=word t3}`:`smaller`, //cmp
+	`{=word t14} {=word t4}`:`smaller`, //cmp
+	`{=word t14} {=word t5}`:`smaller`, //cmp
+	`{=word t14} {=word t6}`:`smaller`, //cmp
+	`{=word t14} {=word t7}`:`smaller`, //cmp
+	`{=word t14} {=word t8}`:`smaller`, //cmp
+	`{=word t14} {=word t9}`:`smaller`, //cmp
+	`{=word t14} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t14} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t14} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t14} {=word var2}`:`smaller`, //cmp
+	`{=word t15} {=word .test.10}`:`greater`, //cmp
+	`{=word t15} {=word .test.11}`:`greater`, //cmp
+	`{=word t15} {=word .test.12}`:`greater`, //cmp
+	`{=word t15} {=word .test.13}`:`greater`, //cmp
+	`{=word t15} {=word .test.14}`:`greater`, //cmp
+	`{=word t15} {=word .test.15}`:`greater`, //cmp
+	`{=word t15} {=word .test.2}`:`greater`, //cmp
+	`{=word t15} {=word .test.3}`:`greater`, //cmp
+	`{=word t15} {=word .test.4}`:`greater`, //cmp
+	`{=word t15} {=word .test.5}`:`greater`, //cmp
+	`{=word t15} {=word .test.6}`:`greater`, //cmp
+	`{=word t15} {=word .test.7}`:`greater`, //cmp
+	`{=word t15} {=word .test.8}`:`greater`, //cmp
+	`{=word t15} {=word .test.9}`:`greater`, //cmp
+	`{=word t15} {=word .usee}`:`greater`, //cmp
+	`{=word t15} {=word all}`:`greater`, //cmp
+	`{=word t15} {=word t10}`:`greater`, //cmp
+	`{=word t15} {=word t11}`:`greater`, //cmp
+	`{=word t15} {=word t12}`:`greater`, //cmp
+	`{=word t15} {=word t13}`:`greater`, //cmp
+	`{=word t15} {=word t14}`:`greater`, //cmp
+	`{=word t15} {=word t1}`:`rprefix`, //cmp
+	`{=word t15} {=word t2}`:`smaller`, //cmp
+	`{=word t15} {=word t3}`:`smaller`, //cmp
+	`{=word t15} {=word t4}`:`smaller`, //cmp
+	`{=word t15} {=word t5}`:`smaller`, //cmp
+	`{=word t15} {=word t6}`:`smaller`, //cmp
+	`{=word t15} {=word t7}`:`smaller`, //cmp
+	`{=word t15} {=word t8}`:`smaller`, //cmp
+	`{=word t15} {=word t9}`:`smaller`, //cmp
+	`{=word t15} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t15} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t15} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t15} {=word var2}`:`smaller`, //cmp
+	`{=word t15} {=word vars}`:`smaller`, //cmp
+	`{=word t1} {=word .self}`:`greater`, //cmp
+	`{=word t1} {=word .test.10}`:`greater`, //cmp
+	`{=word t1} {=word .test.11}`:`greater`, //cmp
+	`{=word t1} {=word .test.12}`:`greater`, //cmp
+	`{=word t1} {=word .test.13}`:`greater`, //cmp
+	`{=word t1} {=word .test.14}`:`greater`, //cmp
+	`{=word t1} {=word .test.15}`:`greater`, //cmp
+	`{=word t1} {=word .test.2}`:`greater`, //cmp
+	`{=word t1} {=word .test.3}`:`greater`, //cmp
+	`{=word t1} {=word .test.4}`:`greater`, //cmp
+	`{=word t1} {=word .test.5}`:`greater`, //cmp
+	`{=word t1} {=word .test.6}`:`greater`, //cmp
+	`{=word t1} {=word .test.7}`:`greater`, //cmp
+	`{=word t1} {=word .test.8}`:`greater`, //cmp
+	`{=word t1} {=word .test.9}`:`greater`, //cmp
+	`{=word t1} {=word .usee}`:`greater`, //cmp
+	`{=word t1} {=word all}`:`greater`, //cmp
+	`{=word t1} {=word t10}`:`lprefix`, //cmp
+	`{=word t1} {=word t11}`:`lprefix`, //cmp
+	`{=word t1} {=word t12}`:`lprefix`, //cmp
+	`{=word t1} {=word t13}`:`lprefix`, //cmp
+	`{=word t1} {=word t14}`:`lprefix`, //cmp
+	`{=word t1} {=word t15}`:`lprefix`, //cmp
+	`{=word t1} {=word t2}`:`smaller`, //cmp
+	`{=word t1} {=word t3}`:`smaller`, //cmp
+	`{=word t1} {=word t4}`:`smaller`, //cmp
+	`{=word t1} {=word t5}`:`smaller`, //cmp
+	`{=word t1} {=word t6}`:`smaller`, //cmp
+	`{=word t1} {=word t7}`:`smaller`, //cmp
+	`{=word t1} {=word t8}`:`smaller`, //cmp
+	`{=word t1} {=word t9}`:`smaller`, //cmp
+	`{=word t1} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t1} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t1} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t1} {=word var2}`:`smaller`, //cmp
+	`{=word t2} {=word .test.10}`:`greater`, //cmp
+	`{=word t2} {=word .test.11}`:`greater`, //cmp
+	`{=word t2} {=word .test.12}`:`greater`, //cmp
+	`{=word t2} {=word .test.13}`:`greater`, //cmp
+	`{=word t2} {=word .test.14}`:`greater`, //cmp
+	`{=word t2} {=word .test.15}`:`greater`, //cmp
+	`{=word t2} {=word .test.2}`:`greater`, //cmp
+	`{=word t2} {=word .test.3}`:`greater`, //cmp
+	`{=word t2} {=word .test.4}`:`greater`, //cmp
+	`{=word t2} {=word .test.5}`:`greater`, //cmp
+	`{=word t2} {=word .test.6}`:`greater`, //cmp
+	`{=word t2} {=word .test.7}`:`greater`, //cmp
+	`{=word t2} {=word .test.8}`:`greater`, //cmp
+	`{=word t2} {=word .test.9}`:`greater`, //cmp
+	`{=word t2} {=word .usee}`:`greater`, //cmp
+	`{=word t2} {=word all}`:`greater`, //cmp
+	`{=word t2} {=word t10}`:`greater`, //cmp
+	`{=word t2} {=word t11}`:`greater`, //cmp
+	`{=word t2} {=word t12}`:`greater`, //cmp
+	`{=word t2} {=word t13}`:`greater`, //cmp
+	`{=word t2} {=word t14}`:`greater`, //cmp
+	`{=word t2} {=word t15}`:`greater`, //cmp
+	`{=word t2} {=word t1}`:`greater`, //cmp
+	`{=word t2} {=word t3}`:`smaller`, //cmp
+	`{=word t2} {=word t4}`:`smaller`, //cmp
+	`{=word t2} {=word t5}`:`smaller`, //cmp
+	`{=word t2} {=word t6}`:`smaller`, //cmp
+	`{=word t2} {=word t7}`:`smaller`, //cmp
+	`{=word t2} {=word t8}`:`smaller`, //cmp
+	`{=word t2} {=word t9}`:`smaller`, //cmp
+	`{=word t2} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t2} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t2} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t2} {=word var2}`:`smaller`, //cmp
+	`{=word t2} {=word vars}`:`smaller`, //cmp
+	`{=word t2} {=word xyz}`:`smaller`, //cmp
+	`{=word t3} {=word .test.10}`:`greater`, //cmp
+	`{=word t3} {=word .test.11}`:`greater`, //cmp
+	`{=word t3} {=word .test.13}`:`greater`, //cmp
+	`{=word t3} {=word .test.14}`:`greater`, //cmp
+	`{=word t3} {=word .test.15}`:`greater`, //cmp
+	`{=word t3} {=word .test.2}`:`greater`, //cmp
+	`{=word t3} {=word .test.3}`:`greater`, //cmp
+	`{=word t3} {=word .test.4}`:`greater`, //cmp
+	`{=word t3} {=word .test.5}`:`greater`, //cmp
+	`{=word t3} {=word .test.6}`:`greater`, //cmp
+	`{=word t3} {=word .test.7}`:`greater`, //cmp
+	`{=word t3} {=word .test.8}`:`greater`, //cmp
+	`{=word t3} {=word .test.9}`:`greater`, //cmp
+	`{=word t3} {=word .usee}`:`greater`, //cmp
+	`{=word t3} {=word all}`:`greater`, //cmp
+	`{=word t3} {=word t10}`:`greater`, //cmp
+	`{=word t3} {=word t11}`:`greater`, //cmp
+	`{=word t3} {=word t12}`:`greater`, //cmp
+	`{=word t3} {=word t13}`:`greater`, //cmp
+	`{=word t3} {=word t14}`:`greater`, //cmp
+	`{=word t3} {=word t15}`:`greater`, //cmp
+	`{=word t3} {=word t1}`:`greater`, //cmp
+	`{=word t3} {=word t2}`:`greater`, //cmp
+	`{=word t3} {=word t4}`:`smaller`, //cmp
+	`{=word t3} {=word t5}`:`smaller`, //cmp
+	`{=word t3} {=word t6}`:`smaller`, //cmp
+	`{=word t3} {=word t7}`:`smaller`, //cmp
+	`{=word t3} {=word t8}`:`smaller`, //cmp
+	`{=word t3} {=word t9}`:`smaller`, //cmp
+	`{=word t3} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t3} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t3} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t3} {=word var2}`:`smaller`, //cmp
+	`{=word t3} {=word vars}`:`smaller`, //cmp
+	`{=word t3} {=word xyz}`:`smaller`, //cmp
+	`{=word t4} {=word .test.10}`:`greater`, //cmp
+	`{=word t4} {=word .test.11}`:`greater`, //cmp
+	`{=word t4} {=word .test.13}`:`greater`, //cmp
+	`{=word t4} {=word .test.14}`:`greater`, //cmp
+	`{=word t4} {=word .test.15}`:`greater`, //cmp
+	`{=word t4} {=word .test.2}`:`greater`, //cmp
+	`{=word t4} {=word .test.3}`:`greater`, //cmp
+	`{=word t4} {=word .test.4}`:`greater`, //cmp
+	`{=word t4} {=word .test.5}`:`greater`, //cmp
+	`{=word t4} {=word .test.6}`:`greater`, //cmp
+	`{=word t4} {=word .test.7}`:`greater`, //cmp
+	`{=word t4} {=word .test.8}`:`greater`, //cmp
+	`{=word t4} {=word .test.9}`:`greater`, //cmp
+	`{=word t4} {=word .usee}`:`greater`, //cmp
+	`{=word t4} {=word all}`:`greater`, //cmp
+	`{=word t4} {=word t10}`:`greater`, //cmp
+	`{=word t4} {=word t11}`:`greater`, //cmp
+	`{=word t4} {=word t12}`:`greater`, //cmp
+	`{=word t4} {=word t13}`:`greater`, //cmp
+	`{=word t4} {=word t14}`:`greater`, //cmp
+	`{=word t4} {=word t15}`:`greater`, //cmp
+	`{=word t4} {=word t1}`:`greater`, //cmp
+	`{=word t4} {=word t2}`:`greater`, //cmp
+	`{=word t4} {=word t3}`:`greater`, //cmp
+	`{=word t4} {=word t5}`:`smaller`, //cmp
+	`{=word t4} {=word t6}`:`smaller`, //cmp
+	`{=word t4} {=word t7}`:`smaller`, //cmp
+	`{=word t4} {=word t8}`:`smaller`, //cmp
+	`{=word t4} {=word t9}`:`smaller`, //cmp
+	`{=word t4} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t4} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t4} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t4} {=word var2}`:`smaller`, //cmp
+	`{=word t4} {=word vars}`:`smaller`, //cmp
+	`{=word t4} {=word xyz}`:`smaller`, //cmp
+	`{=word t5} {=word .test.10}`:`greater`, //cmp
+	`{=word t5} {=word .test.11}`:`greater`, //cmp
+	`{=word t5} {=word .test.12}`:`greater`, //cmp
+	`{=word t5} {=word .test.13}`:`greater`, //cmp
+	`{=word t5} {=word .test.14}`:`greater`, //cmp
+	`{=word t5} {=word .test.15}`:`greater`, //cmp
+	`{=word t5} {=word .test.2}`:`greater`, //cmp
+	`{=word t5} {=word .test.3}`:`greater`, //cmp
+	`{=word t5} {=word .test.4}`:`greater`, //cmp
+	`{=word t5} {=word .test.5}`:`greater`, //cmp
+	`{=word t5} {=word .test.6}`:`greater`, //cmp
+	`{=word t5} {=word .test.7}`:`greater`, //cmp
+	`{=word t5} {=word .test.8}`:`greater`, //cmp
+	`{=word t5} {=word .test.9}`:`greater`, //cmp
+	`{=word t5} {=word .usee}`:`greater`, //cmp
+	`{=word t5} {=word all}`:`greater`, //cmp
+	`{=word t5} {=word t10}`:`greater`, //cmp
+	`{=word t5} {=word t11}`:`greater`, //cmp
+	`{=word t5} {=word t12}`:`greater`, //cmp
+	`{=word t5} {=word t13}`:`greater`, //cmp
+	`{=word t5} {=word t14}`:`greater`, //cmp
+	`{=word t5} {=word t15}`:`greater`, //cmp
+	`{=word t5} {=word t1}`:`greater`, //cmp
+	`{=word t5} {=word t2}`:`greater`, //cmp
+	`{=word t5} {=word t3}`:`greater`, //cmp
+	`{=word t5} {=word t4}`:`greater`, //cmp
+	`{=word t5} {=word t6}`:`smaller`, //cmp
+	`{=word t5} {=word t7}`:`smaller`, //cmp
+	`{=word t5} {=word t8}`:`smaller`, //cmp
+	`{=word t5} {=word t9}`:`smaller`, //cmp
+	`{=word t5} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t5} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t5} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t5} {=word var2}`:`smaller`, //cmp
+	`{=word t5} {=word vars}`:`smaller`, //cmp
+	`{=word t5} {=word xyz}`:`smaller`, //cmp
+	`{=word t6} {=word .test.10}`:`greater`, //cmp
+	`{=word t6} {=word .test.11}`:`greater`, //cmp
+	`{=word t6} {=word .test.13}`:`greater`, //cmp
+	`{=word t6} {=word .test.14}`:`greater`, //cmp
+	`{=word t6} {=word .test.15}`:`greater`, //cmp
+	`{=word t6} {=word .test.2}`:`greater`, //cmp
+	`{=word t6} {=word .test.3}`:`greater`, //cmp
+	`{=word t6} {=word .test.4}`:`greater`, //cmp
+	`{=word t6} {=word .test.5}`:`greater`, //cmp
+	`{=word t6} {=word .test.6}`:`greater`, //cmp
+	`{=word t6} {=word .test.7}`:`greater`, //cmp
+	`{=word t6} {=word .test.8}`:`greater`, //cmp
+	`{=word t6} {=word .test.9}`:`greater`, //cmp
+	`{=word t6} {=word .usee}`:`greater`, //cmp
+	`{=word t6} {=word all}`:`greater`, //cmp
+	`{=word t6} {=word t10}`:`greater`, //cmp
+	`{=word t6} {=word t11}`:`greater`, //cmp
+	`{=word t6} {=word t12}`:`greater`, //cmp
+	`{=word t6} {=word t13}`:`greater`, //cmp
+	`{=word t6} {=word t14}`:`greater`, //cmp
+	`{=word t6} {=word t15}`:`greater`, //cmp
+	`{=word t6} {=word t1}`:`greater`, //cmp
+	`{=word t6} {=word t2}`:`greater`, //cmp
+	`{=word t6} {=word t3}`:`greater`, //cmp
+	`{=word t6} {=word t4}`:`greater`, //cmp
+	`{=word t6} {=word t5}`:`greater`, //cmp
+	`{=word t6} {=word t7}`:`smaller`, //cmp
+	`{=word t6} {=word t8}`:`smaller`, //cmp
+	`{=word t6} {=word t9}`:`smaller`, //cmp
+	`{=word t6} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t6} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t6} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t6} {=word var2}`:`smaller`, //cmp
+	`{=word t6} {=word vars}`:`smaller`, //cmp
+	`{=word t6} {=word xyz}`:`smaller`, //cmp
+	`{=word t7} {=word .test.10}`:`greater`, //cmp
+	`{=word t7} {=word .test.11}`:`greater`, //cmp
+	`{=word t7} {=word .test.13}`:`greater`, //cmp
+	`{=word t7} {=word .test.14}`:`greater`, //cmp
+	`{=word t7} {=word .test.15}`:`greater`, //cmp
+	`{=word t7} {=word .test.2}`:`greater`, //cmp
+	`{=word t7} {=word .test.3}`:`greater`, //cmp
+	`{=word t7} {=word .test.4}`:`greater`, //cmp
+	`{=word t7} {=word .test.5}`:`greater`, //cmp
+	`{=word t7} {=word .test.6}`:`greater`, //cmp
+	`{=word t7} {=word .test.8}`:`greater`, //cmp
+	`{=word t7} {=word .test.9}`:`greater`, //cmp
+	`{=word t7} {=word .usee}`:`greater`, //cmp
+	`{=word t7} {=word all}`:`greater`, //cmp
+	`{=word t7} {=word t10}`:`greater`, //cmp
+	`{=word t7} {=word t11}`:`greater`, //cmp
+	`{=word t7} {=word t12}`:`greater`, //cmp
+	`{=word t7} {=word t13}`:`greater`, //cmp
+	`{=word t7} {=word t14}`:`greater`, //cmp
+	`{=word t7} {=word t15}`:`greater`, //cmp
+	`{=word t7} {=word t1}`:`greater`, //cmp
+	`{=word t7} {=word t2}`:`greater`, //cmp
+	`{=word t7} {=word t3}`:`greater`, //cmp
+	`{=word t7} {=word t4}`:`greater`, //cmp
+	`{=word t7} {=word t5}`:`greater`, //cmp
+	`{=word t7} {=word t6}`:`greater`, //cmp
+	`{=word t7} {=word t8}`:`smaller`, //cmp
+	`{=word t7} {=word t9}`:`smaller`, //cmp
+	`{=word t7} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t7} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t7} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t7} {=word var2}`:`smaller`, //cmp
+	`{=word t7} {=word vars}`:`smaller`, //cmp
+	`{=word t7} {=word xyz}`:`smaller`, //cmp
+	`{=word t8} {=word .test.10}`:`greater`, //cmp
+	`{=word t8} {=word .test.13}`:`greater`, //cmp
+	`{=word t8} {=word .test.14}`:`greater`, //cmp
+	`{=word t8} {=word .test.15}`:`greater`, //cmp
+	`{=word t8} {=word .test.2}`:`greater`, //cmp
+	`{=word t8} {=word .test.3}`:`greater`, //cmp
+	`{=word t8} {=word .test.4}`:`greater`, //cmp
+	`{=word t8} {=word .test.5}`:`greater`, //cmp
+	`{=word t8} {=word .test.6}`:`greater`, //cmp
+	`{=word t8} {=word .test.8}`:`greater`, //cmp
+	`{=word t8} {=word .test.9}`:`greater`, //cmp
+	`{=word t8} {=word .usee}`:`greater`, //cmp
+	`{=word t8} {=word all}`:`greater`, //cmp
+	`{=word t8} {=word t10}`:`greater`, //cmp
+	`{=word t8} {=word t11}`:`greater`, //cmp
+	`{=word t8} {=word t12}`:`greater`, //cmp
+	`{=word t8} {=word t13}`:`greater`, //cmp
+	`{=word t8} {=word t14}`:`greater`, //cmp
+	`{=word t8} {=word t15}`:`greater`, //cmp
+	`{=word t8} {=word t1}`:`greater`, //cmp
+	`{=word t8} {=word t2}`:`greater`, //cmp
+	`{=word t8} {=word t3}`:`greater`, //cmp
+	`{=word t8} {=word t4}`:`greater`, //cmp
+	`{=word t8} {=word t5}`:`greater`, //cmp
+	`{=word t8} {=word t6}`:`greater`, //cmp
+	`{=word t8} {=word t7}`:`greater`, //cmp
+	`{=word t8} {=word t9}`:`smaller`, //cmp
+	`{=word t8} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t8} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t8} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t8} {=word var2}`:`smaller`, //cmp
+	`{=word t8} {=word vars}`:`smaller`, //cmp
+	`{=word t8} {=word xyz}`:`smaller`, //cmp
+	`{=word t9} {=word .test.10}`:`greater`, //cmp
+	`{=word t9} {=word .test.13}`:`greater`, //cmp
+	`{=word t9} {=word .test.14}`:`greater`, //cmp
+	`{=word t9} {=word .test.15}`:`greater`, //cmp
+	`{=word t9} {=word .test.2}`:`greater`, //cmp
+	`{=word t9} {=word .test.3}`:`greater`, //cmp
+	`{=word t9} {=word .test.4}`:`greater`, //cmp
+	`{=word t9} {=word .test.5}`:`greater`, //cmp
+	`{=word t9} {=word .test.6}`:`greater`, //cmp
+	`{=word t9} {=word .test.8}`:`greater`, //cmp
+	`{=word t9} {=word .test.9}`:`greater`, //cmp
+	`{=word t9} {=word .usee}`:`greater`, //cmp
+	`{=word t9} {=word all}`:`greater`, //cmp
+	`{=word t9} {=word t10}`:`greater`, //cmp
+	`{=word t9} {=word t11}`:`greater`, //cmp
+	`{=word t9} {=word t12}`:`greater`, //cmp
+	`{=word t9} {=word t13}`:`greater`, //cmp
+	`{=word t9} {=word t14}`:`greater`, //cmp
+	`{=word t9} {=word t15}`:`greater`, //cmp
+	`{=word t9} {=word t1}`:`greater`, //cmp
+	`{=word t9} {=word t2}`:`greater`, //cmp
+	`{=word t9} {=word t3}`:`greater`, //cmp
+	`{=word t9} {=word t4}`:`greater`, //cmp
+	`{=word t9} {=word t5}`:`greater`, //cmp
+	`{=word t9} {=word t6}`:`greater`, //cmp
+	`{=word t9} {=word t7}`:`greater`, //cmp
+	`{=word t9} {=word t8}`:`greater`, //cmp
+	`{=word t9} {=word var.xxx}`:`smaller`, //cmp
+	`{=word t9} {=word var.yyy}`:`smaller`, //cmp
+	`{=word t9} {=word var.zzz}`:`smaller`, //cmp
+	`{=word t9} {=word var2}`:`smaller`, //cmp
+	`{=word t9} {=word vars}`:`smaller`, //cmp
+	`{=word t9} {=word xyz}`:`smaller`, //cmp
 	`{=word test} {=word test}`:`equal`,
 	`{=word thing} {=word thing}`:`equal`, //cmp: thing thing
 	`{=word type} {=word type}`:`equal`, //cmp: type type
@@ -4623,13 +6784,169 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=word va2} {=word va1}`:`greater`, //cmp
 	`{=word va2} {=word va3}`:`smaller`, //cmp
 	`{=word va3} {=word va1}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.10}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.13}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.14}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.15}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.2}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.3}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.4}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.5}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.6}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.8}`:`greater`, //cmp
+	`{=word var.xxx} {=word .test.9}`:`greater`, //cmp
+	`{=word var.xxx} {=word .usee}`:`greater`, //cmp
+	`{=word var.xxx} {=word all}`:`greater`, //cmp
+	`{=word var.xxx} {=word t10}`:`greater`, //cmp
+	`{=word var.xxx} {=word t11}`:`greater`, //cmp
+	`{=word var.xxx} {=word t12}`:`greater`, //cmp
+	`{=word var.xxx} {=word t13}`:`greater`, //cmp
+	`{=word var.xxx} {=word t14}`:`greater`, //cmp
+	`{=word var.xxx} {=word t15}`:`greater`, //cmp
+	`{=word var.xxx} {=word t1}`:`greater`, //cmp
+	`{=word var.xxx} {=word t2}`:`greater`, //cmp
+	`{=word var.xxx} {=word t3}`:`greater`, //cmp
+	`{=word var.xxx} {=word t4}`:`greater`, //cmp
+	`{=word var.xxx} {=word t5}`:`greater`, //cmp
+	`{=word var.xxx} {=word t6}`:`greater`, //cmp
+	`{=word var.xxx} {=word t7}`:`greater`, //cmp
+	`{=word var.xxx} {=word t8}`:`greater`, //cmp
+	`{=word var.xxx} {=word t9}`:`greater`, //cmp
+	`{=word var.xxx} {=word var.yyy}`:`smaller`, //cmp
+	`{=word var.xxx} {=word var.zzz}`:`smaller`, //cmp
+	`{=word var.xxx} {=word var2}`:`smaller`, //cmp
+	`{=word var.xxx} {=word vars}`:`smaller`, //cmp
+	`{=word var.xxx} {=word xyz}`:`smaller`, //cmp
+	`{=word var.yyy} {=word .test.10}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.13}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.14}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.15}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.2}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.3}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.4}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.5}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.6}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.8}`:`greater`, //cmp
+	`{=word var.yyy} {=word .test.9}`:`greater`, //cmp
+	`{=word var.yyy} {=word .usee}`:`greater`, //cmp
+	`{=word var.yyy} {=word all}`:`greater`, //cmp
+	`{=word var.yyy} {=word t10}`:`greater`, //cmp
+	`{=word var.yyy} {=word t11}`:`greater`, //cmp
+	`{=word var.yyy} {=word t12}`:`greater`, //cmp
+	`{=word var.yyy} {=word t13}`:`greater`, //cmp
+	`{=word var.yyy} {=word t14}`:`greater`, //cmp
+	`{=word var.yyy} {=word t15}`:`greater`, //cmp
+	`{=word var.yyy} {=word t1}`:`greater`, //cmp
+	`{=word var.yyy} {=word t2}`:`greater`, //cmp
+	`{=word var.yyy} {=word t3}`:`greater`, //cmp
+	`{=word var.yyy} {=word t4}`:`greater`, //cmp
+	`{=word var.yyy} {=word t5}`:`greater`, //cmp
+	`{=word var.yyy} {=word t6}`:`greater`, //cmp
+	`{=word var.yyy} {=word t7}`:`greater`, //cmp
+	`{=word var.yyy} {=word t8}`:`greater`, //cmp
+	`{=word var.yyy} {=word t9}`:`greater`, //cmp
+	`{=word var.yyy} {=word var.xxx}`:`greater`, //cmp
+	`{=word var.yyy} {=word var.zzz}`:`smaller`, //cmp
+	`{=word var.yyy} {=word var2}`:`smaller`, //cmp
+	`{=word var.yyy} {=word vars}`:`smaller`, //cmp
+	`{=word var.yyy} {=word xyz}`:`smaller`, //cmp
+	`{=word var.zzz} {=word .test.10}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.13}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.14}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.15}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.1}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.2}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.3}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.4}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.5}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.6}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.8}`:`greater`, //cmp
+	`{=word var.zzz} {=word .test.9}`:`greater`, //cmp
 	`{=word var.zzz} {=word .usee}`:`greater`, //cmp: var.zzz .usee
+	`{=word var.zzz} {=word all}`:`greater`, //cmp
+	`{=word var.zzz} {=word t10}`:`greater`, //cmp
+	`{=word var.zzz} {=word t11}`:`greater`, //cmp
+	`{=word var.zzz} {=word t12}`:`greater`, //cmp
+	`{=word var.zzz} {=word t13}`:`greater`, //cmp
+	`{=word var.zzz} {=word t14}`:`greater`, //cmp
+	`{=word var.zzz} {=word t15}`:`greater`, //cmp
+	`{=word var.zzz} {=word t1}`:`greater`, //cmp
+	`{=word var.zzz} {=word t2}`:`greater`, //cmp
+	`{=word var.zzz} {=word t3}`:`greater`, //cmp
+	`{=word var.zzz} {=word t4}`:`greater`, //cmp
+	`{=word var.zzz} {=word t5}`:`greater`, //cmp
+	`{=word var.zzz} {=word t6}`:`greater`, //cmp
+	`{=word var.zzz} {=word t7}`:`greater`, //cmp
+	`{=word var.zzz} {=word t8}`:`greater`, //cmp
+	`{=word var.zzz} {=word t9}`:`greater`, //cmp
+	`{=word var.zzz} {=word var.xxx}`:`greater`, //cmp
+	`{=word var.zzz} {=word var.yyy}`:`greater`, //cmp
 	`{=word var.zzz} {=word var2}`:`smaller`, //cmp: var.zzz var2
 	`{=word var.zzz} {=word vars}`:`smaller`, //cmp
 	`{=word var.zzz} {=word xyz}`:`smaller`, //cmp: var.zzz xyz
+	`{=word var2} {=word .test.10}`:`greater`, //cmp
+	`{=word var2} {=word .test.13}`:`greater`, //cmp
+	`{=word var2} {=word .test.14}`:`greater`, //cmp
+	`{=word var2} {=word .test.15}`:`greater`, //cmp
+	`{=word var2} {=word .test.2}`:`greater`, //cmp
+	`{=word var2} {=word .test.3}`:`greater`, //cmp
+	`{=word var2} {=word .test.4}`:`greater`, //cmp
+	`{=word var2} {=word .test.5}`:`greater`, //cmp
+	`{=word var2} {=word .test.6}`:`greater`, //cmp
+	`{=word var2} {=word .test.8}`:`greater`, //cmp
+	`{=word var2} {=word .test.9}`:`greater`, //cmp
+	`{=word var2} {=word .usee}`:`greater`, //cmp
+	`{=word var2} {=word all}`:`greater`, //cmp
+	`{=word var2} {=word t10}`:`greater`, //cmp
+	`{=word var2} {=word t11}`:`greater`, //cmp
+	`{=word var2} {=word t12}`:`greater`, //cmp
+	`{=word var2} {=word t13}`:`greater`, //cmp
+	`{=word var2} {=word t14}`:`greater`, //cmp
+	`{=word var2} {=word t15}`:`greater`, //cmp
+	`{=word var2} {=word t1}`:`greater`, //cmp
+	`{=word var2} {=word t2}`:`greater`, //cmp
+	`{=word var2} {=word t3}`:`greater`, //cmp
+	`{=word var2} {=word t4}`:`greater`, //cmp
+	`{=word var2} {=word t5}`:`greater`, //cmp
+	`{=word var2} {=word t6}`:`greater`, //cmp
+	`{=word var2} {=word t7}`:`greater`, //cmp
+	`{=word var2} {=word t8}`:`greater`, //cmp
+	`{=word var2} {=word t9}`:`greater`, //cmp
+	`{=word var2} {=word var.xxx}`:`greater`, //cmp
+	`{=word var2} {=word var.yyy}`:`greater`, //cmp
 	`{=word var2} {=word var.zzz}`:`greater`, //cmp: var2 var.zzz
 	`{=word var2} {=word vars}`:`smaller`, //cmp: var2 vars
 	`{=word var2} {=word xyz}`:`smaller`, //cmp: var2 xyz
+	`{=word vars} {=word .test.10}`:`greater`, //cmp
+	`{=word vars} {=word .test.13}`:`greater`, //cmp
+	`{=word vars} {=word .test.14}`:`greater`, //cmp
+	`{=word vars} {=word .test.15}`:`greater`, //cmp
+	`{=word vars} {=word .test.2}`:`greater`, //cmp
+	`{=word vars} {=word .test.3}`:`greater`, //cmp
+	`{=word vars} {=word .test.4}`:`greater`, //cmp
+	`{=word vars} {=word .test.5}`:`greater`, //cmp
+	`{=word vars} {=word .test.6}`:`greater`, //cmp
+	`{=word vars} {=word .test.8}`:`greater`, //cmp
+	`{=word vars} {=word .test.9}`:`greater`, //cmp
+	`{=word vars} {=word .usee}`:`greater`, //cmp
+	`{=word vars} {=word all}`:`greater`, //cmp
+	`{=word vars} {=word t10}`:`greater`, //cmp
+	`{=word vars} {=word t11}`:`greater`, //cmp
+	`{=word vars} {=word t12}`:`greater`, //cmp
+	`{=word vars} {=word t13}`:`greater`, //cmp
+	`{=word vars} {=word t14}`:`greater`, //cmp
+	`{=word vars} {=word t15}`:`greater`, //cmp
+	`{=word vars} {=word t1}`:`greater`, //cmp
+	`{=word vars} {=word t2}`:`greater`, //cmp
+	`{=word vars} {=word t3}`:`greater`, //cmp
+	`{=word vars} {=word t4}`:`greater`, //cmp
+	`{=word vars} {=word t5}`:`greater`, //cmp
+	`{=word vars} {=word t6}`:`greater`, //cmp
+	`{=word vars} {=word t7}`:`greater`, //cmp
+	`{=word vars} {=word t8}`:`greater`, //cmp
+	`{=word vars} {=word t9}`:`greater`, //cmp
+	`{=word vars} {=word var.xxx}`:`greater`, //cmp
+	`{=word vars} {=word var.yyy}`:`greater`, //cmp
 	`{=word vars} {=word var.zzz}`:`greater`, //cmp: vars var.zzz
 	`{=word vars} {=word var2}`:`greater`, //cmp: vars var2
 	`{=word vars} {=word xyz}`:`smaller`, //cmp: vars xyz
@@ -4639,7 +6956,37 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=word write} {=word write}`:`equal`, //cmp: write write
 	`{=word xv1y} {=word x}`:`rprefix`,
 	`{=word xv} {=word x}`:`rprefix`,
+	`{=word xyz} {=word .test.10}`:`greater`, //cmp
+	`{=word xyz} {=word .test.13}`:`greater`, //cmp
+	`{=word xyz} {=word .test.14}`:`greater`, //cmp
+	`{=word xyz} {=word .test.15}`:`greater`, //cmp
+	`{=word xyz} {=word .test.2}`:`greater`, //cmp
+	`{=word xyz} {=word .test.3}`:`greater`, //cmp
+	`{=word xyz} {=word .test.4}`:`greater`, //cmp
+	`{=word xyz} {=word .test.5}`:`greater`, //cmp
+	`{=word xyz} {=word .test.6}`:`greater`, //cmp
+	`{=word xyz} {=word .test.8}`:`greater`, //cmp
+	`{=word xyz} {=word .test.9}`:`greater`, //cmp
 	`{=word xyz} {=word .usee}`:`greater`, //cmp: xyz .usee
+	`{=word xyz} {=word all}`:`greater`, //cmp
+	`{=word xyz} {=word t10}`:`greater`, //cmp
+	`{=word xyz} {=word t11}`:`greater`, //cmp
+	`{=word xyz} {=word t12}`:`greater`, //cmp
+	`{=word xyz} {=word t13}`:`greater`, //cmp
+	`{=word xyz} {=word t14}`:`greater`, //cmp
+	`{=word xyz} {=word t15}`:`greater`, //cmp
+	`{=word xyz} {=word t1}`:`greater`, //cmp
+	`{=word xyz} {=word t2}`:`greater`, //cmp
+	`{=word xyz} {=word t3}`:`greater`, //cmp
+	`{=word xyz} {=word t4}`:`greater`, //cmp
+	`{=word xyz} {=word t5}`:`greater`, //cmp
+	`{=word xyz} {=word t6}`:`greater`, //cmp
+	`{=word xyz} {=word t7}`:`greater`, //cmp
+	`{=word xyz} {=word t8}`:`greater`, //cmp
+	`{=word xyz} {=word t9}`:`greater`, //cmp
+	`{=word xyz} {=word var.xxx}`:`greater`, //cmp
+	`{=word xyz} {=word var.yyy}`:`greater`, //cmp
+	`{=word xyz} {=word var.zzz}`:`greater`, //cmp
 	`{=word xyz} {=word var2}`:`greater`, //cmp: xyz var2
 	`{=word xyz} {=word vars}`:`greater`, //cmp: xyz vars
 	`{=word x} {= {= {=null}}}`:`rprefix`, //cmp: x {}
@@ -4656,7 +7003,6 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=word zz} {=glob {=meta *}}`:`smaller`,
 	`{=word z} {= {= {=raw z}}}`:`equal`,
 	`{=word z} {=Symbol zz}`:`lprefix`, //cmp
-	`{=word z} {=string zz}`:`lprefix`, // z zz
 	`{=yes} {=yes}`:`equal`, //cmp
 	`{=} {=word foobar}`:`lprefix`,
 })
@@ -4682,12 +7028,13 @@ func check_cmp(ctx Context, l, r any) func(*cmpres) {
 				return
 			}
 
-			// if p := _project(ctx); p != nil { switch spec := p.spec.String(); {
+			if p := _project(ctx); p != nil { switch p.spec.String() {
 			// case strings.HasSuffix(spec, ".smart/modules/lib/unwind"): return
 			// case strings.HasSuffix(spec, ".smart/modules/lib/c++abi"): return
 			// case strings.HasSuffix(spec, ".smart/modules/lib/c++inc"): return
 			// case strings.HasSuffix(spec, ".smart/modules/lib/c++"): return
-			// }}
+			case "testdata/template": return
+			}}
 			
 			if true { prompt(ctx, "	`%v`:`%v`, //cmp\n", k, t); flush(ctx) } else
 			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r); flush(ctx) } else
@@ -5732,6 +8079,9 @@ var checkpoints_match = func(m map[string]any) map[string]any {
 	`{=regex ^\.test\.([0-9]+)$$} var2 false`:"false <nil> var2 []",
 	`{=regex ^\.test\.([0-9]+)$$} vars false`:"false <nil> vars []",
 	`{=regex ^\.test\.([0-9]+)$$} xyz false`:"false <nil> xyz []",
+	`{=regex ^.+$$} .test.3 false`:`true .test.3 <nil> []`,
+	`{=regex ^.+$$} .test.4 false`:`true .test.4 <nil> []`,
+	`{=regex ^.+$$} t15 false`:`true t15 <nil> []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} .self false`:`false <nil> .self []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} .usee false`:`false <nil> .usee []`,
 	`{=regex ^configure\.types\.(<(.+?)>|"(.+?)")} 1 false`:`false <nil> 1 []`,

@@ -7948,7 +7948,7 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "1 test one\n2 test two\n" {
 		ctx.err("%v", t.s)
 	}
-	if t.v != `{=list {12:10 {19:39 {0:0:decimal 1}}} {12:18 {19:36 {0:0:strlit 'test one\n'}}}} {=list {12:10 {19:39 {0:0:decimal 2}}} {12:18 {19:36 {0:0:strlit 'test two\n'}}}}` {
+	if t.v != `{=list {12:10 {19:39 {=decimal 1}}} {12:18 {19:36 {=strlit 'test one\n'}}}} {=list {12:10 {19:39 {=decimal 2}}} {12:18 {19:36 {=strlit 'test two\n'}}}}` {
 		ctx.err("%v", t.v)
 	}
 
@@ -7973,7 +7973,7 @@ func testShellForStdout(ctx testcase1) {
 	if t.s != "1 test one\n2 test two\n3 test thr\n" {
 		ctx.err("%v", t.s)
 	}
-	if t.v != `{=list {12:10 {23:39 {0:0:decimal 1}}} {12:18 {23:36 {0:0:strlit 'test one\n'}}}} {=list {12:10 {23:39 {0:0:decimal 2}}} {12:18 {23:36 {0:0:strlit 'test two\n'}}}} {=list {12:10 {23:39 {0:0:decimal 3}}} {12:18 {23:36 {0:0:strlit 'test thr\n'}}}}` {
+	if t.v != `{=list {12:10 {23:39 {=decimal 1}}} {12:18 {23:36 {=strlit 'test one\n'}}}} {=list {12:10 {23:39 {=decimal 2}}} {12:18 {23:36 {=strlit 'test two\n'}}}} {=list {12:10 {23:39 {=decimal 3}}} {12:18 {23:36 {=strlit 'test thr\n'}}}}` {
 		ctx.err("%v", t.v)
 	}
 }

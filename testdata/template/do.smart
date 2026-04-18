@@ -104,3 +104,5 @@ done
 for {=defs(id) {=regex ^\.test\.([0-9]+)$$}}
 t$(id) := $0
 done
+
+all := $(defs(-sort) *)#{=regex ^.+$$}
