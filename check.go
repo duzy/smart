@@ -26,13 +26,13 @@ var rxIgnoredChecks = regexp.MustCompile(`^(?:[0-9@<^>_/\-])(?:⇒.+)?$`)
 var rxSquareBracket = regexp.MustCompile(`\[?(.+?)\]?`)
 var rxUnwrapLocMarker = regexp.MustCompile(`\{=unwrap-loc-([^\s{}]+)\s`)
 var rxCheckReplacements = regexp.MustCompile(
-	`%\[(?:(tolower|toupper|dir|base|(?:trim|sep)\((.+?)\))(?:\.([0-9]+))?:)?`+
+	`%\[(?:(tolower|toupper|dir|base|(?:trim|sep)\((.*?)\))(?:\.([0-9]+))?:)?`+
 	`(testdata|modules|workspace|workout|user|home|platforms`+
 	`|(?:target|host)(?:\.(?:abi|arch|os|release|sys|vendor|triple|bin|out|tmp))?`+
 	`|uname(?:\.(?:os|kernel|machine|processor|release))?`+
 	`|variant(?:\.(?:tag|targets|lib\.c\+\+))?`+
 	`|toolchain(?:\.(?:resourceDir))?`+
-	`)(?:\.([0-9]+))?(?::((?:trim|len|join|each|[./])\((.+?)\)([+\-][0-9]+)?))?\]`,
+	`)(?:\.([0-9]+))?(?::((?:trim|len|join|each|[./])\((.*?)\)([+\-][0-9]+)?))?\]`,
 )
 
 func getUname(i int) string { if i < len(uname) { return uname[i] } else { return "" } }
@@ -106,7 +106,7 @@ func unfix(str string) string {
 func fixCheckpoint(s string) string {
 	return rxCheckReplacements.ReplaceAllStringFunc(s, func(match string) string {
 		sm := rxCheckReplacements.FindStringSubmatch(match)
-		if len(sm) < 9 { // Bugfix: the regex has 8 capturing groups, meaning len(sm) is 9!
+		if len(sm) < 9 {
 			return match
 		}
 
@@ -146,17 +146,16 @@ func fixCheckpoint(s string) string {
 
 		// 1. Apply Prefix Modifier (if any)
 		if preAct != "" {
-			// Bugfix: Recursive regex evaluation must happen BEFORE HasPrefix checks!
-			// Otherwise `trim(%[workspace])` fails because preArg isn't expanded yet.
 			if rxCheckReplacements.MatchString(preArg) {
 				preArg = fixCheckpoint(preArg)
 			}
 
-			if strings.HasPrefix(preAct, "trim(") {
+			switch {
+			case strings.HasPrefix(preAct, "trim("):
 				val = strings.TrimPrefix(val, preArg)
-			} else if strings.HasPrefix(preAct, "sep(") {
+			case strings.HasPrefix(preAct, "sep("):
 				vals = strings.Split(val, preArg)
-			} else {
+			default:
 				n := 1 // Default to 1 if no index is provided
 				if preIdx != "" {
 					if i, e := strconv.Atoi(preIdx); e == nil && i > 0 {
@@ -183,51 +182,58 @@ func fixCheckpoint(s string) string {
 				sufArg = fixCheckpoint(sufArg)
 			}
 
-			if strings.HasPrefix(sufAct, "trim(") {
+			// Using a switch block here is much more idiomatic Go than cascading if/else
+			switch {
+			case strings.HasPrefix(sufAct, "trim("):
 				val = strings.TrimSuffix(val, sufArg)
-			} else if strings.HasPrefix(sufAct, "join(") {
-				val = strings.Join(vals, sufArg) // Note: Operates on original vals slice
-			} else if strings.HasPrefix(sufAct, "len(") {
+
+			case strings.HasPrefix(sufAct, "join("):
+				val = strings.Join(vals, sufArg)
+
+			case strings.HasPrefix(sufAct, "len("):
 				if sufArg == "" {
-					val = fmt.Sprintf("%d", len(val))
+					val = strconv.Itoa(len(val)) // Cleaner than fmt.Sprintf
 				} else {
 					var num int
 					if sufAdd != "" {
-						fmt.Sscanf(sufAdd, "%d", &num) // Safely ignore error, num defaults to 0
+						fmt.Sscanf(sufAdd, "%d", &num)
 					}
-					// Note: Adding +1 logic exactly as you had it
-					val = fmt.Sprintf("%d", strings.Count(val, sufArg)+1+num)
+					val = strconv.Itoa(strings.Count(val, sufArg) + 1 + num)
 				}
-			} else if strings.HasPrefix(sufAct, "each(") {
+			
+			case strings.HasPrefix(sufAct, "each("):
 				var b strings.Builder
-				if len(vals) == 0 && val != "" { vals = strings.Fields(val) }
+				if len(vals) == 0 && val != "" {
+					vals = strings.Fields(val)
+				}
 				for i, s := range vals {
 					if i > 0 { b.WriteString(" ") }
-					// Apply format string to the slice element
 					fmt.Fprintf(&b, sufArg, s)
 				}
 				return b.String()
-			} else if strings.HasPrefix(sufAct, ".(") {
+			
+			case strings.HasPrefix(sufAct, ".("):
 				var b strings.Builder
 				for i, s := range strings.Split(val, ".") {
 					if i > 0 { b.WriteString(" ") }
 					fmt.Fprintf(&b, sufArg, s)
 				}
 				return b.String()
-			} else if strings.HasPrefix(sufAct, "/(") {
+			
+			case strings.HasPrefix(sufAct, "/("):
 				var b strings.Builder
 				for i, s := range strings.Split(val, pathSep) {
 					if i == 0 && s == "" { // Handle root slash
 						fmt.Fprintf(&b, sufArg, "punct", "PROOT", s)
 					} else {
-						if i > 0 {
-							b.WriteString(" ")
-						}
+						if i > 0 { b.WriteString(" ") }
 						fmt.Fprintf(&b, sufArg, "raw", s, s)
 					}
 				}
 				return b.String()
-			} else {
+			
+			default:
+				// Leaving this panic is an excellent structural guard for catching mismatched Regex/Go logic
 				panic(fmt.Sprintf("unknown suffix modifier %q on variable %q", sufAct, midStr))
 			}
 		}
@@ -2518,15 +2524,28 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(shell clang --print-resource-dir)`:`%[toolchain.resourceDir]`,
 		`$(path $(shell clang --print-resource-dir))`:`%[toolchain.resourceDir]`,
 		`$(Xcode.toolchain.resourceDir)`:`%[toolchain.resourceDir]`,
+		`$(dir4 $(Xcode.toolchain.resourceDir))`:`%[toolchain]`,
+		`$(Xcode.toolchain)`:`%[toolchain]`,
+		`$(dir2 $(Xcode.toolchain))`:`/Users/%[user]/Library/Developer`,
+		`$(Xcode.platforms)`:`%[platforms]`,
+		`$(MacOSX.platform)`:`%[platforms]/MacOSX.platform`,
+		`$(MacOSX.sdk)`:`%[platforms]/MacOSX.platform/Developer/SDKs/MacOSX.sdk`,
+		`$(--sysroot)`:`%[platforms]/MacOSX.platform/Developer/SDKs/MacOSX.sdk`,
+		`$(addsuffix /include,$(--sysroot))`:`%[platforms]/MacOSX.platform/Developer/SDKs/MacOSX.sdk/include`,
 	},
 	`testdata/.smart/modules/variant/.target/darwin/arm64`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.arch)`:`arm64`,
+		`&(target.os)`:`darwin`,
 	},
 	`testdata/.smart/modules/variant/bootstrap`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`.`:checkresult{`.`,`{=qualword {1:28} {1:29}}`},
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.os)`:`%[target.os]`,
 		`&(variant)`:`%[target.os]/%[target.arch]/%[variant.tag]`,
 		`$(dir &(variant))`:`%[target.os]/%[target.arch]`,
+		`$(%[variant.tag])`:`/usr`,
 	},
 	`testdata/.smart/modules/app/.base/.autoload.appendix`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
@@ -2547,38 +2566,93 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(workout)`:`%[workout]`,
 		`$({=self app.base})`:`{=self app.base}`,
 		`&(&(target.os)~vendor)`:`%[target.vendor]`,
-		`&(outtmp)`:[]any{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/bootstrap/tmp/app/.base`},
-		`&(rel.chop)`:`**/.smart/modules/ %[modules]/ %[dir:modules]/ %[dir.2:modules]/`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/app/.base`,
+		`&(rel.chop)`:`**/.smart/modules/`,
 		`&(rel.remnant)`:`app/.base`,
-		`&(target.abi)`:[]string{`%[target.abi]`},
-		`&(target.arch)`:[]string{`%[target.arch]`},
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
 		`&(target.os)`:`%[target.os]`,
-		`&(target.out)`:[]any{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/bootstrap`},
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
 		`&(target.release)`:`%[target.release]`,
-		`&(target.sub)`:[]any{`{}`},
-		`&(target.sys)`:[]any{`%[uname.os]%[target.release]`},
-		`&(target.tmp)`:[]any{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/bootstrap/tmp`},
-		`&(target.triple)`:[]any{`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`},
-		`&(target.vendor)`:[]any{`%[target.vendor]`},
+		`&(target.sub)`:`{}`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.vendor)`:`%[target.vendor]`,
 		`&(uname.os)`:`%[uname.os]`,
 		`&(variant)`:`%[target.os]/%[target.arch]/%[variant.tag]`,
 		`&(variant.tag)`:`%[variant.tag]`,
-		`&(wildcard(-missing) *.cpp,*.cxx,*.cc,*.c,*.m,*.mm,*.s,*.S,*.swift)`:[]any{`{}`},
+		`&(wildcard(-missing) *.cpp,*.cxx,*.cc,*.c,*.m,*.mm,*.s,*.S)`:[]any{`{}`},
 	},
 	`testdata/.smart/modules/app`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 	},
 	`testdata/.smart/modules/configure/.base`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/configure/.base`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(rel.chop)`:`**/.smart/modules/`,
+		`&(rel.remnant)`:`configure/.base`,
+		`$(trim-prefix &(rel.chop),&/)`:`configure/.base`,
 	},
 	`testdata/.smart/modules/configure`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.os)`:`%[target.os]`,
+		`$(configure.use.stdlibs)`:`{=yes}`,
+		`$(variant.lib.c++)`:`lib/c++`,
 	},
 	`testdata/.smart/modules/lib/std`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/lib/std`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(rel.chop)`:`**/.smart/modules/`,
+		`&(rel.remnant)`:`lib/std`,
+		`$(trim-prefix &(rel.chop),&/)`:`lib/std`,
 	},
 	`testdata/.smart/modules/lib/c++inc`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/lib/c++inc`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(rel.chop)`:`**/.smart/modules/`,
+		`&(rel.remnant)`:`lib/c++inc`,
+		`$(trim-prefix &(rel.chop),&/)`:`lib/c++inc`,
+		`$(LIBCXX_ENABLE_FSTREAM)`:`{=yes}`,
+		`$(LIBCXX_ENABLE_FILESYSTEM)`:`{=yes}`,
+		`$(LIBCXX_ENABLE_THREADS)`:`{=yes}`,
+		// `$(if $(LIBCXX_ENABLE_THREADS),,"requires {=defcap LIBCXX_ENABLE_THREADS {0:LIBCXX_ENABLE_THREADS} {1:}}")`:`{}`,
 	},
 	`testdata/.smart/modules/lib/c++abi`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
