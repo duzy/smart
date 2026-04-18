@@ -2698,6 +2698,9 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(not $(LIBCXXABI_ENABLE_EXCEPTIONS?))`:`{=true}`,
 		`$(match {=regex linux|android|fuchsia},$(target.os))`:`{}`,
 		`$(and $(LIBCXXABI_ENABLE_THREADS?),$(match {=regex linux|android|fuchsia},$(target.os)))`:`{}`,
+		`$(name)`:`app.base`,
+		`$(type?)`:`{}`,
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`{}`,
 	},
 	`testdata/.smart/modules/lib/c++`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks

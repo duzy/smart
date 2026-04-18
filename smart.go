@@ -8508,6 +8508,37 @@ func unique(ctx Context, values ...Value) []Value {
 	return elems
 }
 
+func reverse_unique0(ctx Context, values ...Value) []Value {
+	if len(values) == 0 {
+		return nil
+	}
+
+	elems := make([]Value, 0, len(values))
+	seen := make(map[uint64][]Value, len(values))
+
+	for j := len(values) - 1; 0 <= j; j-- {
+		v := values[j]
+		n := hash(ctx, v)
+
+		if existing, found := seen[n]; found {
+			isDuplicate := false
+			for _, ev := range existing {
+				if equal(ctx, v, ev) {
+					isDuplicate = true
+					break
+				}
+			}
+			if isDuplicate {
+				continue
+			}
+		}
+
+		seen[n] = append(seen[n], v)
+		elems = append(elems, v)
+	}
+
+	return elems
+}
 func reverse_unique(ctx Context, values ...Value) []Value {
 	if len(values) == 0 {
 		return nil
@@ -8535,6 +8566,12 @@ func reverse_unique(ctx Context, values ...Value) []Value {
 
 		seen[n] = append(seen[n], v)
 		elems = append(elems, v)
+	}
+
+	// ADD THE FIX HERE: 
+	// Reverse the slice in-place to restore original left-to-right order
+	for i, j := 0, len(elems)-1; i < j; i, j = i+1, j-1 {
+		elems[i], elems[j] = elems[j], elems[i]
 	}
 
 	return elems
@@ -11578,6 +11615,9 @@ type project struct {
 	rel  Symbol // path segment relative to the baseWorkDir
 	spec Symbol // relative to search-paths as a specification
 
+	// Explicitly tracks flags defined via use.XXX (e.g. intern("-l"))
+    exports []Symbol
+
 	filemap valcache
 	entries valcache
 
@@ -11596,6 +11636,14 @@ func (p *project) Pos() Pos { return p.pos }
 func (p *project) owner() *project { return p.scope.project }
 func (p *project) String() string { return "{=project "+p.name.String()+"}" }
 func (p *project) stencil(_ Context, stems []string) (Value, []string) { return p, stems }
+
+// Helper to deduplicate exports during parsing
+func (p *project) addExport(sym Symbol) {
+    for _, e := range p.exports {
+        if e == sym { return }
+    }
+    p.exports = append(p.exports, sym)
+}
 
 // shadow builds an isolated valcache for the dynamic payload,
 // shadowing stale results by tracking the evaluated string value.
@@ -19843,7 +19891,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 
 	ids := []Value{}
 	for _, v := range idents {
-		// CRITICAL FIX: Use def_name{_final(ctx)} to prevent evaluating 
+		// Use def_name{_final(ctx)} to prevent evaluating 
 		// the variable to its value when resolving the LHS identifier!
 		forids(ctx, expand(def_name{_final(ctx)}, v), func(v Value, _ []Value) { ids = append(ids, v) })
 	}
@@ -19851,7 +19899,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 	pos, tok := l.p.pos, l.p.tok
 	l.p.next(ctx, true) // the assign token
 
-	// CRITICAL FIX: Parse the RHS exactly once! This prevents parser stream desynchronization 
+	// Parse the RHS exactly once! This prevents parser stream desynchronization 
 	// when multiple variables are assigned, or when `?=` skips assignment for already-defined variables.
 	rhsVals := l.values(ctx)
 
@@ -19897,7 +19945,21 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			var isNew bool
 			// _def must be upgraded to accept sym Symbol instead of a string!
 			d, isNew = l.project._def(ctx, defInvalid, sym) 
-			if isNew { d.pos = pos } // ensure def pos is correct
+			if isNew { d.pos = pos // ensure def pos is correct
+				// Or add this logic inside project._def?
+				if nameStr := sym.String(); strings.HasPrefix(nameStr, "use.") {
+					// Extract the target flag (e.g. "use.-l" -> "-l")
+					var targetName string
+					if m := name_prefix.FindStringSubmatch(nameStr); m != nil {
+						targetName = m[3] // Handles complex prefixes if applicable
+					} else {
+						targetName = strings.TrimPrefix(nameStr, "use.")
+					}
+					
+					// Register it as a public export!
+					l.project.addExport(intern(targetName))
+				}
+			}
 
 			if prev == nil || d == nil {
 				// no derived value
@@ -21956,110 +22018,92 @@ type useopts struct {
 }
 
 type usevar struct {
-    unique bool `uni,uniq,unique`
-    remainder []Value // will be opts for unique
+	unique  bool `uni,uniq,unique`
+	reverse bool `rev,reverse`
+	auto    bool `auto`
+	remainder []Value
 }
 func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
-    var vals []Value
-    for _, u := range u {
-        for _, v := range merge(u.value) {
-            if t, y := v.(*def); y && t != nil {
-                vals = append(vals, merge(t.value)...)
-            } else {
-                vals = append(vals, v)
-            }
-        }
-    }
-    if len(vals) == 0 {
-        return
-    }
-    if d.append(ctx, vals...); uo.unique {
-        d.value = call(ctx, symUnique, uo.remainder, merge(d.value)...)
-    }
-}
-func usefor(ctx Context, user *project, f func(usevar, Value, Value, Symbol)) {
-	if o := user.resolve(ctx, intern("use.*")); o != nil {
-		if d, y := o.(*def); y && d != nil {
-			for _, spec := range merge(d.value) {
-				var op usevar
-				var val = spec
-				if x, y := spec.(*argumented); y {
-					val = x.Value
-					op.remainder = parseOpts(_final(ctx), &op, x.args...)
-				}
-				
-				// NATIVE INTEGER EXTRACTION!
-				sym := __symbol(ctx, val)
-				
-				if sym == symEmpty {
-					if c := user.configure; c != nil {
-						note(ctx, "%v", ts(c.resolve(ctx, intern("use.*")),ctx))
-					}
-					erro(pc(ctx,o), "%v: empty use spec: %v", user, ts(spec,ctx))
-				} else {
-					f(op, spec, val, sym)
-				}
+	var vals []Value
+	for _, u := range u {
+		for _, v := range merge(u.value) {
+			if t, y := v.(*def); y && t != nil {
+				vals = append(vals, merge(t.value)...)
+			} else {
+				vals = append(vals, v)
 			}
 		}
+	}
+	if len(vals) == 0 {
+		return
+	}
+
+	// 1. Standard Append (Always add to the right)
+	d.append(ctx, vals...)
+
+	// 2. Delegate to __unique
+	if uo.unique {
+		var opts = uo.remainder
+		
+		// CRITICAL FIX: Synthesize the `-reverse` flag for the AST macro!
+		if uo.reverse {
+			// We inject the flag so `__unique` parses it and sets `ctx.reverse = true`
+			opts = append(opts, _word(_pos(ctx), intern("-reverse")))
+		}
+		
+		d.value = call(ctx, symUnique, opts, merge(d.value)...)
 	}
 }
 
 func (l ul) usevars(ctx Context, user, usee *project) {
-	usefor(ctx, user, func(op usevar, spec, val Value, sym Symbol) {
-		var prefix string
-		var nameStr = sym.String() // Temporarily extract the string for Regex
-		var targetSym = sym        // Default to the original Symbol
+	for _, targetSym := range usee.exports {
+		targetName := targetSym.String()
+		lookupSym := intern("use." + targetName)
 
-		if m := name_prefix.FindStringSubmatch(nameStr); m != nil {
-			prefix, nameStr = m[1], m[3]
-			targetSym = intern(nameStr) // Lock the clean target name back into a Symbol!
-		}
-
-		// Re-intern the lookup key so the map search is O(1)
-		var lookupSym = intern(prefix + "use." + nameStr)
+		// 1. Fetch the Payload from the library
 		var useDef *def
-		
 		if o := usee.Lookup(lookupSym); o != nil {
 			if d, y := o.(*def); y && d != nil {
 				useDef = d
-			} else {
-				erro(ctx, "use.%s: nil def: %T %v", nameStr, o, o)
 			}
 		}
-		if useDef == nil {
-			return
+		
+		if useDef == nil || isTrivial(useDef.value) {
+			continue
+		}
+
+		// 2. Apply hardcoded properties automatically
+		var op usevar
+		if targetName == "-l" || targetName == "-L" || targetName == "-I" || strings.HasPrefix(targetName, "-no") {
+			op.unique = true 
+		}
+		if targetName == "-l" || targetName == "ldlibs" {
+			op.reverse = true
 		}
 
 		var dd []*def
 
-		// 1. use.XXX += $(use.XXX)
+		// 3. Export downstream: use.XXX += $(use.XXX)
 		{
-			// CRITICAL FIX: bypass `useDef.ident(ctx)` completely! 
-			// useDef inherently has a `name Symbol` field from `knownobject`.
-			d, isNewDef := user._def(ctx, defVoid, useDef.name)
+			d, isNewDef := user._def(ctx, defVoid, lookupSym)
 			if isNewDef || isTrivial(d.value) {
-				dd = append(dd, nonTrivialDefsFromBase(ctx, user, useDef.name)...)
+				dd = append(dd, nonTrivialDefsFromBase(ctx, user, lookupSym)...)
 			}
 			op.apply(closure_with(ctx, usee.scope), d, append(dd, useDef)...)
 		}
 
-		if useDef.value == nil || isTrivial(useDef.value) {
-			return
-		}
-
-		// 2. XXX += $(use.XXX)
+		// 4. Apply locally: XXX += $(use.XXX)
 		{
-			// NATIVE INTEGER ROUTING: Use `targetSym`!
 			d, isNewDef := user._def(ctx, defVoid, targetSym)
 			if isNewDef && false {
 				if dd == nil {
-					dd = append(dd, nonTrivialDefsFromBase(ctx, user, useDef.name)...)
+					dd = append(dd, nonTrivialDefsFromBase(ctx, user, lookupSym)...)
 				}
 				dd = append(dd, nonTrivialDefsFromBase(ctx, user, targetSym)...)
 			}
 			op.apply(closure_with(ctx, user.scope), d, append(dd, useDef)...)
 		}
-	})
+	}
 }
 
 // Ensure the signature matches (which you already correctly anticipated):
@@ -22487,7 +22531,7 @@ func (l ul) closescope(s *scope) {
 
 // project example (base(var=value))
 func (l ul) bases(ctx Context, implicitBase string, params ...Value) {
-    var implicitBases []Value
+	var implicitBases []Value
 
     if true { ctx = closure_with(ctx, l.scope) }
 
@@ -22576,17 +22620,23 @@ paramsloop:
         }
     }
 
-	usefor(ctx, l.project, func(op usevar, _, _ Value, sym Symbol) {
-		var prefix string
-
-		name := sym.String()
-		m := name_prefix.FindStringSubmatch(name)
-		if m != nil { prefix, name = m[1], m[3] }
-
-		s := intern(prefix + "use." + name)
-		d := l.project.def(ctx, defVoid, s)
-		op.apply(closure_with(ctx, l.project.scope), d, nonTrivialDefsFromBase(ctx, l.project, s)...)
-	})
+	// Apply the project's own exports to itself
+	for _, targetSym := range l.project.exports {
+		targetName := targetSym.String()
+		lookupSym := intern("use." + targetName)
+		
+		d := l.project.def(ctx, defVoid, lookupSym)
+		
+		var op usevar
+		if targetName == "-l" || targetName == "-L" || targetName == "-I" || strings.HasPrefix(targetName, "-no") {
+			op.unique = true 
+		}
+		if targetName == "-l" || targetName == "ldlibs" {
+			op.reverse = true
+		}
+		
+		op.apply(closure_with(ctx, l.project.scope), d, nonTrivialDefsFromBase(ctx, l.project, lookupSym)...)
+	}
 	return
 }
 
