@@ -2674,6 +2674,7 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`&(target.abi)`:`%[target.abi]`,
 		`&(target.arch)`:`%[target.arch]`,
 		`&(target.os)`:`%[target.os]`,
+		`$(target.os)`:`%[target.os]`,
 		`&(target.sub)`:`{}`,
 		`&(target.vendor)`:`%[target.vendor]`,
 		`&(target.release)`:`%[target.release]`,
@@ -2692,11 +2693,16 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`&(outlib)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
 		`$(outlib)`:`&(target.out)/lib/&(target.triple)`,
 		`$(LIBCXXABI_ENABLE_EXCEPTIONS?)`:`{}`,
+		`$(LIBCXXABI_ENABLE_THREADS?)`:`{}`,
+		`$(LIBCXXABI_ENABLE_NEW_DELETE_DEFINITIONS?)`:`{}`,
 		`$(not $(LIBCXXABI_ENABLE_EXCEPTIONS?))`:`{=true}`,
+		`$(match {=regex linux|android|fuchsia},$(target.os))`:`{}`,
+		`$(and $(LIBCXXABI_ENABLE_THREADS?),$(match {=regex linux|android|fuchsia},$(target.os)))`:`{}`,
 	},
 	`testdata/.smart/modules/lib/c++`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`&(target.os)`:`%[target.os]`,
+		`$(src.c++)`:`%[workspace]/external/llvm-project/libcxx`,
 	},
 	`testdata/.smart/modules/lib/unwind`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
