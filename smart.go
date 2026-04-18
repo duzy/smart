@@ -1879,6 +1879,8 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		default: 
 			return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
 		}
+	case *defcaps:
+		return prefix(ctx, tx.Value, y)
 	}
 
 	switch ty := y.(type) {
@@ -1939,6 +1941,8 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 			return &compound{elements{res}}
 		default: return &compound{elements{append([]Value{x}, ty.elems...)}}
 		}
+	case *defcaps:
+		return prefix(ctx, x, ty.Value)
 	}
 
 	return &compound{elements{[]Value{x, y}}}
@@ -4647,10 +4651,8 @@ func __symbol(ctx Context, val Value) Symbol {
 	} 
 	
 	// Unbox safety: Ensure unboxing doesn't panic if it returns nil
-	val = unbox(val).(Value)
-	if val == nil {
-		return symEmpty
-	}
+	if val = unbox(val).(Value); val == nil { return symEmpty }
+	if dc, ok := val.(*defcaps); ok { val = dc.Value } // Unbox!
 
 	switch v := val.(type) {
 	case *word: 
@@ -5112,7 +5114,11 @@ func expand(ctx Context, v Value) (res Value) {
 		return ease(ctx, va)
     case *undetermined:
 		return &undetermined{t.token, expand(ctx, t.identifier), expand(ctx, t.value)}
-    case *valbase, *answer, *boolean, *binary, *def, *none, *null, *punct, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *defcaps, *project, *file, self, undef, nil:
+	case *defcaps:
+		// Unbox the defcaps to its embedded base Value (the primary capture string)
+		if false { debug(ctx, "%v", t) }
+		return v//expand(ctx, t.Value)
+    case *valbase, *answer, *boolean, *binary, *def, *none, *null, *punct, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *project, *file, self, undef, nil:
         if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
         return v
     default:
@@ -10479,11 +10485,11 @@ const (
 	symReturn
 	symServeHttp
 	
+	symUnderline     = symUnderscore
 	symWildcardOne   = symAsterisk // *
 	symWildcardChar  = symQues // ?
 	symWildcardAny   = symAsteriskAst // **
 	symWildcardShort = symAsteriskQues // *?
-	symUnderline = symUnderscore
 )
 
 // coreSymbols are symbols don't need to be serialized on compilation.
@@ -17673,19 +17679,40 @@ func (l ul) values(ctx Context) (values []Value) {
 func (l ul) group(ctx Context) *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "group")) }
 
-	ctx = p_group_ctx{aware(ctx,COMMA)}
+	// Query the context to see if we are allowed to parse across lines
+	allowMultiline := truly(ctx, is_directive_ctx{})
 
+	ctx = p_group_ctx{aware(ctx,COMMA)}
+	
 	pos := l.p.pos
 	l.p.expect(ctx, LPAREN)
-	l.p.spaces(ctx)
+	
+	// Conditionally consume leading newlines
+	if allowMultiline {
+		for l.p.tok == SPACE || l.p.tok == LINEND { l.p.next(ctx, true) }
+	} else {
+		l.p.spaces(ctx)
+	}
 
 	var elems, converted = l.values(ctx), false
 	for l.p.tok != RPAREN && l.p.tok != EOF {
-		// if l.p.tok == COMMA { l.p.next(ctx, true) }
+		
+		// Conditionally consume newlines between expressions
+		if allowMultiline && l.p.tok == LINEND {
+			for l.p.tok == LINEND || l.p.tok == SPACE { l.p.next(ctx, true) }
+			continue
+		}
+
 		switch l.p.tok {
-		case BAR, COMMA, SEMICOLON:
+		case BAR, COMMA, SEMICOLON, SELECT_PROG1:
 			elems = append(elems, l.punct(ctx))
-			l.p.spaces(ctx)
+			
+			// Conditionally consume newlines after delimiters
+			if allowMultiline {
+				for l.p.tok == SPACE || l.p.tok == LINEND { l.p.next(ctx, true) }
+			} else {
+				l.p.spaces(ctx)
+			}
 		}
 
 		p := l.p.pos
@@ -19028,10 +19055,10 @@ type defcaps struct {
 }
 
 func (dc *defcaps) String() string {
-	// PERFORMANCE FIX: Use strings.Builder to prevent heap-thrashing
+	// Use strings.Builder to prevent heap-thrashing
 	var b strings.Builder
 	
-	b.WriteString("{=defcap ")
+	b.WriteString("{=defcaps ")
 	if dc.Value != nil {
 		b.WriteString(dc.Value.String())
 	}
@@ -19672,8 +19699,19 @@ func (l ul) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 	// TODO: if c, y := res.(code); y { ... }
 }
 
+type is_directive_ctx struct{}
+type directive_ctx struct { Context }
+func (c directive_ctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case is_directive_ctx: return true
+	}
+	return c.Context.do(ctx, op)
+}
+
 func (l ul) directive(ctx Context) (props []Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "spec")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "directive")) }
+
+	ctx = directive_ctx{ctx}
 
 paramsloop:
 	for l.p.tok != EOF {
@@ -21939,7 +21977,6 @@ func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
         d.value = call(ctx, symUnique, uo.remainder, merge(d.value)...)
     }
 }
-// CRITICAL FIX: The callback signature now strictly accepts `sym Symbol`
 func usefor(ctx Context, user *project, f func(usevar, Value, Value, Symbol)) {
 	if o := user.resolve(ctx, intern("use.*")); o != nil {
 		if d, y := o.(*def); y && d != nil {
