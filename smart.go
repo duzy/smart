@@ -1466,15 +1466,15 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
 	vocabM.RUnlock()
 
 	// 1. Rank comparison (Globs)
-	if metaL.Rank > 0 || metaR.Rank > 0 {
-		if res := cmp_rank(int(metaL.Rank), int(metaR.Rank)); res != cmpEqual {
+	if rL, rR := int(metaL.Rank()), int(metaR.Rank()); rL > 0 || rR > 0 {
+		if res := cmp_rank(rL, rR); res != cmpEqual {
 			return res, metaL.Text, metaR.Text
 		}
 	}
 
 	// 2. Numeric comparison (Ints, Floats, and Mixed)
-	if metaL.Kind > 0 && metaR.Kind > 0 {
-		if metaL.Kind == NumInt && metaR.Kind == NumInt {
+	if kL, kR := metaL.Kind(), metaR.Kind(); kL > 0 && kR > 0 {
+		if kL == NumInt && kR == NumInt {
 			// Fast path: Pure Int64 comparison
 			intL := int64(numbers[metaL.NumIdx])
 			intR := int64(numbers[metaR.NumIdx])
@@ -1483,12 +1483,12 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
 		} else {
 			// Mixed or Pure Float comparison
 			var fL, fR float64
-			if metaL.Kind == NumInt {
+			if kL == NumInt {
 				fL = float64(int64(numbers[metaL.NumIdx]))
 			} else {
 				fL = math.Float64frombits(numbers[metaL.NumIdx])
 			}
-			if metaR.Kind == NumInt {
+			if kR == NumInt {
 				fR = float64(int64(numbers[metaR.NumIdx]))
 			} else {
 				fR = math.Float64frombits(numbers[metaR.NumIdx])
@@ -10409,35 +10409,37 @@ const (
 	NumFlt int8 = 2
 )
 
-// SymMeta is squeezed down to exactly 24 bytes!
-// Fits nearly 3 structs per cache line.
+// SymMeta is precisely 24 bytes. Fits nearly 3 per CPU cache line!
 type SymMeta struct {
 	Text     string // 16 bytes (String header: pointer + length)
-	NumIdx   int32  // 4 bytes (Index into global `symNumbers` pool. -1 if NaN)
-	Rank     int16  // 2 bytes (Pre-calculated globRank (0 = literal, >0 = has *, ?, etc.))
-	Kind     int8   // 1 byte (NumNaN, NumInt, or NumFlt)
-	_        byte   // 1 byte padding
+	NumIdx   int32  // 4 bytes (Index into `numbers` pool. -1 if NaN)
+	Flags    uint8  // 1 byte (Bits for Kind (0-1) and Rank (2-5))
+	// 3 bytes implicit compiler padding
 }
 
+// Inline helper methods for clean access
+func (m SymMeta) Kind() int8 { return int8(m.Flags & 0x03) }
+func (m SymMeta) Rank() int  { return int((m.Flags >> 2) & 0x0F) }
+
 func newSymMeta(s string) SymMeta { // Return by VALUE
-	meta := SymMeta{
-		Text: s,
-		Rank: int16(globRank(s)),
-	}
+	meta, kind := SymMeta{ Text: s, NumIdx: -1 }, int8(NumNaN)
 
 	// Fast boundary check: starts with digit, '-', or '.'
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		// TODO: A better int64/float64 parser is required!
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
-			meta.Kind = NumInt
+			kind = NumInt
 			meta.NumIdx = int32(len(numbers))
 			numbers = append(numbers, uint64(val))
 		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
-			meta.Kind = NumFlt
+			kind = NumFlt
 			meta.NumIdx = int32(len(numbers))
 			numbers = append(numbers, math.Float64bits(val))
 		}
 	}
+
+	meta.Flags = uint8(kind | (int8(globRank(s))<<2))
+
 	return meta
 }
 
@@ -10447,6 +10449,7 @@ var (
 		size := len(coreSymbols)+mapThreshold
 		strs := make([]SymMeta, 0, size)
 		syms := make(map[string]Symbol, size)
+		numbers = make([]uint64, 0, size/20)
 		for i, s := range coreSymbols {
 			syms[s], strs = Symbol(i), append(strs, newSymMeta(s))
 		}
