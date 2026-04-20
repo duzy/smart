@@ -10861,7 +10861,12 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 				`{5:28 {=flag {3:15}}}`,
 				`{5:70 {=flag {3:15}}}`,
 			}},
-			`-foo`,
+			checkresult{`-foo`,[]string{
+				`{8:20 {=flag {7:15:word foo}}}`,
+				`{8:59 {=flag {7:15:word foo}}}`,
+				`{9:28 {=flag {7:15:word foo}}}`,
+				`{9:67 {=flag {7:15:word foo}}}`,
+			}},
 		},
 	},
 	`testdata/value/2/0`: map[string]any{
@@ -13103,26 +13108,763 @@ func check_string(ctx Context, v any) func(*Value, *string) {
 	}
 }
 
+var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
+	`* **`:`smaller`,
+	`* v`:`greater`,
+	`* x`:`greater`,
+	`* y`:`greater`,
+	`* z`:`greater`,
+	`* zz`:`greater`,
+	`** a`:`greater`,
+	`** b`:`greater`,
+	`** foo`:`greater`,
+	`** x`:`greater`,
+	`** y`:`greater`,
+	`- -`:`equal`,
+	`.self .test.10`:`smaller`,
+	`.self .test.11`:`smaller`,
+	`.self .test.12`:`smaller`,
+	`.self .test.13`:`smaller`,
+	`.self .test.14`:`smaller`,
+	`.self .test.15`:`smaller`,
+	`.self .test.1`:`smaller`,
+	`.self .test.2`:`smaller`,
+	`.self .test.3`:`smaller`,
+	`.self .test.4`:`smaller`,
+	`.self .test.6`:`smaller`,
+	`.self .test.7`:`smaller`,
+	`.self .test.8`:`smaller`,
+	`.self t14`:`smaller`,
+	`.self t15`:`smaller`,
+	`.self var.zzz`:`smaller`,
+	`.self var2`:`smaller`,
+	`.self vars`:`smaller`,
+	`.self xyz`:`smaller`,
+	`.test.1 .self`:`greater`,
+	`.test.1 .test.10`:`lprefix`,
+	`.test.1 .test.11`:`lprefix`,
+	`.test.1 .test.12`:`lprefix`,
+	`.test.1 .test.13`:`lprefix`,
+	`.test.1 .test.14`:`lprefix`,
+	`.test.1 .test.15`:`lprefix`,
+	`.test.1 .test.2`:`smaller`,
+	`.test.1 .test.3`:`smaller`,
+	`.test.1 .test.4`:`smaller`,
+	`.test.1 .test.5`:`smaller`,
+	`.test.1 .test.6`:`smaller`,
+	`.test.1 .test.7`:`smaller`,
+	`.test.1 t14`:`smaller`,
+	`.test.1 t15`:`smaller`,
+	`.test.1 t8`:`smaller`,
+	`.test.1 var.xxx`:`smaller`,
+	`.test.1 var.zzz`:`smaller`,
+	`.test.10 .self`:`greater`,
+	`.test.10 .test.11`:`smaller`,
+	`.test.10 .test.12`:`smaller`,
+	`.test.10 .test.13`:`smaller`,
+	`.test.10 .test.14`:`smaller`,
+	`.test.10 .test.15`:`smaller`,
+	`.test.10 .test.1`:`rprefix`,
+	`.test.10 .test.2`:`smaller`,
+	`.test.10 .test.3`:`smaller`,
+	`.test.10 .test.4`:`smaller`,
+	`.test.10 .test.6`:`smaller`,
+	`.test.10 .test.7`:`smaller`,
+	`.test.10 t14`:`smaller`,
+	`.test.10 t15`:`smaller`,
+	`.test.11 .test.12`:`smaller`,
+	`.test.11 .test.13`:`smaller`,
+	`.test.11 .test.14`:`smaller`,
+	`.test.11 .test.15`:`smaller`,
+	`.test.11 .test.1`:`rprefix`,
+	`.test.11 .test.2`:`smaller`,
+	`.test.11 .test.3`:`smaller`,
+	`.test.11 .test.4`:`smaller`,
+	`.test.11 .test.5`:`smaller`,
+	`.test.11 .test.6`:`smaller`,
+	`.test.11 .test.7`:`smaller`,
+	`.test.11 t14`:`smaller`,
+	`.test.11 t15`:`smaller`,
+	`.test.12 .test.11`:`greater`,
+	`.test.12 .test.13`:`smaller`,
+	`.test.12 .test.14`:`smaller`,
+	`.test.12 .test.15`:`smaller`,
+	`.test.12 .test.1`:`rprefix`,
+	`.test.12 .test.2`:`smaller`,
+	`.test.12 .test.3`:`smaller`,
+	`.test.12 .test.4`:`smaller`,
+	`.test.12 .test.6`:`smaller`,
+	`.test.12 .test.7`:`smaller`,
+	`.test.12 t14`:`smaller`,
+	`.test.12 t15`:`smaller`,
+	`.test.13 .test.11`:`greater`,
+	`.test.13 .test.12`:`greater`,
+	`.test.13 .test.14`:`smaller`,
+	`.test.13 .test.15`:`smaller`,
+	`.test.13 .test.2`:`smaller`,
+	`.test.13 .test.3`:`smaller`,
+	`.test.13 .test.4`:`smaller`,
+	`.test.13 .test.6`:`smaller`,
+	`.test.13 .test.7`:`smaller`,
+	`.test.13 t14`:`smaller`,
+	`.test.13 t15`:`smaller`,
+	`.test.14 .test.11`:`greater`,
+	`.test.14 .test.12`:`greater`,
+	`.test.14 .test.13`:`greater`,
+	`.test.14 .test.15`:`smaller`,
+	`.test.14 .test.2`:`smaller`,
+	`.test.14 .test.3`:`smaller`,
+	`.test.14 .test.4`:`smaller`,
+	`.test.14 .test.5`:`smaller`,
+	`.test.14 .test.6`:`smaller`,
+	`.test.14 .test.7`:`smaller`,
+	`.test.14 t14`:`smaller`,
+	`.test.14 t15`:`smaller`,
+	`.test.15 .test.12`:`greater`,
+	`.test.15 .test.13`:`greater`,
+	`.test.15 .test.14`:`greater`,
+	`.test.15 .test.1`:`rprefix`,
+	`.test.15 .test.2`:`smaller`,
+	`.test.15 .test.4`:`smaller`,
+	`.test.15 .test.5`:`smaller`,
+	`.test.15 .test.6`:`smaller`,
+	`.test.15 .test.7`:`smaller`,
+	`.test.15 .test.9`:`smaller`,
+	`.test.15 t14`:`smaller`,
+	`.test.15 t15`:`smaller`,
+	`.test.15 var.xxx`:`smaller`,
+	`.test.15 var.yyy`:`smaller`,
+	`.test.2 .test.13`:`greater`,
+	`.test.2 .test.15`:`greater`,
+	`.test.2 .test.4`:`smaller`,
+	`.test.2 .test.5`:`smaller`,
+	`.test.2 .test.6`:`smaller`,
+	`.test.2 .test.7`:`smaller`,
+	`.test.2 .test.9`:`smaller`,
+	`.test.2 t11`:`smaller`,
+	`.test.2 t14`:`smaller`,
+	`.test.2 t15`:`smaller`,
+	`.test.2 t7`:`smaller`,
+	`.test.2 var.yyy`:`smaller`,
+	`.test.3 .test.13`:`greater`,
+	`.test.3 .test.15`:`greater`,
+	`.test.3 .test.2`:`greater`,
+	`.test.3 .test.4`:`smaller`,
+	`.test.3 .test.5`:`smaller`,
+	`.test.3 .test.6`:`smaller`,
+	`.test.3 .test.7`:`smaller`,
+	`.test.3 .test.8`:`smaller`,
+	`.test.3 .test.9`:`smaller`,
+	`.test.3 t10`:`smaller`,
+	`.test.3 t11`:`smaller`,
+	`.test.3 t14`:`smaller`,
+	`.test.3 t15`:`smaller`,
+	`.test.3 t1`:`smaller`,
+	`.test.3 t7`:`smaller`,
+	`.test.3 var.yyy`:`smaller`,
+	`.test.4 .test.13`:`greater`,
+	`.test.4 .test.15`:`greater`,
+	`.test.4 .test.2`:`greater`,
+	`.test.4 .test.3`:`greater`,
+	`.test.4 .test.5`:`smaller`,
+	`.test.4 .test.6`:`smaller`,
+	`.test.4 .test.7`:`smaller`,
+	`.test.4 .test.8`:`smaller`,
+	`.test.4 .test.9`:`smaller`,
+	`.test.4 .usee`:`smaller`,
+	`.test.4 t10`:`smaller`,
+	`.test.4 t11`:`smaller`,
+	`.test.4 t14`:`smaller`,
+	`.test.4 t15`:`smaller`,
+	`.test.4 t1`:`smaller`,
+	`.test.4 t7`:`smaller`,
+	`.test.4 var.yyy`:`smaller`,
+	`.test.5 .test.13`:`greater`,
+	`.test.5 .test.15`:`greater`,
+	`.test.5 .test.2`:`greater`,
+	`.test.5 .test.4`:`greater`,
+	`.test.5 .test.6`:`smaller`,
+	`.test.5 .test.7`:`smaller`,
+	`.test.5 .test.9`:`smaller`,
+	`.test.5 all`:`smaller`,
+	`.test.5 t10`:`smaller`,
+	`.test.5 t11`:`smaller`,
+	`.test.5 t14`:`smaller`,
+	`.test.5 t15`:`smaller`,
+	`.test.5 t1`:`smaller`,
+	`.test.5 t7`:`smaller`,
+	`.test.5 var.yyy`:`smaller`,
+	`.test.6 .test.13`:`greater`,
+	`.test.6 .test.15`:`greater`,
+	`.test.6 .test.2`:`greater`,
+	`.test.6 .test.4`:`greater`,
+	`.test.6 .test.5`:`greater`,
+	`.test.6 .test.7`:`smaller`,
+	`.test.6 .test.8`:`smaller`,
+	`.test.6 .test.9`:`smaller`,
+	`.test.6 all`:`smaller`,
+	`.test.6 t10`:`smaller`,
+	`.test.6 t11`:`smaller`,
+	`.test.6 t14`:`smaller`,
+	`.test.6 t15`:`smaller`,
+	`.test.6 t1`:`smaller`,
+	`.test.6 t7`:`smaller`,
+	`.test.6 var.yyy`:`smaller`,
+	`.test.7 .test.15`:`greater`,
+	`.test.7 .test.2`:`greater`,
+	`.test.7 .test.4`:`greater`,
+	`.test.7 .test.6`:`greater`,
+	`.test.7 .test.8`:`smaller`,
+	`.test.7 .test.9`:`smaller`,
+	`.test.7 .usee`:`smaller`,
+	`.test.7 all`:`smaller`,
+	`.test.7 t10`:`smaller`,
+	`.test.7 t11`:`smaller`,
+	`.test.7 t12`:`smaller`,
+	`.test.7 t13`:`smaller`,
+	`.test.7 t14`:`smaller`,
+	`.test.7 t15`:`smaller`,
+	`.test.7 t1`:`smaller`,
+	`.test.7 t7`:`smaller`,
+	`.test.7 t8`:`smaller`,
+	`.test.7 var.yyy`:`smaller`,
+	`.test.8 .test.15`:`greater`,
+	`.test.8 .test.2`:`greater`,
+	`.test.8 .test.4`:`greater`,
+	`.test.8 .test.6`:`greater`,
+	`.test.8 .test.7`:`greater`,
+	`.test.8 .test.9`:`smaller`,
+	`.test.8 .usee`:`smaller`,
+	`.test.8 all`:`smaller`,
+	`.test.8 t10`:`smaller`,
+	`.test.8 t11`:`smaller`,
+	`.test.8 t13`:`smaller`,
+	`.test.8 t14`:`smaller`,
+	`.test.8 t15`:`smaller`,
+	`.test.8 t1`:`smaller`,
+	`.test.8 t7`:`smaller`,
+	`.test.8 var.yyy`:`smaller`,
+	`.test.9 .test.15`:`greater`,
+	`.test.9 .test.2`:`greater`,
+	`.test.9 .test.4`:`greater`,
+	`.test.9 .test.6`:`greater`,
+	`.test.9 .test.7`:`greater`,
+	`.test.9 .test.8`:`greater`,
+	`.test.9 .usee`:`smaller`,
+	`.test.9 all`:`smaller`,
+	`.test.9 t10`:`smaller`,
+	`.test.9 t11`:`smaller`,
+	`.test.9 t14`:`smaller`,
+	`.test.9 t15`:`smaller`,
+	`.test.9 t1`:`smaller`,
+	`.test.9 t7`:`smaller`,
+	`.test.9 var.yyy`:`smaller`,
+	`.usee .self`:`greater`,
+	`.usee .test.15`:`greater`,
+	`.usee .test.2`:`greater`,
+	`.usee .test.4`:`greater`,
+	`.usee .test.6`:`greater`,
+	`.usee .test.7`:`greater`,
+	`.usee .test.9`:`greater`,
+	`.usee all`:`smaller`,
+	`.usee t10`:`smaller`,
+	`.usee t11`:`smaller`,
+	`.usee t13`:`smaller`,
+	`.usee t14`:`smaller`,
+	`.usee t15`:`smaller`,
+	`.usee t1`:`smaller`,
+	`.usee t7`:`smaller`,
+	`.usee var.yyy`:`smaller`,
+	`.usee var.zzz`:`smaller`,
+	`.usee var2`:`smaller`,
+	`.usee vars`:`smaller`,
+	`.usee xyz`:`smaller`,
+	`1 ?`:`smaller`,
+	`2 ?`:`smaller`,
+	`? *`:`smaller`,
+	`? x`:`greater`,
+	`? z`:`greater`,
+	`a d`:`smaller`,
+	`all .test.15`:`greater`,
+	`all .test.2`:`greater`,
+	`all .test.4`:`greater`,
+	`all .test.6`:`greater`,
+	`all .test.7`:`greater`,
+	`all .test.9`:`greater`,
+	`all .usee`:`greater`,
+	`all t10`:`smaller`,
+	`all t11`:`smaller`,
+	`all t13`:`smaller`,
+	`all t14`:`smaller`,
+	`all t15`:`smaller`,
+	`all t1`:`smaller`,
+	`all t7`:`smaller`,
+	`all var.yyy`:`smaller`,
+	`ar *`:`smaller`,
+	`b a`:`greater`,
+	`b d`:`smaller`,
+	`bar **`:`smaller`,
+	`bar /`:`greater`,
+	`bar b`:`rprefix`,
+	`bar ba`:`rprefix`,
+	`c d`:`smaller`,
+	`conf3 bar`:`greater`,
+	`conf3 foo`:`smaller`,
+	`fo f`:`rprefix`,
+	`foo f`:`rprefix`,
+	`foo foo`:`equal`,
+	`foo foobar`:`lprefix`,
+	`foobar **`:`smaller`,
+	`foobar foo`:`rprefix`,
+	`main *`:`smaller`,
+	`o *?`:`smaller`,
+	`oo *?`:`smaller`,
+	`r *`:`smaller`,
+	`r ?`:`smaller`,
+	`t1 .test.15`:`greater`,
+	`t1 .test.2`:`greater`,
+	`t1 .test.4`:`greater`,
+	`t1 .test.6`:`greater`,
+	`t1 .test.7`:`greater`,
+	`t1 .test.8`:`greater`,
+	`t1 .test.9`:`greater`,
+	`t1 all`:`greater`,
+	`t1 t10`:`lprefix`,
+	`t1 t11`:`lprefix`,
+	`t1 t12`:`lprefix`,
+	`t1 t13`:`lprefix`,
+	`t1 t14`:`lprefix`,
+	`t1 t15`:`lprefix`,
+	`t1 t7`:`smaller`,
+	`t1 t9`:`smaller`,
+	`t1 var.yyy`:`smaller`,
+	`t10 .test.15`:`greater`,
+	`t10 .test.2`:`greater`,
+	`t10 .test.4`:`greater`,
+	`t10 .test.6`:`greater`,
+	`t10 .test.7`:`greater`,
+	`t10 .test.9`:`greater`,
+	`t10 .usee`:`greater`,
+	`t10 all`:`greater`,
+	`t10 t11`:`smaller`,
+	`t10 t12`:`smaller`,
+	`t10 t13`:`smaller`,
+	`t10 t14`:`smaller`,
+	`t10 t15`:`smaller`,
+	`t10 t1`:`rprefix`,
+	`t10 t7`:`smaller`,
+	`t10 var.yyy`:`smaller`,
+	`t11 .test.15`:`greater`,
+	`t11 .test.2`:`greater`,
+	`t11 .test.4`:`greater`,
+	`t11 .test.6`:`greater`,
+	`t11 .test.7`:`greater`,
+	`t11 .test.9`:`greater`,
+	`t11 all`:`greater`,
+	`t11 t10`:`greater`,
+	`t11 t12`:`smaller`,
+	`t11 t13`:`smaller`,
+	`t11 t14`:`smaller`,
+	`t11 t15`:`smaller`,
+	`t11 t1`:`rprefix`,
+	`t11 t5`:`smaller`,
+	`t11 t7`:`smaller`,
+	`t11 t9`:`smaller`,
+	`t11 var.yyy`:`smaller`,
+	`t12 .test.15`:`greater`,
+	`t12 .test.2`:`greater`,
+	`t12 .test.4`:`greater`,
+	`t12 .test.6`:`greater`,
+	`t12 .test.7`:`greater`,
+	`t12 .test.9`:`greater`,
+	`t12 all`:`greater`,
+	`t12 t10`:`greater`,
+	`t12 t11`:`greater`,
+	`t12 t13`:`smaller`,
+	`t12 t14`:`smaller`,
+	`t12 t15`:`smaller`,
+	`t12 t1`:`rprefix`,
+	`t12 t2`:`smaller`,
+	`t12 t3`:`smaller`,
+	`t12 t4`:`smaller`,
+	`t12 t5`:`smaller`,
+	`t12 t6`:`smaller`,
+	`t12 t7`:`smaller`,
+	`t12 var.yyy`:`smaller`,
+	`t13 .test.15`:`greater`,
+	`t13 .test.2`:`greater`,
+	`t13 .test.4`:`greater`,
+	`t13 .test.6`:`greater`,
+	`t13 .test.7`:`greater`,
+	`t13 .test.9`:`greater`,
+	`t13 t10`:`greater`,
+	`t13 t11`:`greater`,
+	`t13 t12`:`greater`,
+	`t13 t14`:`smaller`,
+	`t13 t15`:`smaller`,
+	`t13 t2`:`smaller`,
+	`t13 t3`:`smaller`,
+	`t13 t4`:`smaller`,
+	`t13 t5`:`smaller`,
+	`t13 t7`:`smaller`,
+	`t13 var.yyy`:`smaller`,
+	`t14 .test.15`:`greater`,
+	`t14 .test.2`:`greater`,
+	`t14 .test.4`:`greater`,
+	`t14 .test.7`:`greater`,
+	`t14 .test.9`:`greater`,
+	`t14 t10`:`greater`,
+	`t14 t11`:`greater`,
+	`t14 t12`:`greater`,
+	`t14 t13`:`greater`,
+	`t14 t15`:`smaller`,
+	`t14 t2`:`smaller`,
+	`t14 t3`:`smaller`,
+	`t14 t4`:`smaller`,
+	`t14 t5`:`smaller`,
+	`t14 t7`:`smaller`,
+	`t14 var.yyy`:`smaller`,
+	`t15 .test.15`:`greater`,
+	`t15 .test.2`:`greater`,
+	`t15 .test.7`:`greater`,
+	`t15 .test.9`:`greater`,
+	`t15 all`:`greater`,
+	`t15 t11`:`greater`,
+	`t15 t14`:`greater`,
+	`t15 t2`:`smaller`,
+	`t15 t3`:`smaller`,
+	`t15 t4`:`smaller`,
+	`t15 t5`:`smaller`,
+	`t15 t6`:`smaller`,
+	`t15 t7`:`smaller`,
+	`t15 var.xxx`:`smaller`,
+	`t15 var.yyy`:`smaller`,
+	`t15 xyz`:`smaller`,
+	`t2 .test.15`:`greater`,
+	`t2 .test.2`:`greater`,
+	`t2 .test.7`:`greater`,
+	`t2 .test.9`:`greater`,
+	`t2 t11`:`greater`,
+	`t2 t14`:`greater`,
+	`t2 t15`:`greater`,
+	`t2 t3`:`smaller`,
+	`t2 t4`:`smaller`,
+	`t2 t5`:`smaller`,
+	`t2 t6`:`smaller`,
+	`t2 t7`:`smaller`,
+	`t2 t8`:`smaller`,
+	`t2 t9`:`smaller`,
+	`t2 var.yyy`:`smaller`,
+	`t3 .test.15`:`greater`,
+	`t3 .test.2`:`greater`,
+	`t3 .test.7`:`greater`,
+	`t3 .test.9`:`greater`,
+	`t3 t11`:`greater`,
+	`t3 t14`:`greater`,
+	`t3 t15`:`greater`,
+	`t3 t2`:`greater`,
+	`t3 t4`:`smaller`,
+	`t3 t5`:`smaller`,
+	`t3 t6`:`smaller`,
+	`t3 t7`:`smaller`,
+	`t3 t8`:`smaller`,
+	`t3 t9`:`smaller`,
+	`t3 var.xxx`:`smaller`,
+	`t3 var.yyy`:`smaller`,
+	`t4 .test.15`:`greater`,
+	`t4 .test.2`:`greater`,
+	`t4 .test.7`:`greater`,
+	`t4 .test.9`:`greater`,
+	`t4 t11`:`greater`,
+	`t4 t14`:`greater`,
+	`t4 t15`:`greater`,
+	`t4 t2`:`greater`,
+	`t4 t3`:`greater`,
+	`t4 t5`:`smaller`,
+	`t4 t6`:`smaller`,
+	`t4 t7`:`smaller`,
+	`t4 t8`:`smaller`,
+	`t4 t9`:`smaller`,
+	`t4 var.xxx`:`smaller`,
+	`t4 var.yyy`:`smaller`,
+	`t5 .test.15`:`greater`,
+	`t5 .test.2`:`greater`,
+	`t5 .test.7`:`greater`,
+	`t5 .test.9`:`greater`,
+	`t5 t11`:`greater`,
+	`t5 t14`:`greater`,
+	`t5 t15`:`greater`,
+	`t5 t2`:`greater`,
+	`t5 t4`:`greater`,
+	`t5 t6`:`smaller`,
+	`t5 t7`:`smaller`,
+	`t5 t8`:`smaller`,
+	`t5 t9`:`smaller`,
+	`t5 var.yyy`:`smaller`,
+	`t6 .test.15`:`greater`,
+	`t6 .test.2`:`greater`,
+	`t6 .test.7`:`greater`,
+	`t6 .test.9`:`greater`,
+	`t6 t11`:`greater`,
+	`t6 t14`:`greater`,
+	`t6 t15`:`greater`,
+	`t6 t2`:`greater`,
+	`t6 t5`:`greater`,
+	`t6 t7`:`smaller`,
+	`t6 t8`:`smaller`,
+	`t6 t9`:`smaller`,
+	`t6 var.yyy`:`smaller`,
+	`t7 .test.15`:`greater`,
+	`t7 .test.2`:`greater`,
+	`t7 .test.7`:`greater`,
+	`t7 .test.9`:`greater`,
+	`t7 t11`:`greater`,
+	`t7 t14`:`greater`,
+	`t7 t15`:`greater`,
+	`t7 t6`:`greater`,
+	`t7 t8`:`smaller`,
+	`t7 t9`:`smaller`,
+	`t7 var.xxx`:`smaller`,
+	`t7 var.yyy`:`smaller`,
+	`t8 .test.15`:`greater`,
+	`t8 .test.2`:`greater`,
+	`t8 .test.7`:`greater`,
+	`t8 .test.9`:`greater`,
+	`t8 t11`:`greater`,
+	`t8 t14`:`greater`,
+	`t8 t15`:`greater`,
+	`t8 t7`:`greater`,
+	`t8 t9`:`smaller`,
+	`t8 var.xxx`:`smaller`,
+	`t8 var.yyy`:`smaller`,
+	`t8 var.zzz`:`smaller`,
+	`t8 var2`:`smaller`,
+	`t8 vars`:`smaller`,
+	`t8 xyz`:`smaller`,
+	`t9 .test.15`:`greater`,
+	`t9 .test.2`:`greater`,
+	`t9 .test.7`:`greater`,
+	`t9 .test.9`:`greater`,
+	`t9 t11`:`greater`,
+	`t9 t14`:`greater`,
+	`t9 t15`:`greater`,
+	`t9 t7`:`greater`,
+	`t9 t8`:`greater`,
+	`t9 var.xxx`:`smaller`,
+	`t9 var.yyy`:`smaller`,
+	`t9 var.zzz`:`smaller`,
+	`t9 var2`:`smaller`,
+	`t9 vars`:`smaller`,
+	`t9 xyz`:`smaller`,
+	`v *`:`smaller`,
+	`v1 v`:`rprefix`,
+	`v1y *`:`smaller`,
+	`v2 v`:`rprefix`,
+	`var.xxx .test.15`:`greater`,
+	`var.xxx .test.2`:`greater`,
+	`var.xxx .test.7`:`greater`,
+	`var.xxx .test.9`:`greater`,
+	`var.xxx t11`:`greater`,
+	`var.xxx t14`:`greater`,
+	`var.xxx t15`:`greater`,
+	`var.xxx t7`:`greater`,
+	`var.xxx t9`:`greater`,
+	`var.xxx var.yyy`:`smaller`,
+	`var.xxx var.zzz`:`smaller`,
+	`var.xxx var2`:`smaller`,
+	`var.xxx vars`:`smaller`,
+	`var.xxx xyz`:`smaller`,
+	`var.yyy .test.15`:`greater`,
+	`var.yyy .test.2`:`greater`,
+	`var.yyy .test.7`:`greater`,
+	`var.yyy t11`:`greater`,
+	`var.yyy t14`:`greater`,
+	`var.yyy t15`:`greater`,
+	`var.yyy t2`:`greater`,
+	`var.yyy t7`:`greater`,
+	`var.yyy t8`:`greater`,
+	`var.yyy t9`:`greater`,
+	`var.yyy var.xxx`:`greater`,
+	`var.yyy var.zzz`:`smaller`,
+	`var.yyy var2`:`smaller`,
+	`var.yyy vars`:`smaller`,
+	`var.yyy xyz`:`smaller`,
+	`var.zzz .self`:`greater`,
+	`var.zzz .test.15`:`greater`,
+	`var.zzz .test.2`:`greater`,
+	`var.zzz .test.7`:`greater`,
+	`var.zzz .usee`:`greater`,
+	`var.zzz t11`:`greater`,
+	`var.zzz t14`:`greater`,
+	`var.zzz t15`:`greater`,
+	`var.zzz t7`:`greater`,
+	`var.zzz t9`:`greater`,
+	`var.zzz var.xxx`:`greater`,
+	`var.zzz var.yyy`:`greater`,
+	`var.zzz var2`:`smaller`,
+	`var.zzz vars`:`smaller`,
+	`var.zzz xyz`:`smaller`,
+	`var2 .test.15`:`greater`,
+	`var2 .test.2`:`greater`,
+	`var2 .test.7`:`greater`,
+	`var2 t11`:`greater`,
+	`var2 t14`:`greater`,
+	`var2 t15`:`greater`,
+	`var2 t7`:`greater`,
+	`var2 var.yyy`:`greater`,
+	`var2 var.zzz`:`greater`,
+	`var2 vars`:`smaller`,
+	`var2 xyz`:`smaller`,
+	`vars .test.15`:`greater`,
+	`vars .test.2`:`greater`,
+	`vars .test.7`:`greater`,
+	`vars t11`:`greater`,
+	`vars t14`:`greater`,
+	`vars t15`:`greater`,
+	`vars t7`:`greater`,
+	`vars var.yyy`:`greater`,
+	`vars var.zzz`:`greater`,
+	`vars var2`:`greater`,
+	`vars xyz`:`smaller`,
+	`x a`:`greater`,
+	`x b`:`greater`,
+	`x c`:`greater`,
+	`xv x`:`rprefix`,
+	`xv1y x`:`rprefix`,
+	`xxx yyy`:`smaller`,
+	`xxx zzz`:`smaller`,
+	`xyz .test.15`:`greater`,
+	`xyz .test.2`:`greater`,
+	`xyz .test.7`:`greater`,
+	`xyz .usee`:`greater`,
+	`xyz t11`:`greater`,
+	`xyz t14`:`greater`,
+	`xyz t15`:`greater`,
+	`xyz t7`:`greater`,
+	`xyz t8`:`greater`,
+	`xyz var.yyy`:`greater`,
+	`xyz var2`:`greater`,
+	`xyz vars`:`greater`,
+	`yyy xxx`:`greater`,
+	`yyy zzz`:`smaller`,
+	`z zz`:`lprefix`,
+	`zzz yyy`:`greater`,
+})
+var has_new_cmp_symbol int
+var checked_cmp_symbol = make(map[string]struct{}, len(checkpoints_cmp_symbols))
+func check_cmp_symbol(ctx Context, l, r Symbol) func(*cmpres) {
+	var k = sf("%v %v", l, r)
+	if _, ok := checked_cmp_symbol[k]; ok { return func(*cmpres){} }
+	return func(result *cmpres) { checked_cmp_symbol[k] = struct{}{}
+		var res = (*result).String()
+		if v := checkpoints_cmp_symbol[k]; v == nil { has_new_cmp_symbol += 1
+			if true  { prompt(ctx, "	`%v`:`%v`,\n", k, res); flush(ctx) } else
+			if false { debug(pc(pc(ctx,r),l),
+				_f("`%v`:`%v`,", k, res),
+				_f("cmp: <%d|'%v'>, <%d|'%v'>", l, l, r, r),
+				callstack{stop:"smart.runcase"}, trace{}) }
+		} else if v != res {
+			debug(pc(pc(ctx,r),l),
+				_f("`%s`", k),
+				_f("got: %v", res),
+				_f("!= : %v", v),
+				_f("cmp: <%d|'%v'>, <%d|'%v'>", l, l, r, r),
+				callstack{stop:"smart.runcase"}, trace{})
+		}
+	}
+}
+
+var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
+	`[* . h] [** . h]`:`smaller`,
+	`[** . h] [** . h]`:`equal`,
+	`[** . h] [foo / * . h]`:`greater`,
+	`[** . h] [foo / bar / v ? . h]`:`greater`,
+	`[** . h] [foo / bar / zz / x . h]`:`greater`,
+	`[** . h] [foo ? ? ? / x . h]`:`greater`,
+	`[- foo bar] [- foobar]`:`equal`,
+	`[- foobar] [- foo bar]`:`equal`,
+	`[- foobar] [- foobar]`:`equal`,
+	`[-] [-]`:`equal`,
+	`[1 . h] [? . h]`:`smaller`,
+	`[2 . h] [? . h]`:`smaller`,
+	`[? / ? . h] [z / x . h]`:`greater`,
+	`[a] [a]`:`equal`,
+	`[ar / v1 . h] [* / v * . h]`:`smaller`,
+	`[ar / v2 . h] [* / v * . h]`:`smaller`,
+	`[bar] [bar]`:`equal`,
+	`[conf3] [bar]`:`greater`,
+	`[conf3] [foo]`:`smaller`,
+	`[fo ? / ** / x . h] [f *? / x . h]`:`smaller`,
+	`[foo / * . h] [foo / * . h]`:`equal`,
+	`[foo / ** / x . h] [f *? / x . h]`:`smaller`,
+	`[foo / b ? r / v ? . h] [foo / b * / v * . h]`:`smaller`,
+	`[foo / bar / * . h] [foo / bar / v ? . h]`:`greater`,
+	`[foo / bar / * . hh] [foo / ** . hh]`:`smaller`,
+	`[foo / bar / * / * . h] [foo / bar / zz / x . h]`:`greater`,
+	`[foo / bar / v1 . h] [foo / b * / v * . h]`:`smaller`,
+	`[foo / bar / v1 . h] [foo / ba * / v ? . h]`:`smaller`,
+	`[foo / bar / v1 . h] [foo / bar / v ? . h]`:`smaller`,
+	`[foo / bar / v2 . h] [foo / b * / v * . h]`:`smaller`,
+	`[foo / bar / v2 . h] [foo / ba * / v ? . h]`:`smaller`,
+	`[foo / bar / v2 . h] [foo / bar / v ? . h]`:`smaller`,
+	`[foo / bar / xyz ? ? ? . txt] [foo / ba ? / xyz * . txt]`:`smaller`,
+	`[foo / bar / z ? / ? . h] [foo / bar / zz / x . h]`:`greater`,
+	`[foo / bar / zz / ? . h] [foo / bar / zz / x . h]`:`greater`,
+	`[foo / xv * y . h] [foo / x * y . h]`:`smaller`,
+	`[foo / xv1y . h] [foo / x * y . h]`:`smaller`,
+	`[foo] [foo]`:`equal`,
+	`[foobar / config / * . def . am] [** . def . am]`:`smaller`,
+	`[o ? / ** / x . h] [*? / x . h]`:`smaller`,
+	`[oo / ** / x . h] [*? / x . h]`:`smaller`,
+	`[r / v1 . h] [* / v ? . h]`:`smaller`,
+	`[r / v2 . h] [* / v ? . h]`:`smaller`,
+	`[r / xyz ? ? ? . txt] [? / xyz * . txt]`:`smaller`,
+	`[v * y . h] [* y . h]`:`smaller`,
+	`[v1y . h] [* y . h]`:`smaller`,
+	`[x   x q   x p   x] [x   x q   x p   x]`:`equal`,
+	`[x] []`:`rprefix`,
+	`[x] [a]`:`greater`,
+	`[x] [b]`:`greater`,
+	`[x] [c]`:`greater`,
+	`[b] [a]`:`greater`,
+	`[b] [b]`:`equal`,
+	`[yyy] [xxx]`:`greater`,
+	`[zzz] [yyy]`:`greater`,
+	`[vars] [var.zzz]`:`greater`,
+	`[var2] [vars]`:`smaller`,
+	`[var2] [var.zzz]`:`greater`,
+	`[.self] [vars]`:`smaller`,
+	`[.self] [var2]`:`smaller`,
+	`[.self] [var.zzz]`:`smaller`,
+	`[.usee] [vars]`:`smaller`,
+	`[.usee] [var2]`:`smaller`,
+	`[.usee] [var.zzz]`:`smaller`,
+	`[.usee] [.self]`:`greater`,
+})
+var checked_cmp_symbols = make(map[string]struct{}, len(checkpoints_cmp_symbols))
+func check_cmp_symbols(ctx Context, l, r []Symbol) func(*cmpres) {
+	var k = sf("%v %v", l, r)
+	if _, ok := checked_cmp_symbols[k]; ok { return func(*cmpres){} }
+	return func(result *cmpres) { checked_cmp_symbols[k] = struct{}{}
+		var res = (*result).String()
+		if v := checkpoints_cmp_symbols[k]; v == nil {
+			if has_new_cmp_symbol>0 {/* DOES NOTHING TO DISPLAY ONLY cmp_symbol checkpoints */} else 
+			if true  { prompt(ctx, "	`%v`:`%v`,\n", k, res); flush(ctx) } else
+			if false { debug(pc(pc(ctx,r),l),
+				_f("`%v`:`%v`,", k, res),
+				_f("cmp: %v, %v", l, r),
+				callstack{stop:"smart.runcase"}, trace{}) }
+		} else if v != res {
+			debug(pc(pc(ctx,r),l),
+				_f("`%s`", k),
+				_f("got: %v", res),
+				_f("!= : %v", v),
+				callstack{stop:"smart.runcase"}, trace{})
+		}
+	}
+}
+
 var checkpoints_cmp = fixCheckpoints1(map[string]any{
-	`t14 xyz`:`smaller`, //cmp
-	`.usee .test.10`:`greater`, //cmp
-	`.test.9 .test.10`:`greater`, //cmp
-	`.test.7 .test.10`:`greater`, //cmp
-	`all .test.10`:`greater`, //cmp
-	`.test.4 .test.10`:`greater`, //cmp
-	`t12 var.yyy`:`smaller`, //cmp
-	`.test.4 .test.1`:`greater`, //cmp
-	`t12 var2`:`smaller`, //cmp
-	`t5 t10`:`greater`, //cmp
-	`t6 t10`:`greater`, //cmp
-	`t7 t10`:`greater`, //cmp
-	`t8 t10`:`greater`, //cmp
-	`t9 t10`:`greater`, //cmp
-	`var.yyy t10`:`greater`, //cmp
-	`var.zzz t10`:`greater`, //cmp
-	`var2 t10`:`greater`, //cmp
-	`vars t10`:`greater`, //cmp
-	`xyz t10`:`greater`, //cmp
 	` foo.txt`:`lprefix`,
 	` foobar`:`lprefix`,
 	`"https://extbit.dev/package/test.app/0.0.1/bugs" "https://extbit.dev/package/test.app/0.0.1/bugs"`:`rprefix`, //cmp
@@ -13696,6 +14438,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.self t2`:`smaller`, //cmp
 	`.self t3`:`smaller`, //cmp
 	`.self t4`:`smaller`, //cmp
+	`.self t5`:`smaller`, //cmp
+	`.self t6`:`smaller`, //cmp
 	`.self t7`:`smaller`, //cmp
 	`.self t8`:`smaller`, //cmp
 	`.self t9`:`smaller`, //cmp
@@ -13730,6 +14474,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.1 t2`:`smaller`, //cmp
 	`.test.1 t3`:`smaller`, //cmp
 	`.test.1 t4`:`smaller`, //cmp
+	`.test.1 t5`:`smaller`, //cmp
+	`.test.1 t6`:`smaller`, //cmp
 	`.test.1 t7`:`smaller`, //cmp
 	`.test.1 t8`:`smaller`, //cmp
 	`.test.1 t9`:`smaller`, //cmp
@@ -13762,11 +14508,14 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.10 t2`:`smaller`, //cmp
 	`.test.10 t3`:`smaller`, //cmp
 	`.test.10 t4`:`smaller`, //cmp
+	`.test.10 t5`:`smaller`, //cmp
+	`.test.10 t6`:`smaller`, //cmp
 	`.test.10 t7`:`smaller`, //cmp
 	`.test.10 t8`:`smaller`, //cmp
 	`.test.10 t9`:`smaller`, //cmp
 	`.test.10 var.xxx`:`smaller`, //cmp
 	`.test.10 var.zzz`:`smaller`, //cmp
+	`.test.11 .self`:`greater`, //cmp
 	`.test.11 .test.10`:`greater`, //cmp
 	`.test.11 .test.12`:`smaller`, //cmp
 	`.test.11 .test.13`:`smaller`, //cmp
@@ -13792,6 +14541,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.11 t2`:`smaller`, //cmp
 	`.test.11 t3`:`smaller`, //cmp
 	`.test.11 t4`:`smaller`, //cmp
+	`.test.11 t5`:`smaller`, //cmp
 	`.test.11 t6`:`smaller`, //cmp
 	`.test.11 t7`:`smaller`, //cmp
 	`.test.11 t8`:`smaller`, //cmp
@@ -13803,6 +14553,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.12 .test.13`:`smaller`, //cmp
 	`.test.12 .test.14`:`smaller`, //cmp
 	`.test.12 .test.15`:`smaller`, //cmp
+	`.test.12 .test.1`:`rprefix`, //cmp
 	`.test.12 .test.2`:`smaller`, //cmp
 	`.test.12 .test.3`:`smaller`, //cmp
 	`.test.12 .test.4`:`smaller`, //cmp
@@ -13822,12 +14573,15 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.12 t2`:`smaller`, //cmp
 	`.test.12 t3`:`smaller`, //cmp
 	`.test.12 t4`:`smaller`, //cmp
+	`.test.12 t5`:`smaller`, //cmp
+	`.test.12 t6`:`smaller`, //cmp
 	`.test.12 t7`:`smaller`, //cmp
 	`.test.12 t8`:`smaller`, //cmp
 	`.test.12 t9`:`smaller`, //cmp
 	`.test.12 var.xxx`:`smaller`, //cmp
 	`.test.12 var.yyy`:`smaller`, //cmp
 	`.test.12 var.zzz`:`smaller`, //cmp
+	`.test.13 .self`:`greater`, //cmp
 	`.test.13 .test.10`:`greater`, //cmp
 	`.test.13 .test.11`:`greater`, //cmp
 	`.test.13 .test.12`:`greater`, //cmp
@@ -13843,8 +14597,6 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.13 .test.8`:`smaller`, //cmp
 	`.test.13 .test.9`:`smaller`, //cmp
 	`.test.13 .usee`:`smaller`, //cmp
-	`.test.13 .self`:`greater`, //cmp
-	`t13 var2`:`smaller`, //cmp
 	`.test.13 all`:`smaller`, //cmp
 	`.test.13 t10`:`smaller`, //cmp
 	`.test.13 t11`:`smaller`, //cmp
@@ -13855,6 +14607,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.13 t2`:`smaller`, //cmp
 	`.test.13 t3`:`smaller`, //cmp
 	`.test.13 t4`:`smaller`, //cmp
+	`.test.13 t5`:`smaller`, //cmp
 	`.test.13 t6`:`smaller`, //cmp
 	`.test.13 t7`:`smaller`, //cmp
 	`.test.13 t8`:`smaller`, //cmp
@@ -13890,6 +14643,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.14 t2`:`smaller`, //cmp
 	`.test.14 t3`:`smaller`, //cmp
 	`.test.14 t4`:`smaller`, //cmp
+	`.test.14 t5`:`smaller`, //cmp
+	`.test.14 t6`:`smaller`, //cmp
 	`.test.14 t7`:`smaller`, //cmp
 	`.test.14 t8`:`smaller`, //cmp
 	`.test.14 t9`:`smaller`, //cmp
@@ -13921,6 +14676,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.15 t2`:`smaller`, //cmp
 	`.test.15 t3`:`smaller`, //cmp
 	`.test.15 t4`:`smaller`, //cmp
+	`.test.15 t5`:`smaller`, //cmp
+	`.test.15 t6`:`smaller`, //cmp
 	`.test.15 t7`:`smaller`, //cmp
 	`.test.15 t8`:`smaller`, //cmp
 	`.test.15 t9`:`smaller`, //cmp
@@ -13952,6 +14709,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.2 t2`:`smaller`, //cmp
 	`.test.2 t3`:`smaller`, //cmp
 	`.test.2 t4`:`smaller`, //cmp
+	`.test.2 t5`:`smaller`, //cmp
+	`.test.2 t6`:`smaller`, //cmp
 	`.test.2 t7`:`smaller`, //cmp
 	`.test.2 t8`:`smaller`, //cmp
 	`.test.2 t9`:`smaller`, //cmp
@@ -13984,6 +14743,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.3 t2`:`smaller`, //cmp
 	`.test.3 t3`:`smaller`, //cmp
 	`.test.3 t4`:`smaller`, //cmp
+	`.test.3 t5`:`smaller`, //cmp
+	`.test.3 t6`:`smaller`, //cmp
 	`.test.3 t7`:`smaller`, //cmp
 	`.test.3 t8`:`smaller`, //cmp
 	`.test.3 t9`:`smaller`, //cmp
@@ -13992,11 +14753,13 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.3 var2`:`smaller`, //cmp
 	`.test.3 vars`:`smaller`, //cmp
 	`.test.4 .self`:`greater`, //cmp
+	`.test.4 .test.10`:`greater`, //cmp
 	`.test.4 .test.11`:`greater`, //cmp
 	`.test.4 .test.12`:`greater`, //cmp
 	`.test.4 .test.13`:`greater`, //cmp
 	`.test.4 .test.14`:`greater`, //cmp
 	`.test.4 .test.15`:`greater`, //cmp
+	`.test.4 .test.1`:`greater`, //cmp
 	`.test.4 .test.2`:`greater`, //cmp
 	`.test.4 .test.3`:`greater`, //cmp
 	`.test.4 .test.5`:`smaller`, //cmp
@@ -14016,6 +14779,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.4 t2`:`smaller`, //cmp
 	`.test.4 t3`:`smaller`, //cmp
 	`.test.4 t4`:`smaller`, //cmp
+	`.test.4 t5`:`smaller`, //cmp
+	`.test.4 t6`:`smaller`, //cmp
 	`.test.4 t7`:`smaller`, //cmp
 	`.test.4 t8`:`smaller`, //cmp
 	`.test.4 t9`:`smaller`, //cmp
@@ -14049,6 +14814,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.5 t2`:`smaller`, //cmp
 	`.test.5 t3`:`smaller`, //cmp
 	`.test.5 t4`:`smaller`, //cmp
+	`.test.5 t5`:`smaller`, //cmp
 	`.test.5 t6`:`smaller`, //cmp
 	`.test.5 t7`:`smaller`, //cmp
 	`.test.5 t8`:`smaller`, //cmp
@@ -14090,6 +14856,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.6 var.yyy`:`smaller`, //cmp
 	`.test.6 var.zzz`:`smaller`, //cmp
 	`.test.7 .self`:`greater`, //cmp
+	`.test.7 .test.10`:`greater`, //cmp
 	`.test.7 .test.11`:`greater`, //cmp
 	`.test.7 .test.12`:`greater`, //cmp
 	`.test.7 .test.13`:`greater`, //cmp
@@ -14154,6 +14921,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.8 t9`:`smaller`, //cmp
 	`.test.8 var.xxx`:`smaller`, //cmp
 	`.test.8 var.zzz`:`smaller`, //cmp
+	`.test.9 .test.10`:`greater`, //cmp
 	`.test.9 .test.11`:`greater`, //cmp
 	`.test.9 .test.12`:`greater`, //cmp
 	`.test.9 .test.13`:`greater`, //cmp
@@ -14189,6 +14957,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.foobay .test.fxx`:`smaller`, //cmp
 	`.test.foobaz .test.fxx`:`smaller`, //cmp
 	`.usee .self`:`greater`, //cmp
+	`.usee .test.10`:`greater`, //cmp
 	`.usee .test.11`:`greater`, //cmp
 	`.usee .test.12`:`greater`, //cmp
 	`.usee .test.13`:`greater`, //cmp
@@ -14768,7 +15537,6 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`[r] [*]`:`smaller`, //cmp
 	`[r] [?]`:`smaller`, //cmp
 	`[test.app 0.0.1] test.app-0.0.1`:`greater`, //cmp
-	`[test.app-0.0.1] "test.app-0.0.1"`:`greater`, //cmp
 	`[test.app-0.0.1] test.app`:`greater`, //cmp
 	`[test.app] test.app`:`equal`, //cmp
 	`[test] test.app`:`smaller`, //cmp
@@ -14789,7 +15557,9 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`[{&(.test.h)} {$1}] {&(.test.h)}{$1}`:`equal`, //cmp
 	`a a`:`equal`, //cmp
 	`a d`:`smaller`, //cmp
+	`all .test.10`:`greater`, //cmp
 	`all .test.11`:`greater`, //cmp
+	`all .test.12`:`greater`, //cmp
 	`all .test.13`:`greater`, //cmp
 	`all .test.14`:`greater`, //cmp
 	`all .test.15`:`greater`, //cmp
@@ -15590,6 +16360,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`r ?`:`smaller`, //cmp
 	`rule0 rule1`:`smaller`, //cmp
 	`t1 .test.11`:`greater`, //cmp
+	`t1 .test.12`:`greater`, //cmp
 	`t1 .test.13`:`greater`, //cmp
 	`t1 .test.14`:`greater`, //cmp
 	`t1 .test.15`:`greater`, //cmp
@@ -15621,6 +16392,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t1 var.zzz`:`smaller`, //cmp
 	`t1 var2`:`smaller`, //cmp
 	`t10 .test.11`:`greater`, //cmp
+	`t10 .test.12`:`greater`, //cmp
 	`t10 .test.13`:`greater`, //cmp
 	`t10 .test.14`:`greater`, //cmp
 	`t10 .test.15`:`greater`, //cmp
@@ -15650,7 +16422,9 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t10 t9`:`smaller`, //cmp
 	`t10 var.xxx`:`smaller`, //cmp
 	`t10 var.zzz`:`smaller`, //cmp
+	`t10 vars`:`smaller`, //cmp
 	`t10 xyz`:`smaller`, //cmp
+	`t11 .self`:`greater`, //cmp
 	`t11 .test.11`:`greater`, //cmp
 	`t11 .test.12`:`greater`, //cmp
 	`t11 .test.13`:`greater`, //cmp
@@ -15682,9 +16456,11 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t11 t9`:`smaller`, //cmp
 	`t11 var.xxx`:`smaller`, //cmp
 	`t11 var.zzz`:`smaller`, //cmp
+	`t11 var2`:`smaller`, //cmp
 	`t11 vars`:`smaller`, //cmp
 	`t11 xyz`:`smaller`, //cmp
 	`t12 .test.11`:`greater`, //cmp
+	`t12 .test.12`:`greater`, //cmp
 	`t12 .test.13`:`greater`, //cmp
 	`t12 .test.14`:`greater`, //cmp
 	`t12 .test.15`:`greater`, //cmp
@@ -15713,7 +16489,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t12 t8`:`smaller`, //cmp
 	`t12 t9`:`smaller`, //cmp
 	`t12 var.xxx`:`smaller`, //cmp
+	`t12 var.yyy`:`smaller`, //cmp
 	`t12 var.zzz`:`smaller`, //cmp
+	`t12 var2`:`smaller`, //cmp
+	`t13 .test.12`:`greater`, //cmp
 	`t13 .test.13`:`greater`, //cmp
 	`t13 .test.14`:`greater`, //cmp
 	`t13 .test.15`:`greater`, //cmp
@@ -15743,6 +16522,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t13 t9`:`smaller`, //cmp
 	`t13 var.xxx`:`smaller`, //cmp
 	`t13 var.zzz`:`smaller`, //cmp
+	`t13 var2`:`smaller`, //cmp
+	`t14 .test.12`:`greater`, //cmp
 	`t14 .test.13`:`greater`, //cmp
 	`t14 .test.14`:`greater`, //cmp
 	`t14 .test.15`:`greater`, //cmp
@@ -15774,6 +16555,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t14 var.yyy`:`smaller`, //cmp
 	`t14 var.zzz`:`smaller`, //cmp
 	`t14 var2`:`smaller`, //cmp
+	`t14 xyz`:`smaller`, //cmp
 	`t15 .test.13`:`greater`, //cmp
 	`t15 .test.14`:`greater`, //cmp
 	`t15 .test.15`:`greater`, //cmp
@@ -15804,6 +16586,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t15 var.xxx`:`smaller`, //cmp
 	`t15 var.yyy`:`smaller`, //cmp
 	`t15 var.zzz`:`smaller`, //cmp
+	`t15 var2`:`smaller`, //cmp
 	`t15 xyz`:`smaller`, //cmp
 	`t2 .test.13`:`greater`, //cmp
 	`t2 .test.14`:`greater`, //cmp
@@ -15873,6 +16656,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t4 .test.13`:`greater`, //cmp
 	`t4 .test.14`:`greater`, //cmp
 	`t4 .test.15`:`greater`, //cmp
+	`t4 .test.2`:`greater`, //cmp
 	`t4 .test.3`:`greater`, //cmp
 	`t4 .test.4`:`greater`, //cmp
 	`t4 .test.5`:`greater`, //cmp
@@ -15902,9 +16686,11 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t4 var2`:`smaller`, //cmp
 	`t4 vars`:`smaller`, //cmp
 	`t4 xyz`:`smaller`, //cmp
+	`t5 .test.12`:`greater`, //cmp
 	`t5 .test.13`:`greater`, //cmp
 	`t5 .test.14`:`greater`, //cmp
 	`t5 .test.15`:`greater`, //cmp
+	`t5 .test.2`:`greater`, //cmp
 	`t5 .test.3`:`greater`, //cmp
 	`t5 .test.5`:`greater`, //cmp
 	`t5 .test.6`:`greater`, //cmp
@@ -15913,6 +16699,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t5 .test.9`:`greater`, //cmp
 	`t5 .usee`:`greater`, //cmp
 	`t5 all`:`greater`, //cmp
+	`t5 t10`:`greater`, //cmp
 	`t5 t11`:`greater`, //cmp
 	`t5 t12`:`greater`, //cmp
 	`t5 t13`:`greater`, //cmp
@@ -15943,6 +16730,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t6 .test.9`:`greater`, //cmp
 	`t6 .usee`:`greater`, //cmp
 	`t6 all`:`greater`, //cmp
+	`t6 t10`:`greater`, //cmp
 	`t6 t11`:`greater`, //cmp
 	`t6 t12`:`greater`, //cmp
 	`t6 t13`:`greater`, //cmp
@@ -15972,6 +16760,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t7 .test.9`:`greater`, //cmp
 	`t7 .usee`:`greater`, //cmp
 	`t7 all`:`greater`, //cmp
+	`t7 t10`:`greater`, //cmp
 	`t7 t11`:`greater`, //cmp
 	`t7 t12`:`greater`, //cmp
 	`t7 t13`:`greater`, //cmp
@@ -16002,6 +16791,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t8 .test.9`:`greater`, //cmp
 	`t8 .usee`:`greater`, //cmp
 	`t8 all`:`greater`, //cmp
+	`t8 t10`:`greater`, //cmp
 	`t8 t11`:`greater`, //cmp
 	`t8 t12`:`greater`, //cmp
 	`t8 t13`:`greater`, //cmp
@@ -16032,6 +16822,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t9 .test.9`:`greater`, //cmp
 	`t9 .usee`:`greater`, //cmp
 	`t9 all`:`greater`, //cmp
+	`t9 t10`:`greater`, //cmp
 	`t9 t11`:`greater`, //cmp
 	`t9 t12`:`greater`, //cmp
 	`t9 t13`:`greater`, //cmp
@@ -16108,6 +16899,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var.yyy .test.9`:`greater`, //cmp
 	`var.yyy .usee`:`greater`, //cmp
 	`var.yyy all`:`greater`, //cmp
+	`var.yyy t10`:`greater`, //cmp
 	`var.yyy t11`:`greater`, //cmp
 	`var.yyy t12`:`greater`, //cmp
 	`var.yyy t13`:`greater`, //cmp
@@ -16137,6 +16929,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var.zzz .test.9`:`greater`, //cmp
 	`var.zzz .usee`:`greater`, //cmp
 	`var.zzz all`:`greater`, //cmp
+	`var.zzz t10`:`greater`, //cmp
 	`var.zzz t11`:`greater`, //cmp
 	`var.zzz t12`:`greater`, //cmp
 	`var.zzz t13`:`greater`, //cmp
@@ -16166,6 +16959,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var2 .test.9`:`greater`, //cmp
 	`var2 .usee`:`greater`, //cmp
 	`var2 all`:`greater`, //cmp
+	`var2 t10`:`greater`, //cmp
 	`var2 t11`:`greater`, //cmp
 	`var2 t12`:`greater`, //cmp
 	`var2 t13`:`greater`, //cmp
@@ -16195,6 +16989,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`vars .test.9`:`greater`, //cmp
 	`vars .usee`:`greater`, //cmp
 	`vars all`:`greater`, //cmp
+	`vars t10`:`greater`, //cmp
 	`vars t11`:`greater`, //cmp
 	`vars t12`:`greater`, //cmp
 	`vars t13`:`greater`, //cmp
@@ -16237,6 +17032,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`xyz .test.9`:`greater`, //cmp
 	`xyz .usee`:`greater`, //cmp
 	`xyz all`:`greater`, //cmp
+	`xyz t10`:`greater`, //cmp
 	`xyz t11`:`greater`, //cmp
 	`xyz t12`:`greater`, //cmp
 	`xyz t13`:`greater`, //cmp
@@ -16391,12 +17187,13 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=self app} {=project configure}`:`smaller`, //cmp
 })
 var checked_cmp = make(map[string]struct{}, len(checkpoints_cmp))
-func check_cmp(ctx Context, l, r any) func(*cmpres) {
+func check_cmp(ctx Context, l, r Value) func(*cmpres) {
 	var k = sf("%v %v", l, r)
-	return func(_res *cmpres) {
-		if _, ok := checked_cmp[k]; ok { return } else { checked_cmp[k] = struct{}{} }
-		if !truly(ctx, is_test_mode{}) { return }
-		if (*_res) == cmpEqual {
+	if _, ok := checked_cmp[k]; ok || !truly(ctx, is_test_mode{}) {
+		return func(*cmpres) {}
+	}
+	return func(_res *cmpres) { checked_cmp[k] = struct{}{}
+		if *_res == cmpEqual {
 			if rxLC.ReplaceAllString(ts(l,ctx), "{=") == rxLC.ReplaceAllString(ts(r,ctx), "{=") { return }
 		}
 
@@ -16413,7 +17210,9 @@ func check_cmp(ctx Context, l, r any) func(*cmpres) {
 				if d, ok := unbox(d.x).(*def); ok && strings.Contains(d.name.String(), "use.") { return }
 				return
 			}
-			
+
+			if has_new_cmp_symbol>0 {/* DOES NOTHING */} else
+			if _, ok := checkpoints_cmp_symbol[k]; ok {/* DOES NOTHING */} else
 			if true { prompt(ctx, "	`%v`:`%v`, //cmp\n", k, t); flush(ctx) } else
 			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r); flush(ctx) } else
 			{ debug(pc(pc(ctx,r),l),
@@ -16429,8 +17228,8 @@ func check_cmp(ctx Context, l, r any) func(*cmpres) {
 				_f("got: %v", t),
 				_f("!= : %v", v),
 				_f("cmp: %v, %v", l, r),
-				_f("l: %s", ts(l,ctx)),
-				_f("r: %s", ts(r,ctx)),
+				_f("l: %s → %v, %v", ts(l,ctx), __symbol(ctx,l), symbolize(l)),
+				_f("r: %s → %v, %v", ts(r,ctx), __symbol(ctx,l), symbolize(r)),
 				callstack{stop:"smart.runcase"}, trace{}) }
 		}
 	}

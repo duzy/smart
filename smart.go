@@ -1221,9 +1221,7 @@ func unbox(a any) any {
     return a
 }
 
-var implicitDash = &punct{valbase{}, DASH} // for flag
 var implicitDot = &punct{valbase{}, DOT}
-var implicitSlash = &punct{valbase{}, PCON} // for PROOT, PTAIL and in-path separator PCON
 
 func unpack(v Value) []Value {
 	switch t := v.(type) {
@@ -1242,157 +1240,6 @@ func unpack(v Value) []Value {
 	}
 	return []Value{v}
 }
-
-// unpackDeep deeply flattens AST nodes into a 1D sequence of Values for the `cmp` engine.
-// It recursively unwinds nested structures and injects synthetic tokens (DASH, DOT, PCON) 
-// to preserve structural boundaries during sequence alignment. It's the Universal Structural Normalizer.
-func unpackDeep(v Value) []Value {
-	if v == nil { return nil }
-
-	switch t := v.(type) {
-	case *loc: return unpackDeep(t.Value)
-	case *xloc: return unpackDeep(t.Value)
-
-	case flag:
-		var res = []Value{implicitDash} // Inject synthetic DASH
-		if !isEmpty(t.Value) {
-			res = append(res, unpackDeep(t.Value)...)
-		}
-		return res
-
-	case *qualword:
-		var res []Value
-		for i, e := range t.elems {
-			if i > 0 { res = append(res, implicitDot) } // Inject synthetic DOT
-			if !isEmpty(e) {
-				res = append(res, unpackDeep(e)...)
-			}
-		}
-		return res
-
-	case *path:
-		var res []Value
-		var elems []Value
-		if sl, ok := v.(slicer); ok { elems = sl.slice() } 
-		
-		for i, e := range elems {
-			if i > 0 {
-				// CRITICAL FIX: Because PROOT and PTAIL are virtual segments, 
-				// we must unconditionally inject the PCON (Slash) between everything!
-				// [PROOT, Volumes, PTAIL] -> [PROOT, PCON, Volumes, PCON, PTAIL]
-				res = append(res, implicitSlash) 
-			}
-			if !isEmpty(e) {
-				res = append(res, unpackDeep(e)...)
-			}
-		}
-		return res
-
-	case slicer: // Recursively deeply unpack *compound, *list, *globpat, etc.
-		var res []Value
-		for _, e := range t.slice() {
-			if !isEmpty(e) {
-				res = append(res, unpackDeep(e)...)
-			}
-		}
-		return res
-	}
-
-	// Base case: it's a scalar AST node
-	return []Value{v}
-}
-
-// underlay converts AST nodes into raw Go primitives (string, int64, etc.) 
-// for blisteringly fast O(1) mathematical and string comparisons. It's the
-// Fast Primitive Extractor.
-func underlay(a any, b int) (any, int) {
-	if a == nil { return "", 0 } // Safely handle nil interfaces
-
-	switch t := a.(type) {
-	// --- 1. Empty/Null AST Nodes ---
-	case *valbase, *null, *none, *undef: return "", 0 
-
-	// --- 2. Wrappers (Strip and recurse) ---
-	case *loc: return underlay(t.Value, b)
-	case *xloc: return underlay(t.Value, b)
-	case fullname: return underlay(t.Value, b)
-	case self: return t.project, 0
-	case *globmeta: return t.token, 0
-
-	// --- 3. Primitive Scalars (The core unboxing) ---
-	case *punct: 
-		// Return the raw token so PROOT, PTAIL, DOT, DASH, Slash survive!
-		return t.token, 0 
-		
-	case *answer: return t.bool, 0
-	case *option: return t.bool, 0
-	case *prediction: return t.bool, 0
-	case *boolean: return t.bool, 0
-	case *word: return t.s, 0
-	case *raw: return t.s, 0
-	case *strlit: return t.s, 0
-	case *file: return t.filestub.name, 0
-	case *project: return t.name, 0
-	case *binary: return t.int64, 2
-	case *octal: return t.int64, 8
-	case *decimal: return t.int64, 10
-	case *hexadecimal: return t.int64, 16
-	case *float: return t.float64, 0
-	case *datetime: return t.t, 0
-	case *Date: return t.t, 1
-	case *Time: return t.t, 2
-
-	// --- 4. Structural Delegation (The Unification Point) ---
-	// If it's any kind of sequence or wrapper, let unpackDeep() flatten it structurally, 
-	// then just recursively underlay the results!
-	case flag, *qualword, *path, slicer:
-		var res []any
-		// Safe assertion: we know these AST nodes implement the Value interface
-		if val, ok := a.(Value); ok {
-			for _, el := range unpackDeep(val) {
-				if v, _ := underlay(el, b); v != nil && v != "" {
-					// Prevent nested slices if underlay returns an array
-					if sl, ok := v.([]any); ok {
-						res = append(res, sl...)
-					} else {
-						res = append(res, v)
-					}
-				}
-			}
-		}
-		return res, 0
-
-	case []Value: // Processed exactly like []any
-		var res []any
-		for _, el := range t {
-			if v, _ := underlay(el, b); v != nil && v != "" {
-				if sl, ok := v.([]any); ok {
-					res = append(res, sl...)
-				} else {
-					res = append(res, v)
-				}
-			}
-		}
-		return res, 0
-
-	case []any:
-		var res []any
-		for _, el := range t {
-			if v, _ := underlay(el, b); v != nil && v != "" {
-				if sl, ok := v.([]any); ok {
-					res = append(res, sl...)
-				} else {
-					res = append(res, v)
-				}
-			}
-		}
-		return res, 0
-	}
-	
-	return a, b
-}
-
-func _underlay(a any) any { a, _ = underlay(a, 0); return a }
 
 // tokenStr securely maps structural tokens to their string literals 
 // for mathematical comparison and fragmentation.
@@ -1442,291 +1289,268 @@ func cmp_rank(rx, ry int) cmpres {
 	return cmpEqual // Indicates no rank disparity, proceed to normal cmp
 }
 
-func cmp(ctx Context, l, r any) (res cmpres) {
-	if checkpoints { defer check_cmp(ctx, l, r)(&res) }
+// __symbol efficiently resolves an AST Value to its Symbol ID. 
+// It guarantees zero string allocations for static identifiers and 
+// only falls back to evaluation/interning for dynamic nodes.
+func __symbol(ctx Context, val Value) Symbol {
+	if val == nil {
+		return symEmpty
+	} 
+	
+	// Unbox safety: Ensure unboxing doesn't panic if it returns nil
+	if val = unbox(val).(Value); val == nil { return symEmpty }
+	if dc, ok := val.(*defcaps); ok { val = dc.Value } // Unbox!
 
-	// 1. Unbox/Underlay: convert wrappers (*word, *boolean) and flatten structures into []any
-	var lv, lb = underlay(l, 0)
-	var rv, rb = underlay(r, 0)
-
-	// 2. Structural & Recursive Comparison
-	switch x := lv.(type) {
-	case []any:
-		return cmp_slice(ctx, x, rv)
-
-	// NOTE: No *qualword, slicer, or flag cases needed here! underlay() handled them!
-
-	case token:
-		switch y := rv.(type) {
-		case token:
-			return cmp_rank(globRank(x), globRank(y))
-		case *word:
-			if rx, ry := globRank(x), globRank(y.s.String()); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(tokenStr(x), y.s.String())
-		case Symbol:
-			if rx, ry := globRank(x), globRank(y.String()); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(tokenStr(x), y.String())
-		case string:
-			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(tokenStr(x), y)
-		case []any: // Replaces the old 'case slicer:'
-			return cmp_slice(ctx, []any{x}, y)
-		}
-
-	case Symbol:
-		switch y := rv.(type) {
-		case Symbol:
-			if x == y { return cmpEqual } // O(1) Integer match!
-			if rx, ry := globRank(x.String()), globRank(y.String()); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(x.String(), y.String())
-		case string:
-			if rx, ry := globRank(x.String()), globRank(y); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(x.String(), y)
-		case token:
-			if rx, ry := globRank(x.String()), globRank(y); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(x.String(), tokenStr(y))
-		case []any:
-			return cmp_slice(ctx, []any{x}, y)
-		}
-
-	case string:
-		switch y := rv.(type) {
-		case string:
-			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(x, y)
-		case Symbol:
-			if rx, ry := globRank(x), globRank(y.String()); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(x, y.String())
-		case token:
-			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
-				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
-			}
-			return cmp_string(x, tokenStr(y))
-		case int64:   if i, e := strconv.ParseInt(x, lb, 64); e == nil { return cmp_int(i, y) }
-		case float64: if f, e := strconv.ParseFloat(x, 64); e == nil { return cmp_float(f, y) }
-		case []any:   return cmp_slice(ctx, []any{x}, y)
-		}
-
-	case int64:
-		switch y := rv.(type) {
-		case int64:   return cmp_int(x, y)
-		case float64: return cmp_float(float64(x), y)
-		case string:  if i, e := strconv.ParseInt(y, rb, 64); e == nil { return cmp_int(x, i) }
-		case []any:   return cmp_slice(ctx, []any{x}, y)
-		}
-
-	case float64:
-		switch y := rv.(type) {
-		case float64: return cmp_float(x, y)
-		case int64:   return cmp_float(x, float64(y))
-		case string:  if f, e := strconv.ParseFloat(y, 64); e == nil { return cmp_float(x, f) }
-		case []any:   return cmp_slice(ctx, []any{x}, y)
-		}
-
-	case time.Time:
-		switch y := rv.(type) {
-		case time.Time: return cmp_time(x, y)
-		case string:
-			switch lb {
-			case 0: if t, e := parseDateTime(y); e == nil { return cmp_time(x, t) }
-			case 1: if t, e := parseDate(y); e == nil { return cmp_time(x, t) }
-			case 2: if t, e := parseTime(y); e == nil { return cmp_time(x, t) }
-			}
-		case []any: return cmp_slice(ctx, []any{x}, y)
-		}
-
-	// Reference Type Comparisons
-	case *arrow:
-		if y, ok := rv.(*arrow); ok {
-			if x.t != y.t {
-				if x.t < y.t { return cmpSmaller } else { return cmpGreater }
-			}
-			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
-			return cmp(ctx, x.s, y.s)
-		}
-
-	case *closure:
-		if y, ok := rv.(*closure); ok {
-			if t := cmp(ctx, x.x, y.x); t != cmpEqual { return t }
-			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
-			return cmp(ctx, x.a, y.a)
-		}
-
-	case *delegate:
-		if y, ok := rv.(*delegate); ok {
-			if t := cmp(ctx, x.x, y.x); t != cmpEqual { return t }
-			if t := cmp(ctx, x.o, y.o); t != cmpEqual { return t }
-			return cmp(ctx, x.a, y.a)
-		}
-
-	case *def:
-		if y, ok := rv.(*def); ok {
-			if x.name == y.name { // O(1) Integer match!
-				return cmp(ctx, x.value, y.value)
-			}
-			return cmp_string(x.name.String(), y.name.String())
-		}
-
-	case *file:
-		if y, ok := rv.(*file); ok {
-			if x.filestub == y.filestub { return cmpEqual }
-			if x.filestub.name == y.filestub.name { return cmpEqual } // O(1) Integer check
-			return cmp_string(x.filestub.name.String(), y.filestub.name.String())
-		}
+	switch v := val.(type) {
+	case *word: 
+		return v.s
+	case *pair: 
+		return __symbol(ctx, v.key)
+	case interface{ sym() Symbol }: 
+		return v.sym()
 		
-	case *use:
-		if y, ok := rv.(*use); ok {
-			if x.project == y.project { return cmpEqual }
-			if x.project.name == y.project.name { return cmpEqual } // O(1) Integer check
-			return cmp_string(x.project.name.String(), y.project.name.String())
+	// AST Numeric Types - Zero-Allocation Fast Paths
+	case *integer: // Base struct, in case the parser ever emits it directly
+		if 0 <= v.int64 && v.int64 <= 9 {
+			return sym_0 + Symbol(v.int64) 
 		}
-		
-	case *uselist:
-		if y, ok := rv.(*uselist); ok {
-			// Fast string and pointer comparison
-			if x.name == y.name && x.owner_ == y.owner_ {
-				return cmpEqual
-			}
-			if x.owner_ != y.owner_ {
-				if x.owner_.name == y.owner_.name { return cmpEqual } // O(1) check
-				return cmp_string(x.owner_.name.String(), y.owner_.name.String())
-			}
-			return cmp_string(x.name.String(), y.name.String())
+		return intern(strconv.FormatInt(v.int64, 10))
+
+	case *decimal:
+		if 0 <= v.int64 && v.int64 <= 9 {
+			return sym_0 + Symbol(v.int64) 
+		}
+		return intern(v.String()) // Safe fallback using the struct's String() method
+
+	case *float:
+		// Check if the float represents a clean single-digit integer (e.g., 1.0 -> 1)
+		if v.float64 == float64(int64(v.float64)) && 0 <= v.float64 && v.float64 <= 9 {
+			return sym_0 + Symbol(int64(v.float64))
+		}
+		return intern(v.String())
+
+	// Other integer bases (Binary, Octal, Hexadecimal)
+	// We just pass these to intern() via their String() method.
+	case *binary, *octal, *hexadecimal, *datetime, *Date, *Time:
+		return intern(v.String())
+	}
+	
+	// Fallback for dynamically evaluated nodes (e.g. SRC_$(ARCH)_FILES)
+	var str string
+	if truly(ctx, symident{}) {
+		str = ident(ctx, val)
+	} else {
+		str = __string(ctx, val)
+	}
+	return intern(str)
+}
+
+// TODO: verification required!
+func symbolize_string(ctx Context, str string) (res []Symbol) {
+	// Protect the engine from crashing if the scanner hits dirty stdout data
+	// (e.g., unterminated quotes, bad escapes).
+	defer func() { recover() }() 
+
+	var s scanner
+	// Ensure you pass a dummy tokfile or valid pos to avoid nil pointers inside s.offsetPos
+	s.init(ctx, nil, []byte(str), 0)
+	
+	s.scan(ctx) // Prime the scanner
+	for s.tok != EOF {
+		if s.sym != symEmpty {
+			res = append(res, s.sym)
+		} else if s.lit != "" {
+			res = append(res, intern(s.lit))
+		} else {
+			// Fallback for punctuation tokens without lit/sym (e.g., '{', '}')
+			res = append(res, Symbol(s.tok)) // FIXME: currently token and Symbol are not identically convertable
+		}
+		s.scan(ctx)
+	}
+	return res // FIXED: Was returning nil
+}
+
+func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
+	switch t := v.(type) {
+	case *valbase, *null, *none, *undef: return
+	case *loc: return symbolize(t.Value)
+	case *xloc: return symbolize(t.Value)
+	case fullname: return symbolize(t.Value)
+	case self: return []Symbol{t.project.name}
+	case *project: return []Symbol{t.name}
+	case *word: return []Symbol{t.s}
+	case *globmeta: return []Symbol{intern(t.token.String())}
+	case *punct: return []Symbol{intern(t.token.String())}
+	case *answer: return []Symbol{_if(t.bool,symYes,symNo)}
+	case *boolean: return []Symbol{_if(t.bool,symTrue,symFalse)}
+	case *prediction: return []Symbol{_if(t.bool,symYes,symNo)}
+	case *option: return []Symbol{_if(t.bool,symOn,symOff)}
+
+	case *integer: // Base struct, in case the parser ever emits it directly
+		var s Symbol 
+		if 0 <= t.int64 && t.int64 <= 9 {
+			s = sym_0 + Symbol(t.int64)
+		} else {
+			s = intern(strconv.FormatInt(t.int64, 10))
+		}
+		return []Symbol{s}
+	case *decimal:
+		var s Symbol 
+		if 0 <= t.int64 && t.int64 <= 9 {
+			s = sym_0 + Symbol(t.int64)
+		} else {
+			s = intern(t.String())
+		}
+		return []Symbol{s}
+	case *float:
+		var s Symbol 
+		if t.float64 == float64(int64(t.float64)) && 0 <= t.float64 && t.float64 <= 9 {
+			s = sym_0 + Symbol(int64(t.float64))
+		} else {
+			s = intern(t.String())
+		}
+		return []Symbol{s}
+
+	case *binary, *octal, *hexadecimal, *datetime, *Date, *Time:
+		return []Symbol{intern(t.String())}
+
+	case flag:
+		res = append([]Symbol{symDash},symbolize(t.Value)...)
+	case *regexpat:
+		res = []Symbol{intern(t.Regexp.String())}
+	case *percpat:
+		res = append(res, symbolize(t.Prefix)...)
+		res = append(res, symPercent) // %
+		res = append(res, symbolize(t.Suffix)...)
+	case *pair:
+		res = append(res, symbolize(t.key)...)
+		res = append(res, symEqual) // =
+		res = append(res, symbolize(t.val)...)
+	case *qualword:
+		for i, elem := range t.elems {
+			if i > 0 { res = append(res, symDot) }
+			res = append(res, symbolize(elem)...)
+		}
+	case *path:
+		for i, elem := range t.elems {
+			if i > 0 { res = append(res, symSlash) }
+			res = append(res, symbolize(elem)...)
+		}
+	case *list:
+		for i, elem := range t.elems {
+			if i > 0 { res = append(res, symSpace) }
+			res = append(res, symbolize(elem)...)
+		}
+	case *compound, *globpat, *strcomp:
+		for _, elem := range t.(slicer).slice() {
+			res = append(res, symbolize(elem)...)
+		}
+	case *strlit:
+        // Semantic Equality: 'foo' (strlit) == foo (word)
+        return []Symbol{intern(t.s)}
+	case *raw:
+		// FIXME: a raw value may store strings from p.Stdout.Buf.String()!
+        // Semantic Equality: "foo" (raw) == foo (word)
+        // We use v.String() to ensure escapes and spans are resolved
+        return []Symbol{intern(t.String())} // TODO: symbolize_string(trivial_ctx{t.pos}, t.s)
+	}
+    return
+}
+
+func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
+	if checkpoints { defer check_cmp_symbol(ctx, x, y) (&result) }
+
+	vocabM.RLock()
+	metaL := vocab[x]
+	metaR := vocab[y]
+	vocabM.RUnlock()
+
+	// 1. Rank comparison (Globs)
+	if metaL.Rank > 0 || metaR.Rank > 0 {
+		if res := cmp_rank(metaL.Rank, metaR.Rank); res != cmpEqual {
+			return res, metaL.Text, metaR.Text
 		}
 	}
 
-	// 3. Universal Fallback: Safe Identifier Extraction
-	var sx, sy string
+	// 2. Numeric comparison (Versions / Indices)
+	// Example: "2" vs "10" -> mathematically 2 < 10
+	if metaL.IsNum && metaR.IsNum {
+		if metaL.NumVal < metaR.NumVal { return cmpSmaller, metaL.Text, metaR.Text }
+		if metaL.NumVal > metaR.NumVal { return cmpGreater, metaL.Text, metaR.Text }
+		// If they equal mathematically (e.g. "01" vs "1"), we fall through 
+		// to string alignment to ensure strict structural parity.
+	}
+
+	// 3. String Sequence Alignment & Fragmentation
+	var sx, sy = metaL.Text, metaR.Text
+	if len(sx) < len(sy) && strings.HasPrefix(sy, sx) { return cmpLprefix, sx, sy }
+	if len(sy) < len(sx) && strings.HasPrefix(sx, sy) { return cmpRprefix, sx, sy }
 	
-	if s, ok := lv.(string); ok { sx = s
-	} else if w, ok := lv.(*word); ok { sx = w.s.String() 
-	} else if sym, ok := lv.(Symbol); ok { sx = sym.String()
-	} else if v, ok := lv.(Value); ok { sx = ident(ctx, v)
-	} else { sx = fmt.Sprintf("%v", lv) }
-
-	if s, ok := rv.(string); ok { sy = s
-	} else if w, ok := rv.(*word); ok { sy = w.s.String() 
-	} else if sym, ok := rv.(Symbol); ok { sy = sym.String()
-	} else if v, ok := rv.(Value); ok { sy = ident(ctx, v)
-	} else { sy = fmt.Sprintf("%v", rv) }
-
-	if sx != sy { return cmp_string(sx, sy) }
-
-	// Tie-breaker 1: Compare safe concrete types for determinism
-	tx, ty := fmt.Sprintf("%s", typeof(lv)), fmt.Sprintf("%s", typeof(rv))
-	if tx != ty { return cmp_string(tx, ty) }
-
-	// Tie-breaker 2: Identical types with identical identifiers
-	return cmpEqual
+	// 4. Alphabetical Fallback
+	if sx < sy { return cmpSmaller, sx, sy }
+	if sx > sy { return cmpGreater, sx, sy }
+	return cmpEqual, sx, sy
 }
 
-// cmp_slice handles structural sequence alignment and string fragmentation.
-func cmp_slice(ctx Context, x []any, rv any) cmpres {
-	switch y := rv.(type) {
-	case []any:
-		// A safe, recursive string extractor mapping synthetic punctuation to literal strings
-		var extract func(any) (string, bool)
-		extract = func(v any) (string, bool) {
-			switch x := _underlay(v).(type) {
-			case string:  return x, true
-			case *word:   return x.s.String(), true
-			case Symbol:  return x.String(), true
-			case int64:   return strconv.FormatInt(x, 10), true
-			case float64: return strconv.FormatFloat(x, 'g', -1, 64), true
-			case token:   return tokenStr(x), true
-			}
-			return "", false
-		}
+func cmp_symbols(ctx Context, x, y []Symbol) (result cmpres) {
+	if checkpoints { defer check_cmp_symbols(ctx, x, y) (&result) }
 
-		var i int
-		for ; i < len(x) && i < len(y); i++ {
-			// Compare element by element natively
-			if res := cmp(ctx, x[i], y[i]); res != cmpEqual {
-				// If either element is a wildcard, return the comparison result immediately.
-				if globRank(_underlay(x[i])) > 0 || globRank(_underlay(y[i])) > 0 {
-					return res
-				}
+	i, lenX, lenY := 0, len(x), len(y)
 
-				// Safely extract the structural strings for fragmentation
-				sx, okx := extract(x[i])
-				sy, oky := extract(y[i])
-
-				// If both are safe, trivial strings, try fragmentation
-				if okx && oky {
-					if sx == sy { continue } 
-					
-					if len(sx) < len(sy) && strings.HasPrefix(sy, sx) {
-						sTail := sy[len(sx):]
-						// Absorb implied dot from unpacked qualwords
-						if strings.HasPrefix(sTail, ".") { sTail = sTail[1:] }
-						
-						restX := x[i+1:]
-						restY := append([]any{sTail}, y[i+1:]...)
-						return cmp(ctx, restX, restY)
-					}
-					if len(sy) < len(sx) && strings.HasPrefix(sx, sy) {
-						sTail := sx[len(sy):]
-						// Absorb implied dot from unpacked qualwords
-						if strings.HasPrefix(sTail, ".") { sTail = sTail[1:] }
-						
-						restX := append([]any{sTail}, x[i+1:]...)
-						restY := y[i+1:]
-						return cmp(ctx, restX, restY)
-					}
-				}
+	for i < lenX && i < lenY {
+		if lx, ly := x[i], y[i]; lx == ly { // FAST PATH: O(1) Integer Equality
+			i++
+		} else {
+			// Fragmentation (Sequential Alignment)
+			// If one symbol is a prefix of the other, we must "split" the sequence
+			switch res, sx, sy := cmp_symbol(ctx, lx, ly); res {
+			case cmpLprefix:
+				tail := sy[len(sx):]
+				restX := x[i+1:]
+				restY := append([]Symbol{intern(tail)}, y[i+1:]...)
+				return cmp_symbols(ctx, restX, restY)
+			case cmpRprefix:
+				tail := sx[len(sy):]
+				restX := append([]Symbol{intern(tail)}, x[i+1:]...)
+				restY := y[i+1:]
+				return cmp_symbols(ctx, restX, restY)
+			default:
+				// Any hard mismatch returns smaller/greater immediately.
 				return res
 			}
 		}
-		
-		if i == len(x) && i < len(y) { return cmpSmaller }
-		if i < len(x) && i == len(y) { return cmpGreater }
-		return cmpEqual
-
-	default:
-		// Base Case: Treat an unmatched scalar as a single-element list.
-		// Since `underlay` already unrolled everything, if `rv` is not a `[]any` here,
-		// it is definitively a primitive!
-		return cmp(ctx, x, []any{rv})
 	}
-}
 
-func cmp_string(l, r string) cmpres {
-	switch {
-	case l < r: if strings.HasPrefix(r, l) { return cmpLprefix } else { return cmpSmaller }
-	case l > r: if strings.HasPrefix(l, r) { return cmpRprefix } else { return cmpGreater }
-	}
-    return cmpEqual
-}
-func cmp_int(l, r int64) cmpres {
-    switch {
-    case l < r: return cmpSmaller
-    case l > r: return cmpGreater
-    }
+	// Boundary Tie-breakers
+	// If we exhausted a sequence without a mismatch, it's a perfect prefix!
+	if lenX < lenY { return cmpLprefix } // L is shorter, so L is a prefix of R
+	if lenX > lenY { return cmpRprefix } // R is shorter, so R is a prefix of L
 	return cmpEqual
 }
-func cmp_float(l, r float64) cmpres {
-    switch {
-    case l < r: return cmpSmaller
-    case l > r: return cmpGreater
-    }
+
+func cmp(ctx Context, l, r Value) (result cmpres) {
+	if checkpoints { defer check_cmp(ctx, l, r) (&result) }
+    return cmp_symbols(ctx, symbolize(l), symbolize(r))
+}
+
+func cmps(ctx Context, l, r []Value) cmpres {
+	lenL, lenR := len(l), len(r)
+	limit := lenL
+	if lenR < limit {
+		limit = lenR
+	}
+
+	for i := 0; i < limit; i++ {
+		if res := cmp(ctx, l[i], r[i]); res != cmpEqual {
+			return res
+		}
+	}
+
+	if lenL < lenR { return cmpSmaller }
+	if lenL > lenR { return cmpGreater }
 	return cmpEqual
 }
+
 func cmp_time(l, r time.Time) cmpres {
     switch {
     case l.Before(r): return cmpSmaller
@@ -1735,13 +1559,8 @@ func cmp_time(l, r time.Time) cmpres {
 	return cmpEqual // l.Equal(r)
 }
 
-func eq(x Context, a, b any) bool { return cmp(x, a, b) == cmpEqual }
-func equal(x Context, a, b any, yes ...bool) (res bool) {
-	if false && checkpoints {
-		if s, t := sf("%v",a), sf("%v",b); (!res && s == t) || res && s != t {
-			defer debug(pc(x,a), "%v: equal(%v, %v)", res, s, t, callstack{num:6})
-		}
-	}
+func eq(x Context, a, b Value) bool { return cmp(x, a, b) == cmpEqual }
+func equal(x Context, a, b Value, yes ...bool) (res bool) {
 	if __t(yes...) {
 		return __string(x, a) == __string(x, b)
 	} else {
@@ -4247,7 +4066,7 @@ func __lsa(s ...string) (a []any) { for _, s := range s { a = append(a, strings.
 func __sa(s ...string) (a []any) { for _, s := range s { a = append(a, s) }; return }
 func __t(a ...bool) (_ bool) { for _, a := range a { if a { return true } }; return }
 func _if[T any](cond bool, t, f T) T { if cond { return t } else { return f } }
-func _if_cmp[T any](c Context, r cmpres, t, f T) T { if cmp(c, t, f) == r { return t } else { return f } }
+func _if_cmp[T Value](c Context, r cmpres, t, f T) T { if cmp(c, t, f) == r { return t } else { return f } }
 func _unless[T any](cond bool, t, f T) T { if !cond { return t } else { return f } }
 func _truly[T any](c Context, a any, t T, f T) T { if truly(c,a) { return t } else { return f } }
 func _falsely[T any](c Context, a any, t T, f T) T { if !truly(c,a) { return t } else { return f } }
@@ -4351,7 +4170,7 @@ func __string(ctx Context, v any) (res string) {
 			// We DO NOT check cmp(v, val) because cmp might fall back to __string(val), causing a loop.
 			if reflect.TypeOf(val) != reflect.TypeOf(v) {
 				res = __string(ctx, val)
-			} else if cmp(ctx, val, v) != cmpEqual {
+			} else if cmp(ctx, val, v.(Value)) != cmpEqual {
 				res = __string(ctx, val)
 			}
 		}
@@ -4698,63 +4517,6 @@ func __float(ctx Context, v Value) (_ float64) {
 		}
 	}
 	return
-}
-
-// __symbol efficiently resolves an AST Value to its Symbol ID. 
-// It guarantees zero string allocations for static identifiers and 
-// only falls back to evaluation/interning for dynamic nodes.
-func __symbol(ctx Context, val Value) Symbol {
-	if val == nil {
-		return symEmpty
-	} 
-	
-	// Unbox safety: Ensure unboxing doesn't panic if it returns nil
-	if val = unbox(val).(Value); val == nil { return symEmpty }
-	if dc, ok := val.(*defcaps); ok { val = dc.Value } // Unbox!
-
-	switch v := val.(type) {
-	case *word: 
-		return v.s
-	case *pair: 
-		return __symbol(ctx, v.key)
-	case interface{ sym() Symbol }: 
-		return v.sym()
-		
-	// AST Numeric Types - Zero-Allocation Fast Paths
-	case *integer: // Base struct, in case the parser ever emits it directly
-		if 0 <= v.int64 && v.int64 <= 9 {
-			return sym_0 + Symbol(v.int64) 
-		}
-		return intern(strconv.FormatInt(v.int64, 10))
-
-	case *decimal:
-		if 0 <= v.int64 && v.int64 <= 9 {
-			return sym_0 + Symbol(v.int64) 
-		}
-		return intern(v.String()) // Safe fallback using the struct's String() method
-
-	case *float:
-		// Check if the float represents a clean single-digit integer (e.g., 1.0 -> 1)
-		if v.float64 == float64(int64(v.float64)) && 0 <= v.float64 && v.float64 <= 9 {
-			return sym_0 + Symbol(int64(v.float64))
-		}
-		return intern(v.String())
-
-	// Other integer bases (Binary, Octal, Hexadecimal)
-	// We just pass these to intern() via their String() method.
-	case *binary:      return intern(v.String())
-	case *octal:       return intern(v.String())
-	case *hexadecimal: return intern(v.String())
-	}
-	
-	// Fallback for dynamically evaluated nodes (e.g. SRC_$(ARCH)_FILES)
-	var str string
-	if truly(ctx, symident{}) {
-		str = ident(ctx, val)
-	} else {
-		str = __string(ctx, val)
-	}
-	return intern(str)
 }
 
 // Bubble: Sent by an unbound *auto to request deferral
@@ -10327,6 +10089,7 @@ const (
 	symPlus    // +
 	symTilde   // ~
 
+	symSpace        //
 	symSlash        // /
 	symComma        // ,
 	symDot          // .
@@ -10460,7 +10223,7 @@ const (
 	symAnd
 	symNot
 	symXor
-	symEqual
+	symEqual // =
 	symNe
 	symNotEqual
 	symMatch
@@ -10576,7 +10339,7 @@ const (
 var coreSymbols = []string{
 	"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 	"_", "-", "$", "&", "@", "|", "^", "<", ">", "%", "*", "?", "**", "*?", "+", "~",
-	"/", ",", ".", "..", dot_base, dot_configure, dot_container,
+	" ", "/", ",", ".", "..", dot_base, dot_configure, dot_container,
 	".os", ".mode", ".goals", ".smart", "os", "mode", "goals", "smart",
 
 	"CWD", "CRD", "CTD", "SMART", "SMART_ARGS",
@@ -10614,22 +10377,45 @@ var coreSymbols = []string{
 func (sym Symbol) String() string {
 	vocabM.RLock()
 	defer vocabM.RUnlock()
-	if int(sym) < len(symToStr) {
-		return symToStr[sym]
+	if int(sym) < len(vocab) {
+		return vocab[sym].Text
 	}
 	return "<invalid-symbol-id>"
 }
 
-var (
-	symToStr, strToSym = func() ([]string, map[string]Symbol) {
-		size := len(coreSymbols)+mapThreshold
-		strs := make([]string, 0, size)
-		syms := make(map[string]Symbol, size)
-		for i, s := range coreSymbols { syms[s], strs = Symbol(i), append(strs, s) }
-		return strs, syms
-	} ()
+type SymMeta struct {
+	Text   string
+	Rank   int   // Pre-calculated globRank (0 = literal, >0 = has *, ?, etc.)
+	IsNum  bool  // True if Text is a valid integer
+	NumVal int64 // The parsed integer value (if IsNum is true)
+}
 
+func newSymMeta(s string) *SymMeta {
+	var isNum bool
+	var numVal int64
+	// Fast check to avoid passing non-numbers to strconv
+	if len(s) > 0 && (s[0] == '-' || ('0' <= s[0] && s[0] <= '9')) {
+		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
+			isNum = true
+			numVal = val
+		}
+	}
+	return &SymMeta{
+		s, globRank(s), isNum, numVal,
+	}
+}
+
+var (
 	vocabM sync.RWMutex
+	vocab, strToSym = func() ([]*SymMeta, map[string]Symbol) {
+		size := len(coreSymbols)+mapThreshold
+		strs := make([]*SymMeta, 0, size)
+		syms := make(map[string]Symbol, size)
+		for i, s := range coreSymbols {
+			syms[s], strs = Symbol(i), append(strs, newSymMeta(s))
+		}
+		return strs, syms
+	}()
 )
 
 // intern takes a string, registers it if new, and returns its unique Symbol ID.
@@ -10658,9 +10444,9 @@ func intern(s string) Symbol {
 		return sym
 	}
 
-	sym := Symbol(len(symToStr))
+	sym := Symbol(len(vocab))
 	strToSym[s] = sym
-	symToStr = append(symToStr, s)
+	vocab = append(vocab, newSymMeta(s))
 	vocabM.Unlock()
 	return sym
 }
@@ -10698,9 +10484,9 @@ func internBytes(b []byte) Symbol {
 		return sym
 	}
 
-	sym := Symbol(len(symToStr))
+	sym := Symbol(len(vocab))
 	strToSym[s] = sym
-	symToStr = append(symToStr, s)
+	vocab = append(vocab, newSymMeta(s))
 	vocabM.Unlock()
 	return sym
 }

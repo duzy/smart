@@ -1,7 +1,0 @@
-project
-
-import (
-    ./hello
-)
-
-test: hello->run

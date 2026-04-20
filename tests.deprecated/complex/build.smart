@@ -1,7 +1,0 @@
-project
-
-import (
-    ./many
-)
-
-build: many->run
