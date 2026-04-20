@@ -1207,33 +1207,6 @@ func unloc(a Value) Value {
 	}
 }
 
-var implicitDot = &punct{valbase{}, DOT}
-
-func unpack(v Value) []Value {
-	switch t := v.(type) {
-	case *loc: return unpack(t.Value)
-	case *xloc: return unpack(t.Value)
-	case *compound: return t.elems
-	case *globpat: return t.elems
-	case *qualword:
-		if len(t.elems) == 0 { return nil }
-		// Pre-allocate the exact slice capacity to avoid append() resizing!
-		res := make([]Value, 0, len(t.elems)*2-1)
-		for i, e := range t.elems {
-			if i > 0 {
-				res = append(res, implicitDot) // Zero heap allocation!
-			}
-			// CRITICAL FIX: Drop empty placeholders so .deps unpacks 
-			// structurally into [punct(.), word(deps)] instead of [valbase, punct(.), word(deps)]
-			if !isEmpty(e) {
-				res = append(res, e)
-			}
-		}
-		return res
-	}
-	return []Value{v}
-}
-
 func unbox(a any) any {
     switch t := a.(type) {
     case self: return t.project
@@ -1248,47 +1221,191 @@ func unbox(a any) any {
     return a
 }
 
-// underlay convert 'a' into native value underneath (aka bool, int, etc.).
+var implicitDash = &punct{valbase{}, DASH} // for flag
+var implicitDot = &punct{valbase{}, DOT}
+var implicitSlash = &punct{valbase{}, PCON} // for PROOT, PTAIL and in-path separator PCON
+
+func unpack(v Value) []Value {
+	switch t := v.(type) {
+	case *loc: return unpack(t.Value)
+	case *xloc: return unpack(t.Value)
+	case *compound: return t.elems
+	case *globpat: return t.elems
+	case *qualword:
+		if len(t.elems) == 0 { return nil }
+		res := make([]Value, 0, len(t.elems)*2-1)
+		for i, e := range t.elems {
+			if i > 0 { res = append(res, implicitDot) }
+			if !isEmpty(e) { res = append(res, e) }
+		}
+		return res
+	}
+	return []Value{v}
+}
+
+// unpackDeep deeply flattens AST nodes into a 1D sequence of Values for the `cmp` engine.
+// It recursively unwinds nested structures and injects synthetic tokens (DASH, DOT, PCON) 
+// to preserve structural boundaries during sequence alignment. It's the Universal Structural Normalizer.
+func unpackDeep(v Value) []Value {
+	if v == nil { return nil }
+
+	switch t := v.(type) {
+	case *loc: return unpackDeep(t.Value)
+	case *xloc: return unpackDeep(t.Value)
+
+	case flag:
+		var res = []Value{implicitDash} // Inject synthetic DASH
+		if !isEmpty(t.Value) {
+			res = append(res, unpackDeep(t.Value)...)
+		}
+		return res
+
+	case *qualword:
+		var res []Value
+		for i, e := range t.elems {
+			if i > 0 { res = append(res, implicitDot) } // Inject synthetic DOT
+			if !isEmpty(e) {
+				res = append(res, unpackDeep(e)...)
+			}
+		}
+		return res
+
+	case *path:
+		var res []Value
+		var elems []Value
+		if sl, ok := v.(slicer); ok { elems = sl.slice() } 
+		
+		for i, e := range elems {
+			if i > 0 {
+				// CRITICAL FIX: Because PROOT and PTAIL are virtual segments, 
+				// we must unconditionally inject the PCON (Slash) between everything!
+				// [PROOT, Volumes, PTAIL] -> [PROOT, PCON, Volumes, PCON, PTAIL]
+				res = append(res, implicitSlash) 
+			}
+			if !isEmpty(e) {
+				res = append(res, unpackDeep(e)...)
+			}
+		}
+		return res
+
+	case slicer: // Recursively deeply unpack *compound, *list, *globpat, etc.
+		var res []Value
+		for _, e := range t.slice() {
+			if !isEmpty(e) {
+				res = append(res, unpackDeep(e)...)
+			}
+		}
+		return res
+	}
+
+	// Base case: it's a scalar AST node
+	return []Value{v}
+}
+
+// underlay converts AST nodes into raw Go primitives (string, int64, etc.) 
+// for blisteringly fast O(1) mathematical and string comparisons. It's the
+// Fast Primitive Extractor.
 func underlay(a any, b int) (any, int) {
 	if a == nil { return "", 0 } // Safely handle nil interfaces
-    switch t := a.(type) {
-	case *valbase, *null, *none, *undef: return "", 0 // Unbox empty AST nodes to ""
-    case *loc: return underlay(t.Value, b)
-    case *xloc: return underlay(t.Value, b)
+
+	switch t := a.(type) {
+	// --- 1. Empty/Null AST Nodes ---
+	case *valbase, *null, *none, *undef: return "", 0 
+
+	// --- 2. Wrappers (Strip and recurse) ---
+	case *loc: return underlay(t.Value, b)
+	case *xloc: return underlay(t.Value, b)
 	case fullname: return underlay(t.Value, b)
-    case self: return t.project, 0
+	case self: return t.project, 0
 	case *globmeta: return t.token, 0
-	case *punct: if t.token == PROOT || t.token == PTAIL { return "", 0 } else { return t.token, 0 }
+
+	// --- 3. Primitive Scalars (The core unboxing) ---
+	case *punct: 
+		// Return the raw token so PROOT, PTAIL, DOT, DASH, Slash survive!
+		return t.token, 0 
+		
 	case *answer: return t.bool, 0
 	case *option: return t.bool, 0
 	case *prediction: return t.bool, 0
 	case *boolean: return t.bool, 0
-    case *word: return t.s, 0
-    case *raw: return t.s, 0
-	case *strlit: return t.s, 0          // ADDED: instantly maps to primitive string
-	case *file: return t.filestub.name, 0 // ADDED: prevents deep file stringification
-	case *project: return t.name, 0      // ADDED
-    case *binary: return t.int64, 2
-    case *octal: return t.int64, 8
-    case *decimal: return t.int64, 10
-    case *hexadecimal: return t.int64, 16
-    case *float: return t.float64, 0
-    case *datetime: return t.t, 0
-    case *Date: return t.t, 1
-    case *Time: return t.t, 2
-	case []string:
+	case *word: return t.s, 0
+	case *raw: return t.s, 0
+	case *strlit: return t.s, 0
+	case *file: return t.filestub.name, 0
+	case *project: return t.name, 0
+	case *binary: return t.int64, 2
+	case *octal: return t.int64, 8
+	case *decimal: return t.int64, 10
+	case *hexadecimal: return t.int64, 16
+	case *float: return t.float64, 0
+	case *datetime: return t.t, 0
+	case *Date: return t.t, 1
+	case *Time: return t.t, 2
+
+	// --- 4. Structural Delegation (The Unification Point) ---
+	// If it's any kind of sequence or wrapper, let unpackDeep() flatten it structurally, 
+	// then just recursively underlay the results!
+	case flag, *qualword, *path, slicer:
 		var res []any
-		for _, s := range t { res = append(res, s) }
+		// Safe assertion: we know these AST nodes implement the Value interface
+		if val, ok := a.(Value); ok {
+			for _, el := range unpackDeep(val) {
+				if v, _ := underlay(el, b); v != nil && v != "" {
+					// Prevent nested slices if underlay returns an array
+					if sl, ok := v.([]any); ok {
+						res = append(res, sl...)
+					} else {
+						res = append(res, v)
+					}
+				}
+			}
+		}
 		return res, 0
-	case []Value:
+
+	case []Value: // Processed exactly like []any
 		var res []any
-		for _, v := range t { res = append(res, v) }
+		for _, el := range t {
+			if v, _ := underlay(el, b); v != nil && v != "" {
+				if sl, ok := v.([]any); ok {
+					res = append(res, sl...)
+				} else {
+					res = append(res, v)
+				}
+			}
+		}
 		return res, 0
-    }
-    return a, b
+
+	case []any:
+		var res []any
+		for _, el := range t {
+			if v, _ := underlay(el, b); v != nil && v != "" {
+				if sl, ok := v.([]any); ok {
+					res = append(res, sl...)
+				} else {
+					res = append(res, v)
+				}
+			}
+		}
+		return res, 0
+	}
+	
+	return a, b
 }
 
 func _underlay(a any) any { a, _ = underlay(a, 0); return a }
+
+// tokenStr securely maps structural tokens to their string literals 
+// for mathematical comparison and fragmentation.
+func tokenStr(t token) string {
+	switch t {
+	case DOT:  return "."
+	case DASH: return "-"
+	case PCON: return "/"
+	case PROOT, PTAIL: 
+		return "" // Virtual segments consume 0 characters in string fragmentation!
+	default: return t.String()
+	}
+}
 
 // globRank returns the specificity rank of a wildcard token/string.
 // ? < * < *? ≈ **
@@ -1328,7 +1445,7 @@ func cmp_rank(rx, ry int) cmpres {
 func cmp(ctx Context, l, r any) (res cmpres) {
 	if checkpoints { defer check_cmp(ctx, l, r)(&res) }
 
-	// 1. Unbox/Underlay: convert wrappers (*word, *boolean) to primitives (string, bool)
+	// 1. Unbox/Underlay: convert wrappers (*word, *boolean) and flatten structures into []any
 	var lv, lb = underlay(l, 0)
 	var rv, rb = underlay(r, 0)
 
@@ -1337,17 +1454,7 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 	case []any:
 		return cmp_slice(ctx, x, rv)
 
-	case *qualword:
-		switch y := rv.(type) {
-		case *qualword:
-			return cmp_slice(ctx, x.any(), y.any()) 
-		case slicer:
-			return cmp_slice(ctx, _underlay(unpack(x)).([]any), _underlay(y.slice()).([]any))
-		}
-		return cmp(ctx, _underlay(unpack(x)), r)
-
-	case slicer: // *list, *compound, *path, *globpat, etc.
-		return cmp(ctx, _underlay(x.slice()), r)
+	// NOTE: No *qualword, slicer, or flag cases needed here! underlay() handled them!
 
 	case token:
 		switch y := rv.(type) {
@@ -1357,21 +1464,19 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 			if rx, ry := globRank(x), globRank(y.s.String()); 0 < rx || 0 < ry {
 				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
-			return cmp_string(x.String(), y.s.String())
+			return cmp_string(tokenStr(x), y.s.String())
 		case Symbol:
 			if rx, ry := globRank(x), globRank(y.String()); 0 < rx || 0 < ry {
 				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
-			return cmp_string(x.String(), y.String())
+			return cmp_string(tokenStr(x), y.String())
 		case string:
 			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
 				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
-			return cmp_string(x.String(), y)
-		case flag:
-			if x == MINUS && isEmpty(y.Value) { return cmpEqual }
-		case slicer:
-			return cmp(ctx, []any{x}, y)
+			return cmp_string(tokenStr(x), y)
+		case []any: // Replaces the old 'case slicer:'
+			return cmp_slice(ctx, []any{x}, y)
 		}
 
 	case Symbol:
@@ -1391,9 +1496,9 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 			if rx, ry := globRank(x.String()), globRank(y); 0 < rx || 0 < ry {
 				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
-			return cmp_string(x.String(), y.String())
-		case slicer:
-			return cmp(ctx, []any{x}, y)
+			return cmp_string(x.String(), tokenStr(y))
+		case []any:
+			return cmp_slice(ctx, []any{x}, y)
 		}
 
 	case string:
@@ -1412,10 +1517,10 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 			if rx, ry := globRank(x), globRank(y); 0 < rx || 0 < ry {
 				if res = cmp_rank(rx, ry); res != cmpEqual { return res }
 			}
-			return cmp_string(x, y.String())
+			return cmp_string(x, tokenStr(y))
 		case int64:   if i, e := strconv.ParseInt(x, lb, 64); e == nil { return cmp_int(i, y) }
 		case float64: if f, e := strconv.ParseFloat(x, 64); e == nil { return cmp_float(f, y) }
-		case slicer:  return cmp(ctx, []any{x}, y)
+		case []any:   return cmp_slice(ctx, []any{x}, y)
 		}
 
 	case int64:
@@ -1423,7 +1528,7 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 		case int64:   return cmp_int(x, y)
 		case float64: return cmp_float(float64(x), y)
 		case string:  if i, e := strconv.ParseInt(y, rb, 64); e == nil { return cmp_int(x, i) }
-		case slicer:  return cmp(ctx, []any{x}, y)
+		case []any:   return cmp_slice(ctx, []any{x}, y)
 		}
 
 	case float64:
@@ -1431,7 +1536,7 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 		case float64: return cmp_float(x, y)
 		case int64:   return cmp_float(x, float64(y))
 		case string:  if f, e := strconv.ParseFloat(y, 64); e == nil { return cmp_float(x, f) }
-		case slicer:  return cmp(ctx, []any{x}, y)
+		case []any:   return cmp_slice(ctx, []any{x}, y)
 		}
 
 	case time.Time:
@@ -1443,21 +1548,10 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 			case 1: if t, e := parseDate(y); e == nil { return cmp_time(x, t) }
 			case 2: if t, e := parseTime(y); e == nil { return cmp_time(x, t) }
 			}
-		case slicer: return cmp(ctx, []any{x}, y)
+		case []any: return cmp_slice(ctx, []any{x}, y)
 		}
 
-	case flag:
-		switch y := rv.(type) {
-		case flag: return cmp(ctx, x.Value, y.Value)
-		case token:
-			if y == MINUS && isEmpty(x.Value) { return cmpEqual }
-		case slicer: 
-			if res := cmp_slice(ctx, _underlay(y.slice()).([]any), x); res != cmpEqual {
-				return -res 
-			}
-			return cmpEqual
-		}
-
+	// Reference Type Comparisons
 	case *arrow:
 		if y, ok := rv.(*arrow); ok {
 			if x.t != y.t {
@@ -1520,73 +1614,56 @@ func cmp(ctx Context, l, r any) (res cmpres) {
 	// 3. Universal Fallback: Safe Identifier Extraction
 	var sx, sy string
 	
-	if s, ok := lv.(string); ok {
-		sx = s
-	} else if w, ok := lv.(*word); ok {
-		sx = w.s.String() 
-	} else if sym, ok := lv.(Symbol); ok {
-		sx = sym.String()
-	} else if v, ok := lv.(Value); ok {
-		sx = ident(ctx, v)
-	} else {
-		sx = fmt.Sprintf("%v", lv)
-	}
+	if s, ok := lv.(string); ok { sx = s
+	} else if w, ok := lv.(*word); ok { sx = w.s.String() 
+	} else if sym, ok := lv.(Symbol); ok { sx = sym.String()
+	} else if v, ok := lv.(Value); ok { sx = ident(ctx, v)
+	} else { sx = fmt.Sprintf("%v", lv) }
 
-	if s, ok := rv.(string); ok {
-		sy = s
-	} else if w, ok := rv.(*word); ok {
-		sy = w.s.String() 
-	} else if sym, ok := rv.(Symbol); ok {
-		sy = sym.String()
-	} else if v, ok := rv.(Value); ok {
-		sy = ident(ctx, v)
-	} else {
-		sy = fmt.Sprintf("%v", rv)
-	}
+	if s, ok := rv.(string); ok { sy = s
+	} else if w, ok := rv.(*word); ok { sy = w.s.String() 
+	} else if sym, ok := rv.(Symbol); ok { sy = sym.String()
+	} else if v, ok := rv.(Value); ok { sy = ident(ctx, v)
+	} else { sy = fmt.Sprintf("%v", rv) }
 
-	if sx != sy {
-		return cmp_string(sx, sy)
-	}
+	if sx != sy { return cmp_string(sx, sy) }
 
 	// Tie-breaker 1: Compare safe concrete types for determinism
 	tx, ty := fmt.Sprintf("%s", typeof(lv)), fmt.Sprintf("%s", typeof(rv))
-	if tx != ty {
-		return cmp_string(tx, ty)
-	}
+	if tx != ty { return cmp_string(tx, ty) }
 
 	// Tie-breaker 2: Identical types with identical identifiers
 	return cmpEqual
 }
 
-// cmp_slice handles comparison for []any, including logic for compound vs flag.
+// cmp_slice handles structural sequence alignment and string fragmentation.
 func cmp_slice(ctx Context, x []any, rv any) cmpres {
 	switch y := rv.(type) {
 	case []any:
-// CRITICAL FIX: A safe, recursive string extractor that 
-		// natively unboxes flags, words, and symbols without triggering AST expansion!
+		// A safe, recursive string extractor mapping synthetic punctuation to literal strings
 		var extract func(any) (string, bool)
 		extract = func(v any) (string, bool) {
 			switch x := _underlay(v).(type) {
-			case string: return x, true
-			case *word:  return x.s.String(), true
-			case Symbol: return x.String(), true
-			case token:  return x.String(), true
-			case flag:
-				if isEmpty(x.Value) { return "-", true }
-				if s, ok := extract(x.Value); ok { return "-" + s, true }
+			case string:  return x, true
+			case *word:   return x.s.String(), true
+			case Symbol:  return x.String(), true
+			case int64:   return strconv.FormatInt(x, 10), true
+			case float64: return strconv.FormatFloat(x, 'g', -1, 64), true
+			case token:   return tokenStr(x), true
 			}
 			return "", false
 		}
 
 		var i int
 		for ; i < len(x) && i < len(y); i++ {
+			// Compare element by element natively
 			if res := cmp(ctx, x[i], y[i]); res != cmpEqual {
 				// If either element is a wildcard, return the comparison result immediately.
 				if globRank(_underlay(x[i])) > 0 || globRank(_underlay(y[i])) > 0 {
 					return res
 				}
 
-				// Safely extract the structural strings
+				// Safely extract the structural strings for fragmentation
 				sx, okx := extract(x[i])
 				sy, oky := extract(y[i])
 
@@ -1595,12 +1672,20 @@ func cmp_slice(ctx Context, x []any, rv any) cmpres {
 					if sx == sy { continue } 
 					
 					if len(sx) < len(sy) && strings.HasPrefix(sy, sx) {
+						sTail := sy[len(sx):]
+						// Absorb implied dot from unpacked qualwords
+						if strings.HasPrefix(sTail, ".") { sTail = sTail[1:] }
+						
 						restX := x[i+1:]
-						restY := append([]any{sy[len(sx):]}, y[i+1:]...)
+						restY := append([]any{sTail}, y[i+1:]...)
 						return cmp(ctx, restX, restY)
 					}
 					if len(sy) < len(sx) && strings.HasPrefix(sx, sy) {
-						restX := append([]any{sx[len(sy):]}, x[i+1:]...)
+						sTail := sx[len(sy):]
+						// Absorb implied dot from unpacked qualwords
+						if strings.HasPrefix(sTail, ".") { sTail = sTail[1:] }
+						
+						restX := append([]any{sTail}, x[i+1:]...)
 						restY := y[i+1:]
 						return cmp(ctx, restX, restY)
 					}
@@ -1608,42 +1693,15 @@ func cmp_slice(ctx Context, x []any, rv any) cmpres {
 				return res
 			}
 		}
+		
 		if i == len(x) && i < len(y) { return cmpSmaller }
 		if i < len(x) && i == len(y) { return cmpGreater }
 		return cmpEqual
 
-	case *qualword: // CRITICAL FIX: Unpack dots for right-hand alignment!
-		return cmp_slice(ctx, x, _underlay(unpack(y)).([]any))
-
-	case slicer:
-		return cmp_slice(ctx, x, _underlay(y.slice()).([]any))
-
-	case flag:
-		// Logic to match split flags: e.g. [- I foo] vs -Ifoo
-		var a, b cmpres
-		for i := 0; i < len(x); i++ {
-			if isEmpty(x[i]) {
-				continue
-			} else if a == 0 && b == 0 {
-				switch a = cmp(ctx, x[i], MINUS); a {
-				case cmpEqual:   // Matched first part "-"
-				case cmpLprefix: // Partial match
-				default: return cmp(ctx, x, []any{rv}) // Fallback
-				}
-			} else if a == cmpEqual && b == 0 {
-				// Matched "-", now match value "Ifoo" or "I" then "foo"
-				if b = cmp(ctx, x[i], y.Value); b != cmpEqual { return b }
-			} else {
-				// We have more elements but already matched the flag -> x is Greater
-				return cmpGreater 
-			}
-		}
-		if a == cmpEqual && b == cmpEqual { return cmpEqual }
-		// Fallthrough to standard comparison if split logic didn't conclusively return
-		return cmp(ctx, x, []any{rv})
-
 	default:
-		// Treat scalar as single-element list (e.g. [foo] vs foo)
+		// Base Case: Treat an unmatched scalar as a single-element list.
+		// Since `underlay` already unrolled everything, if `rv` is not a `[]any` here,
+		// it is definitively a primitive!
 		return cmp(ctx, x, []any{rv})
 	}
 }
@@ -6784,9 +6842,7 @@ func concat(args ...any) (parts []Value) {
 			case Value: parts = append(parts, t)
 			case optraw:
 				if t.b {
-					var v Value
-					if t.s == "" { v = &valbase{t.p} } else { v = _raw(t.p, t.s) }
-					parts = append(parts, v)
+					parts = append(parts, _rw(t.p, t.s))
 				}
 			case stemseg:
 				if t.v == nil { t.v = &valbase{t.e.Pos()} }
@@ -6914,7 +6970,7 @@ func backwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem 
 func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
 	forward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
 		pos := vals[iV].Pos()
-		val := _raw(pos, str[:size])
+		val := _rw(pos, str[:size])
 
 		m, r, rm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:],
 			concat(optraw{size < len(str), pos, str[size:]}, vals[iV+1:]))
@@ -6955,8 +7011,8 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 							pos := gap[k].Pos()
 							
 							for i := 0; i < len(str); {
-								if m, r, rm, s, _, _, wt := forwardGlobComp(ctx, suffix, concat(_raw(pos, str[i:]), gap[k+1:])); m {
-									stemParts := concat(gap[:k], _raw(pos, str[:i]))
+								if m, r, rm, s, _, _, wt := forwardGlobComp(ctx, suffix, concat(_rw(pos, str[i:]), gap[k+1:])); m {
+									stemParts := concat(gap[:k], _rw(pos, str[:i]))
 									return true, concat(res, stemParts, r), rm, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), len(vals), wt
 								}
 
@@ -7008,7 +7064,7 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 				} else if iv_ret == 0 {
 					matchedStr := ""
 					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
-					r = []Value{_raw(vals[iV].Pos(), matchedStr)}
+					r = []Value{_rw(vals[iV].Pos(), matchedStr)}
 				}
 
 				// CRITICAL FIX: Flatten the stem produced by the DAST explosion!
@@ -7018,7 +7074,7 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 					for _, v := range unpack(s[0]) {
 						stemStr += getScalarSubstr(ctx, v, 0, -1)
 					}
-					s[0] = _raw(vals[iV].Pos(), stemStr)
+					s[0] = _rw(vals[iV].Pos(), stemStr)
 				}
 
 				return true, concat(res, r), rm, concat(stems, s), mapped_iE, iV + iv_ret, wt
@@ -7047,13 +7103,13 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 						stemStr := valStr[len(pfx):idx]
 						matchedLen := idx + len(sfx)
 						
-						resAtom := _raw(vals[iV].Pos(), valStr[:matchedLen])
-						stemAtom := _raw(vals[iV].Pos(), stemStr)
+						resAtom := _rw(vals[iV].Pos(), valStr[:matchedLen])
+						stemAtom := _rw(vals[iV].Pos(), stemStr)
 						
 						var nextVals []Value
 						hasRem := matchedLen < len(valStr)
 						if hasRem {
-							nextVals = append(nextVals, _raw(vals[iV].Pos(), valStr[matchedLen:]))
+							nextVals = append(nextVals, _rw(vals[iV].Pos(), valStr[matchedLen:]))
 						}
 						nextVals = concat(nextVals, vals[iV+1:])
 
@@ -7105,7 +7161,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 
 	backward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
 		pos := vals[iV].Pos()
-		val := _raw(pos, str[len(str)-size:]) 
+		val := _rw(pos, str[len(str)-size:]) 
 
 		m, r, rm, s, ie, iv, wt := backwardGlobComp(ctx, elems[:iE],
 			concat(vals[:iV], optraw{size < len(str), pos, str[:len(str)-size]}))
@@ -7145,7 +7201,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 							pos := gap[k-1].Pos()
 							
 							for i := len(str); i > 0; {
-								if m, r, rm, s, _, _, wt := backwardGlobComp(ctx, prefix, concat(gap[:k-1], _raw(pos, str[:i]))); m {
+								if m, r, rm, s, _, _, wt := backwardGlobComp(ctx, prefix, concat(gap[:k-1], _rw(pos, str[:i]))); m {
 									stemParts := concat(optraw{i < len(str), pos, str[i:]}, gap[k:])
 									return true, concat(r, stemParts, res), rm, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, 0, wt
 								}
@@ -7199,7 +7255,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 				} else if iv_ret == iV+1 {
 					matchedStr := ""
 					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
-					r = []Value{_raw(vals[iV].Pos(), matchedStr)}
+					r = []Value{_rw(vals[iV].Pos(), matchedStr)}
 				}
 
 				// CRITICAL FIX: Flatten the stem produced by the DAST explosion!
@@ -7210,7 +7266,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 					for _, v := range unpack(s[idx]) {
 						stemStr += getScalarSubstr(ctx, v, 0, -1)
 					}
-					s[idx] = _raw(vals[iV].Pos(), stemStr)
+					s[idx] = _rw(vals[iV].Pos(), stemStr)
 				}
 
 				return true, concat(r, res), rm, concat(s, stems), mapped_iE, iv_ret, wt
@@ -7237,13 +7293,13 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 					if idx >= 0 {
 						stemStr := valStr[idx+len(pfx) : len(valStr)-len(sfx)]
 						
-						resAtom := _raw(vals[iV].Pos(), valStr[idx:])
-						stemAtom := _raw(vals[iV].Pos(), stemStr)
+						resAtom := _rw(vals[iV].Pos(), valStr[idx:])
+						stemAtom := _rw(vals[iV].Pos(), stemStr)
 						
 						var nextVals []Value
 						hasRem := idx > 0
 						if hasRem {
-							nextVals = append(nextVals, _raw(vals[iV].Pos(), valStr[:idx]))
+							nextVals = append(nextVals, _rw(vals[iV].Pos(), valStr[:idx]))
 						}
 						nextVals = concat(vals[:iV], nextVals)
 
@@ -7507,16 +7563,16 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 						
 						if len(sufAtoms) > 0 {
 							var testVals []Value
-							if i < len(str) { testVals = unpack(_raw(targetPos, str[i:])) }
+							if i < len(str) { testVals = unpack(_rw(targetPos, str[i:])) }
 							mSuf, rSuf, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, testVals)
 						} else {
 							mSuf = true
-							if i < len(str) { remSuf = unpack(_raw(targetPos, str[i:])) }
+							if i < len(str) { remSuf = unpack(_rw(targetPos, str[i:])) }
 						}
 
 						if mSuf {
 							var gapAtoms []Value
-							if i > 0 { gapAtoms = []Value{_raw(targetPos, str[:i])} }
+							if i > 0 { gapAtoms = []Value{_rw(targetPos, str[:i])} }
 
 							var nextSegs []Value
 							if k == 0 {
@@ -7738,7 +7794,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 						
 						if len(preAtoms) > 0 {
 							var testVals []Value
-							if i > 0 { testVals = unpack(_raw(targetPos, str[:i])) }
+							if i > 0 { testVals = unpack(_rw(targetPos, str[:i])) }
 							mPre, rPre, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, testVals)
 							if !mPre || len(remPre) > 0 {
 								if mB, rB, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, testVals); mB {
@@ -7747,12 +7803,12 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							}
 						} else {
 							mPre = true
-							if i > 0 { remPre = unpack(_raw(targetPos, str[:i])) }
+							if i > 0 { remPre = unpack(_rw(targetPos, str[:i])) }
 						}
 
 						if mPre {
 							var gapAtoms []Value
-							if i < len(str) { gapAtoms = []Value{_raw(targetPos, str[i:])} }
+							if i < len(str) { gapAtoms = []Value{_rw(targetPos, str[i:])} }
 
 							var nextSegs []Value
 							if k == len(gap) {
@@ -7924,14 +7980,14 @@ func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, r
 	// 4. Partial String Match
 	if trail {
 		if strings.HasSuffix(vStr, pStr) {
-			res = _raw(val.Pos(), pStr)
-			rem = _raw(val.Pos(), vStr[:len(vStr)-len(pStr)])
+			res = _rw(val.Pos(), pStr)
+			rem = _rw(val.Pos(), vStr[:len(vStr)-len(pStr)])
 			return true, res, rem
 		}
 	} else {
 		if strings.HasPrefix(vStr, pStr) {
-			res = _raw(val.Pos(), pStr)
-			rem = _raw(val.Pos(), vStr[len(pStr):])
+			res = _rw(val.Pos(), pStr)
+			rem = _rw(val.Pos(), vStr[len(pStr):])
 			return true, res, rem
 		}
 	}
@@ -8096,8 +8152,8 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	case *regexpat:
 		if p.Regexp == nil { erro(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}) }
 		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
-			res = _raw(val.Pos(), sm[0])
-			for _, s := range sm[1:] { stems = append(stems, _raw(val.Pos(), s)) }
+			res = _rw(val.Pos(), sm[0])
+			for _, s := range sm[1:] { stems = append(stems, _rw(val.Pos(), s)) }
 			matched = true
 		} else {
 			rem = val
@@ -8508,37 +8564,6 @@ func unique(ctx Context, values ...Value) []Value {
 	return elems
 }
 
-func reverse_unique0(ctx Context, values ...Value) []Value {
-	if len(values) == 0 {
-		return nil
-	}
-
-	elems := make([]Value, 0, len(values))
-	seen := make(map[uint64][]Value, len(values))
-
-	for j := len(values) - 1; 0 <= j; j-- {
-		v := values[j]
-		n := hash(ctx, v)
-
-		if existing, found := seen[n]; found {
-			isDuplicate := false
-			for _, ev := range existing {
-				if equal(ctx, v, ev) {
-					isDuplicate = true
-					break
-				}
-			}
-			if isDuplicate {
-				continue
-			}
-		}
-
-		seen[n] = append(seen[n], v)
-		elems = append(elems, v)
-	}
-
-	return elems
-}
 func reverse_unique(ctx Context, values ...Value) []Value {
 	if len(values) == 0 {
 		return nil
@@ -8573,7 +8598,6 @@ func reverse_unique(ctx Context, values ...Value) []Value {
 	for i, j := 0, len(elems)-1; i < j; i, j = i+1, j-1 {
 		elems[i], elems[j] = elems[j], elems[i]
 	}
-
 	return elems
 }
 
@@ -8589,7 +8613,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
             case "~" : v = makePunct(pos, TILDE)
             case "." : v = makePunct(pos, DOT)
             case "..": v = makePunct(pos, DOTDOT)
-				default  : v = _raw(pos, s)
+				default  : v = _rw(pos, s)
             }
         } else if s == "" {
             if i+1 == len(a) {
@@ -8601,7 +8625,7 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
                 continue
             }
         } else {
-            v = _raw(pos, s)
+            v = _rw(pos, s)
         }
         segments = append(segments, v)
     }
@@ -8816,6 +8840,13 @@ func ts(i any, o ...any) (s string) {
 		default: s = x.token.String()
 		}
 		return "{"+lp(c, x.pos, t)+" "+s+"}"
+	case token:
+		switch x {
+		case PROOT: s = "PROOT"
+		case PTAIL: s = "PTAIL"
+		default: s = x.String()
+		}
+		return "{=token "+s+"}"
 	case *disjunction:
 		return "{"+lp(c, x.pos, t, x.val)+"}"
 	case *conjunction:
@@ -8894,8 +8925,18 @@ func _globmeta(pos Pos, tok token) *globmeta { return &globmeta{valbase{pos},tok
 func _globrange(val Value) *globrange { return &globrange{val} }
 func _globpat(elems ...Value) *globpat { return &globpat{elements{elems}} }
 func _word(pos Pos, w Symbol) *word { return &word{valbase{pos},w} }
-func _raw(pos Pos, s string) Value {
-	if s == "" { return &valbase{pos} } else { return &raw{valbase{pos},s} }
+func _raw(pos Pos, s string) Value { if s == "" { return &valbase{pos} } else { return &raw{valbase{pos},s} } }
+func _rw(pos Pos, s string) Value {
+	if s == "" { return &valbase{pos} }
+	if len(s) < 64 {
+		vocabM.RLock()
+		if sym, ok := strToSym[s]; ok {
+			vocabM.RUnlock()
+			return &word{valbase{pos},sym}
+		}
+		vocabM.RUnlock()
+	}
+	return &raw{valbase{pos},s}
 }
 
 func makeDate(pos Pos, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
@@ -10331,6 +10372,7 @@ const (
 	symEval
 	symValue
 	symConfigure
+	symConfiguration
 
 	symAuto
 	symAutoload
@@ -10465,7 +10507,8 @@ const (
 	symIndent
 	symUppercase
 	symLowercase
-	symSubst
+	symSubst // substitute
+	symSubstitute
 	symSubstring
 	symPatsubst
 	symContains
@@ -10541,7 +10584,7 @@ var coreSymbols = []string{
 	"true", "false", "yes", "no", "on", "off",
 
 	"shell", "python", "perl", "dock", "plain", "plainline", "text", "json", "xml", "yaml",
-	"assert", "append", "eval", "value", "configure",
+	"assert", "append", "eval", "value", "configure", "configuration",
 
 	"auto", "autoload", "answer", "bool", "boolean", "unique", "defer", "var", "set", "dep", "env",
 	"str", "self", "here", "word", "quote", "defs", "glob", "regex", "fullname",
@@ -10559,7 +10602,7 @@ var coreSymbols = []string{
 	"multiply", "mul", "divide", "div", "split", "split-quote", "split-quote-join", "split-join-quote",
 	"element", "field", "fields", "uses", "bare", "path", "finalize", "resolve", "strip",
 	"trim", "trim-left", "trim-right", "trim-prefix", "trim-suffix", "trim-ext",
-	"title", "indent", "uppercase", "lowercase", "subst", "substring", "patsubst", "contains",
+	"title", "indent", "uppercase", "lowercase", "subst", "substitute", "substring", "patsubst", "contains",
 	"filter-out", "decode-base64", "encode-base64", "ext",
 	"base", "base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "bases", "chopdir",
 	"dir", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9", "dirs",  
@@ -11530,10 +11573,10 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 			if segs := splitPathStr(ctx, str); len(segs) > 1 {
 				k = packPath(segs)
 			} else {
-				k = _raw(_pos(ctx), str)
+				k = _rw(_pos(ctx), str)
 			}
 		} else {
-			k = _raw(_pos(ctx), str)
+			k = _rw(_pos(ctx), str)
 		}
 	}
 	
@@ -14634,7 +14677,7 @@ func new_universe(ii ...any) (ctx *universe) {
 	}
 
 	var pos Pos = 0 // ctx._position()
-	ctx.globe.os    = ctx.globe.def(ctx, defVoid, symDotOS, _raw(pos, runtime.GOOS))
+	ctx.globe.os    = ctx.globe.def(ctx, defVoid, symDotOS, _rw(pos, runtime.GOOS))
 	ctx.globe.mode  = ctx.globe.def(ctx, defVoid, symDotMode, _null(pos))
 	ctx.globe.goals = ctx.globe.def(ctx, defVoid, symDotGoals, _none(pos))
 
@@ -15346,8 +15389,8 @@ const (
 	RECIPE   // tab to indicate a command recipe
 	LINEND   // significannot line break (LF or CRLF)
 
-	PROOT    // the root of a path, aka "" before the first '/' in a path
-	PTAIL    // the tail of a path, aka "" after the last '/' in a path
+	PROOT    // the root of a path, aka the virtual segment "" before the first '/' in a path
+	PTAIL    // the tail of a path, aka the virtual segment "" after the last '/' in a path
 
 	// _operator_beg
 	LANGLE    // <
@@ -23018,7 +23061,7 @@ func (l ul) parseConfigDir(ctx Context, pathname, linked string) (err error) {
             debug(ctx, "%s: invalid UTF8 content", fullname)
         }
 
-        d.set(ctx, _raw(l.p.pos, s))
+        d.set(ctx, _rw(l.p.pos, s))
     }
     return
 }
@@ -26216,7 +26259,8 @@ var builtins = map[Symbol]reflect.Type {
     symLowercase:    reflect.TypeOf((*__lowercase)(nil)).Elem(),
 
     // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-    symSubst:        reflect.TypeOf((*__subst)(nil)).Elem(),
+    symSubst:        reflect.TypeOf((*__subst)(nil)).Elem(), // substitute
+    symSubstitute:   reflect.TypeOf((*__subst)(nil)).Elem(),
     symPatsubst:     reflect.TypeOf((*__patsubst)(nil)).Elem(),
 
     symContains:     reflect.TypeOf((*__contains)(nil)).Elem(),
@@ -27360,7 +27404,7 @@ func (ctx *__env) x() (res any) {
         if val := expand(ctx, a); isTrivial(val) {
             continue
         } else if s := strings.TrimSpace(__string(ctx, val)); s != "" {
-            vals = append(vals, _raw(a.Pos(), os.Getenv(s)))
+            vals = append(vals, _rw(a.Pos(), os.Getenv(s)))
         }
     }
     return vals
@@ -28120,7 +28164,7 @@ func (ctx *__field) x() (res any) {
 			var i = int(__int(ctx, x))
 			for _, v := range ctx.a {
 				if a := strings.Fields(__string(ctx, v)); 0 < i && i <= len(a) {
-					elems = append(elems, _raw(v.Pos(), a[i-1]))
+					elems = append(elems, _rw(v.Pos(), a[i-1]))
 				}
 			}
 		}
@@ -28143,7 +28187,7 @@ func (ctx *__fields) x() any {
 			var i = int(__int(ctx, x))
 			for _, v := range ctx.a[1:] {
 				if a := strings.Fields(__string(ctx, v)); 0 <= i && i < len(a) {
-					elems = append(elems, _raw(v.Pos(), a[i]))
+					elems = append(elems, _rw(v.Pos(), a[i]))
 				}
 			}
 			return elems
@@ -28152,7 +28196,7 @@ func (ctx *__fields) x() any {
 
 	for _, v := range ctx.a {
 		for _, s := range strings.Fields(__string(ctx, v)) {
-			elems = append(elems, _raw(v.Pos(), s))
+			elems = append(elems, _rw(v.Pos(), s))
 		}
 	}
 	return elems
@@ -28237,14 +28281,14 @@ func (ctx *__bare) x() (res any) {
     for _, a := range ctx.a {
         switch p := a.Pos(); t := a.(type) {
         case *strlit, *strcomp:
-            a = _raw(p, __string(ctx, a))
+            a = _rw(p, __string(ctx, a))
         case *file:
-            a = _raw(p, ident(ctx,t))
+            a = _rw(p, ident(ctx,t))
         case fullfile:
             if ctx.name {
-                a = _raw(p, ident(ctx,t))
+                a = _rw(p, ident(ctx,t))
             } else {
-                a = _raw(p, __string(ctx,t))
+                a = _rw(p, __string(ctx,t))
             }
         }
         vals = append(vals, a)
@@ -28515,7 +28559,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 			if fp.isExact {
 				if vStr == fp.exact {
 					matched = true
-					if ctx.stem { matchedVal = _raw(v.Pos(), "") } else { matchedVal = v }
+					if ctx.stem { matchedVal = _rw(v.Pos(), "") } else { matchedVal = v }
 					break
 				}
 			} else if fp.isPerc {
@@ -28525,7 +28569,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 					matched = true
 					if ctx.stem {
 						stemStr := vStr[len(fp.prefix) : len(vStr)-len(fp.suffix)]
-						matchedVal = _raw(v.Pos(), stemStr)
+						matchedVal = _rw(v.Pos(), stemStr)
 					} else {
 						matchedVal = v
 					}
@@ -28614,25 +28658,47 @@ func (ctx *__substring) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__substring) x() (_ any) {
-    var res []Value
-    if n := len(ctx.a); n > 1 {
-        var v1, v2 = ctx.a[0], ctx.a[1]
-        var a, b = intVal(ctx, v1, -1), intVal(ctx, v2, -1)
-        if ctx.a = ctx.a[2:]; a < -1 && b < -1 {
-            erro(ctx, "wrong indices (%v, %v)", v1, v2)
-        }
-        if a > b { t := a; a = b; b = t } // swap the wrong order
-        if a == -1 { a = b }
-        if a == -1 { return }
+	var res []Value
+	if n := len(ctx.a); n > 1 {
+		var v1, v2 = ctx.a[0], ctx.a[1]
+		var a, b = intVal(ctx, v1, -1), intVal(ctx, v2, -1)
+		
+		if ctx.a = ctx.a[2:]; a < -1 && b < -1 {
+			erro(ctx, "wrong indices (%v, %v)", v1, v2)
+		}
+		
+		if a > b { t := a; a = b; b = t } // swap the wrong order
+		if a == -1 { a = b }
+		if a == -1 { return }
 
-        for _, arg := range ctx.a {
-            var s = __string(ctx, arg)
-            if i := len(s); i <= a { s = "" } else
-            if b == -1 || i <= b { s = s[a:b] } else { s = s[a:] }
-            res = append(res, _strlit(arg.Pos(), s))
-        }
-    }
-    return res
+		// 1. Expand list arguments using merge()
+		for _, arg := range merge(ctx.a...) {
+			originalStr := __string(ctx, arg)
+			s := originalStr
+			i := len(s)
+
+			// 2. Safely compute the substring bounds to prevent Go panics
+			if i <= a {
+				s = ""
+			} else if b == -1 || b >= i {
+				// If b is omitted (-1) or extends beyond the string, take the rest
+				s = s[a:]
+			} else {
+				// Safely slice up to b
+				s = s[a:b]
+			}
+
+			// 3. TYPE & MEMORY SAFETY FIX
+			if s == originalStr {
+				// Zero-mutation fast path: preserve the exact original AST node
+				res = append(res, arg)
+			} else {
+				// Text changed: return a raw, garbage-collectable value
+				res = append(res, _rw(arg.Pos(), s))
+			}
+		}
+	}
+	return res
 }
 
 // $(subst from,to,text)
@@ -28643,16 +28709,39 @@ func (ctx *__subst) cast(t reflect.Type) Context {
     return ctx.builtinbase.cast(t)
 }
 func (ctx *__subst) x() (_ any) {
-    var res []Value
-    if len(ctx.a) > 2 {
-        var s1 = __string(ctx, ctx.a[0])
-        var s2 = __string(ctx, ctx.a[1])
-        for _, arg := range merge(ctx.a[2:]...) {
-            s := strings.Replace(__string(ctx, arg), s1, s2, -1)
-            res = append(res, _strlit(arg.Pos(), s))
-        }
-    }
-    return res
+	var res []Value
+	if len(ctx.a) > 2 {
+		var s2 = __string(ctx, ctx.a[1])
+
+		// 1. Expand and collect all 'from' substrings
+		var fromStrs []string
+		for _, arg := range merge(ctx.a[0]) {
+			fromStrs = append(fromStrs, __string(ctx, arg))
+		}
+
+		// 2. Iterate over the text targets
+		for _, arg := range merge(ctx.a[2:]...) {
+			originalStr := __string(ctx, arg)
+			s := originalStr
+			
+			// Apply all replacements
+			for _, s1 := range fromStrs {
+				if s1 != "" {
+					s = strings.Replace(s, s1, s2, -1)
+				}
+			}
+			
+			// 3. TYPE & MEMORY SAFETY FIX
+			if s == originalStr {
+				// Zero-mutation fast path: preserve the exact original AST node (and type)
+				res = append(res, arg)
+			} else {
+				// Text changed: return a raw, garbage-collectable value
+				res = append(res, _rw(arg.Pos(), s))
+			}
+		}
+	}
+	return res
 }
 
 func coupleVal(ctx Context, v Value, str string) (_ Value) {
@@ -28665,10 +28754,10 @@ func coupleVal(ctx Context, v Value, str string) (_ Value) {
 	case *file, fullfile:
 		// REFINED: Treat files as paths if they contain slashes, otherwise words.
 		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
-		return _raw(_pos(ctx), str)
+		return _rw(_pos(ctx), str)
 	default:
 		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
-		return _raw(_pos(ctx), str)
+		return _rw(_pos(ctx), str)
 	}
 }
 
@@ -28788,7 +28877,7 @@ func (ctx *__title) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(strings.Title)
         default:
-            a = _raw(a.Pos(), strings.Title(__string(ctx, a)))
+            a = _rw(a.Pos(), strings.Title(__string(ctx, a)))
         }
     }
     return res
@@ -28807,7 +28896,7 @@ func (ctx *__uppercase) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(strings.ToUpper)
         default:
-            a = _raw(a.Pos(), strings.ToUpper(__string(ctx, a)))
+            a = _rw(a.Pos(), strings.ToUpper(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -28827,7 +28916,7 @@ func (ctx *__lowercase) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(strings.ToLower)
         default:
-            a = _raw(a.Pos(), strings.ToLower(__string(ctx, a)))
+            a = _rw(a.Pos(), strings.ToLower(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -28854,7 +28943,7 @@ func (ctx *__trim) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(f)
         default:
-            a = _raw(a.Pos(), f(__string(ctx, a)))
+            a = _rw(a.Pos(), f(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -28881,7 +28970,7 @@ func (ctx *__trimleft) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(f)
         default:
-            a = _raw(a.Pos(), f(__string(ctx, a)))
+            a = _rw(a.Pos(), f(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -28908,7 +28997,7 @@ func (ctx *__trimright) x() any {
         case interface{ change(func(string) string) Value }:
             a = t.change(f)
         default:
-            a = _raw(a.Pos(), f(__string(ctx, a)))
+            a = _rw(a.Pos(), f(__string(ctx, a)))
         }
         res = append(res, a)
     }
@@ -29033,7 +29122,7 @@ func (ctx *__trimext) x() any {
 				str := quickStr(ctx, currentVal) 
 				if ext := filepath.Ext(str); ext != "" {
 					// Construct a raw pattern from the detected extension
-					pat := _raw(currentVal.Pos(), ext)
+					pat := _rw(currentVal.Pos(), ext)
 					
 					full, r, rem, _ := match(reversal{ctx}, pat, currentVal)
 					if full {
@@ -30601,7 +30690,7 @@ func stepPattern(ctx Context, pat Value, name string) (nextPats []Value) {
 
 			// ** can also consume 0 segments, so we check if the NEXT element matches this directory
 			if len(p.elems) > 1 {
-				okMatch, _, _, _ := match(ctx, p.elems[1], _raw(p.Pos(), name))
+				okMatch, _, _, _ := match(ctx, p.elems[1], _rw(p.Pos(), name))
 				if okMatch {
 					if len(p.elems) > 2 {
 						var nextPat Value
@@ -30616,7 +30705,7 @@ func stepPattern(ctx Context, pat Value, name string) (nextPats []Value) {
 			}
 		} else {
 			// Standard strict segment match
-			okMatch, _, _, _ := match(ctx, first, _raw(p.Pos(), name))
+			okMatch, _, _, _ := match(ctx, first, _rw(p.Pos(), name))
 			if okMatch {
 				if len(p.elems) > 1 {
 					var nextPat Value
@@ -31135,7 +31224,7 @@ func (ctx *__grep) x() (_ any) {
                     var a, b = si[2*i], si[2*i+1]
                     if 0 <= a && 0 < b { p.Column, t = 1+a, text[a:b] }
 
-                    var v = &xloc{_raw(0, t), p}
+                    var v = &xloc{_rw(0, t), p}
                     ctx.set(pc(c,p), defVoid, intern(n), v)
 
                     if i == 0 && result == nil { val = v } else

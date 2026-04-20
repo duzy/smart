@@ -25,13 +25,19 @@ var rxLC = regexp.MustCompile(`{(?:=|@[0-9]+|(?:(?:\.|\.\.)?/[0-9A-Za-z./_\-+]+:
 var rxIgnoredChecks = regexp.MustCompile(`^(?:[0-9@<^>_/\-])(?:⇒.+)?$`)
 var rxSquareBracket = regexp.MustCompile(`\[?(.+?)\]?`)
 var rxUnwrapLocMarker = regexp.MustCompile(`\{=unwrap-loc-([^\s{}]+)\s`)
+
+// Define the prefix modifier pattern as a standalone constant
+const prefixMod = `(?:tolower|toupper|dir|base|trim\([^)]*?\)|sep\([^)]*?\))(?:\.[0-9]+)?`
+
+// Used to safely extract individual modifiers from a chain like "dir+trim(/)"
+var rxPrefixMod = regexp.MustCompile(prefixMod)
 var rxCheckReplacements = regexp.MustCompile(
-	`%\[(?:(tolower|toupper|dir|base|(?:trim|sep)\((.*?)\))(?:\.([0-9]+))?:)?`+
-	`(testdata|modules|workspace|workout|user|home|platforms`+
-	`|(?:target|host)(?:\.(?:abi|arch|os|release|sys|vendor|triple|bin|out|tmp))?`+
-	`|uname(?:\.(?:os|kernel|machine|processor|release))?`+
-	`|variant(?:\.(?:tag|targets|lib\.c\+\+))?`+
-	`|toolchain(?:\.(?:resourceDir))?`+
+	`%\[(?:(` + prefixMod + `(?:\+` + prefixMod + `)*):)?` + // Capture the ENTIRE chain in sm[1]
+	`(testdata|modules|workspace|workout|user|home|platforms` +
+	`|(?:target|host)(?:\.(?:abi|arch|os|release|sys|vendor|triple|bin|out|tmp))?` +
+	`|uname(?:\.(?:os|kernel|machine|processor|release))?` +
+	`|variant(?:\.(?:tag|targets|lib\.c\+\+))?` +
+	`|toolchain(?:\.(?:resourceDir))?` +
 	`)(?:\.([0-9]+))?(?::((?:trim|len|join|each|[./])\((.*?)\)([+\-][0-9]+)?))?\]`,
 )
 
@@ -86,7 +92,7 @@ func unfix(str string) string {
 		"target.abi", "target.arch", "target.os", "target.release", "target.vendor",
 		"variant.tag", "variant.target",
 		"toolchain.resourceDir", "toolchain", "platforms", "sysroot",
-		"testdata", "modules", "workspace", "workout", "workext",
+		"modules", "testdata", "workspace", "workout", "workext",
 		"PATH", "user",
 	}{
 		if v, ok := variables[s]; ok {
@@ -106,18 +112,16 @@ func unfix(str string) string {
 func fixCheckpoint(s string) string {
 	return rxCheckReplacements.ReplaceAllStringFunc(s, func(match string) string {
 		sm := rxCheckReplacements.FindStringSubmatch(match)
-		if len(sm) < 9 {
+		if len(sm) < 7 { // Adjusted length due to unified prefix capture group
 			return match
 		}
 
-		preAct := sm[1]
-		preArg := sm[2]
-		preIdx := sm[3] // .[idx]
-		midStr := sm[4] // variable name
-		midIdx := sm[5] // .[idx] on the variable
-		sufAct := sm[6]
-		sufArg := sm[7]
-		sufAdd := sm[8] // +1 -1
+		preChain := sm[1] // e.g., "dir+trim(/)"
+		midStr := sm[2]   // variable name
+		midIdx := sm[3]   // .[idx] on the variable
+		sufAct := sm[4]   // suffix action + args
+		sufArg := sm[5]   // inner arg
+		sufAdd := sm[6]   // +1 -1
 
 		a, exists := variables[midStr]
 		if !exists {
@@ -144,26 +148,36 @@ func fixCheckpoint(s string) string {
 			val = strings.Join(vals, " ")
 		}
 
-		// 1. Apply Prefix Modifier (if any)
-		if preAct != "" {
-			if rxCheckReplacements.MatchString(preArg) {
-				preArg = fixCheckpoint(preArg)
-			}
-
-			switch {
-			case strings.HasPrefix(preAct, "trim("):
-				val = strings.TrimPrefix(val, preArg)
-			case strings.HasPrefix(preAct, "sep("):
-				vals = strings.Split(val, preArg)
-			default:
-				n := 1 // Default to 1 if no index is provided
-				if preIdx != "" {
-					if i, e := strconv.Atoi(preIdx); e == nil && i > 0 {
+		// 1. Apply Chained Prefix Modifiers
+		if preChain != "" {
+			// FindAllString safely handles chains like "trim(+)+dir" without splitting inner args
+			prefixes := rxPrefixMod.FindAllString(preChain, -1)
+			
+			for _, pre := range prefixes {
+				act := pre
+				n := 1 // Default index
+				
+				// Extract index if present (e.g., dir.2)
+				if dotIdx := strings.LastIndex(act, "."); dotIdx != -1 {
+					if i, e := strconv.Atoi(act[dotIdx+1:]); e == nil && i > 0 {
 						n = i
+						act = act[:dotIdx]
 					}
 				}
 
-				switch preAct {
+				// Extract argument if present (e.g., trim(/))
+				var arg string
+				if parenIdx := strings.Index(act, "("); parenIdx != -1 && strings.HasSuffix(act, ")") {
+					arg = act[parenIdx+1 : len(act)-1]
+					act = act[:parenIdx]
+					
+					// Recursively fix nested checkpoints within the argument
+					if rxCheckReplacements.MatchString(arg) {
+						arg = fixCheckpoint(arg)
+					}
+				}
+
+				switch act {
 				case "tolower":
 					val = strings.ToLower(val)
 				case "toupper":
@@ -172,6 +186,12 @@ func fixCheckpoint(s string) string {
 					val = dirs(n, val)
 				case "base":
 					val = bases(n, val)
+				case "trim":
+					val = strings.TrimPrefix(val, arg)
+				case "sep":
+					vals = strings.Split(val, arg)
+				default:
+					panic(fmt.Sprintf("unknown prefix modifier %q", act))
 				}
 			}
 		}
@@ -182,7 +202,6 @@ func fixCheckpoint(s string) string {
 				sufArg = fixCheckpoint(sufArg)
 			}
 
-			// Using a switch block here is much more idiomatic Go than cascading if/else
 			switch {
 			case strings.HasPrefix(sufAct, "trim("):
 				val = strings.TrimSuffix(val, sufArg)
@@ -192,7 +211,7 @@ func fixCheckpoint(s string) string {
 
 			case strings.HasPrefix(sufAct, "len("):
 				if sufArg == "" {
-					val = strconv.Itoa(len(val)) // Cleaner than fmt.Sprintf
+					val = strconv.Itoa(len(val)) 
 				} else {
 					var num int
 					if sufAdd != "" {
@@ -227,13 +246,16 @@ func fixCheckpoint(s string) string {
 						fmt.Fprintf(&b, sufArg, "punct", "PROOT", s)
 					} else {
 						if i > 0 { b.WriteString(" ") }
-						fmt.Fprintf(&b, sufArg, "raw", s, s)
+						var t string
+						vocabM.RLock()
+						if _, ok := strToSym[s]; ok { t = "word" } else { t = "raw" }
+						vocabM.RUnlock()
+						fmt.Fprintf(&b, sufArg, t, s, s)
 					}
 				}
 				return b.String()
 			
 			default:
-				// Leaving this panic is an excellent structural guard for catching mismatched Regex/Go logic
 				panic(fmt.Sprintf("unknown suffix modifier %q on variable %q", sufAct, midStr))
 			}
 		}
@@ -883,29 +905,29 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(i)`:[]any{`{}`,
 			checkresult{`$(i)`,`{57:84:delegate {57:86:auto i}}`},
 			checkresult{`x`,[]string{
-				`{57:84 {%[testdata]/value/test.txt:2:5 {=raw x}}}`,
-				`{57:84 {%[testdata]/value/test.txt:3:5 {=raw x}}}`,
-				`{57:84 {%[testdata]/value/test.txt:4:5 {=raw x}}}`,
+				`{57:84 {%[testdata]/value/test.txt:2:5 {=word x}}}`,
+				`{57:84 {%[testdata]/value/test.txt:3:5 {=word x}}}`,
+				`{57:84 {%[testdata]/value/test.txt:4:5 {=word x}}}`,
 			}},
 			checkresult{`y`,[]string{
-				`{57:84 {%[testdata]/value/test.txt:3:7 {=raw y}}}`,
-				`{57:84 {%[testdata]/value/test.txt:4:7 {=raw y}}}`,
+				`{57:84 {%[testdata]/value/test.txt:3:7 {=word y}}}`,
+				`{57:84 {%[testdata]/value/test.txt:4:7 {=word y}}}`,
 			}},
 			checkresult{`z`,[]string{
-				`{57:84 {%[testdata]/value/test.txt:4:9 {=raw z}}}`,
+				`{57:84 {%[testdata]/value/test.txt:4:9 {=word z}}}`,
 			}},
 		},
 		`$(x)`:checkresult{`o`,[]string{
-			`{57:92 {%[testdata]/value/test.txt:1:5 {=raw o}}}`,
-			`{57:92 {%[testdata]/value/test.txt:2:7 {=raw o}}}`,
-			`{57:92 {%[testdata]/value/test.txt:3:9 {=raw o}}}`,
-			`{57:92 {%[testdata]/value/test.txt:4:11 {=raw o}}}`,
-			`{57:92 {%[testdata]/value/test.txt:5:8 {=raw o}}}`,
+			`{57:92 {%[testdata]/value/test.txt:1:5 {=word o}}}`,
+			`{57:92 {%[testdata]/value/test.txt:2:7 {=word o}}}`,
+			`{57:92 {%[testdata]/value/test.txt:3:9 {=word o}}}`,
+			`{57:92 {%[testdata]/value/test.txt:4:11 {=word o}}}`,
+			`{57:92 {%[testdata]/value/test.txt:5:8 {=word o}}}`,
 		}},
 		`$(grep {=regex ^.+?\.o$$},$0,$//test.txt)`:checkresult{`foo.o foo-x.o foo-x-y.o foo-x-y-z.o foobar.o`,
 			`{=list {56:19 {56:45 {%[testdata]/value/test.txt:1:1 {=raw foo.o}}}} {56:19 {56:45 {%[testdata]/value/test.txt:2:1 {=raw foo-x.o}}}} {56:19 {56:45 {%[testdata]/value/test.txt:3:1 {=raw foo-x-y.o}}}} {56:19 {56:45 {%[testdata]/value/test.txt:4:1 {=raw foo-x-y-z.o}}}} {56:19 {56:45 {%[testdata]/value/test.txt:5:1 {=raw foobar.o}}}}}`},
 		`$(grep {=regex ^(.+?)((-(?P<i>.+?))*)(\.)(?P<x>o)$$},$0 $1 $2 $3 $(i) $5 $(x),$//test.txt)`:checkresult{`foo.o foo $2 $3 $(i) . o foo-x.o foo -x -x x . o foo-x-y.o foo -x-y -y y . o foo-x-y-z.o foo -x-y-z -z z . o foobar.o foobar $2 $3 $(i) . o`,
-			`{=list {57:19 {57:72 {%[testdata]/value/test.txt:1:1 {=raw foo.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:1:1 {=raw foo}}}} {57:19 {57:78:delegate {57:79:auto 2}}} {57:19 {57:81:delegate {57:82:auto 3}}} {57:19 {57:84:delegate {57:86:auto i}}} {57:19 {57:89 {%[testdata]/value/test.txt:1:4 {=raw .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:1:5 {=raw o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:2:1 {=raw foo-x.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:2:1 {=raw foo}}}} {57:19 {57:78 {%[testdata]/value/test.txt:2:4 {=raw -x}}}} {57:19 {57:81 {%[testdata]/value/test.txt:2:4 {=raw -x}}}} {57:19 {57:84 {%[testdata]/value/test.txt:2:5 {=raw x}}}} {57:19 {57:89 {%[testdata]/value/test.txt:2:6 {=raw .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:2:7 {=raw o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:3:1 {=raw foo-x-y.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:3:1 {=raw foo}}}} {57:19 {57:78 {%[testdata]/value/test.txt:3:4 {=raw -x-y}}}} {57:19 {57:81 {%[testdata]/value/test.txt:3:6 {=raw -y}}}} {57:19 {57:84 {%[testdata]/value/test.txt:3:7 {=raw y}}}} {57:19 {57:89 {%[testdata]/value/test.txt:3:8 {=raw .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:3:9 {=raw o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:4:1 {=raw foo-x-y-z.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:4:1 {=raw foo}}}} {57:19 {57:78 {%[testdata]/value/test.txt:4:4 {=raw -x-y-z}}}} {57:19 {57:81 {%[testdata]/value/test.txt:4:8 {=raw -z}}}} {57:19 {57:84 {%[testdata]/value/test.txt:4:9 {=raw z}}}} {57:19 {57:89 {%[testdata]/value/test.txt:4:10 {=raw .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:4:11 {=raw o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:5:1 {=raw foobar.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:5:1 {=raw foobar}}}} {57:19 {57:78:delegate {57:79:auto 2}}} {57:19 {57:81:delegate {57:82:auto 3}}} {57:19 {57:84:delegate {57:86:auto i}}} {57:19 {57:89 {%[testdata]/value/test.txt:5:7 {=raw .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:5:8 {=raw o}}}}}`,
+			`{=list {57:19 {57:72 {%[testdata]/value/test.txt:1:1 {=raw foo.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:1:1 {=word foo}}}} {57:19 {57:78:delegate {57:79:auto 2}}} {57:19 {57:81:delegate {57:82:auto 3}}} {57:19 {57:84:delegate {57:86:auto i}}} {57:19 {57:89 {%[testdata]/value/test.txt:1:4 {=word .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:1:5 {=word o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:2:1 {=raw foo-x.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:2:1 {=word foo}}}} {57:19 {57:78 {%[testdata]/value/test.txt:2:4 {=raw -x}}}} {57:19 {57:81 {%[testdata]/value/test.txt:2:4 {=raw -x}}}} {57:19 {57:84 {%[testdata]/value/test.txt:2:5 {=word x}}}} {57:19 {57:89 {%[testdata]/value/test.txt:2:6 {=word .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:2:7 {=word o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:3:1 {=raw foo-x-y.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:3:1 {=word foo}}}} {57:19 {57:78 {%[testdata]/value/test.txt:3:4 {=raw -x-y}}}} {57:19 {57:81 {%[testdata]/value/test.txt:3:6 {=raw -y}}}} {57:19 {57:84 {%[testdata]/value/test.txt:3:7 {=word y}}}} {57:19 {57:89 {%[testdata]/value/test.txt:3:8 {=word .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:3:9 {=word o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:4:1 {=raw foo-x-y-z.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:4:1 {=word foo}}}} {57:19 {57:78 {%[testdata]/value/test.txt:4:4 {=raw -x-y-z}}}} {57:19 {57:81 {%[testdata]/value/test.txt:4:8 {=raw -z}}}} {57:19 {57:84 {%[testdata]/value/test.txt:4:9 {=word z}}}} {57:19 {57:89 {%[testdata]/value/test.txt:4:10 {=word .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:4:11 {=word o}}}} {57:19 {57:72 {%[testdata]/value/test.txt:5:1 {=raw foobar.o}}}} {57:19 {57:75 {%[testdata]/value/test.txt:5:1 {=word foobar}}}} {57:19 {57:78:delegate {57:79:auto 2}}} {57:19 {57:81:delegate {57:82:auto 3}}} {57:19 {57:84:delegate {57:86:auto i}}} {57:19 {57:89 {%[testdata]/value/test.txt:5:7 {=word .}}}} {57:19 {57:92 {%[testdata]/value/test.txt:5:8 {=word o}}}}}`,
 		},
 		`$(grep {=regex ^.+?\.o$$},$0,%[testdata]/value/test.txt)`:checkresult{`foo.o foo-x.o foo-x-y.o foo-x-y-z.o foobar.o`,
 			`{=list {56:19 {56:45 {1:1:raw foo.o}}} {56:19 {56:45 {2:1:raw foo-x.o}}} {56:19 {56:45 {3:1:raw foo-x-y.o}}} {56:19 {56:45 {4:1:raw foo-x-y-z.o}}} {56:19 {56:45 {5:1:raw foobar.o}}}}`},
@@ -2552,23 +2574,7 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 	},
 	`testdata/.smart/modules/app/.base`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
-		`$(base &(variant))`:`%[variant.tag]`,
-		`$(case $(type?) (archive $(name)) (shared $(name)))`:`$(case $(type?) (archive app.base) (shared app.base))`,
-		`$(is.goals)`:`{=true}`,
-		`$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)`:`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)`,
-		`$(name)`:[]string{`app.base`,` {3:36 {1:16:word}}`},
-		`$(name?)`:`{}`,
-		`$(or $(name?),$({=self app.base}))`:[]string{`$(or $(name?),{=self app.base})`,`{=self app.base}`},
-		`$(or &(&(target.os)~vendor),unknown)`:`%[target.arch]`,
-		`$(sources)`:`{}`,
-		`$(trim-prefix &(rel.chop),&/)`:`app/.base`,
-		`$(type?)`:`{}`,
-		`$(workout)`:`%[workout]`,
 		`$({=self app.base})`:`{=self app.base}`,
-		`&(&(target.os)~vendor)`:`%[target.vendor]`,
-		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/app/.base`,
-		`&(rel.chop)`:`**/.smart/modules/`,
-		`&(rel.remnant)`:`app/.base`,
 		`&(target.abi)`:`%[target.abi]`,
 		`&(target.arch)`:`%[target.arch]`,
 		`&(target.os)`:`%[target.os]`,
@@ -2579,15 +2585,163 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
 		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
 		`&(target.vendor)`:`%[target.vendor]`,
+		`&(&(target.os)~vendor)`:`%[target.vendor]`,
+		`$(or &(&(target.os)~vendor),unknown)`:`%[target.arch]`,
 		`&(uname.os)`:`%[uname.os]`,
 		`&(variant)`:`%[target.os]/%[target.arch]/%[variant.tag]`,
 		`&(variant.tag)`:`%[variant.tag]`,
+		`$(base &(variant))`:`%[variant.tag]`,
 		`&(wildcard(-missing) *.cpp,*.cxx,*.cc,*.c,*.m,*.mm,*.s,*.S)`:[]any{`{}`},
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`$(case $(type?) (archive app.base) (shared app.base))`,
+		`$(join &(target.arch)&(target.sub) &(target.vendor) &(target.sys) &(target.abi),-)`:`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)`,
+		`&(rel.chop)`:`**/.smart/modules/`,
+		`$(trim-prefix &(rel.chop),&/)`:`app/.base`,
+		`&(rel.remnant)`:`app/.base`,
+		`$(is.goals)`:`{=true}`,
+		`$(type?)`:`{}`,
+		`$(name?)`:`{}`,
+		`$(name)`:[]string{`app.base`,` {3:36 {1:16:word}}`},
+		`$(or $(name?),$({=self app.base}))`:[]string{`$(or $(name?),{=self app.base})`,`{=self app.base}`},
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/app/.base`,
+		`$(workout)`:`%[workout]`,
+		`$(sources)`:`{}`,
 	},
 	`testdata/.smart/modules/app`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$({=project app.base})`:`{=project app.base}`,
+		`$({=project configure})`:`{=project configure}`,
+		`$({=self app})`:`{=self app}`,
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`$(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`$(outlib)`:`&(target.out)/lib/&(target.triple)`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(rel.chop)`:`**/.smart/modules/`,
+		`$(trim-prefix &(rel.chop),&/)`:`app`,
+		`&(rel.remnant)`:`app`,
+		`$(type?)`:`{}`,
+		`$(name)`:`app.base`,
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`{}`,
+		`$(configure.*)`:`features builtins funcs files heads types symbs structs sizes aligns`,
+		`$(configure.template)`:`%[modules]/configure/.base/.template`,
+		`$(configure.aligns)`:`{}`,
+		`$(configure.package)`:`test.app`,
+		`$(configure.version)`:`0.0.1`,
+		`$(configure.vendor)`:`'ExtBit LLC'`,
+		`$(configure.features)`:`{}`,
+		`$(configure.builtins)`:`{}`,
+		`$(configure.files)`:`{}`,
+		`$(configure.sizes)`:`{}`,
+		`$(configure.symbs)`:`{}`,
+		`$(configure.types)`:`{}`,
+		`$(configure.structs)`:`{}`,
+		`$(configure.funcs)`:`exit`,
+		`$(configure.funcs.stdlib.h)`:`exit`,
+		`$(configure.include.func.exit)`:`<stdlib.h>`,
+		`$(configure.heads)`:[]any{`<stdlib.h>`,`<stdlib.h> {}`},
+		`$(configure.lib*)`:`{}`,
+		`$(%[target.os]~configure.builtins)`:`{}`,
+		`$(%[target.os]~configure.files)`:`{}`,
+		`$(%[target.os]~configure.funcs)`:`{}`,
+		`$(%[target.os]~configure.sizes)`:`{}`,
+		`$(%[target.os]~configure.symbs)`:`{}`,
+		`$(%[target.os]~configure.structs)`:`{}`,
+		`$(%[target.os]~configure.types)`:`{}`,
+		`$(%[target.os]~configure.features)`:`{}`,
+		`$(%[target.os]~configure.aligns)`:`{}`,
+		`$(%[target.os]~configure.heads)`:`{}`,
+		`$($(target.os)~configure.files)`:`{}`,
+		`$($(target.os)~configure.features)`:`{}`,
+		`$($(target.os)~configure.heads)`:`{}`,
+		`$(subst extbit.,,test.app)`:`test.app`,
+		`$(PACKAGE)`:`test.app`,
+		`$(PACKAGE_NAME)`:`test.app`,
+		`$(PACKAGE_VERSION)`:`0.0.1`,
+		`$(PACKAGE_VENDOR)`:`'ExtBit LLC'`,
+		`$(PACKAGE_TARNAME)`:`test.app-0.0.1`,
+		`$(PACKAGE_STRING)`:`"test.app-0.0.1"`,
+		`$(PACKAGE_URL)`:`https://extbit.dev/package/test.app/0.0.1`,
+		`$(PACKAGE_BUGREPORT)`:`"https://extbit.dev/package/test.app/0.0.1/bugs"`,
+		`$(VERSION)`:`0.0.1`,
+		`$(HAVE_STDLIB_H)`:`{}`,
+		`$(uppercase <stdlib.h>)`:`<STDLIB.H>`,
+		`$(patsubst <%.H>,%_H,$(uppercase <stdlib.h>))`:`STDLIB_H`,
+		`$(patsubst <%>,%,$(patsubst <%.H>,%_H,$(uppercase <stdlib.h>)))`:`STDLIB_H`,
+		`$(subst /,_,$(patsubst <%>,%,$(patsubst <%.H>,%_H,$(uppercase <stdlib.h>))))`:`STDLIB_H`,
+		`$(lib.c++)`:`{=file libc++.a}`,
+		`$(use.-L)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`$(use.-l)`:`{} c++`,
+		`$(-L)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`$(-l)`:`{} c++`,
 	},
 	`testdata/.smart/modules/configure/.base`: map[string]any{
+		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`v.$_`:[]any{`v.c`,},
+		`std.$_`:[]any{`std.c`,},
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.os)`:`%[target.os]`,
+		`$(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`&(outinc)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/include`,
+		`&(outlib)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(outobj)`:[]any{
+			checkresult{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/app`,
+				`{10:9 {%[modules]/variant/.target/.base/do.smart:38:10 {=path {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:punct PROOT}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:raw Volumes}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:35:word workout}}}} {32:10 {30:19 {29:30 {28:19 {=compound {28:26 {%[modules]/variant/.target/%[target.os]/%[target.arch]/do.smart:3:16:word %[target.arch]}} {28:40:null} {=flag {28:100}} {28:54 {%[modules]/variant/.target/%[target.os]/do.smart:7:18:word %[target.vendor]}} {=flag {28:100}} {28:71 {=compound {26:19 {5:20 {5:33 {4:20 {4:33:raw %[uname.os]}}}}} {26:30 {25:19 {25:31:raw %[target.release]}}}}} {=flag {28:100}} {28:85 {%[modules]/variant/.target/%[target.os]/do.smart:8:18:word %[target.abi]}}}}}}} {32:10 {30:19 {29:47 {%[modules]/variant/%[variant.tag]:3:20:word %[variant.tag]}}}} {32:10 {30:33:word tmp}} {32:24 {%[modules]/general/do.smart:8:16 {%[modules]/app/do.smart:1:1:raw app}}}}}}`},
+		},
+		`&(outtmp)`:[]any{
+			checkresult{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/configure/.base`, []string{
+				`{%[modules]/general/do.smart:13:49 {%[modules]/variant/.target/.base/do.smart:path {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:punct PROOT}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:word Volumes}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:35:word workout}}}} {32:10 {30:19 {29:30 {28:19 {=compound {28:26 {%[modules]/variant/.target/%[target.os]/%[target.arch]/do.smart:3:16:word %[target.arch]}} {28:40:null} {=flag {28:100}} {28:54 {%[modules]/variant/.target/%[target.os]/do.smart:7:18:word %[target.vendor]}} {=flag {28:100}} {28:71 {=compound {26:19 {5:20 {5:33 {4:20 {4:33:raw %[uname.os]}}}}} {26:30 {25:19 {25:31:raw %[target.release]}}}}} {=flag {28:100}} {28:85 {%[modules]/variant/.target/%[target.os]/do.smart:8:18:word %[target.abi]}}}}}}} {32:10 {30:19 {29:47 {%[modules]/variant/%[variant.tag]:3:20:word %[variant.tag]}}}} {32:10 {30:33:word tmp}} {32:24 {%[modules]/general/do.smart:8:16 {%[modules]/configure/.base/do.smart:1:1:word configure}}} {32:24 {%[modules]/general/do.smart:8:16 {%[modules]/configure/.base/do.smart:1:1:word .base}}}}}`,
+				`{%[modules]/general/do.smart:13:49 {%[modules]/variant/.target/.base/do.smart:path {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:punct PROOT}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:raw Volumes}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:35:word workout}}}} {32:10 {30:19 {29:30 {28:19 {=compound {28:26 {%[modules]/variant/.target/%[target.os]/%[target.arch]/do.smart:3:16:word %[target.arch]}} {28:40:null} {=flag {28:100}} {28:54 {%[modules]/variant/.target/%[target.os]/do.smart:7:18:word %[target.vendor]}} {=flag {28:100}} {28:71 {=compound {26:19 {5:20 {5:33 {4:20 {4:33:raw %[uname.os]}}}}} {26:30 {25:19 {25:31:raw %[target.release]}}}}} {=flag {28:100}} {28:85 {%[modules]/variant/.target/%[target.os]/do.smart:8:18:word %[target.abi]}}}}}}} {32:10 {30:19 {29:47 {%[modules]/variant/%[variant.tag]:3:20:word %[variant.tag]}}}} {32:10 {30:33:word tmp}} {32:24 {%[modules]/general/do.smart:8:16 {%[modules]/configure/.base/do.smart:1:1:word configure}}} {32:24 {%[modules]/general/do.smart:8:16 {%[modules]/configure/.base/do.smart:1:1:word .base}}}}}`}},
+			checkresult{`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/app`, []string{
+				`{38:10 {=path {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:punct PROOT}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:15 {4:21:raw Volumes}}}}} {32:10 {30:19 {29:19 {%[modules]/general/do.smart:4:35:word workout}}}} {32:10 {30:19 {29:30 {28:19 {=compound {28:26 {%[modules]/variant/.target/%[target.os]/%[target.arch]/do.smart:3:16:word %[target.arch]}} {28:40:null} {=flag {28:100}} {28:54 {%[modules]/variant/.target/%[target.os]/do.smart:7:18:word %[target.vendor]}} {=flag {28:100}} {28:71 {=compound {26:19 {5:20 {5:33 {4:20 {4:33:raw %[uname.os]}}}}} {26:30 {25:19 {25:31:raw %[target.release]}}}}} {=flag {28:100}} {28:85 {%[modules]/variant/.target/%[target.os]/do.smart:8:18:word %[target.abi]}}}}}}} {32:10 {30:19 {29:47 {%[modules]/variant/%[variant.tag]:3:20:word %[variant.tag]}}}} {32:10 {30:33:word tmp}} {32:24 {%[modules]/general/do.smart:8:16 {%[modules]/app/do.smart:1:1:raw app}}}}}`}},
+		},
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(%[variant.tag])`:`/usr`,
+		`&(rel.chop)`:`**/.smart/modules/`,
+		`&(rel.remnant)`:[]string{`configure/.base`,`app`},
+		`$(trim-prefix &(rel.chop),&/)`:[]any{
+			checkresult{`configure/.base`,`{8:16 {%[modules]/configure/.base/do.smart:path {1:1:word configure} {1:1:word .base}}}`},
+			checkresult{`app`,`{8:16 {%[modules]/app/do.smart:1:1:word app}}`},
+		},
+		`&(cross.build)`:`{=no}`,
+		`&(cross.target)`:`{}`,
+		`$(configure.paths)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/include %[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/include/c++/v1 %[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi] %[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`$(a)`:`.configure/header/HAVE_STDLIB_H`,
+		`$(a).c`:`.configure/header/HAVE_STDLIB_H.c`,
+		`$(a).log`:`.configure/header/HAVE_STDLIB_H.log`,
+		`$(s)`:`{=file .configure/header/HAVE_STDLIB_H.c}`,
+		`$(dir $(a))`:`.configure/header`,
+		`$(file $(a).c)`:`{=file .configure/header/HAVE_STDLIB_H.c}`,
+		`$(file $(a).log)`:`{=file .configure/header/HAVE_STDLIB_H.log}`,
+		`$(TARGET)`:`HAVE_STDLIB_H`,
+		`$(INCLUDE)`:`<stdlib.h>`,
+		`$(CC)`:`/usr/bin/clang`,
+		`&(cc)`:`/usr/bin/clang`,
+		`&(configure.cc)`:`/usr/bin/clang`,
+		`&(--target)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_)`:`--target=%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi] -Xclang -triple=%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`$(if &(cross.build),$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_))`:`{}`,
+		`$(foreach(-unique) $1 $2,&(-v.$_))`:`{}`,
+		`&(-v.$_)`:`{}`,
+		`&(-std.$_)`:`{}`,
+	},
+	`testdata/.smart/modules/configure`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`&(target.abi)`:`%[target.abi]`,
 		`&(target.arch)`:`%[target.arch]`,
@@ -2599,18 +2753,18 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
 		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
 		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`$(outlib)`:`&(target.out)/lib/&(target.triple)`,
+		`$(configure.use.stdlibs)`:`{=yes}`,
+		`$(variant.lib.c++)`:`lib/c++`,
 		`&(uname.os)`:`%[uname.os]`,
 		`&(variant.tag)`:`%[variant.tag]`,
 		`&(rel.chop)`:`**/.smart/modules/`,
-		`&(rel.remnant)`:`configure/.base`,
-		`$(trim-prefix &(rel.chop),&/)`:`configure/.base`,
-		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/configure/.base`,
-	},
-	`testdata/.smart/modules/configure`: map[string]any{
-		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
-		`&(target.os)`:`%[target.os]`,
-		`$(configure.use.stdlibs)`:`{=yes}`,
-		`$(variant.lib.c++)`:`lib/c++`,
+		`&(rel.remnant)`:`configure`,
+		`$(trim-prefix &(rel.chop),&/)`:`configure`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/configure`,
+		`$(type?)`:`{}`,
+		`$(name)`:[]any{`app.base`},
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`{}`,
 	},
 	`testdata/.smart/modules/lib/std`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
@@ -2624,12 +2778,12 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
 		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
 		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
-		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/lib/std`,
 		`&(uname.os)`:`%[uname.os]`,
 		`&(variant.tag)`:`%[variant.tag]`,
 		`&(rel.chop)`:`**/.smart/modules/`,
 		`&(rel.remnant)`:`lib/std`,
 		`$(trim-prefix &(rel.chop),&/)`:`lib/std`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/lib/std`,
 	},
 	`testdata/.smart/modules/lib/c++inc`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
@@ -2701,11 +2855,32 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(name)`:`app.base`,
 		`$(type?)`:`{}`,
 		`$(case $(type?) (archive $(name)) (shared $(name)))`:`{}`,
+		`$(lib)`:[]any{
+			checkresult{`dl`,`{%[modules]/sys/dl/do.smart:14:11 {9:9 {9:43 {5:16:word dl}}}}`},
+			checkresult{`pthread`,`{%[modules]/sys/pthread/do.smart:17:11 {12:9 {12:43 {5:16:word pthread}}}}`},
+		},
 	},
 	`testdata/.smart/modules/lib/c++`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
 		`&(target.os)`:`%[target.os]`,
+		`$(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(outlib)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/lib/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`$(srcdir)`:`%[workspace]/external/llvm-project/libcxx`,
 		`$(src.c++)`:`%[workspace]/external/llvm-project/libcxx`,
+		`$(src)`:`%[workspace]/external/llvm-project/libcxx/src`,
+		`$(match ibm,$(target.os))`:`{}`,
+		`$(match win32,$(target.os))`:`{}`,
+		`$(match solaris,$(target.os))`:`{}`,
 	},
 	`testdata/.smart/modules/lib/unwind`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
@@ -2777,11 +2952,11 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(lib.linux)`:`pthread`,
 		`$(lib.darwin)`:`pthread`,
 		`$(lib.mingw)`:`{}`,
+		`$(lib)`:`pthread`,
 		`$(if $(match android,&(target.abi)),$(lib.android),$(lib.linux))`:`pthread`,
 		`$(if $(match mingw,&(target.os)),$(lib.mingw))`:`{}`,
 		`$(if $(match linux,&(target.os)),$(if $(match android,&(target.abi)),$(lib.android),$(lib.linux)),$(if $(match mingw,&(target.os)),$(lib.mingw)))`:`{}`,
 		`$(if $(match %[target.os],&(target.os)),$(lib.%[target.os]),$(if $(match linux,&(target.os)),$(if $(match android,&(target.abi)),$(lib.android),$(lib.linux)),$(if $(match mingw,&(target.os)),$(lib.mingw))))`:`pthread`,
-		`$(lib)`:`pthread`,
 	},
 	`testdata/.smart/modules/sys/dl`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
@@ -2809,19 +2984,86 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(lib.linux)`:`dl`,
 		`$(lib.darwin)`:`dl`,
 		`$(lib.mingw)`:`{}`,
+		`$(lib)`:`dl`,
 		`$(if $(match android,&(target.abi)),$(lib.android),$(lib.linux))`:`dl`,
 		`$(if $(match mingw,&(target.os)),$(lib.mingw))`:`{}`,
 		`$(if $(match linux,&(target.os)),$(if $(match android,&(target.abi)),$(lib.android),$(lib.linux)),$(if $(match mingw,&(target.os)),$(lib.mingw)))`:`{}`,
 		`$(if $(match %[target.os],&(target.os)),$(lib.%[target.os]),$(if $(match linux,&(target.os)),$(if $(match android,&(target.abi)),$(lib.android),$(lib.linux)),$(if $(match mingw,&(target.os)),$(lib.mingw))))`:`dl`,
-		`$(lib)`:`dl`,
 	},
 	`testdata/configuration`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
-		`&(rel.remnant)`:`%[modules]`,
+		`$({=self testdefaultconfigure})`:`{=self testdefaultconfigure}`,
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.os)`:`%[target.os]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`$(outlib)`:`&(target.out)/lib/&(target.triple)`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(%[variant.tag])`:`/usr`,
+		`&(rel.chop)`:[]any{
+			checkresult{`**/.smart/modules/`,
+				`{8:30 {=path {=glob {7:14:meta **}} {=qualword {7:17} {7:18:word smart}} {7:24:word modules} {7:31:punct PTAIL}}}`},
+			checkresult{`%[dir:testdata]/`,[]string{
+				`{8:30 {%[testdata]/configuration/.base:path {3:14 {3:21:punct PROOT}} {3:14 {3:21:raw Volumes}} {3:14 {3:21:raw workspace}} {3:14 {3:21:raw go}} {3:14 {3:21:word src}} {3:14 {3:21:raw extbit.io}} {3:14 {3:21:word smart}} {3:24:punct PTAIL}}}`,
+				`{%[modules]/general/do.smart:8:30 {%[testdata]/configuration/.base:path {3:14 {3:21:punct PROOT}} {3:14 {3:21:raw Volumes}} {3:14 {3:21:raw workspace}} {3:14 {3:21:raw go}} {3:14 {3:21:word src}} {3:14 {3:21:raw extbit.io}} {3:14 {3:21:word smart}} {3:24:punct PTAIL}}}`,
+				`{%[modules]/general/do.smart:8:30 {%[testdata]/configuration/.base:path %[dir:testdata:/({3:14 {3:21:%[1]s %[2]s}})] {3:24:punct PTAIL}}}`}},
+		},
+		`$(trim-prefix &(rel.chop),&/)`:[]any{
+			checkresult{`configure`,[]string{
+				`{8:16 {%[modules]/configure/do.smart:1:1:word configure}}`,
+				`{%[modules]/variant/.target/.base/do.smart:32:24 {%[modules]/general/do.smart:8:16 {%[modules]/configure/do.smart:1:1:word configure}}}`}},
+			checkresult{`testdata/configuration`,[]string{
+				`{8:16 {%[testdata]/configuration/do.smart:path {2:1:word testdata} {2:1:word configuration}}}`,
+				`{%[modules]/general/do.smart:8:16 {%[testdata]/configuration/do.smart:path {2:1:word testdata} {2:1:word configuration}}}`}},
+		},
+		`&(rel.remnant)`:[]any{
+			checkresult{`configure`,[]string{
+				`{%[modules]/variant/.target/.base/do.smart:32:24 {%[modules]/general/do.smart:8:16 {%[modules]/configure/do.smart:1:1:word configure}}}`}},
+			checkresult{`testdata/configuration`,[]string{
+				`{8:16 {%[testdata]/configuration/do.smart:path {2:1:word testdata} {2:1:word configuration}}}`,
+				`{32:24 {%[modules]/general/do.smart:8:16 {%[testdata]/configuration/do.smart:path {2:1:word testdata} {2:1:word configuration}}}}`,
+				`{%[modules]/general/do.smart:8:16 {%[testdata]/configuration/do.smart:path {2:1:word testdata} {2:1:word configuration}}}`,
+				`{%[modules]/variant/.target/.base/do.smart:32:24 {%[modules]/general/do.smart:8:16 {%[testdata]/configuration/do.smart:path {2:1:word testdata} {2:1:word configuration}}}}`}},
+		},
+		`$(rel.remnant)`:`testdata/configuration`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/testdata/configuration`,
+		`$(type?)`:`{}`,
+		`$(name)`:`app.base`,
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`{}`,
+		`&(cc)`:`/usr/bin/clang`,
 	},
 	`testdata/configuration/two`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
 		`$({=self testdeftwoconfigure})`:`{=self testdeftwoconfigure}`,
+		`$(dir3 $/)`:`%[workspace]/go/src/extbit.io/smart`,
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(target.triple)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
+		`&(target.out)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]`,
+		`&(target.tmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp`,
+		`$(outlib)`:`&(target.out)/lib/&(target.triple)`,
+		`&(uname.os)`:`%[uname.os]`,
+		`&(variant.tag)`:`%[variant.tag]`,
+		`&(%[variant.tag])`:`/usr`,
+		`&(outtmp)`:`%[workout]/%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]/%[variant.tag]/tmp/testdata/configuration/two`,
+		`&(rel.chop)`:`%[dir:testdata]/`,
+		`$(trim-prefix &(rel.chop),&/)`:`testdata/configuration/two`,
+		`&(rel.remnant)`:`testdata/configuration/two`,
+		`$(type?)`:`{}`,
+		`$(name)`:`app.base`,
+		`$(case $(type?) (archive $(name)) (shared $(name)))`:`{}`,
+		`&(cc)`:`/usr/bin/clang`,
 	},
 	`testdata/configuration/custom/configure`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
@@ -2829,17 +3071,93 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 	},
 	`testdata/bug/01`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`g.$_`:[]any{`g.a`,`g.b`},
+		`v.$_`:[]any{`v.a`,`v.b`},
+		`std.$_`:[]any{`std.a`,`std.b`},
+		`$(.flag $1 $2,$_,$_)`:`{}`,
+		`$(.flag $1 $2,$_,$_=)`:`{}`,
+		`$(.flag $1,$(or $3,$2)flags)`:`{}`,
+		`$(.flags $1,$2)`:`{} {} {} {} {} {} {}`,
+		`$(addprefix -std=,&(-std.$_) &(std.$_))`:`{}`,
+		`$(bug_0.1 $1,$2)`:[]any{`{&(x.a)} {&(x.b)} {&(y.a)} {&(y.b)} {&(z.a)} {&(z.b)}`,`{}`},
+		`$(bug_0.2 $1 $2,$_,$_)`:[]any{`{&(x.a)} {&(x.b)}`,`{&(y.a)} {&(y.b)}`,`{&(z.a)} {&(z.b)}`,`{}`},
+		`$(foreach $1 $2,&(-g.$_) &(&(target.os)~-g.$_))`:`{}`,
+		`$(foreach $1,$2.$_)`:[]any{`x.a x.b`,`y.a y.b`,`z.a z.b`,`{}`},
+		`$(foreach $1,&($2!$_) &(&(target.os)~$2!$_))`:`{}`,
+		`$(foreach $1,&($2.$_) &(&(target.os)~$2.$_))`:`{}`,
+		`$(foreach $1,&($2.$_))`:[]any{`&(x.a) &(x.b)`,`&(y.a) &(y.b)`,`&(z.a) &(z.b)`,`{}`,},
+		`$(foreach --sysroot -isysroot -iwithsysroot -iframeworkwithsysroot,$(.flag $1 $2,$_,$_=))`:`{}`,
+		`$(foreach -g -O -D -f -m -W -I -no -isystem -isystem-after,$(.flag $1 $2,$_,$_))`:`{}`,
+		`$(foreach x y z,$(bug_0.2 $1 $2,$_,$_))`:[]any{`{&(x.a)} {&(x.b)} {&(y.a)} {&(y.b)} {&(z.a)} {&(z.b)}`,`{}`},
+		`$(foreach x y z,$(okay.2 $1 $2,$_,$_))`:[]any{`x.a x.b y.a y.b z.a z.b`,`{}`},
+		`$(foreach(-unique) $(filter-out $(foreach $1,&($2!$_) &(&(target.os)~$2!$_)),&($2) &(&(target.os)~$2)) $(foreach $1,&($2.$_) &(&(target.os)~$2.$_)),$(or $3,$2)$_$(or $4))`:`{}`,
+		`$(foreach(-unique) $(foreach $1,$2.$_),$_)`:[]any{`x.a x.b`,`y.a y.b`,`z.a z.b`,`{}`,},
+		`$(foreach(-unique) $(foreach $1,&($2.$_)),$_)`:[]any{`{&(x.a)} {&(x.b)}`,`{&(y.a)} {&(y.b)}`,`{&(z.a)} {&(z.b)}`,`{}`,},
+		`$(foreach(-unique) $1 $2,&(-v.$_))`:`{}`,
+		`$(foreach(-unique) $1 $2,$(addprefix -std=,&(-std.$_) &(std.$_)))`:`{}`,
+		`$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_)`:`{}`,
+		`$(filter-out $(foreach $1,&($2!$_) &(&(target.os)~$2!$_)),&($2) &(&(target.os)~$2))`:`{}`,
+		`$(if $(or &(-g) &(&(target.os)~-g) $(foreach $1 $2,&(-g.$_) &(&(target.os)~-g.$_))),-g)`:`{}`,
+		`$(if &(cross.build),$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_))`:`{}`,
+		`$(okay.1 $1,$2)`:[]any{`x.a x.b y.a y.b z.a z.b`,`{}`},
+		`$(okay.2 $1 $2,$_,$_)`:[]any{`x.a x.b`,`y.a y.b`,`z.a z.b`,`{}`},
+		`$(or $3,$2)`:[]any{`b`,`{}`},
+		`$(or &(-g) &(&(target.os)~-g) $(foreach $1 $2,&(-g.$_) &(&(target.os)~-g.$_)))`:`{}`,
+		`&($2)`:`{}`,
+		`&($2!$_)`:[]any{`{}`},
+		`&($2.$_)`:[]any{`&(x.a)`,`&(x.b)`,`&(y.a)`,`&(y.b)`,`&(z.a)`,`&(z.b)`,`{}`,},
+		`&(&(target.os)~$2)`:`{}`,
+		`&(&(target.os)~$2!$_)`:`{}`,
+		`&(&(target.os)~$2.$_)`:`{}`,
+		`&(&(target.os)~-g)`:`{}`,
+		`&(&(target.os)~-g.$_)`:`{}`,
+		`&(--target)`:`{}`,
+		`&(-g)`:`{}`,
+		`&(-g.$_)`:`{}`,
+		`&(-std.$_)`:`{}`,
+		`&(-v.$_)`:`{}`,
+		`&(cross.build)`:`{=no}`,
+		`&(cross.target)`:`{}`,
+		`&(std.$_)`:`{}`,
+		`&(target.os)`:`{}`,
+		`$2.$_`:[]any{
+			`--sysroot.a`,`--sysroot.b`,
+			`-D.a`,`-D.b`,
+			`-I.a`,`-I.b`,
+			`-O.a`,`-O.b`,
+			`-W.a`,`-W.b`,
+			`-f.a`,`-f.b`,
+			`-g.a`,`-g.b`,
+			`-iframeworkwithsysroot.a`,`-iframeworkwithsysroot.b`,
+			`-isysroot.a`,`-isysroot.b`,
+			`-isystem-after.a`,`-isystem-after.b`,
+			`-isystem.a`,`-isystem.b`,
+			`-iwithsysroot.a`,`-iwithsysroot.b`,
+			`-m.a`,`-m.b`,
+			`-no.a`,`-no.b`,
+			`bflags.a`,
+			`x.a`,`x.b`,
+			`y.a`,`y.b`,
+			`z.a`,`z.b`,
+		},
 	},
 	`testdata/modules/target`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`$(foo)`:`foobar`,
+		`&(a!$(foo))`:`&(a!foobar)`,
 	},
 	`testdata/modules/target/arm64-darwin`: map[string]any{
 		`*`:`*`,`$(*)`:`$(*)`,`&(*)`:`&(*)`, // skip pointless checks
+		`&(target.abi)`:`%[target.abi]`,
+		`&(target.arch)`:`%[target.arch]`,
+		`&(target.sub)`:`{}`,
+		`&(target.vendor)`:`%[target.vendor]`,
+		`&(target.release)`:`%[target.release]`,
+		`&(target.sys)`:`%[uname.os]%[target.release]`,
+		`&(uname.os)`:`%[uname.os]`,
 	},
 })
 var checkpoints_ts = fixCheckpoints(map[string]map[string]any{
-	`testdata/value`: map[string]any{
-	},
 	`testdata/builtins/join`: map[string]any{
 		`{3:9:delegate {3:11:builtin join} {=list {3:16:word foo} {3:20:word bar} {3:24:word xx} {3:27:word yy} {3:30:word zz}} {=list {=flag {3:34}}}}`:`{3:9 {=compound {3:16:word foo} {=flag {3:34}} {3:20:word bar} {=flag {3:34}} {3:24:word xx} {=flag {3:34}} {3:27:word yy} {=flag {3:34}} {3:30:word zz}}}`,
 		`{4:9:delegate {4:11:builtin join} {=list {4:16:word foo} {4:20:word bar} {4:24:word xx} {4:27:word yy} {4:30:word zz}} {=list {=flag {4:34}}}}`:`{4:9 {=compound {4:16:word foo} {=flag {4:34}} {4:20:word bar} {=flag {4:34}} {4:24:word xx} {=flag {4:34}} {4:27:word yy} {=flag {4:34}} {4:30:word zz}}}`,
@@ -3059,8 +3377,9 @@ func check(ctx Context, res Value, p Value, x ...Value) {
 		// If we reach here, it means NO matches were found. Dump the traces!
 		debug(pc(pc(ctx, res), p),
 			_f("`%v`:checkresult{`%v`,`%v`},", unfix(k), unfix(res.String()), unfix(ts(res, ctx))),
+			_f("p=%s", _if(is_ts, k, ts(p, ctx))),
 			_f("got: %s", _if(is_ts, ts(res, ctx), res.String())), dps,
-			_f(`note: %v "%s" %s`, source, spec, _if(is_ts, k, ts(p, ctx))),
+			_f(`note: %v "%s"`, source, spec),
 			callstack{stop:"smart.runcase"}, trace{})
 	}
 
@@ -3090,4148 +3409,3278 @@ func check_string(ctx Context, v any) func(*Value, *string) {
 }
 
 var checkpoints_cmp = fixCheckpoints1(map[string]any{
-	`[{= {= {= {= {=punct PROOT}}}}} {= {= {= {= {=raw Volumes}}}}} {= {= {= {= {=raw workspace}}}}} {= {= {=word external}}} {= {= {=compound {=word llvm} {=flag {=word project}}}}} {= {=word libcxx}} {=word src}] {= {= {= {=path {= {= {= {= {= {=punct PROOT}}}}}} {= {= {= {= {= {=raw Volumes}}}}}} {= {= {= {= {= {=raw workspace}}}}}} {= {= {= {=word external}}}} {= {= {= {=compound {=word llvm} {=flag {=word project}}}}}} {= {= {=word libcxx}}} {=word src}}}}}`:`equal`, //cmp: [ Volumes workspace external llvm-project libcxx src] /Volumes/workspace/external/llvm-project/libcxx/src
-	`[{= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}] {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}}`:`equal`, //cmp: [Darwin 25.5.0] Darwin25.5.0
-	`[{= {= {= {=punct PROOT}}}} {= {= {= {=raw Users}}}} {= {= {= {=raw %[user]}}}} {= {= {= {=raw Library}}}} {= {= {= {=raw Developer}}}} {= {= {=word Platforms}}} {= {=qualword {=word MacOSX} {=word platform}}} {=word Developer} {=word SDKs} {=qualword {=word MacOSX} {=word sdk}}] {= {= {= {=path {= {= {= {=punct PROOT}}}} {= {= {= {=raw Users}}}} {= {= {= {=raw %[user]}}}} {= {= {= {=raw Library}}}} {= {= {= {=raw Developer}}}} {= {= {=word Platforms}}} {= {=qualword {=word MacOSX} {=word platform}}} {=word Developer} {=word SDKs} {=qualword {=word MacOSX} {=word sdk}}}}}}`:`equal`, //cmp: [ Users duzy Library Developer Platforms MacOSX.platform Developer SDKs MacOSX.sdk] /Users/duzy/Library/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
-	`[{= {= {= {=punct PROOT}}}} {= {= {= {=raw Volumes}}}} {= {= {=word workout}}} {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}} {= {= {=word bootstrap}}} {=word include}] {= {= {= {=path {= {= {= {=punct PROOT}}}} {= {= {= {=raw Volumes}}}} {= {= {=word workout}}} {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}} {= {= {=word bootstrap}}} {=word include}}}}}`:`equal`, //cmp: [ Volumes workout arm64{}-apple-Darwin25.5.0-macho bootstrap include] /Volumes/workout/arm64{}-apple-Darwin25.5.0-macho/bootstrap/include
-	`[{= {= {= {=punct PROOT}}}} {= {= {= {=raw Volumes}}}} {= {= {=word workout}}} {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}} {= {= {=word bootstrap}}} {=word lib} {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}] {= {= {= {=path {= {= {= {=punct PROOT}}}} {= {= {= {=raw Volumes}}}} {= {= {=word workout}}} {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}} {= {= {=word bootstrap}}} {=word lib} {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}}}}}`:`equal`, //cmp
-	`[{= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}} {= {=compound {=word x} {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}}}] {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}} {= {=compound {=word x} {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}}}}`:`equal`,
-	`[{= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}] {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}`:`equal`, //cmp: [xq xp] xq xp
-	`[{= {=flag {=word foo}}} {=word bar}] [{=flag {=word foobar}}]`:`equal`,
-	`[{= {=flag {=word foo}}} {=word bar}] {=flag {=word foobar}}`:`equal`,
-	`[{= {=flag {=}}} {=word foobar}] [{=flag {=word foobar}}]`:`equal`,
-	`[{= {=flag {=}}} {=word foobar}] {=flag {=word foobar}}`:`equal`,
-	`[{= {=self app.base}}] {=list {= {=self app.base}}}`:`equal`,
-	`[{= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}] {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}}`:`equal`, //cmp: [arm64 {} - apple - Darwin25.5.0 - macho] arm64{}-apple-Darwin25.5.0-macho
-	`[{= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}] {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}`:`equal`, //cmp
-	`[{= {=word a}} {= {=word a}}] {=compound {= {=word a}} {= {=word a}}}`:`equal`,
-	`[{= {=word a}} {= {=word b}}] {=compound {= {=word a}} {= {=word b}}}`:`equal`,
-	`[{= {=word b}} {= {=word a}}] {=compound {= {=word b}} {= {=word a}}}`:`equal`,
-	`[{= {=word b}} {= {=word b}}] {=compound {= {=word b}} {= {=word b}}}`:`equal`,
-	`[{= {=word foo}}] [{=word foo}]`:`equal`,
-	`[{= {=word foo}}] {=list {=word foo}}`:`equal`,
-	`[{= {=word x}} {= {=word x}}] {=compound {= {=word x}} {= {=word x}}}`:`equal`,
-	`[{= {=word x}} {= {=word y}}] {=compound {= {=word x}} {= {=word y}}}`:`equal`,
-	`[{= {=word y}} {= {=word x}}] {=compound {= {=word y}} {= {=word x}}}`:`equal`,
-	`[{= {=word y}} {= {=word y}}] {=compound {= {=word y}} {= {=word y}}}`:`equal`,
-	`[{=Symbol bar}] {=glob {=meta **} {=punct .} {=word hh}}`:`smaller`, //cmp
-	`[{=Symbol bar}] {=glob {=word ba} {=meta *}}`:`smaller`, //cmp
-	`[{=Symbol bar}] {=glob {=word ba} {=meta ?}}`:`smaller`, //cmp
-	`[{=Symbol bar}] {=glob {=word b} {=meta *}}`:`smaller`, //cmp
-	`[{=Symbol foo.txt}] {=path {=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}}`:`greater`, //cmp
-	`[{=Symbol foo}] {=glob {=word f} {=meta *?}}`:`smaller`, //cmp
-	`[{=Symbol main}] {=glob {=meta *}}`:`smaller`, //cmp
-	`[{=compound {= {=flag {=word foo}}} {=word bar}}] [{=flag {=word foobar}}]`:`equal`,
-	`[{=compound {= {=flag {=word foo}}} {=word bar}}] {=list {=flag {=word foobar}}}`:`equal`,
-	`[{=compound {= {=flag {=}}} {=word foobar}}] [{=flag {=word foobar}}]`:`equal`,
-	`[{=compound {= {=flag {=}}} {=word foobar}}] {=list {=flag {=word foobar}}}`:`equal`,
-	`[{=compound {= {=word a}} {= {=word a}}}] {=list {=compound {= {=word a}} {= {=word a}}}}`:`equal`,
-	`[{=compound {= {=word a}} {= {=word b}}}] {=list {=compound {= {=word a}} {= {=word b}}}}`:`equal`,
-	`[{=compound {= {=word b}} {= {=word a}}}] {=list {=compound {= {=word b}} {= {=word a}}}}`:`equal`,
-	`[{=compound {= {=word b}} {= {=word b}}}] {=list {=compound {= {=word b}} {= {=word b}}}}`:`equal`,
-	`[{=compound {= {=word x}} {= {=word x}}}] {=list {=compound {= {=word x}} {= {=word x}}}}`:`equal`,
-	`[{=compound {= {=word x}} {= {=word y}}}] {=list {=compound {= {=word x}} {= {=word y}}}}`:`equal`,
-	`[{=compound {= {=word y}} {= {=word x}}}] {=list {=compound {= {=word y}} {= {=word x}}}}`:`equal`,
-	`[{=compound {= {=word y}} {= {=word y}}}] {=list {=compound {= {=word y}} {= {=word y}}}}`:`equal`,
-	`[{=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=punct .} {=word app}] [{=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}]`:`lprefix`, //cmp: [https://extbit.dev/package/extbit . app] [https://extbit.dev/package/extbit.app/0.0.1]
-	`[{=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=punct .} {=word app}] {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: [https://extbit.dev/package/extbit . app] https://extbit.dev/package/extbit.app/0.0.1
-	`[{=compound {=word foo} {=punct .} {=word o}} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=compound {=word foobar} {=punct .} {=word o}}] {=list {= {= {=raw foo.o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foobar.o}}}}`:`equal`,
-	`[{=compound {=word foo} {=punct .} {=word o}} {=word foo} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=word foo} {=flag {=word x}} {=flag {=word x}} {=word x} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=word y}}}} {=flag {=word y}} {=word y} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {=flag {=word z}} {=word z} {=punct .} {=word o} {=compound {=word foobar} {=punct .} {=word o}} {=word foobar} {=punct .} {=word o}] {=list {= {= {=raw foo.o}}} {= {= {=raw foo}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo}}} {= {= {=raw -x}}} {= {= {=raw -x}}} {= {= {=raw x}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y}}} {= {= {=raw -y}}} {= {= {=raw y}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y-z}}} {= {= {=raw -z}}} {= {= {=raw z}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foobar.o}}} {= {= {=raw foobar}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}}`:`equal`,
-	`[{=delegate {=glob {=word name} {=meta ?}}}] {=list {=delegate {=glob {=word name} {=meta ?}}}}`:`equal`, //cmp: [$(name?)] $(name?)
-	`[{=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}] {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}`:`equal`,
-	`[{=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}] [{=string -x-y-z.o}]`:`equal`,
-	`[{=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}] [{=string -x-y.o}]`:`equal`,
-	`[{=flag {=compound {=word x} {=punct .} {=word o}}}] [{=string -x.o}]`:`equal`,
-	`[{=flag {=word foobar}}] [{=compound {= {=flag {=word foo}}} {=word bar}}]`:`equal`,
-	`[{=flag {=word foobar}}] [{=compound {= {=flag {=}}} {=word foobar}}]`:`equal`,
-	`[{=flag {=word foobar}}] {=list {=compound {= {=flag {=word foo}}} {=word bar}}}`:`equal`,
-	`[{=flag {=word foobar}}] {=list {=compound {= {=flag {=}}} {=word foobar}}}`:`equal`,
-	`[{=glob {=word fo} {=meta ?}} {=glob {=meta **}} {=qualword {=word x} {=word h}}] {=path {=glob {=word f} {=meta *?}} {=qualword {=word x} {=word h}}}`:`smaller`, //cmp: [fo? ** x.h] f*?/x.h
-	`[{=meta **} {=punct .} {=word c++}] {= {=compound {=word x} {=punct .} {=word c++}}}`:`greater`, //cmp: [** . c++] x.c++
-	`[{=meta **} {=punct .} {=word c++}] {= {=compound {=word y} {=punct .} {=word c++}}}`:`greater`, //cmp: [** . c++] y.c++
-	`[{=meta **} {=punct .} {=word c++}] {= {=qualword {=word x} {=word c++}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word c++}] {= {=qualword {=word y} {=word c++}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word c++}] {=compound {=word foo} {=punct .} {=word c++}}`:`greater`, //cmp: [** . c++] foo.c++
-	`[{=meta **} {=punct .} {=word c++}] {=path {=word foo} {=compound {=word bar} {=punct .} {=word c++}}}`:`greater`, //cmp: [** . c++] foo/bar.c++
-	`[{=meta **} {=punct .} {=word c++}] {=path {=word foo} {=qualword {=word bar} {=word c++}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word c++}] {=qualword {=word foo} {=word c++}}`:`greater`,
-	`[{=meta **} {=punct .} {=word c}] {= {=path {=word foo} {=compound {=word z} {=punct .} {=word c}}}}`:`greater`, //cmp: [** . c] foo/z.c
-	`[{=meta **} {=punct .} {=word c}] {= {=path {=word foo} {=qualword {=word z} {=word c}}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word c}] {=compound {=word foo} {=punct .} {=word c}}`:`greater`, //cmp: [** . c] foo.c
-	`[{=meta **} {=punct .} {=word c}] {=path {=word foo} {=compound {=word bar} {=punct .} {=word c}}}`:`greater`, //cmp: [** . c] foo/bar.c
-	`[{=meta **} {=punct .} {=word c}] {=path {=word foo} {=qualword {=word bar} {=word c}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word c}] {=qualword {=word foo} {=word c}}`:`greater`,
-	`[{=meta **} {=punct .} {=word def} {=punct .} {=word am}] [{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}]`:`smaller`,
-	`[{=meta **} {=punct .} {=word gen}] {= {=compound {=word a} {=punct .} {=word gen}}}`:`greater`, //cmp: [** . gen] a.gen
-	`[{=meta **} {=punct .} {=word gen}] {= {=compound {=word b} {=punct .} {=word gen}}}`:`greater`, //cmp: [** . gen] b.gen
-	`[{=meta **} {=punct .} {=word gen}] {= {=path {=word foo} {=compound {=word c} {=punct .} {=word gen}}}}`:`greater`, //cmp: [** . gen] foo/c.gen
-	`[{=meta **} {=punct .} {=word gen}] {= {=path {=word foo} {=qualword {=word c} {=word gen}}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word gen}] {= {=qualword {=word a} {=word gen}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word gen}] {= {=qualword {=word b} {=word gen}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}]`:`equal`,
-	`[{=meta **} {=punct .} {=word h}] [{=meta *} {=punct .} {=word h}]`:`greater`,
-	`[{=meta **} {=punct .} {=word h}] {=glob {=meta **} {=punct .} {=word h}}`:`equal`,
-	`[{=meta **} {=punct .} {=word h}] {=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=qualword {=word x} {=word h}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`, // [** . h] foo/bar/zz/x.h
-	`[{=meta **} {=punct .} {=word h}] {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word cpp}] {=compound {=word Unwind} {=flag {=compound {=word EHABI} {=punct .} {=word cpp}}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word cpp}] {=compound {=word Unwind} {=flag {=compound {=word seh} {=punct .} {=word cpp}}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word cpp}] {=compound {=word libunwind} {=punct .} {=word cpp}}`:`greater`,
-	`[{=meta *} {=punct .} {=word c}] {=compound {=word UnwindLevel1} {=flag {=compound {=word gcc} {=flag {=compound {=word ext} {=punct .} {=word c}}}}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word c}] {=compound {=word UnwindLevel1} {=punct .} {=word c}}`:`greater`,
-	`[{=meta *} {=punct .} {=word c}] {=compound {=word Unwind} {=flag {=compound {=word sjlj} {=punct .} {=word c}}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word gen}] {= {=compound {=word x} {=punct .} {=word gen}}}`:`greater`, //cmp: [* . gen] x.gen
-	`[{=meta *} {=punct .} {=word gen}] {= {=compound {=word y} {=punct .} {=word gen}}}`:`greater`, //cmp: [* . gen] y.gen
-	`[{=meta *} {=punct .} {=word gen}] {= {=qualword {=word x} {=word gen}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word gen}] {= {=qualword {=word y} {=word gen}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] [{=meta **} {=punct .} {=word h}]`:`smaller`,
-	`[{=meta *} {=punct .} {=word h}] {= {=compound {=word x} {=punct .} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] {= {=compound {=word y} {=punct .} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] {= {=compound {=word z} {=punct .} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] {= {=qualword {=word x} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] {= {=qualword {=word y} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] {= {=qualword {=word z} {=word h}}}`:`greater`,
-	`[{=meta *} {=punct .} {=word h}] {=glob {=meta **} {=punct .} {=word h}}`:`smaller`,
-	`[{=meta *} {=punct .} {=word h}] {=glob {=meta *} {=punct .} {=word h}}`:`equal`,
-	`[{=meta *} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`greater`,
-	`[{=meta *}] [{=Symbol zz}]`:`greater`, //cmp
-	`[{=meta *}] [{=string zz}]`:`greater`, // [*] [zz]
-	`[{=meta *}] {=word zz}`:`greater`, // [*] zz
-	`[{=meta ?} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}}`:`greater`, // [? . h] x.h
-	`[{=meta ?} {=punct .} {=word h}] {=qualword {=word x} {=word h}}`:`greater`,
-	`[{=meta ?}] [{=string z}]`:`greater`, // [?] [z]
-	`[{=punct .} {=word o}] [{=string .o}]`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {= {= {=word zzz}}}] {=compound {=punct .} {=word test} {=punct .} {= {= {=word zzz}}}}`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {=decimal 0}] {=compound {=punct .} {=word test} {=punct .} {=decimal 0}}`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {=word ab}] {=compound {=punct .} {=word test} {=punct .} {=word ab}}`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {=word foobax}] {=compound {=punct .} {=word test} {=punct .} {=word foobax}}`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {=word foobax}] {=compound {=punct .} {=word test} {=punct .} {=word fxx}}`:`smaller`, //cmp: [. test . foobax] .test.fxx
-	`[{=punct .} {=word test} {=punct .} {=word foobay}] {=compound {=punct .} {=word test} {=punct .} {=word foobay}}`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {=word foobay}] {=compound {=punct .} {=word test} {=punct .} {=word fxx}}`:`smaller`, //cmp: [. test . foobay] .test.fxx
-	`[{=punct .} {=word test} {=punct .} {=word foobaz}] {=compound {=punct .} {=word test} {=punct .} {=word foobaz}}`:`equal`,
-	`[{=punct .} {=word test} {=punct .} {=word foobaz}] {=compound {=punct .} {=word test} {=punct .} {=word fxx}}`:`smaller`, //cmp: [. test . foobaz] .test.fxx
-	`[{=punct .} {=word test} {=punct .} {=word x}] {=compound {=punct .} {=word test} {=punct .} {=word x}}`:`equal`,
-	`[{=punct .} {=word test}] [{=string .test}]`:`equal`,
-	`[{=punct .} {=word test}] {=compound {=punct .} {=word test}}`:`equal`,
-	`[{=punct .} {=word test}] {=string .test}`:`equal`,
-	`[{=punct <} {=raw stdlib.h} {=punct >}] [{=delegate {=qualword {=compound {=delegate {=def target.os}} {=punct ~} {=word configure} {=}} {= {= {=word heads}}}}}]`:`greater`, //cmp
-	`[{=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}] [{=Symbol foo.txt}]`:`smaller`, //cmp
-	`[{=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}] [{=string foo.txt}]`:`smaller`,
-	`[{=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}] {=fullname {=file foo.txt}}`:`smaller`,
-	`[{=qualword {=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=word app}} {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}] [{=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}]`:`lprefix`, //cmp: [https://extbit.dev/package/extbit.app 0.0.1] [https://extbit.dev/package/extbit.app/0.0.1]
-	`[{=qualword {=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=word app}} {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}] {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: [https://extbit.dev/package/extbit.app 0.0.1] https://extbit.dev/package/extbit.app/0.0.1
-	`[{=raw 'app'-0.0.1}] {=strcomp {= {=strlit 'app'}} {=raw -} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}}`:`smaller`, //cmp: ['app'-0.0.1] "'app'-0.0.1"
-	`[{=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}] [{=string foo.txt}]`:`smaller`,
-	`[{=raw https://extbit.dev/package/extbit.app/0.0.1/bugs}] {=strcomp {= {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}} {=raw /bugs}}`:`rprefix`, //cmp: [https://extbit.dev/package/extbit.app/0.0.1/bugs] "https://extbit.dev/package/extbit.app/0.0.1/bugs"
-	`[{=string .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=word foo} {=flag {=word x}} {=flag {=word x}} {=word x} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=word y}}}} {=flag {=word y}} {=word y} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {=flag {=word z}} {=word z} {=punct .} {=word o} {=compound {=word foobar} {=punct .} {=word o}} {=word foobar} {=punct .} {=word o}] [{= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo}}} {= {= {=raw -x}}} {= {= {=raw -x}}} {= {= {=raw x}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y}}} {= {= {=raw -y}}} {= {= {=raw y}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y-z}}} {= {= {=raw -z}}} {= {= {=raw z}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foobar.o}}} {= {= {=raw foobar}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}]`:`equal`,
-	`[{=string .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=word foo} {=flag {=word x}} {=flag {=word x}} {=word x} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=word y}}}} {=flag {=word y}} {=word y} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {=flag {=word z}} {=word z} {=punct .} {=word o} {=compound {=word foobar} {=punct .} {=word o}} {=word foobar} {=punct .} {=word o}] [{= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo}}} {= {= {=raw -x}}} {= {= {=raw -x}}} {= {= {=raw x}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y}}} {= {= {=raw -y}}} {= {= {=raw y}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y-z}}} {= {= {=raw -z}}} {= {= {=raw z}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foobar.o}}} {= {= {=raw foobar}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}]`:`equal`,
-	`[{=string .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=word foo} {=flag {=word x}} {=flag {=word x}} {=word x} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=word y}}}} {=flag {=word y}} {=word y} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {=flag {=word z}} {=word z} {=punct .} {=word o} {=compound {=word foobar} {=punct .} {=word o}} {=word foobar} {=punct .} {=word o}] [{= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo}}} {= {= {=raw -x}}} {= {= {=raw -x}}} {= {= {=raw x}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y}}} {= {= {=raw -y}}} {= {= {=raw y}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y-z}}} {= {= {=raw -z}}} {= {= {=raw z}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foobar.o}}} {= {= {=raw foobar}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}]`:`equal`,
-	`[{=string .} {=word o}] [{= {= {=raw .}}} {= {= {=raw o}}}]`:`equal`,
-	`[{=string .} {=word o}] [{= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}]`:`equal`,
-	`[{=string .} {=word o}] [{= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}]`:`equal`,
-	`[{=string 0} {=punct .} {=decimal 0} {=punct .} {=decimal 1}] [{=flag {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}]`:`greater`, //cmp: [0 . 0 . 1] [-0.0.1]
-	`[{=string 1} {=punct .} {=word h}] [{=meta ?} {=punct .} {=word h}]`:`smaller`, // [1 . h] [? . h]
-	`[{=string 2} {=punct .} {=word h}] [{=meta ?} {=punct .} {=word h}]`:`smaller`, // [2 . h] [? . h]
-	`[{=string ar}] [{=meta *}]`:`smaller`, // [ar] [*]
-	`[{=string bar}] {=glob {=meta **} {=punct .} {=word hh}}`:`smaller`, //cmp: [bar] **.hh
-	`[{=string bar}] {=glob {=word ba} {=meta *}}`:`smaller`, //cmp: [bar] ba*
-	`[{=string bar}] {=glob {=word ba} {=meta ?}}`:`smaller`, //cmp: [bar] ba?
-	`[{=string bar}] {=glob {=word b} {=meta *}}`:`smaller`, //cmp: [bar] b*
-	`[{=string foo.txt}] [{=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}]`:`greater`,
-	`[{=string foo.txt}] {=path {=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}}`:`greater`,
-	`[{=string foo}] {=glob {=word f} {=meta *?}}`:`smaller`, //cmp: [foo] f*?
-	`[{=string main}] {=glob {=meta *}}`:`smaller`, //cmp: [main] *
-	`[{=string oo}] [{=meta *?}]`:`smaller`, // [oo] [*?]
-	`[{=string o} {=meta ?}] [{=meta *?}]`:`smaller`, //cmp: [o ?] [*?]
-	`[{=string r}] [{=meta *}]`:`smaller`, //cmp: [r] [*]
-	`[{=string r}] [{=meta ?}]`:`smaller`, //cmp: [r] [?]
-	`[{=string v1y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}]`:`smaller`, // [v1y . h] [* y . h]
-	`[{=string v} {=meta *} {=word y} {=punct .} {=word h}] [{=meta *} {=word y} {=punct .} {=word h}]`:`smaller`, // [v * y . h] [* y . h]
-	`[{=strlit 'app'} {=decimal 0} {=}] [{=string app}]`:`greater`, //cmp: ['app' 0 ] [app]
-	`[{=strlit 'app'} {=decimal 0} {=}] {= {=strlit 'app'}}`:`greater`, //cmp: ['app' 0 ] 'app'
-	`[{=token **}] {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}}`:`greater`,
-	`[{=token .} {=string test}] [{=string .test}]`:`equal`,
-	`[{=token .}] {=compound {=word bar} {=punct .} {=word c}}`:`smaller`,
-	`[{=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}] [{=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}]`:`lprefix`, //cmp: [https://extbit.dev/package/extbit ] [https://extbit.dev/package/extbit.app/0.0.1]
-	`[{=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}] {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: [https://extbit.dev/package/extbit ] https://extbit.dev/package/extbit.app/0.0.1
-	`[{=word after} {=flag {=word specialization}}] {=compound {=word after} {=flag {=word specialization}}}`:`equal`, //cmp: [after -specialization] after-specialization
-	`[{=word availability} {=flag {=word new}}] {=compound {=word availability} {=flag {=word new}}}`:`equal`, //cmp: [availability -new] availability-new
-	`[{=word bar}] [{=string bar}]`:`equal`,
-	`[{=word b} {=meta ?} {=word r}] {=glob {=word b} {=meta *}}`:`smaller`, //cmp: [b ? r] b*
-	`[{=word call} {=flag {=compound {=word to} {=flag {=compound {=word pure} {=flag {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}}}}}}] {= {=compound {=word call} {=flag {=compound {=word to} {=flag {=compound {=word pure} {=flag {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}}}}}}}}`:`equal`, //cmp: [call -to-pure-virtual-from-ctor-dtor] call-to-pure-virtual-from-ctor-dtor
-	`[{=word cast} {=flag {=word qual}}] {= {= {=compound {=word cast} {=flag {=word qual}}}}}`:`equal`, //cmp: [cast -qual] cast-qual
-	`[{=word covered} {=flag {=compound {=word switch} {=flag {=word default}}}}] {= {= {=compound {=word covered} {=flag {=compound {=word switch} {=flag {=word default}}}}}}}`:`equal`, //cmp: [covered -switch-default] covered-switch-default
-	`[{=word ctor} {=flag {=word dtor}}] {=compound {=word ctor} {=flag {=word dtor}}}`:`equal`, //cmp: [ctor -dtor] ctor-dtor
-	`[{=word date} {=flag {=word time}}] {= {=compound {=word date} {=flag {=word time}}}}`:`equal`, //cmp: [date -time] date-time
-	`[{=word delete} {=flag {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}] {= {= {=compound {=word delete} {=flag {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}}}}`:`equal`, //cmp: [delete -non-virtual-dtor] delete-non-virtual-dtor
-	`[{=word diagnostics} {=flag {= {= {=compound {=word fixit} {=flag {=word info}}}}}}] {= {= {= {=compound {=word diagnostics} {=flag {= {= {=compound {=word fixit} {=flag {=word info}}}}}}}}}}`:`equal`, //cmp: [diagnostics -fixit-info] diagnostics-fixit-info
-	`[{=word diagnostics} {=flag {= {= {=compound {=word parseable} {=flag {=word fixits}}}}}}] {= {= {= {=compound {=word diagnostics} {=flag {= {= {=compound {=word parseable} {=flag {=word fixits}}}}}}}}}}`:`equal`, //cmp: [diagnostics -parseable-fixits] diagnostics-parseable-fixits
-	`[{=word diagnostics} {=flag {= {= {=compound {=word show} {=flag {=compound {=word template} {=flag {=word tree}}}}}}}}] {= {= {= {=compound {=word diagnostics} {=flag {= {= {=compound {=word show} {=flag {=compound {=word template} {=flag {=word tree}}}}}}}}}}}}`:`equal`, //cmp: [diagnostics -show-template-tree] diagnostics-show-template-tree
-	`[{=word field} {=flag {=word initializers}}] {=compound {=word field} {=flag {=word initializers}}}`:`equal`, //cmp: [field -initializers] field-initializers
-	`[{=word fixit} {=flag {=word info}}] {= {= {=compound {=word fixit} {=flag {=word info}}}}}`:`equal`, //cmp: [fixit -info] fixit-info
-	`[{=word fixit} {=flag {=word info}}] {= {=compound {=word fixit} {=flag {=word info}}}}`:`equal`, //cmp: [fixit -info] fixit-info
-	`[{=word foobar} {=punct .} {=word o}] [{=string foobar.o}]`:`equal`,
-	`[{=word foobar} {=punct .} {=word o}] {= {= {=raw foobar.o}}}`:`equal`,
-	`[{=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}] {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}}`:`smaller`,
-	`[{=word foobar}] [{=string foobar}]`:`equal`,
-	`[{=word foo} {=closure {=word va2}} {=word bar}] {=path {=word foo} {=closure {=word va1}} {=compound {=word xx} {=closure {=word va2}} {=word yy}} {=compound {=closure {=word va3}} {=word zz}}}`:`greater`, //cmp
-	`[{=word foo} {=closure {=word va2}} {=word bar}] {=path {=word foo} {=closure {=word va3}}}`:`smaller`, //cmp
-	`[{=word foo} {=closure {=word va3}}] {=path {=word foo} {=closure {=word va1}} {=compound {=word xx} {=closure {=word va2}} {=word yy}} {=compound {=closure {=word va3}} {=word zz}}}`:`greater`, //cmp
-	`[{=word foo} {=compound {=word xv1y} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}}`:`smaller`, // [foo xv1y.h] foo/x*y.h
-	`[{=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}] [{=string foo-x-y-z.o}]`:`equal`,
-	`[{=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}] {= {= {=raw foo-x-y-z.o}}}`:`equal`,
-	`[{=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}] [{=string foo-x-y.o}]`:`equal`,
-	`[{=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}] {= {= {=raw foo-x-y.o}}}`:`equal`,
-	`[{=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}] [{=string foo-x.o}]`:`equal`,
-	`[{=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}] {= {= {=raw foo-x.o}}}`:`equal`,
-	`[{=word foo} {=glob {=meta **} {=punct .} {=word hh}}] {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}}`:`greater`,
-	`[{=word foo} {=glob {=meta **}} {=compound {=word x} {=punct .} {=word h}}] {=path {=glob {=word f} {=meta *?}} {=compound {=word x} {=punct .} {=word h}}}`:`smaller`,
-	`[{=word foo} {=glob {=meta **}} {=qualword {=word x} {=word h}}] {=path {=glob {=word f} {=meta *?}} {=qualword {=word x} {=word h}}}`:`smaller`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}}`:`equal`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, // [foo b?r v?.h] [foo/b*/v*.h]
-	`[{=word foo} {=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}}`:`smaller`, // [foo xv*y.h] foo/x*y.h
-	`[{=word foo} {=punct .} {=word o}] [{=string foo.o}]`:`equal`,
-	`[{=word foo} {=punct .} {=word o}] {= {= {=raw foo.o}}}`:`equal`,
-	`[{=word foo} {=punct .} {=word tail}] {=compound {=word foo} {=punct .} {=word tail}}`:`equal`,
-	`[{=word foo} {=punct .} {=word xxxx}] {=compound {=word foo} {=punct .} {=word xxxx}}`:`equal`,
-	`[{=word foo} {=qualword {=word xv1y} {=word h}}] {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo xv1y.h] foo/x*y.h
-	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v1.h] foo/ba*/v?.h
-	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, // [foo bar v1.h] foo/b*/v*.h
-	`[{=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, // [foo bar v1.h] foo/bar/v?.h
-	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v2.h] foo/ba*/v?.h
-	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, // [foo bar v2.h] foo/b*/v*.h
-	`[{=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, // [foo bar v2.h] foo/bar/v?.h
-	`[{=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}] {=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}}`:`smaller`, //cmp: [foo bar *.hh] foo/**.hh
-	`[{=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`[{=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`, // [foo bar * *.h] foo/bar/zz/x.h
-	`[{=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`,
-	`[{=word foo} {=word bar} {=glob {=word xyz} {=meta ?} {=meta ?} {=meta ?} {=punct .} {=word txt}}] {=path {=word foo} {=glob {=word ba} {=meta ?}} {=glob {=word xyz} {=meta *} {=punct .} {=word txt}}}`:`smaller`, //cmp: [foo bar xyz???.txt] foo/ba?/xyz*.txt
-	`[{=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`, // [foo bar z? ?.h] foo/bar/zz/x.h
-	`[{=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`,
-	`[{=word foo} {=word bar} {=qualword {=word v1} {=word h}}] {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v1.h] foo/ba*/v?.h
-	`[{=word foo} {=word bar} {=qualword {=word v1} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v1.h] foo/b*/v*.h
-	`[{=word foo} {=word bar} {=qualword {=word v1} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v1.h] foo/bar/v?.h
-	`[{=word foo} {=word bar} {=qualword {=word v2} {=word h}}] {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v2.h] foo/ba*/v?.h
-	`[{=word foo} {=word bar} {=qualword {=word v2} {=word h}}] {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v2.h] foo/b*/v*.h
-	`[{=word foo} {=word bar} {=qualword {=word v2} {=word h}}] {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: [foo bar v2.h] foo/bar/v?.h
-	`[{=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`, // [foo bar zz ?.h] foo/bar/zz/x.h
-	`[{=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}] {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`, //cmp: [foo bar zz ?.h] foo/bar/zz/x.h
-	`[{=word format} {=flag {=compound {=word invalid} {=flag {=word specifier}}}}] {= {=compound {=word format} {=flag {=compound {=word invalid} {=flag {=word specifier}}}}}}`:`equal`, //cmp: [format -invalid-specifier] format-invalid-specifier
-	`[{=word fo} {=meta ?}] {=glob {=word f} {=meta *?}}`:`smaller`, //cmp: [fo ?] f*?
-	`[{=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}] {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}`:`equal`, //cmp: [from -ctor-dtor] from-ctor-dtor
-	`[{=word gcc} {=flag {=word compat}}] {=compound {=word gcc} {=flag {=word compat}}}`:`equal`, //cmp: [gcc -compat] gcc-compat
-	`[{=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}] {=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}}`:`equal`, //cmp: [gnu -include-next] gnu-include-next
-	`[{=word ignored} {=flag {=word attributes}}] {= {=compound {=word ignored} {=flag {=word attributes}}}}`:`equal`, //cmp: [ignored -attributes] ignored-attributes
-	`[{=word implicit} {=flag {=word fallthrough}}] {= {= {=compound {=word implicit} {=flag {=word fallthrough}}}}}`:`equal`, //cmp: [implicit -fallthrough] implicit-fallthrough
-	`[{=word include} {=flag {=word next}}] {=compound {=word include} {=flag {=word next}}}`:`equal`, //cmp: [include -next] include-next
-	`[{=word incompatible} {=flag {=compound {=word pointer} {=flag {=word types}}}}] {= {=compound {=word incompatible} {=flag {=compound {=word pointer} {=flag {=word types}}}}}}`:`equal`, //cmp: [incompatible -pointer-types] incompatible-pointer-types
-	`[{=word inlines} {=flag {=word hidden}}] {=compound {=word inlines} {=flag {=word hidden}}}`:`equal`, //cmp: [inlines -hidden] inlines-hidden
-	`[{=word instantiation} {=flag {=compound {=word after} {=flag {=word specialization}}}}] {= {=compound {=word instantiation} {=flag {=compound {=word after} {=flag {=word specialization}}}}}}`:`equal`, //cmp: [instantiation -after-specialization] instantiation-after-specialization
-	`[{=word invalid} {=flag {=word specifier}}] {=compound {=word invalid} {=flag {=word specifier}}}`:`equal`, //cmp: [invalid -specifier] invalid-specifier
-	`[{=word llvm} {=flag {=word project}}] {= {= {= {=compound {=word llvm} {=flag {=word project}}}}}}`:`equal`, //cmp: [llvm -project] llvm-project
-	`[{=word long} {=flag {=word long}}] {=compound {=word long} {=flag {=word long}}}`:`equal`, //cmp: [long -long] long-long
-	`[{=word main} {=compound {=word a} {=punct .} {=word c}}] {=path {=glob {=meta *}} {=compound {=word a} {=punct .} {=word c}}}`:`smaller`,
-	`[{=word main} {=qualword {=word a} {=word c}}] {=path {=glob {=meta *}} {=qualword {=word a} {=word c}}}`:`smaller`, //cmp: [main a.c] */a.c
-	`[{=word missing} {=flag {=compound {=word field} {=flag {=word initializers}}}}] {= {= {=compound {=word missing} {=flag {=compound {=word field} {=flag {=word initializers}}}}}}}`:`equal`, //cmp: [missing -field-initializers] missing-field-initializers
-	`[{=word name} {=meta ?}] {=glob {=word name} {=meta ?}}`:`equal`, //cmp: [name ?] name?
-	`[{=word noexcept} {=flag {=word type}}] {=compound {=word noexcept} {=flag {=word type}}}`:`equal`, //cmp: [noexcept -type] noexcept-type
-	`[{=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}] {= {= {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}}`:`equal`, //cmp: [non -virtual-dtor] non-virtual-dtor
-	`[{=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}] {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}`:`equal`, //cmp: [non -virtual-dtor] non-virtual-dtor
-	`[{=word no} {=flag {=compound {=word gcc} {=flag {=word compat}}}}] {= {= {=compound {=word no} {=flag {=compound {=word gcc} {=flag {=word compat}}}}}}}`:`equal`, //cmp: [no -gcc-compat] no-gcc-compat
-	`[{=word no} {=flag {=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}}}] {= {= {=compound {=word no} {=flag {=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}}}}}}`:`equal`, //cmp: [no -gnu-include-next] no-gnu-include-next
-	`[{=word no} {=flag {=compound {=word long} {=flag {=word long}}}}] {= {= {=compound {=word no} {=flag {=compound {=word long} {=flag {=word long}}}}}}}`:`equal`, //cmp: [no -long-long] no-long-long
-	`[{=word no} {=flag {=compound {=word noexcept} {=flag {=word type}}}}] {= {= {=compound {=word no} {=flag {=compound {=word noexcept} {=flag {=word type}}}}}}}`:`equal`, //cmp: [no -noexcept-type] no-noexcept-type
-	`[{=word no} {=flag {=compound {=word sign} {=flag {=word conversion}}}}] {= {= {=compound {=word no} {=flag {=compound {=word sign} {=flag {=word conversion}}}}}}}`:`equal`, //cmp: [no -sign-conversion] no-sign-conversion
-	`[{=word no} {=flag {=compound {=word unused} {=flag {=word parameter}}}}] {= {= {=compound {=word no} {=flag {=compound {=word unused} {=flag {=word parameter}}}}}}}`:`equal`, //cmp: [no -unused-parameter] no-unused-parameter
-	`[{=word no} {=flag {=word error}}] {= {= {=compound {=word no} {=flag {=word error}}}}}`:`equal`, //cmp: [no -error] no-error
-	`[{=word o}] [{=string o}]`:`equal`,
-	`[{=word parseable} {=flag {=word fixits}}] {= {= {=compound {=word parseable} {=flag {=word fixits}}}}}`:`equal`, //cmp: [parseable -fixits] parseable-fixits
-	`[{=word parseable} {=flag {=word fixits}}] {= {=compound {=word parseable} {=flag {=word fixits}}}}`:`equal`, //cmp: [parseable -fixits] parseable-fixits
-	`[{=word pointer} {=flag {=word types}}] {=compound {=word pointer} {=flag {=word types}}}`:`equal`, //cmp: [pointer -types] pointer-types
-	`[{=word pure} {=flag {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}}] {=compound {=word pure} {=flag {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}}}`:`equal`, //cmp: [pure -virtual-from-ctor-dtor] pure-virtual-from-ctor-dtor
-	`[{=word show} {=flag {=compound {=word template} {=flag {=word tree}}}}] {= {= {=compound {=word show} {=flag {=compound {=word template} {=flag {=word tree}}}}}}}`:`equal`, //cmp: [show -template-tree] show-template-tree
-	`[{=word show} {=flag {=compound {=word template} {=flag {=word tree}}}}] {= {=compound {=word show} {=flag {=compound {=word template} {=flag {=word tree}}}}}}`:`equal`, //cmp: [show -template-tree] show-template-tree
-	`[{=word sign} {=flag {=word conversion}}] {=compound {=word sign} {=flag {=word conversion}}}`:`equal`, //cmp: [sign -conversion] sign-conversion
-	`[{=word string} {=flag {=word conversion}}] {= {= {=compound {=word string} {=flag {=word conversion}}}}}`:`equal`, //cmp: [string -conversion] string-conversion
-	`[{=word switch} {=flag {=word default}}] {=compound {=word switch} {=flag {=word default}}}`:`equal`, //cmp: [switch -default] switch-default
-	`[{=word template} {=flag {=word tree}}] {=compound {=word template} {=flag {=word tree}}}`:`equal`, //cmp: [template -tree] template-tree
-	`[{=word to} {=flag {=compound {=word pure} {=flag {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}}}}] {=compound {=word to} {=flag {=compound {=word pure} {=flag {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}}}}}`:`equal`, //cmp: [to -pure-virtual-from-ctor-dtor] to-pure-virtual-from-ctor-dtor
-	`[{=word unguarded} {=flag {=compound {=word availability} {=flag {=word new}}}}] {= {=compound {=word unguarded} {=flag {=compound {=word availability} {=flag {=word new}}}}}}`:`equal`, //cmp: [unguarded -availability-new] unguarded-availability-new
-	`[{=word unknown} {=flag {=word attributes}}] {= {=compound {=word unknown} {=flag {=word attributes}}}}`:`equal`, //cmp: [unknown -attributes] unknown-attributes
-	`[{=word unused} {=flag {=word parameter}}] {=compound {=word unused} {=flag {=word parameter}}}`:`equal`, //cmp: [unused -parameter] unused-parameter
-	`[{=word v1} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`smaller`, // [v1 . h] v?.h
-	`[{=word v2} {=punct .} {=word h}] {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`smaller`, // [v2 . h] v?.h
-	`[{=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}] {=compound {=word virtual} {=flag {=compound {=word from} {=flag {=compound {=word ctor} {=flag {=word dtor}}}}}}}`:`equal`, //cmp: [virtual -from-ctor-dtor] virtual-from-ctor-dtor
-	`[{=word virtual} {=flag {=word dtor}}] {=compound {=word virtual} {=flag {=word dtor}}}`:`equal`, //cmp: [virtual -dtor] virtual-dtor
-	`[{=word visibility} {=flag {=compound {=word inlines} {=flag {=word hidden}}}}] {= {= {=compound {=word visibility} {=flag {=compound {=word inlines} {=flag {=word hidden}}}}}}}`:`equal`, //cmp: [visibility -inlines-hidden] visibility-inlines-hidden
-	`[{=word write} {=flag {=word strings}}] {= {= {=compound {=word write} {=flag {=word strings}}}}}`:`equal`, //cmp: [write -strings] write-strings
-	`[{=word xv1y} {=punct .} {=word h}] {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}`:`smaller`, // [xv1y . h] x*y.h
-	`[{=word xv} {=meta *} {=word y} {=punct .} {=word h}] {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}`:`smaller`, //cmp: [xv * y . h] x*y.h
-	`[{=word x} {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}] {= {=compound {=word x} {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}}}`:`equal`,
-	`[{=word x} {= {=word p}}] {= {=compound {=word x} {= {=word p}}}}`:`equal`, //cmp: [x p] xp
-	`[{=word x} {= {=word q}}] {= {=compound {=word x} {= {=word q}}}}`:`equal`, //cmp: [x q] xq
-	`[{=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}} {= {=compound {=word x} {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}}}}] {=list {=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}} {= {=compound {=word x} {= {= {=compound {=disjunction {=closure {=def .test.h}}} {= {=disjunction {=delegate {=auto 1}}}}}}}}}}}`:`equal`,
-	`[{=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}] {=list {=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}}`:`equal`, //cmp: [x xq xp] x xq xp
-	`[{=word x} {=punct .} {=word h}] [{=string config}]`:`greater`,
-	`[{=word x} {=punct .} {=word h}] [{=string x.h}]`:`equal`,
-	`[{=word x} {=punct .} {=word h}] {= {=compound {=word x} {=punct .} {=word h}}}`:`equal`, //cmp: [x . h] x.h
-	`[{=word x} {=punct .} {=word h}] {=compound {=word x} {=punct .} {=word h}}`:`equal`,
-	`[{=word x} {=punct .} {=word h}] {=string config}`:`greater`,
-	`[{=word x} {=punct .} {=word h}] {=string x.h}`:`equal`,
-	`[{=word y} {=punct .} {=word h}] {= {=compound {=word y} {=punct .} {=word h}}}`:`equal`, //cmp: [y . h] y.h
-	`[{=word z} {=meta ?}] [{=Symbol zz}]`:`greater`, //cmp
-	`[{=word z} {=meta ?}] [{=string zz}]`:`greater`, // [z ?] [zz]
-	`[{=word z} {=meta ?}] {=word zz}`:`greater`, // [z ?] zz
-	`[{=word z} {=punct .} {=word h}] {= {=compound {=word z} {=punct .} {=word h}}}`:`equal`, //cmp: [z . h] z.h
-	`{= {= {= {= {=punct PROOT}}}}} {= {= {= {= {= {=punct PROOT}}}}}}`:`equal`, //cmp:  
-	`{= {= {= {= {=raw Volumes}}}}} {= {= {= {= {= {=raw Volumes}}}}}}`:`equal`, //cmp: Volumes Volumes
-	`{= {= {= {= {=raw workspace}}}}} {= {= {= {= {= {=raw workspace}}}}}}`:`equal`, //cmp: workspace workspace
-	`{= {= {= {=pair {=word error} {= {= {=compound {=word date} {=flag {=word time}}}}}}}}} {= {= {=pair {=word error} {=compound {=word date} {=flag {=word time}}}}}}`:`equal`, //cmp: error=date-time error=date-time
-	`{= {= {= {=pair {=word error} {= {= {=compound {=word unguarded} {=flag {=compound {=word availability} {=flag {=word new}}}}}}}}}}} {= {= {=pair {=word error} {=compound {=word unguarded} {=flag {=compound {=word availability} {=flag {=word new}}}}}}}}`:`equal`, //cmp: error=unguarded-availability-new error=unguarded-availability-new
-	`{= {= {= {=path {= {= {= {=punct PROOT}}}} {= {= {= {=raw Volumes}}}} {= {= {=word workout}}} {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}} {= {= {=word bootstrap}}} {=word lib} {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}}}}} {= {= {= {=path {= {= {= {=punct PROOT}}}} {= {= {= {=raw Volumes}}}} {= {= {=word workout}}} {= {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}} {= {= {=word bootstrap}}} {=word lib} {= {= {=compound {= {=word arm64}} {=null} {=flag {=}} {= {=word apple}} {=flag {=}} {= {=compound {= {= {= {= {=raw Darwin}}}}} {= {= {=raw 25.5.0}}}}} {=flag {=}} {= {=word macho}}}}}}}}}`:`equal`, //cmp
-	`{= {= {=compound {=word cast} {=flag {=word qual}}}}} {= {= {=compound {=word cast} {=flag {=word qual}}}}}`:`equal`, //cmp: cast-qual cast-qual
-	`{= {= {=compound {=word covered} {=flag {=compound {=word switch} {=flag {=word default}}}}}}} {= {= {=compound {=word covered} {=flag {=compound {=word switch} {=flag {=word default}}}}}}}`:`equal`, //cmp: covered-switch-default covered-switch-default
-	`{= {= {=compound {=word delete} {=flag {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}}}} {= {= {=compound {=word delete} {=flag {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}}}}`:`equal`, //cmp: delete-non-virtual-dtor delete-non-virtual-dtor
-	`{= {= {=compound {=word implicit} {=flag {=word fallthrough}}}}} {= {= {=compound {=word implicit} {=flag {=word fallthrough}}}}}`:`equal`, //cmp: implicit-fallthrough implicit-fallthrough
-	`{= {= {=compound {=word llvm} {=flag {=word project}}}}} {= {= {= {=compound {=word llvm} {=flag {=word project}}}}}}`:`equal`, //cmp: llvm-project llvm-project
-	`{= {= {=compound {=word missing} {=flag {=compound {=word field} {=flag {=word initializers}}}}}}} {= {= {=compound {=word missing} {=flag {=compound {=word field} {=flag {=word initializers}}}}}}}`:`equal`, //cmp: missing-field-initializers missing-field-initializers
-	`{= {= {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}} {= {= {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}}}`:`equal`, //cmp: non-virtual-dtor non-virtual-dtor
-	`{= {= {=compound {=word no} {=flag {=compound {=word gcc} {=flag {=word compat}}}}}}} {= {= {=compound {=word no} {=flag {=compound {=word gcc} {=flag {=word compat}}}}}}}`:`equal`, //cmp: no-gcc-compat no-gcc-compat
-	`{= {= {=compound {=word no} {=flag {=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}}}}}} {= {= {=compound {=word no} {=flag {=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}}}}}}`:`equal`, //cmp: no-gnu-include-next no-gnu-include-next
-	`{= {= {=compound {=word no} {=flag {=compound {=word long} {=flag {=word long}}}}}}} {= {= {=compound {=word no} {=flag {=compound {=word long} {=flag {=word long}}}}}}}`:`equal`, //cmp: no-long-long no-long-long
-	`{= {= {=compound {=word no} {=flag {=compound {=word noexcept} {=flag {=word type}}}}}}} {= {= {=compound {=word no} {=flag {=compound {=word noexcept} {=flag {=word type}}}}}}}`:`equal`, //cmp: no-noexcept-type no-noexcept-type
-	`{= {= {=compound {=word no} {=flag {=compound {=word sign} {=flag {=word conversion}}}}}}} {= {= {=compound {=word no} {=flag {=compound {=word sign} {=flag {=word conversion}}}}}}}`:`equal`, //cmp: no-sign-conversion no-sign-conversion
-	`{= {= {=compound {=word no} {=flag {=compound {=word unused} {=flag {=word parameter}}}}}}} {= {= {=compound {=word no} {=flag {=compound {=word unused} {=flag {=word parameter}}}}}}}`:`equal`, //cmp: no-unused-parameter no-unused-parameter
-	`{= {= {=compound {=word no} {=flag {=word error}}}}} {= {= {=compound {=word no} {=flag {=word error}}}}}`:`equal`, //cmp: no-error no-error
-	`{= {= {=compound {=word string} {=flag {=word conversion}}}}} {= {= {=compound {=word string} {=flag {=word conversion}}}}}`:`equal`, //cmp: string-conversion string-conversion
-	`{= {= {=compound {=word visibility} {=flag {=compound {=word inlines} {=flag {=word hidden}}}}}}} {= {= {=compound {=word visibility} {=flag {=compound {=word inlines} {=flag {=word hidden}}}}}}}`:`equal`, //cmp: visibility-inlines-hidden visibility-inlines-hidden
-	`{= {= {=compound {=word write} {=flag {=word strings}}}}} {= {= {=compound {=word write} {=flag {=word strings}}}}}`:`equal`, //cmp: write-strings write-strings
-	`{= {= {=path {= {= {= {= {=punct PROOT}}}}} {= {= {= {= {=raw Volumes}}}}} {= {= {= {= {=raw workspace}}}}} {= {= {=word external}}} {= {= {=compound {=word llvm} {=flag {=word project}}}}} {= {=word libcxx}} {=word src}}}} {= {= {= {=path {= {= {= {= {= {=punct PROOT}}}}}} {= {= {= {= {= {=raw Volumes}}}}}} {= {= {= {= {= {=raw workspace}}}}}} {= {= {= {=word external}}}} {= {= {= {=compound {=word llvm} {=flag {=word project}}}}}} {= {= {=word libcxx}}} {=word src}}}}}`:`equal`, //cmp: /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{= {= {=word all}}} {= {= {=word all}}}`:`equal`, //cmp: all all
-	`{= {= {=word external}}} {= {= {= {=word external}}}}`:`equal`, //cmp: external external
-	`{= {= {=word extra}}} {= {= {=word extra}}}`:`equal`, //cmp: extra extra
-	`{= {=compound {=word x} {= {=word p}}}} {= {=compound {=word x} {= {=word p}}}}`:`equal`, //cmp: xp xp
-	`{= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word q}}}}`:`equal`, //cmp: xq xq
-	`{= {=flag {=word foo}}} {=flag {=word foobar}}`:`lprefix`,
-	`{= {=flag {=word foo}}} {=token -}`:`rprefix`,
-	`{= {=flag {=}}} {=flag {=word foobar}}`:`lprefix`,
-	`{= {=flag {=}}} {=token -}`:`equal`,
-	`{= {=word foo}} {=word foo}`:`equal`,
-	`{= {=word libcxx}} {= {= {=word libcxx}}}`:`equal`, //cmp: libcxx libcxx
-	`{= {=yes}} {=delegate {=def configure.use.stdlibs}}`:`greater`,
-	`{=Symbol bar} {=meta **}`:`smaller`, //cmp
-	`{=Symbol bar} {=word ba}`:`rprefix`, //cmp
-	`{=Symbol bar} {=word b}`:`rprefix`, //cmp
-	`{=Symbol foo.txt} {=punct PROOT}`:`rprefix`, //cmp
-	`{=Symbol foo} {=word f}`:`rprefix`, //cmp
-	`{=Symbol main} {=meta *}`:`smaller`, //cmp
-	`{=closure {=def some}} {=closure {=def some}}`:`equal`, //cmp: &(some) &(some)
-	`{=closure {=word none}} {=closure {=word none}}`:`equal`, //cmp: &(none) &(none)
-	`{=closure {=word va2}} {=closure {=word va1}}`:`greater`, //cmp
-	`{=closure {=word va2}} {=closure {=word va3}}`:`smaller`, //cmp
-	`{=closure {=word va3}} {=closure {=word va1}}`:`greater`, //cmp
-	`{=compound {= {=flag {=word foo}}} {=word bar}} {=flag {=word foobar}}`:`equal`,
-	`{=compound {= {=flag {=}}} {=word foobar}} {=flag {=word foobar}}`:`equal`,
-	`{=compound {=punct .} {=word test} {=punct .} {=word foobax}} {=compound {=punct .} {=word test} {=punct .} {=word fxx}}`:`smaller`, //cmp: .test.foobax .test.fxx
-	`{=compound {=punct .} {=word test} {=punct .} {=word foobay}} {=compound {=punct .} {=word test} {=punct .} {=word fxx}}`:`smaller`, //cmp: .test.foobay .test.fxx
-	`{=compound {=punct .} {=word test} {=punct .} {=word foobaz}} {=compound {=punct .} {=word test} {=punct .} {=word fxx}}`:`smaller`, //cmp: .test.foobaz .test.fxx
-	`{=compound {=punct .} {=word test}} {=compound {=punct .} {=word test}}`:`equal`,
-	`{=compound {=punct .} {=word test}} {=string .test}`:`equal`,
-	`{=compound {=strlit 'app'} {=decimal 0} {=}} {= {=strlit 'app'}}`:`greater`, //cmp: 'app'0 'app'
-	`{=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: https://extbit.dev/package/extbit https://extbit.dev/package/extbit.app/0.0.1
-	`{=compound {=word field} {=flag {=word initializers}}} {=compound {=word field} {=flag {=word initializers}}}`:`equal`, //cmp: field-initializers field-initializers
-	`{=compound {=word foobar} {=punct .} {=word o}} {= {= {=raw foobar.o}}}`:`equal`,
-	`{=compound {=word foo} {=closure {=word va2}} {=word bar}} {=path {=word foo} {=closure {=word va1}} {=compound {=word xx} {=closure {=word va2}} {=word yy}} {=compound {=closure {=word va3}} {=word zz}}}`:`greater`, //cmp
-	`{=compound {=word foo} {=closure {=word va2}} {=word bar}} {=path {=word foo} {=closure {=word va3}}}`:`smaller`, //cmp
-	`{=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {= {= {=raw foo-x-y-z.o}}}`:`equal`,
-	`{=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {= {= {=raw foo-x-y.o}}}`:`equal`,
-	`{=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {= {= {=raw foo-x.o}}}`:`equal`,
-	`{=compound {=word foo} {=punct .} {=word o}} {= {= {=raw foo.o}}}`:`equal`,
-	`{=compound {=word gcc} {=flag {=word compat}}} {=compound {=word gcc} {=flag {=word compat}}}`:`equal`, //cmp: gcc-compat gcc-compat
-	`{=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}} {=compound {=word gnu} {=flag {=compound {=word include} {=flag {=word next}}}}}`:`equal`, //cmp: gnu-include-next gnu-include-next
-	`{=compound {=word include} {=flag {=word next}}} {=compound {=word include} {=flag {=word next}}}`:`equal`, //cmp: include-next include-next
-	`{=compound {=word inlines} {=flag {=word hidden}}} {=compound {=word inlines} {=flag {=word hidden}}}`:`equal`, //cmp: inlines-hidden inlines-hidden
-	`{=compound {=word long} {=flag {=word long}}} {=compound {=word long} {=flag {=word long}}}`:`equal`, //cmp: long-long long-long
-	`{=compound {=word noexcept} {=flag {=word type}}} {=compound {=word noexcept} {=flag {=word type}}}`:`equal`, //cmp: noexcept-type noexcept-type
-	`{=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}} {=compound {=word non} {=flag {=compound {=word virtual} {=flag {=word dtor}}}}}`:`equal`, //cmp: non-virtual-dtor non-virtual-dtor
-	`{=compound {=word sign} {=flag {=word conversion}}} {=compound {=word sign} {=flag {=word conversion}}}`:`equal`, //cmp: sign-conversion sign-conversion
-	`{=compound {=word switch} {=flag {=word default}}} {=compound {=word switch} {=flag {=word default}}}`:`equal`, //cmp: switch-default switch-default
-	`{=compound {=word unused} {=flag {=word parameter}}} {=compound {=word unused} {=flag {=word parameter}}}`:`equal`, //cmp: unused-parameter unused-parameter
-	`{=compound {=word v1} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`smaller`, // v1.h v?.h
-	`{=compound {=word v2} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`smaller`, // v2.h v?.h
-	`{=compound {=word virtual} {=flag {=word dtor}}} {=compound {=word virtual} {=flag {=word dtor}}}`:`equal`, //cmp: virtual-dtor virtual-dtor
-	`{=compound {=word xv1y} {=punct .} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}`:`smaller`, // xv1y.h x*y.h
-	`{=compound {=word x} {=punct .} {=word h}} {= {=compound {=word x} {=punct .} {=word h}}}`:`equal`, //cmp: x.h x.h
-	`{=compound {=word x} {=punct .} {=word h}} {=compound {=word x} {=punct .} {=word h}}`:`equal`,
-	`{=compound {=word x} {=punct .} {=word h}} {=string config}`:`greater`,
-	`{=compound {=word x} {=punct .} {=word h}} {=string x.h}`:`equal`,
-	`{=compound {=word y} {=punct .} {=word h}} {= {=compound {=word y} {=punct .} {=word h}}}`:`equal`, //cmp: y.h y.h
-	`{=compound {=word z} {=punct .} {=word h}} {= {=compound {=word z} {=punct .} {=word h}}}`:`equal`, //cmp: z.h z.h
-	`{=decimal 0} {=decimal 0}`:`equal`, //cmp: 0 0
-	`{=decimal 123} {=decimal 123}`:`equal`, //cmp
-	`{=decimal 1} {=decimal 1}`:`equal`, //cmp: 1 1
-	`{=def -L} {=def -cxx-isystem}`:`smaller`, //cmp
-	`{=def -L} {=def -l}`:`smaller`, //cmp
-	`{=def -L} {=def -no.ld}`:`smaller`, //cmp
-	`{=def -L} {=def -no}`:`smaller`, //cmp
-	`{=def -L} {=def HAVE_FUN_EXIT}`:`smaller`, //cmp
-	`{=def -L} {=def HAVE_STDLIB_H}`:`smaller`,
-	`{=def -L} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def -L} {=def PACKAGE}`:`smaller`, //cmp
-	`{=def -L} {=def VERSION}`:`smaller`, //cmp
-	`{=def -L} {=def configure.*}`:`smaller`, //cmp
-	`{=def -L} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def -L} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def -L} {=def configure.features}`:`smaller`, //cmp
-	`{=def -L} {=def configure.files}`:`smaller`, //cmp
-	`{=def -L} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def -L} {=def configure.heads}`:`smaller`, //cmp
-	`{=def -L} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def -L} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def -L} {=def configure.package}`:`smaller`, //cmp
-	`{=def -L} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def -L} {=def configure.structs}`:`smaller`, //cmp
-	`{=def -L} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def -L} {=def configure.types}`:`smaller`, //cmp
-	`{=def -L} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def -L} {=def configure.version}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def -L} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def -L} {=project app.base}`:`smaller`, //cmp
-	`{=def -L} {=project configure}`:`smaller`, //cmp
-	`{=def -L} {=self app}`:`smaller`, //cmp
-	`{=def -L} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def -L}`:`greater`, //cmp
-	`{=def -cxx-isystem} {=def -l}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def -no.ld}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def -no}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def HAVE_FUN_EXIT}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def HAVE_STDLIB_H}`:`smaller`,
-	`{=def -cxx-isystem} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def PACKAGE}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def VERSION}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.*}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.features}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.files}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.heads}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.package}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.structs}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.types}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def configure.version}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=project app.base}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=project configure}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=self app}`:`smaller`, //cmp
-	`{=def -cxx-isystem} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def -l} {=def -L}`:`greater`, //cmp
-	`{=def -l} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def -l} {=def -no.ld}`:`smaller`, //cmp
-	`{=def -l} {=def -no}`:`smaller`, //cmp
-	`{=def -l} {=def HAVE_FUN_EXIT}`:`smaller`, //cmp
-	`{=def -l} {=def HAVE_STDLIB_H}`:`smaller`,
-	`{=def -l} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def -l} {=def PACKAGE}`:`smaller`, //cmp
-	`{=def -l} {=def VERSION}`:`smaller`, //cmp
-	`{=def -l} {=def configure.*}`:`smaller`, //cmp
-	`{=def -l} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def -l} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def -l} {=def configure.features}`:`smaller`, //cmp
-	`{=def -l} {=def configure.files}`:`smaller`, //cmp
-	`{=def -l} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def -l} {=def configure.heads}`:`smaller`, //cmp
-	`{=def -l} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def -l} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def -l} {=def configure.package}`:`smaller`, //cmp
-	`{=def -l} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def -l} {=def configure.structs}`:`smaller`, //cmp
-	`{=def -l} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def -l} {=def configure.types}`:`smaller`, //cmp
-	`{=def -l} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def -l} {=def configure.version}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def -l} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def -l} {=project app.base}`:`smaller`, //cmp
-	`{=def -l} {=project configure}`:`smaller`, //cmp
-	`{=def -l} {=self app}`:`smaller`, //cmp
-	`{=def -l} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def -no.ld} {=def -L}`:`greater`, //cmp
-	`{=def -no.ld} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def -no.ld} {=def -l}`:`greater`, //cmp
-	`{=def -no.ld} {=def -no}`:`rprefix`, //cmp
-	`{=def -no.ld} {=def HAVE_FUN_EXIT}`:`smaller`, //cmp
-	`{=def -no.ld} {=def HAVE_STDLIB_H}`:`smaller`,
-	`{=def -no.ld} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def -no.ld} {=def PACKAGE}`:`smaller`, //cmp
-	`{=def -no.ld} {=def VERSION}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.*}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.features}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.files}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.heads}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.package}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.structs}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.types}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def -no.ld} {=def configure.version}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def -no.ld} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def -no.ld} {=project app.base}`:`smaller`, //cmp
-	`{=def -no.ld} {=project configure}`:`smaller`, //cmp
-	`{=def -no.ld} {=self app}`:`smaller`, //cmp
-	`{=def -no.ld} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def -no} {=def -L}`:`greater`, //cmp
-	`{=def -no} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def -no} {=def -l}`:`greater`, //cmp
-	`{=def -no} {=def -no.ld}`:`lprefix`, //cmp
-	`{=def -no} {=def HAVE_FUN_EXIT}`:`smaller`, //cmp
-	`{=def -no} {=def HAVE_STDLIB_H}`:`smaller`,
-	`{=def -no} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def -no} {=def PACKAGE}`:`smaller`, //cmp
-	`{=def -no} {=def VERSION}`:`smaller`, //cmp
-	`{=def -no} {=def configure.*}`:`smaller`, //cmp
-	`{=def -no} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def -no} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def -no} {=def configure.features}`:`smaller`, //cmp
-	`{=def -no} {=def configure.files}`:`smaller`, //cmp
-	`{=def -no} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def -no} {=def configure.heads}`:`smaller`, //cmp
-	`{=def -no} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def -no} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def -no} {=def configure.package}`:`smaller`, //cmp
-	`{=def -no} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def -no} {=def configure.structs}`:`smaller`, //cmp
-	`{=def -no} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def -no} {=def configure.types}`:`smaller`, //cmp
-	`{=def -no} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def -no} {=def configure.version}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def -no} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def -no} {=project app.base}`:`smaller`, //cmp
-	`{=def -no} {=project configure}`:`smaller`, //cmp
-	`{=def -no} {=self app}`:`smaller`, //cmp
-	`{=def -no} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def -L}`:`greater`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def -l}`:`greater`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def -no.ld}`:`greater`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def -no}`:`greater`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def HAVE_STDLIB_H}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def PACKAGE}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def VERSION}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.*}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.features}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.files}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.heads}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.package}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.structs}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.types}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def configure.version}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=project app.base}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=project configure}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=self app}`:`smaller`, //cmp
-	`{=def HAVE_FUN_EXIT} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def -L}`:`greater`, //cmp
-	`{=def HAVE_STDLIB_H} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def HAVE_STDLIB_H} {=def -l}`:`greater`, //cmp
-	`{=def HAVE_STDLIB_H} {=def -no.ld}`:`greater`, //cmp
-	`{=def HAVE_STDLIB_H} {=def -no}`:`greater`, //cmp
-	`{=def HAVE_STDLIB_H} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_BUGREPORT}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def PACKAGE}`:`smaller`,
-	`{=def HAVE_STDLIB_H} {=def VERSION}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.*}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.builtins}`:`smaller`,
-	`{=def HAVE_STDLIB_H} {=def configure.features}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.files}`:`smaller`,
-	`{=def HAVE_STDLIB_H} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.heads}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.package}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.structs}`:`smaller`,
-	`{=def HAVE_STDLIB_H} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.types}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def configure.version}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=project app.base}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=project configure}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=self app}`:`smaller`, //cmp
-	`{=def HAVE_STDLIB_H} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_NAME}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_BUGREPORT} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_NAME} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def PACKAGE_NAME} {=def PACKAGE_STRING}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_NAME} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_NAME} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_STRING} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def PACKAGE_STRING} {=def PACKAGE_TARNAME}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_STRING} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_STRING} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_TARNAME} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def PACKAGE_TARNAME} {=def PACKAGE_URL}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_TARNAME} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_TARNAME} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_URL} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def PACKAGE_URL} {=def PACKAGE_VENDOR}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_URL} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_URL} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_VENDOR} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def PACKAGE_VENDOR} {=def PACKAGE_VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_VENDOR} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_VENDOR} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE_VERSION} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def PACKAGE_VERSION} {=def PACKAGE}`:`rprefix`, //cmp
-	`{=def PACKAGE_VERSION} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE_VERSION} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def -L}`:`greater`, //cmp
-	`{=def PACKAGE} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def PACKAGE} {=def -l}`:`greater`, //cmp
-	`{=def PACKAGE} {=def -no.ld}`:`greater`, //cmp
-	`{=def PACKAGE} {=def -no}`:`greater`, //cmp
-	`{=def PACKAGE} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def PACKAGE} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def PACKAGE} {=def PACKAGE_BUGREPORT}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def PACKAGE_NAME}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def PACKAGE_STRING}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def PACKAGE_TARNAME}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def PACKAGE_URL}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def PACKAGE_VENDOR}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def PACKAGE_VERSION}`:`lprefix`, //cmp
-	`{=def PACKAGE} {=def VERSION}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.*}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.package}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def configure.version}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def PACKAGE} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def PACKAGE} {=project app.base}`:`smaller`, //cmp
-	`{=def PACKAGE} {=project configure}`:`smaller`, //cmp
-	`{=def PACKAGE} {=self app}`:`smaller`, //cmp
-	`{=def PACKAGE} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def VERSION} {=def -L}`:`greater`, //cmp
-	`{=def VERSION} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def VERSION} {=def -l}`:`greater`, //cmp
-	`{=def VERSION} {=def -no.ld}`:`greater`, //cmp
-	`{=def VERSION} {=def -no}`:`greater`, //cmp
-	`{=def VERSION} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def VERSION} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def VERSION} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def VERSION} {=def PACKAGE}`:`greater`, //cmp
-	`{=def VERSION} {=def configure.*}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.features}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.files}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.heads}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.package}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.structs}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.types}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def VERSION} {=def configure.version}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def VERSION} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def VERSION} {=project app.base}`:`smaller`, //cmp
-	`{=def VERSION} {=project configure}`:`smaller`, //cmp
-	`{=def VERSION} {=self app}`:`smaller`, //cmp
-	`{=def VERSION} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.*} {=def -L}`:`greater`, //cmp
-	`{=def configure.*} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.*} {=def -l}`:`greater`, //cmp
-	`{=def configure.*} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.*} {=def -no}`:`greater`, //cmp
-	`{=def configure.*} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.*} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.*} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.*} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.*} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.*} {=def configure.aligns}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.features}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.files}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.heads}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.*} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.*} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.*} {=project app.base}`:`greater`, //cmp
-	`{=def configure.*} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.*} {=self app}`:`greater`, //cmp
-	`{=def configure.*} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def -L}`:`greater`, //cmp
-	`{=def configure.aligns} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.aligns} {=def -l}`:`greater`, //cmp
-	`{=def configure.aligns} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.aligns} {=def -no}`:`greater`, //cmp
-	`{=def configure.aligns} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.aligns} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.aligns} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.aligns} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.aligns} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.aligns} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.aligns} {=def configure.builtins}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.features}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.files}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.heads}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.aligns} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.aligns} {=project app.base}`:`greater`, //cmp
-	`{=def configure.aligns} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.aligns} {=self app}`:`greater`, //cmp
-	`{=def configure.aligns} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def -L}`:`greater`, //cmp
-	`{=def configure.builtins} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.builtins} {=def -l}`:`greater`, //cmp
-	`{=def configure.builtins} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.builtins} {=def -no}`:`greater`, //cmp
-	`{=def configure.builtins} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.builtins} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.builtins} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.builtins} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.builtins} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.builtins} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.builtins} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.builtins} {=def configure.features}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.files}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.heads}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.builtins} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.builtins} {=project app.base}`:`greater`, //cmp
-	`{=def configure.builtins} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.builtins} {=self app}`:`greater`, //cmp
-	`{=def configure.builtins} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.features} {=def -L}`:`greater`, //cmp
-	`{=def configure.features} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.features} {=def -l}`:`greater`, //cmp
-	`{=def configure.features} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.features} {=def -no}`:`greater`, //cmp
-	`{=def configure.features} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.features} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.features} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.features} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.features} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.features} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.features} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.features} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.features} {=def configure.files}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.heads}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.features} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.features} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.features} {=project app.base}`:`greater`, //cmp
-	`{=def configure.features} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.features} {=self app}`:`greater`, //cmp
-	`{=def configure.features} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.files} {=def -L}`:`greater`, //cmp
-	`{=def configure.files} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.files} {=def -l}`:`greater`, //cmp
-	`{=def configure.files} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.files} {=def -no}`:`greater`, //cmp
-	`{=def configure.files} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.files} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.files} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.files} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.files} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.files} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.files} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.files} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.files} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.files} {=def configure.funcs}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.heads}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.files} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.files} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.files} {=project app.base}`:`greater`, //cmp
-	`{=def configure.files} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.files} {=self app}`:`greater`, //cmp
-	`{=def configure.files} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.funcs.stdlib.h} {=qualword {=compound {=delegate {=def target.os}} {=punct ~} {=word configure} {=}} {= {= {=word funcs}}}}`:`greater`, //cmp
-	`{=def configure.funcs} {=def -L}`:`greater`, //cmp
-	`{=def configure.funcs} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.funcs} {=def -l}`:`greater`, //cmp
-	`{=def configure.funcs} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.funcs} {=def -no}`:`greater`, //cmp
-	`{=def configure.funcs} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.funcs} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.funcs} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.funcs} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.funcs} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.funcs} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.funcs} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.funcs} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.funcs} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.funcs} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.funcs} {=def configure.heads}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.funcs} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.funcs} {=project app.base}`:`greater`, //cmp
-	`{=def configure.funcs} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.funcs} {=self app}`:`greater`, //cmp
-	`{=def configure.funcs} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.heads} {=def -L}`:`greater`, //cmp
-	`{=def configure.heads} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.heads} {=def -l}`:`greater`, //cmp
-	`{=def configure.heads} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.heads} {=def -no}`:`greater`, //cmp
-	`{=def configure.heads} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.heads} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.heads} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.heads} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.heads} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.heads} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.heads} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.heads} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.heads} {=project app.base}`:`greater`, //cmp
-	`{=def configure.heads} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.heads} {=self app}`:`greater`, //cmp
-	`{=def configure.heads} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def -L}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def -l}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def -no}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.include.func.exit} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=def configure.lib*}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.include.func.exit} {=project app.base}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.include.func.exit} {=self app}`:`greater`, //cmp
-	`{=def configure.include.func.exit} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def -L}`:`greater`, //cmp
-	`{=def configure.lib*} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.lib*} {=def -l}`:`greater`, //cmp
-	`{=def configure.lib*} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.lib*} {=def -no}`:`greater`, //cmp
-	`{=def configure.lib*} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.lib*} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.lib*} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.lib*} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.lib*} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.lib*} {=def configure.package}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.lib*} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.lib*} {=project app.base}`:`greater`, //cmp
-	`{=def configure.lib*} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.lib*} {=self app}`:`greater`, //cmp
-	`{=def configure.lib*} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.package} {=def -L}`:`greater`, //cmp
-	`{=def configure.package} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.package} {=def -l}`:`greater`, //cmp
-	`{=def configure.package} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.package} {=def -no}`:`greater`, //cmp
-	`{=def configure.package} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.package} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.package} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.package} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.package} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.package} {=def configure.sizes}`:`smaller`, //cmp
-	`{=def configure.package} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.package} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.package} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.package} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.package} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.package} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.package} {=project app.base}`:`greater`, //cmp
-	`{=def configure.package} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.package} {=self app}`:`greater`, //cmp
-	`{=def configure.package} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def -L}`:`greater`, //cmp
-	`{=def configure.sizes} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.sizes} {=def -l}`:`greater`, //cmp
-	`{=def configure.sizes} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.sizes} {=def -no}`:`greater`, //cmp
-	`{=def configure.sizes} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.sizes} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.sizes} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.sizes} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.sizes} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.package}`:`greater`, //cmp
-	`{=def configure.sizes} {=def configure.structs}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.sizes} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.sizes} {=project app.base}`:`greater`, //cmp
-	`{=def configure.sizes} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.sizes} {=self app}`:`greater`, //cmp
-	`{=def configure.sizes} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.structs} {=def -L}`:`greater`, //cmp
-	`{=def configure.structs} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.structs} {=def -l}`:`greater`, //cmp
-	`{=def configure.structs} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.structs} {=def -no}`:`greater`, //cmp
-	`{=def configure.structs} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.structs} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.structs} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.structs} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.structs} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.package}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.sizes}`:`greater`, //cmp
-	`{=def configure.structs} {=def configure.symbs}`:`smaller`, //cmp
-	`{=def configure.structs} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.structs} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.structs} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.structs} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.structs} {=project app.base}`:`greater`, //cmp
-	`{=def configure.structs} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.structs} {=self app}`:`greater`, //cmp
-	`{=def configure.structs} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def -L}`:`greater`, //cmp
-	`{=def configure.symbs} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.symbs} {=def -l}`:`greater`, //cmp
-	`{=def configure.symbs} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.symbs} {=def -no}`:`greater`, //cmp
-	`{=def configure.symbs} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.symbs} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.symbs} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.symbs} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.symbs} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.package}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.sizes}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.structs}`:`greater`, //cmp
-	`{=def configure.symbs} {=def configure.types}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.symbs} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.symbs} {=project app.base}`:`greater`, //cmp
-	`{=def configure.symbs} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.symbs} {=self app}`:`greater`, //cmp
-	`{=def configure.symbs} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.types} {=def -L}`:`greater`, //cmp
-	`{=def configure.types} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.types} {=def -l}`:`greater`, //cmp
-	`{=def configure.types} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.types} {=def -no}`:`greater`, //cmp
-	`{=def configure.types} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.types} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.types} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.types} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.types} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.package}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.sizes}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.structs}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.symbs}`:`greater`, //cmp
-	`{=def configure.types} {=def configure.vendor}`:`smaller`, //cmp
-	`{=def configure.types} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.types} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.types} {=project app.base}`:`greater`, //cmp
-	`{=def configure.types} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.types} {=self app}`:`greater`, //cmp
-	`{=def configure.types} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def -L}`:`greater`, //cmp
-	`{=def configure.vendor} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.vendor} {=def -l}`:`greater`, //cmp
-	`{=def configure.vendor} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.vendor} {=def -no}`:`greater`, //cmp
-	`{=def configure.vendor} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.vendor} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.vendor} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.vendor} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.vendor} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.package}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.sizes}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.structs}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.symbs}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.types}`:`greater`, //cmp
-	`{=def configure.vendor} {=def configure.version}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.vendor} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.vendor} {=project app.base}`:`greater`, //cmp
-	`{=def configure.vendor} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.vendor} {=self app}`:`greater`, //cmp
-	`{=def configure.vendor} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def configure.version} {=def -L}`:`greater`, //cmp
-	`{=def configure.version} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def configure.version} {=def -l}`:`greater`, //cmp
-	`{=def configure.version} {=def -no.ld}`:`greater`, //cmp
-	`{=def configure.version} {=def -no}`:`greater`, //cmp
-	`{=def configure.version} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def configure.version} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def configure.version} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def configure.version} {=def PACKAGE}`:`greater`, //cmp
-	`{=def configure.version} {=def VERSION}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.*}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.aligns}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.builtins}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.features}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.files}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.funcs}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.heads}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.lib*}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.package}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.sizes}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.structs}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.symbs}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.types}`:`greater`, //cmp
-	`{=def configure.version} {=def configure.vendor}`:`greater`, //cmp
-	`{=def configure.version} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def configure.version} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def configure.version} {=project app.base}`:`greater`, //cmp
-	`{=def configure.version} {=project configure}`:`rprefix`, //cmp
-	`{=def configure.version} {=self app}`:`greater`, //cmp
-	`{=def configure.version} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.aligns} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.aligns} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.aligns} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def HAVE_STDLIB_H}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.builtins} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.builtins} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.features} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.features} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.features} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.files} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.files} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.files} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.funcs} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.funcs} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.funcs} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.funcs} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.funcs} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.heads} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.heads} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.heads} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.heads} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.heads} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.sizes} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.sizes} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.sizes} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.sizes} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.sizes} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.structs} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.structs} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=def darwin~configure.structs} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.structs} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.structs} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.symbs} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def HAVE_STDLIB_H}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=def darwin~configure.symbs} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.symbs} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=def darwin~configure.types} {=def -L}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def -l}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def -no.ld}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def -no}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=def darwin~configure.types} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def PACKAGE}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def VERSION}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.*}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.lib*}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.package}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.types}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.vendor}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def configure.version}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.funcs}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.heads}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.sizes}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.structs}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=def darwin~configure.symbs}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=project app.base}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=project configure}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=self app}`:`greater`, //cmp
-	`{=def darwin~configure.types} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=file foo.txt} {=fullname {=file foo.txt}}`:`equal`, //cmp: {=file foo.txt} {=file foo.txt}
-	`{=flag {=compound {=word headers} {=flag {=word c}}}} {=file .configure/header/HAVE_STDLIB_H.c}`:`smaller`, //cmp
-	`{=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}} {=string -x-y-z.o}`:`equal`,
-	`{=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {= {= {=raw -x-y-z}}}`:`equal`,
-	`{=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}} {=string -x-y.o}`:`equal`,
-	`{=flag {=compound {=word x} {=flag {=word y}}}} {= {= {=raw -x-y}}}`:`equal`,
-	`{=flag {=compound {=word x} {=punct .} {=word o}}} {=string -x.o}`:`equal`,
-	`{=flag {=word foobar}} {=compound {= {=flag {=word foo}}} {=word bar}}`:`equal`,
-	`{=flag {=word foobar}} {=compound {= {=flag {=}}} {=word foobar}}`:`equal`,
-	`{=flag {=word x}} {= {= {=raw -x}}}`:`equal`,
-	`{=flag {=word y}} {= {= {=raw -y}}}`:`equal`,
-	`{=flag {=word z}} {= {= {=raw -z}}}`:`equal`,
-	`{=fullname {=file foo.txt}} {=file foo.txt}`:`equal`, //cmp: {=file foo.txt} {=file foo.txt}
-	`{=fullname {=file foo.txt}} {=path {=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}}`:`greater`,
-	`{=glob {=meta **} {=punct .} {=word c++}} {= {=qualword {=word x} {=word c++}}}`:`greater`, //cmp: **.c++ x.c++
-	`{=glob {=meta **} {=punct .} {=word c++}} {= {=qualword {=word y} {=word c++}}}`:`greater`, //cmp: **.c++ y.c++
-	`{=glob {=meta **} {=punct .} {=word c++}} {=path {=word foo} {=qualword {=word bar} {=word c++}}}`:`greater`, //cmp: **.c++ foo/bar.c++
-	`{=glob {=meta **} {=punct .} {=word c++}} {=qualword {=word foo} {=word c++}}`:`greater`, //cmp: **.c++ foo.c++
-	`{=glob {=meta **} {=punct .} {=word c}} {= {=path {=word foo} {=qualword {=word z} {=word c}}}}`:`greater`, //cmp: **.c foo/z.c
-	`{=glob {=meta **} {=punct .} {=word c}} {=path {=word foo} {=qualword {=word bar} {=word c}}}`:`greater`, //cmp: **.c foo/bar.c
-	`{=glob {=meta **} {=punct .} {=word c}} {=qualword {=word foo} {=word c}}`:`greater`, //cmp: **.c foo.c
-	`{=glob {=meta **} {=punct .} {=word gen}} {= {=path {=word foo} {=qualword {=word c} {=word gen}}}}`:`greater`, //cmp: **.gen foo/c.gen
-	`{=glob {=meta **} {=punct .} {=word gen}} {= {=qualword {=word a} {=word gen}}}`:`greater`, //cmp: **.gen a.gen
-	`{=glob {=meta **} {=punct .} {=word gen}} {= {=qualword {=word b} {=word gen}}}`:`greater`, //cmp: **.gen b.gen
-	`{=glob {=meta **} {=punct .} {=word h}} {=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=qualword {=word x} {=word h}}}`:`greater`,
-	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}}`:`greater`,
-	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`{=glob {=meta **} {=punct .} {=word h}} {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`,
-	`{=glob {=meta *} {=punct .} {=word gen}} {= {=qualword {=word x} {=word gen}}}`:`greater`, //cmp: *.gen x.gen
-	`{=glob {=meta *} {=punct .} {=word gen}} {= {=qualword {=word y} {=word gen}}}`:`greater`, //cmp: *.gen y.gen
-	`{=glob {=meta *} {=punct .} {=word h}} {= {=qualword {=word x} {=word h}}}`:`greater`, //cmp: *.h x.h
-	`{=glob {=meta *} {=punct .} {=word h}} {= {=qualword {=word y} {=word h}}}`:`greater`, //cmp: *.h y.h
-	`{=glob {=meta *} {=punct .} {=word h}} {= {=qualword {=word z} {=word h}}}`:`greater`, //cmp: *.h z.h
-	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=meta **} {=punct .} {=word h}}`:`smaller`,
-	`{=glob {=meta *} {=punct .} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`greater`,
-	`{=glob {=meta *}} {=word zz}`:`greater`,
-	`{=glob {=meta ?} {=punct .} {=word h}} {=qualword {=word x} {=word h}}`:`greater`, //cmp: ?.h x.h
-	`{=glob {=word b} {=meta ?} {=word r}} {=glob {=word b} {=meta *}}`:`smaller`, //cmp: b?r b*
-	`{=glob {=word fo} {=meta ?}} {=glob {=word f} {=meta *?}}`:`smaller`, //cmp: fo? f*?
-	`{=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}`:`smaller`, //cmp: xv*y.h x*y.h
-	`{=glob {=word z} {=meta ?}} {=word zz}`:`greater`,
-	`{=list {16:16 {=word foo}}} {=list {=word foo}}`:`equal`,
-	`{=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}`:`equal`, //cmp: xq xp xq xp
-	`{=list {= {=word foo}}} {=list {=word foo}}`:`equal`,
-	`{=list {=compound {= {=flag {=word foo}}} {=word bar}}} {=list {=flag {=word foobar}}}`:`equal`,
-	`{=list {=compound {= {=flag {=}}} {=word foobar}}} {=list {=flag {=word foobar}}}`:`equal`,
-	`{=list {=compound {=word foo} {=punct .} {=word o}} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=compound {=word foobar} {=punct .} {=word o}}} {=list {= {= {=raw foo.o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foobar.o}}}}`:`equal`,
-	`{=list {=compound {=word foo} {=punct .} {=word o}} {=word foo} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=punct .} {=word o}}}} {=word foo} {=flag {=word x}} {=flag {=word x}} {=word x} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=punct .} {=word o}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=word y}}}} {=flag {=word y}} {=word y} {=punct .} {=word o} {=compound {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=compound {=word z} {=punct .} {=word o}}}}}}}} {=word foo} {=flag {=compound {=word x} {=flag {=compound {=word y} {=flag {=word z}}}}}} {=flag {=word z}} {=word z} {=punct .} {=word o} {=compound {=word foobar} {=punct .} {=word o}} {=word foobar} {=punct .} {=word o}} {=list {= {= {=raw foo.o}}} {= {= {=raw foo}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x.o}}} {= {= {=raw foo}}} {= {= {=raw -x}}} {= {= {=raw -x}}} {= {= {=raw x}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y}}} {= {= {=raw -y}}} {= {= {=raw y}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foo-x-y-z.o}}} {= {= {=raw foo}}} {= {= {=raw -x-y-z}}} {= {= {=raw -z}}} {= {= {=raw z}}} {= {= {=raw .}}} {= {= {=raw o}}} {= {= {=raw foobar.o}}} {= {= {=raw foobar}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw}}} {= {= {=raw .}}} {= {= {=raw o}}}}`:`equal`,
-	`{=list {=flag {=word foobar}}} {=list {=compound {= {=flag {=word foo}}} {=word bar}}}`:`equal`,
-	`{=list {=flag {=word foobar}}} {=list {=compound {= {=flag {=}}} {=word foobar}}}`:`equal`,
-	`{=list {=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}} {=list {=word x} {=list {= {=compound {=word x} {= {=word q}}}} {= {=compound {=word x} {= {=word p}}}}}}`:`equal`, //cmp: x xq xp x xq xp
-	`{=meta **} {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}}`:`greater`,
-	`{=meta **} {=meta **}`:`equal`,
-	`{=meta **} {=meta *}`:`greater`,
-	`{=meta **} {=word a}`:`greater`, //cmp: ** a
-	`{=meta **} {=word b}`:`greater`, //cmp: ** b
-	`{=meta **} {=word foobar}`:`greater`,
-	`{=meta **} {=word foo}`:`greater`,
-	`{=meta **} {=word x}`:`greater`, //cmp: ** x
-	`{=meta **} {=word y}`:`greater`, //cmp: ** y
-	`{=meta *} {=Symbol zz}`:`greater`, //cmp
-	`{=meta *} {=meta **}`:`smaller`,
-	`{=meta *} {=meta *}`:`equal`,
-	`{=meta *} {=string zz}`:`greater`, // * zz
-	`{=meta *} {=word UnwindLevel1}`:`greater`,
-	`{=meta *} {=word Unwind}`:`greater`,
-	`{=meta *} {=word libunwind}`:`greater`,
-	`{=meta *} {=word v}`:`greater`, // * v
-	`{=meta *} {=word x}`:`greater`, //cmp: * x
-	`{=meta *} {=word y}`:`greater`, //cmp: * y
-	`{=meta *} {=word z}`:`greater`,
-	`{=meta ?} {=meta *}`:`smaller`,
-	`{=meta ?} {=string z}`:`greater`, // ? z
-	`{=meta ?} {=word x}`:`greater`, // ? x
-	`{=null} {=delegate {=builtin match} {=list {=word ibm}} {=list {=delegate {=def target.os}}}}`:`lprefix`,
-	`{=null} {=delegate {=builtin xor} {=list {=true}} {=list {=true}}}`:`lprefix`,
-	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=glob {=meta **} {=punct .} {=word h}}`:`smaller`,
-	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=glob {=meta *} {=punct .} {=word h}}`:`smaller`,
-	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}}`:`smaller`,
-	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}}`:`smaller`,
-	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}}`:`smaller`,
-	`{=path {=glob {=word foo} {=meta ?} {=meta ?} {=meta ?}} {=compound {=word x} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}}`:`smaller`,
-	`{=path {=glob {=word fo} {=meta ?}} {=glob {=meta **}} {=compound {=word x} {=punct .} {=word h}}} {=path {=glob {=word f} {=meta *?}} {=compound {=word x} {=punct .} {=word h}}}`:`smaller`, //cmp: fo?/**/x.h f*?/x.h
-	`{=path {=glob {=word fo} {=meta ?}} {=glob {=meta **}} {=qualword {=word x} {=word h}}} {=path {=glob {=word f} {=meta *?}} {=qualword {=word x} {=word h}}}`:`smaller`, //cmp: fo?/**/x.h f*?/x.h
-	`{=path {=punct PROOT} {=raw Volumes} {=raw workspace} {=raw go} {=raw src} {=raw extbit.io} {=raw smart} {=raw testdata} {=raw builtins} {=raw file} {=raw foo.txt}} {=fullname {=file foo.txt}}`:`smaller`,
-	`{=path {=qualword {=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=word app}} {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}} {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: https://extbit.dev/package/extbit.app/0.0.1 https://extbit.dev/package/extbit.app/0.0.1
-	`{=path {=word foobar} {=word config} {=glob {=meta *} {=punct .} {=word def} {=punct .} {=word am}}} {=glob {=meta **} {=punct .} {=word def} {=punct .} {=word am}}`:`smaller`,
-	`{=path {=word foo} {=closure {=word va3}}} {=path {=word foo} {=closure {=word va1}} {=compound {=word xx} {=closure {=word va2}} {=word yy}} {=compound {=closure {=word va3}} {=word zz}}}`:`greater`, //cmp
-	`{=path {=word foo} {=compound {=word xv1y} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}}`:`smaller`, // foo/xv1y.h foo/x*y.h
-	`{=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}} {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}}`:`greater`,
-	`{=path {=word foo} {=glob {=meta **}} {=compound {=word x} {=punct .} {=word h}}} {=path {=glob {=word f} {=meta *?}} {=compound {=word x} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/**/x.h f*?/x.h
-	`{=path {=word foo} {=glob {=meta **}} {=qualword {=word x} {=word h}}} {=path {=glob {=word f} {=meta *?}} {=qualword {=word x} {=word h}}}`:`smaller`, //cmp: foo/**/x.h f*?/x.h
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}}`:`equal`,
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`greater`, // foo/b*/v*.h foo/b?r/v?.h
-	`{=path {=word foo} {=glob {=word b} {=meta ?} {=word r}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/b?r/v?.h foo/b*/v*.h
-	`{=path {=word foo} {=glob {=word xv} {=meta *} {=word y} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/xv*y.h foo/x*y.h
-	`{=path {=word foo} {=qualword {=word xv1y} {=word h}}} {=path {=word foo} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/xv1y.h foo/x*y.h
-	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v1.h foo/ba*/v?.h
-	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, // foo/bar/v1.h foo/b*/v*.h
-	`{=path {=word foo} {=word bar} {=compound {=word v1} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, // foo/bar/v1.h foo/bar/v?.h
-	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v2.h foo/ba*/v?.h
-	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, // foo/bar/v2.h foo/b*/v*.h
-	`{=path {=word foo} {=word bar} {=compound {=word v2} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, // foo/bar/v2.h foo/bar/v?.h
-	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word hh}}} {=path {=word foo} {=glob {=meta **} {=punct .} {=word hh}}}`:`smaller`, //cmp: foo/bar/*.hh foo/**.hh
-	`{=path {=word foo} {=word bar} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=word bar} {=glob {=meta *}} {=glob {=meta *} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=word bar} {=glob {=word xyz} {=meta ?} {=meta ?} {=meta ?} {=punct .} {=word txt}}} {=path {=word foo} {=glob {=word ba} {=meta ?}} {=glob {=word xyz} {=meta *} {=punct .} {=word txt}}}`:`smaller`, //cmp: foo/bar/xyz???.txt foo/ba?/xyz*.txt
-	`{=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`, // foo/bar/z?/?.h foo/bar/zz/x.h
-	`{=path {=word foo} {=word bar} {=glob {=word z} {=meta ?}} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=word bar} {=qualword {=word v1} {=word h}}} {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v1.h foo/ba*/v?.h
-	`{=path {=word foo} {=word bar} {=qualword {=word v1} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v1.h foo/b*/v*.h
-	`{=path {=word foo} {=word bar} {=qualword {=word v1} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v1.h foo/bar/v?.h
-	`{=path {=word foo} {=word bar} {=qualword {=word v2} {=word h}}} {=path {=word foo} {=glob {=word ba} {=meta *}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v2.h foo/ba*/v?.h
-	`{=path {=word foo} {=word bar} {=qualword {=word v2} {=word h}}} {=path {=word foo} {=glob {=word b} {=meta *}} {=glob {=word v} {=meta *} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v2.h foo/b*/v*.h
-	`{=path {=word foo} {=word bar} {=qualword {=word v2} {=word h}}} {=path {=word foo} {=word bar} {=glob {=word v} {=meta ?} {=punct .} {=word h}}}`:`smaller`, //cmp: foo/bar/v2.h foo/bar/v?.h
-	`{=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=compound {=word x} {=punct .} {=word h}}}`:`greater`,
-	`{=path {=word foo} {=word bar} {=word zz} {=glob {=meta ?} {=punct .} {=word h}}} {=path {=word foo} {=word bar} {=word zz} {=qualword {=word x} {=word h}}}`:`greater`, //cmp: foo/bar/zz/?.h foo/bar/zz/x.h
-	`{=path {=word main} {=compound {=word a} {=punct .} {=word c}}} {=path {=glob {=meta *}} {=compound {=word a} {=punct .} {=word c}}}`:`smaller`,
-	`{=path {=word main} {=qualword {=word a} {=word c}}} {=path {=glob {=meta *}} {=qualword {=word a} {=word c}}}`:`smaller`, //cmp: main/a.c */a.c	
-	`{=project app.base} {=def -L}`:`greater`, //cmp
-	`{=project app.base} {=def -O.cl}`:`greater`, //cmp: {=project app.base} -O.cl⇒2 2 2 2 2 2
-	`{=project app.base} {=def -O.cuda}`:`greater`, //cmp: {=project app.base} -O.cuda⇒2 2 2 2 2 2
-	`{=project app.base} {=def -O.c}`:`greater`, //cmp: {=project app.base} -O.c⇒2 2 2 2 2 2
-	`{=project app.base} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=project app.base} {=def -f}`:`greater`, //cmp: {=project app.base} -f⇒PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) PIC visibility-inlines-hidden lto $(foreach(-unique) &(-diagnostics),diagnostics-$_) strict-aliasing unwind-tables visibility-inlines-hidden visibility-inlines-hidden
-	`{=project app.base} {=def -l}`:`greater`, //cmp
-	`{=project app.base} {=def -no.ld}`:`greater`, //cmp
-	`{=project app.base} {=def -no}`:`greater`, //cmp: {=project app.base} -no⇒stdinc++ stdinc++
-	`{=project app.base} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=project app.base} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=project app.base} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=project app.base} {=def PACKAGE_NAME}`:`greater`, //cmp: {=project app.base} PACKAGE_NAME⇒'app'
-	`{=project app.base} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=project app.base} {=def PACKAGE_TARNAME}`:`greater`, //cmp: {=project app.base} PACKAGE_TARNAME⇒'app'-0.0.1
-	`{=project app.base} {=def PACKAGE_URL}`:`greater`, //cmp: {=project app.base} PACKAGE_URL⇒https://extbit.dev/package/extbit.app/0.0.1
-	`{=project app.base} {=def PACKAGE_VENDOR}`:`greater`, //cmp: {=project app.base} PACKAGE_VENDOR⇒'ExtBit LLC'
-	`{=project app.base} {=def PACKAGE_VERSION}`:`greater`, //cmp: {=project app.base} PACKAGE_VERSION⇒0.0.1
-	`{=project app.base} {=def PACKAGE}`:`greater`, //cmp
-	`{=project app.base} {=def VERSION}`:`greater`, //cmp
-	`{=project app.base} {=def cflags}`:`smaller`, //cmp: {=project app.base} cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=project app.base} {=def configure.*}`:`smaller`, //cmp: {=project app.base} configure.*::=features builtins funcs files heads types symbs structs sizes aligns
-	`{=project app.base} {=def configure.aligns}`:`smaller`, //cmp
-	`{=project app.base} {=def configure.builtins}`:`smaller`, //cmp: {=project app.base} configure.builtins=<nil>
-	`{=project app.base} {=def configure.features}`:`smaller`, //cmp: {=project app.base} configure.features=<nil>
-	`{=project app.base} {=def configure.files}`:`smaller`, //cmp: {=project app.base} configure.files=<nil>
-	`{=project app.base} {=def configure.funcs}`:`smaller`, //cmp
-	`{=project app.base} {=def configure.heads}`:`smaller`, //cmp: {=project app.base} configure.heads=<stdlib.h>
-	`{=project app.base} {=def configure.include.func.exit}`:`smaller`, //cmp: {=project app.base} configure.include.func.exit=<stdlib.h>
-	`{=project app.base} {=def configure.lib*}`:`smaller`, //cmp: {=project app.base} configure.lib*={}
-	`{=project app.base} {=def configure.package}`:`smaller`, //cmp
-	`{=project app.base} {=def configure.sizes}`:`smaller`, //cmp: {=project app.base} configure.sizes=<nil>
-	`{=project app.base} {=def configure.structs}`:`smaller`, //cmp: {=project app.base} configure.structs=<nil>
-	`{=project app.base} {=def configure.symbs}`:`smaller`, //cmp: {=project app.base} configure.symbs=<nil>
-	`{=project app.base} {=def configure.types}`:`smaller`, //cmp
-	`{=project app.base} {=def configure.vendor}`:`smaller`, //cmp
-	`{=project app.base} {=def configure.version}`:`smaller`, //cmp: {=project app.base} configure.version::=0.0.1
-	`{=project app.base} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=project app.base} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=project app.base} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=project app.base} {=def darwin~configure.files}`:`smaller`, //cmp: {=project app.base} darwin~configure.files=<nil>
-	`{=project app.base} {=def darwin~configure.funcs}`:`smaller`, //cmp: {=project app.base} darwin~configure.funcs=<nil>
-	`{=project app.base} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=project app.base} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=project app.base} {=def darwin~configure.structs}`:`smaller`, //cmp: {=project app.base} darwin~configure.structs=<nil>
-	`{=project app.base} {=def darwin~configure.symbs}`:`smaller`, //cmp: {=project app.base} darwin~configure.symbs=<nil>
-	`{=project app.base} {=def darwin~configure.types}`:`smaller`, //cmp: {=project app.base} darwin~configure.types=<nil>
-	`{=project app.base} {=def loadlibs}`:`smaller`, //cmp: {=project app.base} loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=project app.base} {=def ocflags}`:`smaller`, //cmp: {=project app.base} ocflags⇒-ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc) -ObjC $(.flags $1,objc)
+	` foo.txt`:`lprefix`,
+	` foobar`:`lprefix`,
+	`"https://extbit.dev/package/test.app/0.0.1/bugs" "https://extbit.dev/package/test.app/0.0.1/bugs"`:`rprefix`, //cmp
+	`"test.app-0.0.1" "test.app-0.0.1"`:`equal`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.aligns=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.aligns=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.builtins=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.builtins=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.features=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.features=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.files=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.files=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.funcs=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.funcs=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.funcs=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.funcs=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.funcs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.heads=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.heads=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.heads=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.heads=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.funcs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.heads=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.sizes=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.sizes=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.sizes=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.sizes=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.funcs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.heads=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.structs=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.structs=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.structs=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.structs=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.funcs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.heads=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`%[target.os]~configure.symbs=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.symbs=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.symbs=<nil> {=self app}`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.funcs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.heads=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> %[target.os]~configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> -l⇒{} c++`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.features=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.files=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.lib*={}`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.package::=test.app`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.types=<nil>`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> configure.version::=0.0.1`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> lib.c++`:`smaller`, //cmp
+	`%[target.os]~configure.types=<nil> {=project app.base}`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> {=project configure}`:`greater`, //cmp
+	`%[target.os]~configure.types=<nil> {=self app}`:`greater`, //cmp
+	`%[testdata]/builtins/file/foo.txt {=file foo.txt}`:`smaller`, //cmp
+	`&(va2) &(va1)`:`greater`, //cmp
+	`&(va2) &(va3)`:`smaller`, //cmp
+	`&(va2) /`:`smaller`, //cmp
+	`&(va3) &(va1)`:`greater`, //cmp
+	`'ExtBit LLC' 'ExtBit LLC'`:`equal`, //cmp
+	`'test.app' test.app`:`equal`, //cmp
+	`* **`:`smaller`, //cmp
+	`* v`:`greater`, //cmp
+	`* x`:`greater`, //cmp
+	`* y`:`greater`, //cmp
+	`* z`:`greater`, //cmp
+	`* zz`:`greater`, //cmp
+	`** a`:`greater`, //cmp
+	`** b`:`greater`, //cmp
+	`** foo???`:`greater`, //cmp
+	`** foo`:`greater`, //cmp
+	`** x`:`greater`, //cmp
+	`** y`:`greater`, //cmp
+	`**.c foo.c`:`greater`, //cmp
+	`**.c foo/bar.c`:`greater`, //cmp
+	`**.c foo/z.c`:`greater`, //cmp
+	`**.c++ foo.c++`:`greater`, //cmp
+	`**.c++ foo/bar.c++`:`greater`, //cmp
+	`**.c++ x.c++`:`greater`, //cmp
+	`**.c++ y.c++`:`greater`, //cmp
+	`**.gen a.gen`:`greater`, //cmp
+	`**.gen b.gen`:`greater`, //cmp
+	`**.gen foo/c.gen`:`greater`, //cmp
+	`**.h foo/*.h`:`greater`, //cmp
+	`**.h foo/bar/v?.h`:`greater`, //cmp
+	`**.h foo/bar/zz/x.h`:`greater`, //cmp
+	`**.h foo???/x.h`:`greater`, //cmp
+	`*.gen x.gen`:`greater`, //cmp
+	`*.gen y.gen`:`greater`, //cmp
+	`*.h **.h`:`smaller`, //cmp
+	`*.h v?.h`:`greater`, //cmp
+	`*.h x.h`:`greater`, //cmp
+	`*.h y.h`:`greater`, //cmp
+	`*.h z.h`:`greater`, //cmp
+	`- -`:`equal`, //cmp
+	`- -foo`:`lprefix`, //cmp
+	`- -foobar`:`lprefix`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) -l⇒{} c++`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) HAVE_STDLIB_H⇒{}`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_NAME⇒test.app`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_STRING⇒"test.app-0.0.1"`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_TARNAME⇒test.app-0.0.1`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) PACKAGE⇒test.app`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) VERSION⇒0.0.1`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.aligns=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.builtins=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.features=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.files=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.lib*={}`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.package::=test.app`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.sizes=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.structs=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.symbs=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.types=<nil>`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) configure.version::=0.0.1`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) lib.c++`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) {=project app.base}`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) {=project configure}`:`smaller`, //cmp
+	`-L⇒&(target.out)/lib/&(target.triple) {=self app}`:`smaller`, //cmp
+	`-foo -`:`rprefix`, //cmp
+	`-foo -foobar`:`lprefix`, //cmp
+	`-foobar -`:`greater`, //cmp
+	`-foobar -foobar`:`equal`, //cmp
+	`-headers-c {=file .configure/header/HAVE_STDLIB_H.c}`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`-l⇒{} c++ HAVE_STDLIB_H⇒{}`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_NAME⇒test.app`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_STRING⇒"test.app-0.0.1"`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_TARNAME⇒test.app-0.0.1`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`-l⇒{} c++ PACKAGE⇒test.app`:`smaller`, //cmp
+	`-l⇒{} c++ VERSION⇒0.0.1`:`smaller`, //cmp
+	`-l⇒{} c++ configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`-l⇒{} c++ configure.aligns=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.builtins=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.features=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.files=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`-l⇒{} c++ configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.lib*={}`:`smaller`, //cmp
+	`-l⇒{} c++ configure.package::=test.app`:`smaller`, //cmp
+	`-l⇒{} c++ configure.sizes=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.structs=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.symbs=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.types=<nil>`:`smaller`, //cmp
+	`-l⇒{} c++ configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`-l⇒{} c++ configure.version::=0.0.1`:`smaller`, //cmp
+	`-l⇒{} c++ lib.c++`:`smaller`, //cmp
+	`-l⇒{} c++ {=project app.base}`:`smaller`, //cmp
+	`-l⇒{} c++ {=project configure}`:`smaller`, //cmp
+	`-l⇒{} c++ {=self app}`:`smaller`, //cmp
+	`. ..app`:`lprefix`, //cmp
+	`.app .`:`rprefix`, //cmp
+	`.app-0.0.1 .`:`rprefix`, //cmp
+	`.self .test.10`:`smaller`, //cmp
+	`.self .test.11`:`smaller`, //cmp
+	`.self .test.12`:`smaller`, //cmp
+	`.self .test.13`:`smaller`, //cmp
+	`.self .test.14`:`smaller`, //cmp
+	`.self .test.15`:`smaller`, //cmp
+	`.self .test.1`:`smaller`, //cmp
+	`.self .test.2`:`smaller`, //cmp
+	`.self .test.3`:`smaller`, //cmp
+	`.self .test.4`:`smaller`, //cmp
+	`.self .test.5`:`smaller`, //cmp
+	`.self .test.6`:`smaller`, //cmp
+	`.self .test.7`:`smaller`, //cmp
+	`.self .test.8`:`smaller`, //cmp
+	`.self .test.9`:`smaller`, //cmp
+	`.self .usee`:`smaller`, //cmp
+	`.self all`:`smaller`, //cmp
+	`.self t10`:`smaller`, //cmp
+	`.self t11`:`smaller`, //cmp
+	`.self t13`:`smaller`, //cmp
+	`.self t14`:`smaller`, //cmp
+	`.self t15`:`smaller`, //cmp
+	`.self t1`:`smaller`, //cmp
+	`.self t2`:`smaller`, //cmp
+	`.self t3`:`smaller`, //cmp
+	`.self t4`:`smaller`, //cmp
+	`.self t7`:`smaller`, //cmp
+	`.self t8`:`smaller`, //cmp
+	`.self t9`:`smaller`, //cmp
+	`.self var.xxx`:`smaller`, //cmp
+	`.self var.zzz`:`smaller`, //cmp
+	`.self var2`:`smaller`, //cmp
+	`.self vars`:`smaller`, //cmp
+	`.self xyz`:`smaller`, //cmp
+	`.test.1 .self`:`greater`, //cmp
+	`.test.1 .test.10`:`lprefix`, //cmp
+	`.test.1 .test.11`:`lprefix`, //cmp
+	`.test.1 .test.12`:`lprefix`, //cmp
+	`.test.1 .test.13`:`lprefix`, //cmp
+	`.test.1 .test.14`:`lprefix`, //cmp
+	`.test.1 .test.15`:`lprefix`, //cmp
+	`.test.1 .test.2`:`smaller`, //cmp
+	`.test.1 .test.3`:`smaller`, //cmp
+	`.test.1 .test.4`:`smaller`, //cmp
+	`.test.1 .test.5`:`smaller`, //cmp
+	`.test.1 .test.6`:`smaller`, //cmp
+	`.test.1 .test.7`:`smaller`, //cmp
+	`.test.1 .test.8`:`smaller`, //cmp
+	`.test.1 .test.9`:`smaller`, //cmp
+	`.test.1 .usee`:`smaller`, //cmp
+	`.test.1 all`:`smaller`, //cmp
+	`.test.1 t10`:`smaller`, //cmp
+	`.test.1 t11`:`smaller`, //cmp
+	`.test.1 t13`:`smaller`, //cmp
+	`.test.1 t14`:`smaller`, //cmp
+	`.test.1 t15`:`smaller`, //cmp
+	`.test.1 t1`:`smaller`, //cmp
+	`.test.1 t2`:`smaller`, //cmp
+	`.test.1 t3`:`smaller`, //cmp
+	`.test.1 t4`:`smaller`, //cmp
+	`.test.1 t7`:`smaller`, //cmp
+	`.test.1 t8`:`smaller`, //cmp
+	`.test.1 t9`:`smaller`, //cmp
+	`.test.1 var.xxx`:`smaller`, //cmp
+	`.test.1 var.zzz`:`smaller`, //cmp
+	`.test.1 vars`:`smaller`, //cmp
+	`.test.10 .self`:`greater`, //cmp
+	`.test.10 .test.11`:`smaller`, //cmp
+	`.test.10 .test.12`:`smaller`, //cmp
+	`.test.10 .test.13`:`smaller`, //cmp
+	`.test.10 .test.14`:`smaller`, //cmp
+	`.test.10 .test.15`:`smaller`, //cmp
+	`.test.10 .test.1`:`rprefix`, //cmp
+	`.test.10 .test.2`:`smaller`, //cmp
+	`.test.10 .test.3`:`smaller`, //cmp
+	`.test.10 .test.4`:`smaller`, //cmp
+	`.test.10 .test.5`:`smaller`, //cmp
+	`.test.10 .test.6`:`smaller`, //cmp
+	`.test.10 .test.7`:`smaller`, //cmp
+	`.test.10 .test.8`:`smaller`, //cmp
+	`.test.10 .test.9`:`smaller`, //cmp
+	`.test.10 .usee`:`smaller`, //cmp
+	`.test.10 all`:`smaller`, //cmp
+	`.test.10 t10`:`smaller`, //cmp
+	`.test.10 t11`:`smaller`, //cmp
+	`.test.10 t13`:`smaller`, //cmp
+	`.test.10 t14`:`smaller`, //cmp
+	`.test.10 t15`:`smaller`, //cmp
+	`.test.10 t1`:`smaller`, //cmp
+	`.test.10 t2`:`smaller`, //cmp
+	`.test.10 t3`:`smaller`, //cmp
+	`.test.10 t4`:`smaller`, //cmp
+	`.test.10 t7`:`smaller`, //cmp
+	`.test.10 t8`:`smaller`, //cmp
+	`.test.10 t9`:`smaller`, //cmp
+	`.test.10 var.xxx`:`smaller`, //cmp
+	`.test.10 var.zzz`:`smaller`, //cmp
+	`.test.11 .test.10`:`greater`, //cmp
+	`.test.11 .test.12`:`smaller`, //cmp
+	`.test.11 .test.13`:`smaller`, //cmp
+	`.test.11 .test.14`:`smaller`, //cmp
+	`.test.11 .test.15`:`smaller`, //cmp
+	`.test.11 .test.1`:`rprefix`, //cmp
+	`.test.11 .test.2`:`smaller`, //cmp
+	`.test.11 .test.3`:`smaller`, //cmp
+	`.test.11 .test.4`:`smaller`, //cmp
+	`.test.11 .test.5`:`smaller`, //cmp
+	`.test.11 .test.6`:`smaller`, //cmp
+	`.test.11 .test.7`:`smaller`, //cmp
+	`.test.11 .test.8`:`smaller`, //cmp
+	`.test.11 .test.9`:`smaller`, //cmp
+	`.test.11 .usee`:`smaller`, //cmp
+	`.test.11 all`:`smaller`, //cmp
+	`.test.11 t10`:`smaller`, //cmp
+	`.test.11 t11`:`smaller`, //cmp
+	`.test.11 t13`:`smaller`, //cmp
+	`.test.11 t14`:`smaller`, //cmp
+	`.test.11 t15`:`smaller`, //cmp
+	`.test.11 t1`:`smaller`, //cmp
+	`.test.11 t2`:`smaller`, //cmp
+	`.test.11 t3`:`smaller`, //cmp
+	`.test.11 t4`:`smaller`, //cmp
+	`.test.11 t6`:`smaller`, //cmp
+	`.test.11 t7`:`smaller`, //cmp
+	`.test.11 t8`:`smaller`, //cmp
+	`.test.11 t9`:`smaller`, //cmp
+	`.test.11 var.xxx`:`smaller`, //cmp
+	`.test.11 var.zzz`:`smaller`, //cmp
+	`.test.12 .test.10`:`greater`, //cmp
+	`.test.12 .test.11`:`greater`, //cmp
+	`.test.12 .test.13`:`smaller`, //cmp
+	`.test.12 .test.14`:`smaller`, //cmp
+	`.test.12 .test.15`:`smaller`, //cmp
+	`.test.12 .test.2`:`smaller`, //cmp
+	`.test.12 .test.3`:`smaller`, //cmp
+	`.test.12 .test.4`:`smaller`, //cmp
+	`.test.12 .test.5`:`smaller`, //cmp
+	`.test.12 .test.6`:`smaller`, //cmp
+	`.test.12 .test.7`:`smaller`, //cmp
+	`.test.12 .test.8`:`smaller`, //cmp
+	`.test.12 .test.9`:`smaller`, //cmp
+	`.test.12 .usee`:`smaller`, //cmp
+	`.test.12 all`:`smaller`, //cmp
+	`.test.12 t10`:`smaller`, //cmp
+	`.test.12 t11`:`smaller`, //cmp
+	`.test.12 t13`:`smaller`, //cmp
+	`.test.12 t14`:`smaller`, //cmp
+	`.test.12 t15`:`smaller`, //cmp
+	`.test.12 t1`:`smaller`, //cmp
+	`.test.12 t2`:`smaller`, //cmp
+	`.test.12 t3`:`smaller`, //cmp
+	`.test.12 t4`:`smaller`, //cmp
+	`.test.12 t7`:`smaller`, //cmp
+	`.test.12 t8`:`smaller`, //cmp
+	`.test.12 t9`:`smaller`, //cmp
+	`.test.12 var.xxx`:`smaller`, //cmp
+	`.test.12 var.yyy`:`smaller`, //cmp
+	`.test.12 var.zzz`:`smaller`, //cmp
+	`.test.13 .test.10`:`greater`, //cmp
+	`.test.13 .test.11`:`greater`, //cmp
+	`.test.13 .test.12`:`greater`, //cmp
+	`.test.13 .test.14`:`smaller`, //cmp
+	`.test.13 .test.15`:`smaller`, //cmp
+	`.test.13 .test.1`:`rprefix`, //cmp
+	`.test.13 .test.2`:`smaller`, //cmp
+	`.test.13 .test.3`:`smaller`, //cmp
+	`.test.13 .test.4`:`smaller`, //cmp
+	`.test.13 .test.5`:`smaller`, //cmp
+	`.test.13 .test.6`:`smaller`, //cmp
+	`.test.13 .test.7`:`smaller`, //cmp
+	`.test.13 .test.8`:`smaller`, //cmp
+	`.test.13 .test.9`:`smaller`, //cmp
+	`.test.13 .usee`:`smaller`, //cmp
+	`.test.13 .self`:`greater`, //cmp
+	`t13 var2`:`smaller`, //cmp
+	`.test.13 all`:`smaller`, //cmp
+	`.test.13 t10`:`smaller`, //cmp
+	`.test.13 t11`:`smaller`, //cmp
+	`.test.13 t13`:`smaller`, //cmp
+	`.test.13 t14`:`smaller`, //cmp
+	`.test.13 t15`:`smaller`, //cmp
+	`.test.13 t1`:`smaller`, //cmp
+	`.test.13 t2`:`smaller`, //cmp
+	`.test.13 t3`:`smaller`, //cmp
+	`.test.13 t4`:`smaller`, //cmp
+	`.test.13 t6`:`smaller`, //cmp
+	`.test.13 t7`:`smaller`, //cmp
+	`.test.13 t8`:`smaller`, //cmp
+	`.test.13 t9`:`smaller`, //cmp
+	`.test.13 var.xxx`:`smaller`, //cmp
+	`.test.13 var.yyy`:`smaller`, //cmp
+	`.test.13 var.zzz`:`smaller`, //cmp
+	`.test.13 xyz`:`smaller`, //cmp
+	`.test.14 .self`:`greater`, //cmp
+	`.test.14 .test.10`:`greater`, //cmp
+	`.test.14 .test.11`:`greater`, //cmp
+	`.test.14 .test.12`:`greater`, //cmp
+	`.test.14 .test.13`:`greater`, //cmp
+	`.test.14 .test.15`:`smaller`, //cmp
+	`.test.14 .test.1`:`rprefix`, //cmp
+	`.test.14 .test.2`:`smaller`, //cmp
+	`.test.14 .test.3`:`smaller`, //cmp
+	`.test.14 .test.4`:`smaller`, //cmp
+	`.test.14 .test.5`:`smaller`, //cmp
+	`.test.14 .test.6`:`smaller`, //cmp
+	`.test.14 .test.7`:`smaller`, //cmp
+	`.test.14 .test.8`:`smaller`, //cmp
+	`.test.14 .test.9`:`smaller`, //cmp
+	`.test.14 .usee`:`smaller`, //cmp
+	`.test.14 all`:`smaller`, //cmp
+	`.test.14 t10`:`smaller`, //cmp
+	`.test.14 t11`:`smaller`, //cmp
+	`.test.14 t12`:`smaller`, //cmp
+	`.test.14 t13`:`smaller`, //cmp
+	`.test.14 t14`:`smaller`, //cmp
+	`.test.14 t15`:`smaller`, //cmp
+	`.test.14 t1`:`smaller`, //cmp
+	`.test.14 t2`:`smaller`, //cmp
+	`.test.14 t3`:`smaller`, //cmp
+	`.test.14 t4`:`smaller`, //cmp
+	`.test.14 t7`:`smaller`, //cmp
+	`.test.14 t8`:`smaller`, //cmp
+	`.test.14 t9`:`smaller`, //cmp
+	`.test.14 var.xxx`:`smaller`, //cmp
+	`.test.14 var.zzz`:`smaller`, //cmp
+	`.test.15 .test.10`:`greater`, //cmp
+	`.test.15 .test.11`:`greater`, //cmp
+	`.test.15 .test.12`:`greater`, //cmp
+	`.test.15 .test.13`:`greater`, //cmp
+	`.test.15 .test.14`:`greater`, //cmp
+	`.test.15 .test.1`:`rprefix`, //cmp
+	`.test.15 .test.2`:`smaller`, //cmp
+	`.test.15 .test.3`:`smaller`, //cmp
+	`.test.15 .test.4`:`smaller`, //cmp
+	`.test.15 .test.5`:`smaller`, //cmp
+	`.test.15 .test.6`:`smaller`, //cmp
+	`.test.15 .test.7`:`smaller`, //cmp
+	`.test.15 .test.8`:`smaller`, //cmp
+	`.test.15 .test.9`:`smaller`, //cmp
+	`.test.15 .usee`:`smaller`, //cmp
+	`.test.15 all`:`smaller`, //cmp
+	`.test.15 t10`:`smaller`, //cmp
+	`.test.15 t11`:`smaller`, //cmp
+	`.test.15 t12`:`smaller`, //cmp
+	`.test.15 t13`:`smaller`, //cmp
+	`.test.15 t14`:`smaller`, //cmp
+	`.test.15 t15`:`smaller`, //cmp
+	`.test.15 t1`:`smaller`, //cmp
+	`.test.15 t2`:`smaller`, //cmp
+	`.test.15 t3`:`smaller`, //cmp
+	`.test.15 t4`:`smaller`, //cmp
+	`.test.15 t7`:`smaller`, //cmp
+	`.test.15 t8`:`smaller`, //cmp
+	`.test.15 t9`:`smaller`, //cmp
+	`.test.15 var.xxx`:`smaller`, //cmp
+	`.test.15 var.zzz`:`smaller`, //cmp
+	`.test.2 .self`:`greater`, //cmp
+	`.test.2 .test.10`:`greater`, //cmp
+	`.test.2 .test.11`:`greater`, //cmp
+	`.test.2 .test.12`:`greater`, //cmp
+	`.test.2 .test.13`:`greater`, //cmp
+	`.test.2 .test.14`:`greater`, //cmp
+	`.test.2 .test.15`:`greater`, //cmp
+	`.test.2 .test.3`:`smaller`, //cmp
+	`.test.2 .test.4`:`smaller`, //cmp
+	`.test.2 .test.5`:`smaller`, //cmp
+	`.test.2 .test.6`:`smaller`, //cmp
+	`.test.2 .test.7`:`smaller`, //cmp
+	`.test.2 .test.8`:`smaller`, //cmp
+	`.test.2 .test.9`:`smaller`, //cmp
+	`.test.2 .usee`:`smaller`, //cmp
+	`.test.2 all`:`smaller`, //cmp
+	`.test.2 t10`:`smaller`, //cmp
+	`.test.2 t11`:`smaller`, //cmp
+	`.test.2 t12`:`smaller`, //cmp
+	`.test.2 t13`:`smaller`, //cmp
+	`.test.2 t14`:`smaller`, //cmp
+	`.test.2 t15`:`smaller`, //cmp
+	`.test.2 t1`:`smaller`, //cmp
+	`.test.2 t2`:`smaller`, //cmp
+	`.test.2 t3`:`smaller`, //cmp
+	`.test.2 t4`:`smaller`, //cmp
+	`.test.2 t7`:`smaller`, //cmp
+	`.test.2 t8`:`smaller`, //cmp
+	`.test.2 t9`:`smaller`, //cmp
+	`.test.2 var.xxx`:`smaller`, //cmp
+	`.test.2 var.zzz`:`smaller`, //cmp
+	`.test.3 .self`:`greater`, //cmp
+	`.test.3 .test.10`:`greater`, //cmp
+	`.test.3 .test.11`:`greater`, //cmp
+	`.test.3 .test.12`:`greater`, //cmp
+	`.test.3 .test.13`:`greater`, //cmp
+	`.test.3 .test.14`:`greater`, //cmp
+	`.test.3 .test.15`:`greater`, //cmp
+	`.test.3 .test.1`:`greater`, //cmp
+	`.test.3 .test.2`:`greater`, //cmp
+	`.test.3 .test.4`:`smaller`, //cmp
+	`.test.3 .test.5`:`smaller`, //cmp
+	`.test.3 .test.6`:`smaller`, //cmp
+	`.test.3 .test.7`:`smaller`, //cmp
+	`.test.3 .test.8`:`smaller`, //cmp
+	`.test.3 .test.9`:`smaller`, //cmp
+	`.test.3 .usee`:`smaller`, //cmp
+	`.test.3 all`:`smaller`, //cmp
+	`.test.3 t10`:`smaller`, //cmp
+	`.test.3 t11`:`smaller`, //cmp
+	`.test.3 t12`:`smaller`, //cmp
+	`.test.3 t13`:`smaller`, //cmp
+	`.test.3 t14`:`smaller`, //cmp
+	`.test.3 t15`:`smaller`, //cmp
+	`.test.3 t1`:`smaller`, //cmp
+	`.test.3 t2`:`smaller`, //cmp
+	`.test.3 t3`:`smaller`, //cmp
+	`.test.3 t4`:`smaller`, //cmp
+	`.test.3 t7`:`smaller`, //cmp
+	`.test.3 t8`:`smaller`, //cmp
+	`.test.3 t9`:`smaller`, //cmp
+	`.test.3 var.xxx`:`smaller`, //cmp
+	`.test.3 var.zzz`:`smaller`, //cmp
+	`.test.3 var2`:`smaller`, //cmp
+	`.test.3 vars`:`smaller`, //cmp
+	`.test.4 .self`:`greater`, //cmp
+	`.test.4 .test.11`:`greater`, //cmp
+	`.test.4 .test.12`:`greater`, //cmp
+	`.test.4 .test.13`:`greater`, //cmp
+	`.test.4 .test.14`:`greater`, //cmp
+	`.test.4 .test.15`:`greater`, //cmp
+	`.test.4 .test.2`:`greater`, //cmp
+	`.test.4 .test.3`:`greater`, //cmp
+	`.test.4 .test.5`:`smaller`, //cmp
+	`.test.4 .test.6`:`smaller`, //cmp
+	`.test.4 .test.7`:`smaller`, //cmp
+	`.test.4 .test.8`:`smaller`, //cmp
+	`.test.4 .test.9`:`smaller`, //cmp
+	`.test.4 .usee`:`smaller`, //cmp
+	`.test.4 all`:`smaller`, //cmp
+	`.test.4 t10`:`smaller`, //cmp
+	`.test.4 t11`:`smaller`, //cmp
+	`.test.4 t12`:`smaller`, //cmp
+	`.test.4 t13`:`smaller`, //cmp
+	`.test.4 t14`:`smaller`, //cmp
+	`.test.4 t15`:`smaller`, //cmp
+	`.test.4 t1`:`smaller`, //cmp
+	`.test.4 t2`:`smaller`, //cmp
+	`.test.4 t3`:`smaller`, //cmp
+	`.test.4 t4`:`smaller`, //cmp
+	`.test.4 t7`:`smaller`, //cmp
+	`.test.4 t8`:`smaller`, //cmp
+	`.test.4 t9`:`smaller`, //cmp
+	`.test.4 var.xxx`:`smaller`, //cmp
+	`.test.4 var.zzz`:`smaller`, //cmp
+	`.test.4 var2`:`smaller`, //cmp
+	`.test.5 .self`:`greater`, //cmp
+	`.test.5 .test.10`:`greater`, //cmp
+	`.test.5 .test.11`:`greater`, //cmp
+	`.test.5 .test.12`:`greater`, //cmp
+	`.test.5 .test.13`:`greater`, //cmp
+	`.test.5 .test.14`:`greater`, //cmp
+	`.test.5 .test.15`:`greater`, //cmp
+	`.test.5 .test.1`:`greater`, //cmp
+	`.test.5 .test.2`:`greater`, //cmp
+	`.test.5 .test.3`:`greater`, //cmp
+	`.test.5 .test.4`:`greater`, //cmp
+	`.test.5 .test.6`:`smaller`, //cmp
+	`.test.5 .test.7`:`smaller`, //cmp
+	`.test.5 .test.8`:`smaller`, //cmp
+	`.test.5 .test.9`:`smaller`, //cmp
+	`.test.5 .usee`:`smaller`, //cmp
+	`.test.5 all`:`smaller`, //cmp
+	`.test.5 t10`:`smaller`, //cmp
+	`.test.5 t11`:`smaller`, //cmp
+	`.test.5 t12`:`smaller`, //cmp
+	`.test.5 t13`:`smaller`, //cmp
+	`.test.5 t14`:`smaller`, //cmp
+	`.test.5 t15`:`smaller`, //cmp
+	`.test.5 t1`:`smaller`, //cmp
+	`.test.5 t2`:`smaller`, //cmp
+	`.test.5 t3`:`smaller`, //cmp
+	`.test.5 t4`:`smaller`, //cmp
+	`.test.5 t6`:`smaller`, //cmp
+	`.test.5 t7`:`smaller`, //cmp
+	`.test.5 t8`:`smaller`, //cmp
+	`.test.5 t9`:`smaller`, //cmp
+	`.test.5 var.xxx`:`smaller`, //cmp
+	`.test.5 var.zzz`:`smaller`, //cmp
+	`.test.6 .self`:`greater`, //cmp
+	`.test.6 .test.10`:`greater`, //cmp
+	`.test.6 .test.11`:`greater`, //cmp
+	`.test.6 .test.12`:`greater`, //cmp
+	`.test.6 .test.13`:`greater`, //cmp
+	`.test.6 .test.14`:`greater`, //cmp
+	`.test.6 .test.15`:`greater`, //cmp
+	`.test.6 .test.2`:`greater`, //cmp
+	`.test.6 .test.3`:`greater`, //cmp
+	`.test.6 .test.4`:`greater`, //cmp
+	`.test.6 .test.5`:`greater`, //cmp
+	`.test.6 .test.7`:`smaller`, //cmp
+	`.test.6 .test.8`:`smaller`, //cmp
+	`.test.6 .test.9`:`smaller`, //cmp
+	`.test.6 .usee`:`smaller`, //cmp
+	`.test.6 all`:`smaller`, //cmp
+	`.test.6 t10`:`smaller`, //cmp
+	`.test.6 t11`:`smaller`, //cmp
+	`.test.6 t12`:`smaller`, //cmp
+	`.test.6 t13`:`smaller`, //cmp
+	`.test.6 t14`:`smaller`, //cmp
+	`.test.6 t15`:`smaller`, //cmp
+	`.test.6 t1`:`smaller`, //cmp
+	`.test.6 t2`:`smaller`, //cmp
+	`.test.6 t3`:`smaller`, //cmp
+	`.test.6 t4`:`smaller`, //cmp
+	`.test.6 t5`:`smaller`, //cmp
+	`.test.6 t6`:`smaller`, //cmp
+	`.test.6 t7`:`smaller`, //cmp
+	`.test.6 t8`:`smaller`, //cmp
+	`.test.6 t9`:`smaller`, //cmp
+	`.test.6 var.xxx`:`smaller`, //cmp
+	`.test.6 var.yyy`:`smaller`, //cmp
+	`.test.6 var.zzz`:`smaller`, //cmp
+	`.test.7 .self`:`greater`, //cmp
+	`.test.7 .test.11`:`greater`, //cmp
+	`.test.7 .test.12`:`greater`, //cmp
+	`.test.7 .test.13`:`greater`, //cmp
+	`.test.7 .test.14`:`greater`, //cmp
+	`.test.7 .test.15`:`greater`, //cmp
+	`.test.7 .test.2`:`greater`, //cmp
+	`.test.7 .test.3`:`greater`, //cmp
+	`.test.7 .test.4`:`greater`, //cmp
+	`.test.7 .test.5`:`greater`, //cmp
+	`.test.7 .test.6`:`greater`, //cmp
+	`.test.7 .test.8`:`smaller`, //cmp
+	`.test.7 .test.9`:`smaller`, //cmp
+	`.test.7 .usee`:`smaller`, //cmp
+	`.test.7 all`:`smaller`, //cmp
+	`.test.7 t10`:`smaller`, //cmp
+	`.test.7 t11`:`smaller`, //cmp
+	`.test.7 t12`:`smaller`, //cmp
+	`.test.7 t13`:`smaller`, //cmp
+	`.test.7 t14`:`smaller`, //cmp
+	`.test.7 t15`:`smaller`, //cmp
+	`.test.7 t1`:`smaller`, //cmp
+	`.test.7 t2`:`smaller`, //cmp
+	`.test.7 t3`:`smaller`, //cmp
+	`.test.7 t4`:`smaller`, //cmp
+	`.test.7 t5`:`smaller`, //cmp
+	`.test.7 t6`:`smaller`, //cmp
+	`.test.7 t7`:`smaller`, //cmp
+	`.test.7 t8`:`smaller`, //cmp
+	`.test.7 t9`:`smaller`, //cmp
+	`.test.7 var.xxx`:`smaller`, //cmp
+	`.test.7 var.zzz`:`smaller`, //cmp
+	`.test.8 .self`:`greater`, //cmp
+	`.test.8 .test.10`:`greater`, //cmp
+	`.test.8 .test.11`:`greater`, //cmp
+	`.test.8 .test.12`:`greater`, //cmp
+	`.test.8 .test.13`:`greater`, //cmp
+	`.test.8 .test.14`:`greater`, //cmp
+	`.test.8 .test.15`:`greater`, //cmp
+	`.test.8 .test.2`:`greater`, //cmp
+	`.test.8 .test.3`:`greater`, //cmp
+	`.test.8 .test.4`:`greater`, //cmp
+	`.test.8 .test.5`:`greater`, //cmp
+	`.test.8 .test.6`:`greater`, //cmp
+	`.test.8 .test.7`:`greater`, //cmp
+	`.test.8 .test.9`:`smaller`, //cmp
+	`.test.8 .usee`:`smaller`, //cmp
+	`.test.8 all`:`smaller`, //cmp
+	`.test.8 t10`:`smaller`, //cmp
+	`.test.8 t11`:`smaller`, //cmp
+	`.test.8 t12`:`smaller`, //cmp
+	`.test.8 t13`:`smaller`, //cmp
+	`.test.8 t14`:`smaller`, //cmp
+	`.test.8 t15`:`smaller`, //cmp
+	`.test.8 t1`:`smaller`, //cmp
+	`.test.8 t2`:`smaller`, //cmp
+	`.test.8 t3`:`smaller`, //cmp
+	`.test.8 t4`:`smaller`, //cmp
+	`.test.8 t5`:`smaller`, //cmp
+	`.test.8 t6`:`smaller`, //cmp
+	`.test.8 t7`:`smaller`, //cmp
+	`.test.8 t8`:`smaller`, //cmp
+	`.test.8 t9`:`smaller`, //cmp
+	`.test.8 var.xxx`:`smaller`, //cmp
+	`.test.8 var.zzz`:`smaller`, //cmp
+	`.test.9 .test.11`:`greater`, //cmp
+	`.test.9 .test.12`:`greater`, //cmp
+	`.test.9 .test.13`:`greater`, //cmp
+	`.test.9 .test.14`:`greater`, //cmp
+	`.test.9 .test.15`:`greater`, //cmp
+	`.test.9 .test.2`:`greater`, //cmp
+	`.test.9 .test.3`:`greater`, //cmp
+	`.test.9 .test.4`:`greater`, //cmp
+	`.test.9 .test.5`:`greater`, //cmp
+	`.test.9 .test.6`:`greater`, //cmp
+	`.test.9 .test.7`:`greater`, //cmp
+	`.test.9 .test.8`:`greater`, //cmp
+	`.test.9 .usee`:`smaller`, //cmp
+	`.test.9 all`:`smaller`, //cmp
+	`.test.9 t10`:`smaller`, //cmp
+	`.test.9 t11`:`smaller`, //cmp
+	`.test.9 t12`:`smaller`, //cmp
+	`.test.9 t13`:`smaller`, //cmp
+	`.test.9 t14`:`smaller`, //cmp
+	`.test.9 t15`:`smaller`, //cmp
+	`.test.9 t1`:`smaller`, //cmp
+	`.test.9 t2`:`smaller`, //cmp
+	`.test.9 t3`:`smaller`, //cmp
+	`.test.9 t4`:`smaller`, //cmp
+	`.test.9 t5`:`smaller`, //cmp
+	`.test.9 t6`:`smaller`, //cmp
+	`.test.9 t7`:`smaller`, //cmp
+	`.test.9 t8`:`smaller`, //cmp
+	`.test.9 t9`:`smaller`, //cmp
+	`.test.9 var.xxx`:`smaller`, //cmp
+	`.test.9 var.zzz`:`smaller`, //cmp
+	`.test.foobax .test.fxx`:`smaller`, //cmp
+	`.test.foobay .test.fxx`:`smaller`, //cmp
+	`.test.foobaz .test.fxx`:`smaller`, //cmp
+	`.usee .self`:`greater`, //cmp
+	`.usee .test.11`:`greater`, //cmp
+	`.usee .test.12`:`greater`, //cmp
+	`.usee .test.13`:`greater`, //cmp
+	`.usee .test.14`:`greater`, //cmp
+	`.usee .test.15`:`greater`, //cmp
+	`.usee .test.2`:`greater`, //cmp
+	`.usee .test.3`:`greater`, //cmp
+	`.usee .test.4`:`greater`, //cmp
+	`.usee .test.5`:`greater`, //cmp
+	`.usee .test.6`:`greater`, //cmp
+	`.usee .test.7`:`greater`, //cmp
+	`.usee .test.8`:`greater`, //cmp
+	`.usee .test.9`:`greater`, //cmp
+	`.usee all`:`smaller`, //cmp
+	`.usee t10`:`smaller`, //cmp
+	`.usee t11`:`smaller`, //cmp
+	`.usee t12`:`smaller`, //cmp
+	`.usee t13`:`smaller`, //cmp
+	`.usee t14`:`smaller`, //cmp
+	`.usee t15`:`smaller`, //cmp
+	`.usee t1`:`smaller`, //cmp
+	`.usee t2`:`smaller`, //cmp
+	`.usee t3`:`smaller`, //cmp
+	`.usee t4`:`smaller`, //cmp
+	`.usee t5`:`smaller`, //cmp
+	`.usee t6`:`smaller`, //cmp
+	`.usee t7`:`smaller`, //cmp
+	`.usee t8`:`smaller`, //cmp
+	`.usee t9`:`smaller`, //cmp
+	`.usee var.xxx`:`smaller`, //cmp
+	`.usee var.zzz`:`smaller`, //cmp
+	`.usee var2`:`smaller`, //cmp
+	`.usee vars`:`smaller`, //cmp
+	`.usee xyz`:`smaller`, //cmp
+	`/ foo.txt`:`smaller`, //cmp
+	`0 -0.0.1`:`greater`, //cmp
+	`0 -`:`greater`, //cmp
+	`0.0.1 -0.0.1`:`greater`, //cmp
+	`0.0.1 0.0.1`:`equal`, //cmp
+	`1 ?`:`smaller`, //cmp
+	`2 ?`:`smaller`, //cmp
+	`? *`:`smaller`, //cmp
+	`? x`:`greater`, //cmp
+	`? z`:`greater`, //cmp
+	`?.h x.h`:`greater`, //cmp
+	`?.h x`:`greater`, //cmp
+	`FOO foo`:`smaller`, //cmp
+	`HAVE_STDLIB_H {=file .configure/header/HAVE_STDLIB_H.c}`:`greater`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`HAVE_STDLIB_H⇒{} -l⇒{} c++`:`greater`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_NAME⇒test.app`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_STRING⇒"test.app-0.0.1"`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_TARNAME⇒test.app-0.0.1`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} PACKAGE⇒test.app`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} VERSION⇒0.0.1`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.aligns=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.builtins=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.features=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.files=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.lib*={}`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.package::=test.app`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.sizes=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.structs=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.symbs=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.types=<nil>`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} configure.version::=0.0.1`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} lib.c++`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} {=project app.base}`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} {=project configure}`:`smaller`, //cmp
+	`HAVE_STDLIB_H⇒{} {=self app}`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE_NAME⇒test.app`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE_STRING⇒"test.app-0.0.1"`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE_TARNAME⇒test.app-0.0.1`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" lib.c++`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" {=project configure}`:`smaller`, //cmp
+	`PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs" {=self app}`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_NAME⇒test.app -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_NAME⇒test.app HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE_STRING⇒"test.app-0.0.1"`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE_TARNAME⇒test.app-0.0.1`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_NAME⇒test.app VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app lib.c++`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app {=project configure}`:`smaller`, //cmp
+	`PACKAGE_NAME⇒test.app {=self app}`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE_TARNAME⇒test.app-0.0.1`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" lib.c++`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" {=project configure}`:`smaller`, //cmp
+	`PACKAGE_STRING⇒"test.app-0.0.1" {=self app}`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 lib.c++`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 {=project configure}`:`smaller`, //cmp
+	`PACKAGE_TARNAME⇒test.app-0.0.1 {=self app}`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE_VENDOR⇒'ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 lib.c++`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 {=project configure}`:`smaller`, //cmp
+	`PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1 {=self app}`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE_VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' lib.c++`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' {=project configure}`:`smaller`, //cmp
+	`PACKAGE_VENDOR⇒'ExtBit LLC' {=self app}`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 PACKAGE⇒test.app`:`rprefix`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 lib.c++`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 {=project app.base}`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 {=project configure}`:`smaller`, //cmp
+	`PACKAGE_VERSION⇒0.0.1 {=self app}`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`PACKAGE⇒test.app -l⇒{} c++`:`greater`, //cmp
+	`PACKAGE⇒test.app HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`PACKAGE⇒test.app PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`lprefix`, //cmp
+	`PACKAGE⇒test.app PACKAGE_NAME⇒test.app`:`lprefix`, //cmp
+	`PACKAGE⇒test.app PACKAGE_STRING⇒"test.app-0.0.1"`:`lprefix`, //cmp
+	`PACKAGE⇒test.app PACKAGE_TARNAME⇒test.app-0.0.1`:`lprefix`, //cmp
+	`PACKAGE⇒test.app PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`lprefix`, //cmp
+	`PACKAGE⇒test.app PACKAGE_VENDOR⇒'ExtBit LLC'`:`lprefix`, //cmp
+	`PACKAGE⇒test.app PACKAGE_VERSION⇒0.0.1`:`lprefix`, //cmp
+	`PACKAGE⇒test.app VERSION⇒0.0.1`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.aligns=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.builtins=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.features=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.files=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.lib*={}`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.package::=test.app`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.sizes=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.structs=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.symbs=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.types=<nil>`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`PACKAGE⇒test.app configure.version::=0.0.1`:`smaller`, //cmp
+	`PACKAGE⇒test.app lib.c++`:`smaller`, //cmp
+	`PACKAGE⇒test.app {=project app.base}`:`smaller`, //cmp
+	`PACKAGE⇒test.app {=project configure}`:`smaller`, //cmp
+	`PACKAGE⇒test.app {=self app}`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`VERSION⇒0.0.1 -l⇒{} c++`:`greater`, //cmp
+	`VERSION⇒0.0.1 HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`VERSION⇒0.0.1 PACKAGE⇒test.app`:`greater`, //cmp
+	`VERSION⇒0.0.1 configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.aligns=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.builtins=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.features=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.files=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.lib*={}`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.package::=test.app`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.sizes=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.structs=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.symbs=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.types=<nil>`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`VERSION⇒0.0.1 configure.version::=0.0.1`:`smaller`, //cmp
+	`VERSION⇒0.0.1 lib.c++`:`smaller`, //cmp
+	`VERSION⇒0.0.1 {=project app.base}`:`smaller`, //cmp
+	`VERSION⇒0.0.1 {=project configure}`:`smaller`, //cmp
+	`VERSION⇒0.0.1 {=self app}`:`smaller`, //cmp
+	`Volumes foo.txt`:`smaller`, //cmp
+	`[%[testdata:/(%[3]s /)] builtins / file / foo.txt] [foo.txt]`:`smaller`, //cmp
+	`[%[testdata:/(%[3]s /)] builtins / file / foo.txt] {=file foo.txt}`:`smaller`, //cmp
+	`[%[trim(/):testdata:/(%[3]s /)] builtins / file / foo.txt] [foo.txt]`:`smaller`, //cmp
+	`[* . gen] x.gen`:`greater`, //cmp
+	`[* . gen] y.gen`:`greater`, //cmp
+	`[* . h] **.h`:`smaller`, //cmp
+	`[* . h] *.h`:`equal`, //cmp
+	`[* . h] v?.h`:`greater`, //cmp
+	`[* . h] x.h`:`greater`, //cmp
+	`[* . h] y.h`:`greater`, //cmp
+	`[* . h] z.h`:`greater`, //cmp
+	`[** . c++] foo.c++`:`greater`, //cmp
+	`[** . c++] foo/bar.c++`:`greater`, //cmp
+	`[** . c++] x.c++`:`greater`, //cmp
+	`[** . c++] y.c++`:`greater`, //cmp
+	`[** . c] foo.c`:`greater`, //cmp
+	`[** . c] foo/bar.c`:`greater`, //cmp
+	`[** . c] foo/z.c`:`greater`, //cmp
+	`[** . gen] a.gen`:`greater`, //cmp
+	`[** . gen] b.gen`:`greater`, //cmp
+	`[** . gen] foo/c.gen`:`greater`, //cmp
+	`[** . h] **.h`:`equal`, //cmp
+	`[** . h] foo/*.h`:`greater`, //cmp
+	`[** . h] foo/bar/v?.h`:`greater`, //cmp
+	`[** . h] foo/bar/zz/x.h`:`greater`, //cmp
+	`[** . h] foo???/x.h`:`greater`, //cmp
+	`[**] foo???`:`greater`, //cmp
+	`[*] [zz]`:`greater`, //cmp
+	`[*] zz`:`greater`, //cmp
+	`[- foobar] -`:`greater`, //cmp
+	`[- foobar] -foobar`:`equal`, //cmp
+	`[- foobar] [-]`:`greater`, //cmp
+	`[- foobar] [-foobar]`:`equal`, //cmp
+	`[-0.0.1] []`:`greater`, //cmp
+	`[-foo bar] -foobar`:`equal`, //cmp
+	`[-foo bar] [-foobar]`:`equal`, //cmp
+	`[-foobar] -foobar`:`equal`, //cmp
+	`[. app0 . 0 . 1] [..app -0.0.1]`:`greater`, //cmp
+	`[. app0.0.1] [..app -0.0.1]`:`greater`, //cmp
+	`[.app-0.0.1] [. app]`:`greater`, //cmp
+	`[.app] [. app]`:`equal`, //cmp
+	`[/ Volumes / workspace / go / src / extbit.io / smart / testdata / builtins / file / foo.txt] [foo.txt]`:`smaller`, //cmp
+	`[0 . 0 . 1] -0.0.1`:`greater`, //cmp
+	`[0 . 0 . 1] [-0.0.1]`:`greater`, //cmp
+	`[0.0.1] [-0.0.1]`:`greater`, //cmp
+	`[1 . h] [? . h]`:`smaller`, //cmp
+	`[1] [? . h]`:`smaller`, //cmp
+	`[2 . h] [? . h]`:`smaller`, //cmp
+	`[2] [? . h]`:`smaller`, //cmp
+	`[< stdlib.h >] [$($(target.os)~configure.heads)]`:`greater`, //cmp
+	`[? . h] [x]`:`greater`, //cmp
+	`[? . h] x.h`:`greater`, //cmp
+	`[? . h] x`:`greater`, //cmp
+	`[? / ? . h] [z / x . h]`:`greater`, //cmp
+	`[?] [z]`:`greater`, //cmp
+	`[app 0.0.1] [app]`:`greater`, //cmp
+	`[app 0.0.1] app`:`greater`, //cmp
+	`[app-0.0.1] [. app - 0 . 0 . 1]`:`greater`, //cmp
+	`[app-0.0.1] [. app]`:`greater`, //cmp
+	`[app-0.0.1] [app]`:`greater`, //cmp
+	`[app0 . 0 . 1] [app -0.0.1]`:`greater`, //cmp
+	`[app0.0.1] [app -0.0.1]`:`greater`, //cmp
+	`[app] [app]`:`equal`, //cmp
+	`[ar / v1 . h] [* / v * . h]`:`smaller`, //cmp
+	`[ar / v2 . h] [* / v * . h]`:`smaller`, //cmp
+	`[ar] [*]`:`smaller`, //cmp
+	`[b ? r] b*`:`smaller`, //cmp
+	`[bar] **.hh`:`smaller`, //cmp
+	`[bar] [bar]`:`equal`, //cmp
+	`[bar] b*`:`smaller`, //cmp
+	`[bar] ba*`:`smaller`, //cmp
+	`[bar] ba?`:`smaller`, //cmp
+	`[fo ?] f*?`:`smaller`, //cmp
+	`[fo? ** x.h] f*?/x.h`:`smaller`, //cmp
+	`[foo &(va2) bar] foo/&(va1)/xx&(va2)yy/&(va3)zz`:`greater`, //cmp
+	`[foo &(va2) bar] foo/&(va3)`:`smaller`, //cmp
+	`[foo &(va3)] foo/&(va1)/xx&(va2)yy/&(va3)zz`:`greater`, //cmp
+	`[foo ** x.h] f*?/x.h`:`smaller`, //cmp
+	`[foo *.h] foo/*.h`:`equal`, //cmp
+	`[foo b?r v?.h] foo/b*/v*.h`:`smaller`, //cmp
+	`[foo bar * *.h] foo/bar/zz/x.h`:`greater`, //cmp
+	`[foo bar *.h] foo/bar/v?.h`:`greater`, //cmp
+	`[foo bar *.hh] foo/**.hh`:`smaller`, //cmp
+	`[foo bar v1.h] foo/b*/v*.h`:`smaller`, //cmp
+	`[foo bar v1.h] foo/ba*/v?.h`:`smaller`, //cmp
+	`[foo bar v1.h] foo/bar/v?.h`:`smaller`, //cmp
+	`[foo bar v2.h] foo/b*/v*.h`:`smaller`, //cmp
+	`[foo bar v2.h] foo/ba*/v?.h`:`smaller`, //cmp
+	`[foo bar v2.h] foo/bar/v?.h`:`smaller`, //cmp
+	`[foo bar xyz???.txt] foo/ba?/xyz*.txt`:`smaller`, //cmp
+	`[foo bar z? ?.h] foo/bar/zz/x.h`:`greater`, //cmp
+	`[foo bar zz ?.h] foo/bar/zz/x.h`:`greater`, //cmp
+	`[foo bar] [foobar]`:`equal`, //cmp
+	`[foo xv*y.h] foo/x*y.h`:`smaller`, //cmp
+	`[foo xv1y.h] foo/x*y.h`:`smaller`, //cmp
+	`[foo.txt] %[testdata]/builtins/file/foo.txt`:`greater`, //cmp
+	`[foo.txt] [%[trim(/):testdata:/(%[3]s)] builtins file foo.txt]`:`greater`, //cmp
+	`[foo.txt] [/ Volumes / workspace / go / src / extbit.io / smart / testdata / builtins / file / foo.txt]`:`greater`, //cmp
+	`[foo] f*?`:`smaller`, //cmp
+	`[foo] foo`:`equal`, //cmp
+	`[foobar config *.def.am] **.def.am`:`smaller`, //cmp
+	`[foobar] [foo bar]`:`equal`, //cmp
+	`[foobar] [foobar]`:`equal`, //cmp
+	`[https://extbit.dev/package/test . app] [https://extbit.dev/package/test.app/0.0.1]`:`lprefix`, //cmp
+	`[https://extbit.dev/package/test . app] https://extbit.dev/package/test.app/0.0.1`:`lprefix`, //cmp
+	`[https://extbit.dev/package/test.app 0.0.1] [https://extbit.dev/package/test.app/0.0.1]`:`lprefix`, //cmp
+	`[https://extbit.dev/package/test.app 0.0.1] https://extbit.dev/package/test.app/0.0.1`:`lprefix`, //cmp
+	`[https://extbit.dev/package/test.app/0.0.1/bugs] "https://extbit.dev/package/test.app/0.0.1/bugs"`:`rprefix`, //cmp
+	`[main a.c] */a.c`:`smaller`, //cmp
+	`[main] *`:`smaller`, //cmp
+	`[o ? / ** / x . h] [*? / x . h]`:`smaller`, //cmp
+	`[o ?] [*?]`:`smaller`, //cmp
+	`[oo / ** / x . h] [*? / x . h]`:`smaller`, //cmp
+	`[oo] [*?]`:`smaller`, //cmp
+	`[r / v1 . h] [* / v ? . h]`:`smaller`, //cmp
+	`[r / v2 . h] [* / v ? . h]`:`smaller`, //cmp
+	`[r / xyz ? ? ? . txt] [? / xyz * . txt]`:`smaller`, //cmp
+	`[r] [*]`:`smaller`, //cmp
+	`[r] [?]`:`smaller`, //cmp
+	`[test.app 0.0.1] test.app-0.0.1`:`greater`, //cmp
+	`[test.app-0.0.1] "test.app-0.0.1"`:`greater`, //cmp
+	`[test.app-0.0.1] test.app`:`greater`, //cmp
+	`[test.app] test.app`:`equal`, //cmp
+	`[test] test.app`:`smaller`, //cmp
+	`[v * y . h] [* y . h]`:`smaller`, //cmp
+	`[v1] v?.h`:`smaller`, //cmp
+	`[v1y . h] [* y . h]`:`smaller`, //cmp
+	`[v1y] [* y . h]`:`smaller`, //cmp
+	`[v2] v?.h`:`smaller`, //cmp
+	`[x p] xp`:`equal`, //cmp
+	`[x q] xq`:`equal`, //cmp
+	`[x xq xp x{&(.test.h)}{$1}] x xq xp x{&(.test.h)}{$1}`:`equal`, //cmp
+	`[x {&(.test.h)}{$1}] x{&(.test.h)}{$1}`:`equal`, //cmp
+	`[xq xp x{&(.test.h)}{$1}] xq xp x{&(.test.h)}{$1}`:`equal`, //cmp
+	`[xv * y . h] x*y.h`:`smaller`, //cmp
+	`[xv1y] x*y.h`:`smaller`, //cmp
+	`[z ?] [zz]`:`greater`, //cmp
+	`[z ?] zz`:`greater`, //cmp
+	`[{&(.test.h)} {$1}] {&(.test.h)}{$1}`:`equal`, //cmp
+	`a a`:`equal`, //cmp
+	`a d`:`smaller`, //cmp
+	`all .test.11`:`greater`, //cmp
+	`all .test.13`:`greater`, //cmp
+	`all .test.14`:`greater`, //cmp
+	`all .test.15`:`greater`, //cmp
+	`all .test.2`:`greater`, //cmp
+	`all .test.3`:`greater`, //cmp
+	`all .test.4`:`greater`, //cmp
+	`all .test.5`:`greater`, //cmp
+	`all .test.6`:`greater`, //cmp
+	`all .test.7`:`greater`, //cmp
+	`all .test.8`:`greater`, //cmp
+	`all .test.9`:`greater`, //cmp
+	`all .usee`:`greater`, //cmp
+	`all t10`:`smaller`, //cmp
+	`all t11`:`smaller`, //cmp
+	`all t12`:`smaller`, //cmp
+	`all t13`:`smaller`, //cmp
+	`all t14`:`smaller`, //cmp
+	`all t15`:`smaller`, //cmp
+	`all t1`:`smaller`, //cmp
+	`all t2`:`smaller`, //cmp
+	`all t3`:`smaller`, //cmp
+	`all t4`:`smaller`, //cmp
+	`all t5`:`smaller`, //cmp
+	`all t6`:`smaller`, //cmp
+	`all t7`:`smaller`, //cmp
+	`all t8`:`smaller`, //cmp
+	`all t9`:`smaller`, //cmp
+	`all var.xxx`:`smaller`, //cmp
+	`all var.zzz`:`smaller`, //cmp
+	`all var2`:`smaller`, //cmp
+	`app-0.0.1 .`:`greater`, //cmp
+	`app-0.0.1 app`:`rprefix`, //cmp
+	`app0 app`:`rprefix`, //cmp
+	`app0.0.1 app`:`greater`, //cmp
+	`ar *`:`smaller`, //cmp
+	`b a`:`greater`, //cmp
+	`b b`:`equal`, //cmp
+	`b d`:`smaller`, //cmp
+	`b?r b*`:`smaller`, //cmp
+	`bar **.hh`:`smaller`, //cmp
+	`bar **`:`smaller`, //cmp
+	`bar b*`:`smaller`, //cmp
+	`bar b`:`rprefix`, //cmp
+	`bar ba*`:`smaller`, //cmp
+	`bar ba?`:`smaller`, //cmp
+	`bar ba`:`rprefix`, //cmp
+	`bar bar`:`equal`, //cmp
+	`c d`:`smaller`, //cmp
+	`conf3 bar`:`greater`, //cmp
+	`conf3 foo`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns -l⇒{} c++`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.features=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.files=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.lib*={}`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.package::=test.app`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.structs=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.types=<nil>`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns lib.c++`:`smaller`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns {=project app.base}`:`greater`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns {=project configure}`:`rprefix`, //cmp
+	`configure.*::=features builtins funcs files heads types symbs structs sizes aligns {=self app}`:`greater`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.aligns=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.aligns=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.aligns=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.aligns=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.aligns=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.aligns=<nil> configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.features=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.files=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.lib*={}`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.package::=test.app`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.aligns=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.aligns=<nil> lib.c++`:`smaller`, //cmp
+	`configure.aligns=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.aligns=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.aligns=<nil> {=self app}`:`greater`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.builtins=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.builtins=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.builtins=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.builtins=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.builtins=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.builtins=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.builtins=<nil> configure.features=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.files=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.lib*={}`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.package::=test.app`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.builtins=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.builtins=<nil> lib.c++`:`smaller`, //cmp
+	`configure.builtins=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.builtins=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.builtins=<nil> {=self app}`:`greater`, //cmp
+	`configure.features=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.features=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.features=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.features=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.features=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.features=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.features=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.features=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.features=<nil> configure.files=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`configure.features=<nil> configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`configure.features=<nil> configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.features=<nil> configure.lib*={}`:`smaller`, //cmp
+	`configure.features=<nil> configure.package::=test.app`:`smaller`, //cmp
+	`configure.features=<nil> configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.features=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.features=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.features=<nil> lib.c++`:`smaller`, //cmp
+	`configure.features=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.features=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.features=<nil> {=self app}`:`greater`, //cmp
+	`configure.files=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.files=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.files=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.files=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.files=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.files=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.files=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.files=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.files=<nil> configure.features=<nil>`:`greater`, //cmp
+	`configure.files=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`configure.files=<nil> configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`configure.files=<nil> configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.files=<nil> configure.lib*={}`:`smaller`, //cmp
+	`configure.files=<nil> configure.package::=test.app`:`smaller`, //cmp
+	`configure.files=<nil> configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.files=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.files=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.files=<nil> lib.c++`:`smaller`, //cmp
+	`configure.files=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.files=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.files=<nil> {=self app}`:`greater`, //cmp
+	`configure.funcs.stdlib.h::=exit $(target.os)~configure.funcs`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) -l⇒{} c++`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.aligns=<nil>`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.builtins=<nil>`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.features=<nil>`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.files=<nil>`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.lib*={}`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.package::=test.app`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.structs=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.types=<nil>`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) lib.c++`:`smaller`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) {=project app.base}`:`greater`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) {=project configure}`:`rprefix`, //cmp
+	`configure.funcs=$(configure.funcs.stdlib.h) {=self app}`:`greater`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.heads=<stdlib.h> -l⇒{} c++`:`greater`, //cmp
+	`configure.heads=<stdlib.h> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.heads=<stdlib.h> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.heads=<stdlib.h> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.features=<nil>`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.files=<nil>`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.heads=<stdlib.h> configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.lib*={}`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.package::=test.app`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.types=<nil>`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> lib.c++`:`smaller`, //cmp
+	`configure.heads=<stdlib.h> {=project app.base}`:`greater`, //cmp
+	`configure.heads=<stdlib.h> {=project configure}`:`rprefix`, //cmp
+	`configure.heads=<stdlib.h> {=self app}`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> -l⇒{} c++`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.features=<nil>`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.files=<nil>`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.lib*={}`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.package::=test.app`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.types=<nil>`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> lib.c++`:`smaller`, //cmp
+	`configure.include.func.exit=<stdlib.h> {=project app.base}`:`greater`, //cmp
+	`configure.include.func.exit=<stdlib.h> {=project configure}`:`rprefix`, //cmp
+	`configure.include.func.exit=<stdlib.h> {=self app}`:`greater`, //cmp
+	`configure.lib*={} %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.lib*={} %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.lib*={} -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.lib*={} -l⇒{} c++`:`greater`, //cmp
+	`configure.lib*={} HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.lib*={} PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.lib*={} PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.lib*={} VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.lib*={} configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.lib*={} configure.aligns=<nil>`:`greater`, //cmp
+	`configure.lib*={} configure.builtins=<nil>`:`greater`, //cmp
+	`configure.lib*={} configure.features=<nil>`:`greater`, //cmp
+	`configure.lib*={} configure.files=<nil>`:`greater`, //cmp
+	`configure.lib*={} configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.lib*={} configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.lib*={} configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.lib*={} configure.package::=test.app`:`smaller`, //cmp
+	`configure.lib*={} configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.lib*={} configure.structs=<nil>`:`smaller`, //cmp
+	`configure.lib*={} configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.lib*={} configure.types=<nil>`:`smaller`, //cmp
+	`configure.lib*={} configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.lib*={} configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.lib*={} lib.c++`:`smaller`, //cmp
+	`configure.lib*={} {=project app.base}`:`greater`, //cmp
+	`configure.lib*={} {=project configure}`:`rprefix`, //cmp
+	`configure.lib*={} {=self app}`:`greater`, //cmp
+	`configure.package::=test.app %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.package::=test.app -l⇒{} c++`:`greater`, //cmp
+	`configure.package::=test.app HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.package::=test.app PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.package::=test.app VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.package::=test.app configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.package::=test.app configure.aligns=<nil>`:`greater`, //cmp
+	`configure.package::=test.app configure.builtins=<nil>`:`greater`, //cmp
+	`configure.package::=test.app configure.features=<nil>`:`greater`, //cmp
+	`configure.package::=test.app configure.files=<nil>`:`greater`, //cmp
+	`configure.package::=test.app configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.package::=test.app configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.package::=test.app configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.package::=test.app configure.lib*={}`:`greater`, //cmp
+	`configure.package::=test.app configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app configure.structs=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app configure.types=<nil>`:`smaller`, //cmp
+	`configure.package::=test.app configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.package::=test.app configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.package::=test.app lib.c++`:`smaller`, //cmp
+	`configure.package::=test.app {=project app.base}`:`greater`, //cmp
+	`configure.package::=test.app {=project configure}`:`rprefix`, //cmp
+	`configure.package::=test.app {=self app}`:`greater`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.sizes=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.sizes=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.sizes=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.sizes=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.sizes=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.sizes=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.sizes=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.sizes=<nil> configure.features=<nil>`:`greater`, //cmp
+	`configure.sizes=<nil> configure.files=<nil>`:`greater`, //cmp
+	`configure.sizes=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.sizes=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.sizes=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.sizes=<nil> configure.lib*={}`:`greater`, //cmp
+	`configure.sizes=<nil> configure.package::=test.app`:`greater`, //cmp
+	`configure.sizes=<nil> configure.structs=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.sizes=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.sizes=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.sizes=<nil> lib.c++`:`smaller`, //cmp
+	`configure.sizes=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.sizes=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.sizes=<nil> {=self app}`:`greater`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.structs=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.structs=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.structs=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.structs=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.structs=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.structs=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.structs=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.structs=<nil> configure.features=<nil>`:`greater`, //cmp
+	`configure.structs=<nil> configure.files=<nil>`:`greater`, //cmp
+	`configure.structs=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.structs=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.structs=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.structs=<nil> configure.lib*={}`:`greater`, //cmp
+	`configure.structs=<nil> configure.package::=test.app`:`greater`, //cmp
+	`configure.structs=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`configure.structs=<nil> configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.structs=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.structs=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.structs=<nil> lib.c++`:`smaller`, //cmp
+	`configure.structs=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.structs=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.structs=<nil> {=self app}`:`greater`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.symbs=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.symbs=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.symbs=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.symbs=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.symbs=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.symbs=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.features=<nil>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.files=<nil>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.symbs=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.lib*={}`:`greater`, //cmp
+	`configure.symbs=<nil> configure.package::=test.app`:`greater`, //cmp
+	`configure.symbs=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`configure.symbs=<nil> configure.types=<nil>`:`smaller`, //cmp
+	`configure.symbs=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.symbs=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.symbs=<nil> lib.c++`:`smaller`, //cmp
+	`configure.symbs=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.symbs=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.symbs=<nil> {=self app}`:`greater`, //cmp
+	`configure.types=<nil> %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.types=<nil> -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.types=<nil> -l⇒{} c++`:`greater`, //cmp
+	`configure.types=<nil> HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.types=<nil> PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.types=<nil> VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.types=<nil> configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.types=<nil> configure.aligns=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.builtins=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.features=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.files=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.types=<nil> configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.types=<nil> configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.types=<nil> configure.lib*={}`:`greater`, //cmp
+	`configure.types=<nil> configure.package::=test.app`:`greater`, //cmp
+	`configure.types=<nil> configure.sizes=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.structs=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.symbs=<nil>`:`greater`, //cmp
+	`configure.types=<nil> configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`configure.types=<nil> configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.types=<nil> lib.c++`:`smaller`, //cmp
+	`configure.types=<nil> {=project app.base}`:`greater`, //cmp
+	`configure.types=<nil> {=project configure}`:`rprefix`, //cmp
+	`configure.types=<nil> {=self app}`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' -l⇒{} c++`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.aligns=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.builtins=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.features=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.files=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.lib*={}`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.package::=test.app`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.sizes=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.structs=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.symbs=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.types=<nil>`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' configure.version::=0.0.1`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' lib.c++`:`smaller`, //cmp
+	`configure.vendor='ExtBit LLC' {=project app.base}`:`greater`, //cmp
+	`configure.vendor='ExtBit LLC' {=project configure}`:`rprefix`, //cmp
+	`configure.vendor='ExtBit LLC' {=self app}`:`greater`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`configure.version::=0.0.1 -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`configure.version::=0.0.1 -l⇒{} c++`:`greater`, //cmp
+	`configure.version::=0.0.1 HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.version::=0.0.1 PACKAGE⇒test.app`:`greater`, //cmp
+	`configure.version::=0.0.1 VERSION⇒0.0.1`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.aligns=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.builtins=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.features=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.files=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.heads=<stdlib.h>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.lib*={}`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.package::=test.app`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.sizes=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.structs=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.symbs=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.types=<nil>`:`greater`, //cmp
+	`configure.version::=0.0.1 configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`configure.version::=0.0.1 lib.c++`:`smaller`, //cmp
+	`configure.version::=0.0.1 {=project app.base}`:`greater`, //cmp
+	`configure.version::=0.0.1 {=project configure}`:`rprefix`, //cmp
+	`configure.version::=0.0.1 {=self app}`:`greater`, //cmp
+	`fo f`:`rprefix`, //cmp
+	`fo? f*?`:`smaller`, //cmp
+	`fo?/**/x.h f*?/x.h`:`smaller`, //cmp
+	`foo a`:`greater`, //cmp
+	`foo b`:`greater`, //cmp
+	`foo c`:`greater`, //cmp
+	`foo f*?`:`smaller`, //cmp
+	`foo f`:`rprefix`, //cmp
+	`foo foo`:`equal`, //cmp
+	`foo foobar`:`lprefix`, //cmp
+	`foo&(va2)bar foo/&(va1)/xx&(va2)yy/&(va3)zz`:`smaller`, //cmp
+	`foo&(va2)bar foo/&(va3)`:`smaller`, //cmp
+	`foo.txt /`:`greater`, //cmp
+	`foo.txt Volumes`:`greater`, //cmp
+	`foo.txt `:`rprefix`, //cmp
+	`foo/&(va3) foo/&(va1)/xx&(va2)yy/&(va3)zz`:`greater`, //cmp
+	`foo/**/x.h f*?/x.h`:`smaller`, //cmp
+	`foo/b?r/v?.h foo/b*/v*.h`:`smaller`, //cmp
+	`foo/bar/*.h foo/bar/v?.h`:`greater`, //cmp
+	`foo/bar/*.hh foo/**.hh`:`smaller`, //cmp
+	`foo/bar/*/*.h foo/bar/zz/x.h`:`greater`, //cmp
+	`foo/bar/v1.h foo/b*/v*.h`:`smaller`, //cmp
+	`foo/bar/v1.h foo/ba*/v?.h`:`smaller`, //cmp
+	`foo/bar/v1.h foo/bar/v?.h`:`smaller`, //cmp
+	`foo/bar/v2.h foo/b*/v*.h`:`smaller`, //cmp
+	`foo/bar/v2.h foo/ba*/v?.h`:`smaller`, //cmp
+	`foo/bar/v2.h foo/bar/v?.h`:`smaller`, //cmp
+	`foo/bar/xyz???.txt foo/ba?/xyz*.txt`:`smaller`, //cmp
+	`foo/bar/z?/?.h foo/bar/zz/x.h`:`greater`, //cmp
+	`foo/bar/zz/?.h foo/bar/zz/x.h`:`greater`, //cmp
+	`foo/xv*y.h foo/x*y.h`:`smaller`, //cmp
+	`foo/xv1y.h foo/x*y.h`:`smaller`, //cmp
+	`foobar **`:`smaller`, //cmp
+	`foobar -`:`greater`, //cmp
+	`foobar foo`:`rprefix`, //cmp
+	`foobar foobar`:`equal`, //cmp
+	`foobar/config/*.def.am **.def.am`:`smaller`, //cmp
+	`foobax fxx`:`smaller`, //cmp
+	`foobay fxx`:`smaller`, //cmp
+	`foobaz fxx`:`smaller`, //cmp
+	`https://extbit.dev/package/test https://extbit.dev/package/test.app/0.0.1`:`lprefix`, //cmp
+	`https://extbit.dev/package/test.app https://extbit.dev/package/test.app/0.0.1`:`lprefix`, //cmp
+	`https://extbit.dev/package/test.app/0.0.1 https://extbit.dev/package/test.app/0.0.1`:`lprefix`, //cmp
+	`https://extbit.dev/package/test.app/0.0.1/bugs https://extbit.dev/package/test.app/0.0.1`:`rprefix`, //cmp
+	`lib.c++ %[target.os]~configure.aligns=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.builtins=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.features=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.files=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.funcs=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.heads=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.sizes=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.structs=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.symbs=<nil>`:`greater`, //cmp
+	`lib.c++ %[target.os]~configure.types=<nil>`:`greater`, //cmp
+	`lib.c++ -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`lib.c++ -l⇒{} c++`:`greater`, //cmp
+	`lib.c++ HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`lib.c++ PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`lib.c++ PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`lib.c++ PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`lib.c++ PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`lib.c++ PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`lib.c++ PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`lib.c++ PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`lib.c++ PACKAGE⇒test.app`:`greater`, //cmp
+	`lib.c++ VERSION⇒0.0.1`:`greater`, //cmp
+	`lib.c++ configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`greater`, //cmp
+	`lib.c++ configure.aligns=<nil>`:`greater`, //cmp
+	`lib.c++ configure.builtins=<nil>`:`greater`, //cmp
+	`lib.c++ configure.features=<nil>`:`greater`, //cmp
+	`lib.c++ configure.files=<nil>`:`greater`, //cmp
+	`lib.c++ configure.funcs=$(configure.funcs.stdlib.h)`:`greater`, //cmp
+	`lib.c++ configure.heads=<stdlib.h>`:`greater`, //cmp
+	`lib.c++ configure.include.func.exit=<stdlib.h>`:`greater`, //cmp
+	`lib.c++ configure.lib*={}`:`greater`, //cmp
+	`lib.c++ configure.package::=test.app`:`greater`, //cmp
+	`lib.c++ configure.sizes=<nil>`:`greater`, //cmp
+	`lib.c++ configure.structs=<nil>`:`greater`, //cmp
+	`lib.c++ configure.symbs=<nil>`:`greater`, //cmp
+	`lib.c++ configure.types=<nil>`:`greater`, //cmp
+	`lib.c++ configure.vendor='ExtBit LLC'`:`greater`, //cmp
+	`lib.c++ configure.version::=0.0.1`:`greater`, //cmp
+	`lib.c++ {=project app.base}`:`greater`, //cmp
+	`lib.c++ {=project configure}`:`greater`, //cmp
+	`lib.c++ {=self app}`:`greater`, //cmp
+	`main *`:`smaller`, //cmp
+	`main/a.c */a.c`:`smaller`, //cmp
+	`o *?`:`smaller`, //cmp
+	`oo *?`:`smaller`, //cmp
+	`r *`:`smaller`, //cmp
+	`r ?`:`smaller`, //cmp
+	`rule0 rule1`:`smaller`, //cmp
+	`t1 .test.11`:`greater`, //cmp
+	`t1 .test.13`:`greater`, //cmp
+	`t1 .test.14`:`greater`, //cmp
+	`t1 .test.15`:`greater`, //cmp
+	`t1 .test.2`:`greater`, //cmp
+	`t1 .test.3`:`greater`, //cmp
+	`t1 .test.4`:`greater`, //cmp
+	`t1 .test.5`:`greater`, //cmp
+	`t1 .test.6`:`greater`, //cmp
+	`t1 .test.7`:`greater`, //cmp
+	`t1 .test.8`:`greater`, //cmp
+	`t1 .test.9`:`greater`, //cmp
+	`t1 .usee`:`greater`, //cmp
+	`t1 all`:`greater`, //cmp
+	`t1 t10`:`lprefix`, //cmp
+	`t1 t11`:`lprefix`, //cmp
+	`t1 t12`:`lprefix`, //cmp
+	`t1 t13`:`lprefix`, //cmp
+	`t1 t14`:`lprefix`, //cmp
+	`t1 t15`:`lprefix`, //cmp
+	`t1 t2`:`smaller`, //cmp
+	`t1 t3`:`smaller`, //cmp
+	`t1 t4`:`smaller`, //cmp
+	`t1 t5`:`smaller`, //cmp
+	`t1 t6`:`smaller`, //cmp
+	`t1 t7`:`smaller`, //cmp
+	`t1 t8`:`smaller`, //cmp
+	`t1 t9`:`smaller`, //cmp
+	`t1 var.xxx`:`smaller`, //cmp
+	`t1 var.zzz`:`smaller`, //cmp
+	`t1 var2`:`smaller`, //cmp
+	`t10 .test.11`:`greater`, //cmp
+	`t10 .test.13`:`greater`, //cmp
+	`t10 .test.14`:`greater`, //cmp
+	`t10 .test.15`:`greater`, //cmp
+	`t10 .test.2`:`greater`, //cmp
+	`t10 .test.3`:`greater`, //cmp
+	`t10 .test.4`:`greater`, //cmp
+	`t10 .test.5`:`greater`, //cmp
+	`t10 .test.6`:`greater`, //cmp
+	`t10 .test.7`:`greater`, //cmp
+	`t10 .test.8`:`greater`, //cmp
+	`t10 .test.9`:`greater`, //cmp
+	`t10 .usee`:`greater`, //cmp
+	`t10 all`:`greater`, //cmp
+	`t10 t11`:`smaller`, //cmp
+	`t10 t12`:`smaller`, //cmp
+	`t10 t13`:`smaller`, //cmp
+	`t10 t14`:`smaller`, //cmp
+	`t10 t15`:`smaller`, //cmp
+	`t10 t1`:`rprefix`, //cmp
+	`t10 t2`:`smaller`, //cmp
+	`t10 t3`:`smaller`, //cmp
+	`t10 t4`:`smaller`, //cmp
+	`t10 t5`:`smaller`, //cmp
+	`t10 t6`:`smaller`, //cmp
+	`t10 t7`:`smaller`, //cmp
+	`t10 t8`:`smaller`, //cmp
+	`t10 t9`:`smaller`, //cmp
+	`t10 var.xxx`:`smaller`, //cmp
+	`t10 var.zzz`:`smaller`, //cmp
+	`t10 xyz`:`smaller`, //cmp
+	`t11 .test.11`:`greater`, //cmp
+	`t11 .test.12`:`greater`, //cmp
+	`t11 .test.13`:`greater`, //cmp
+	`t11 .test.14`:`greater`, //cmp
+	`t11 .test.15`:`greater`, //cmp
+	`t11 .test.2`:`greater`, //cmp
+	`t11 .test.3`:`greater`, //cmp
+	`t11 .test.4`:`greater`, //cmp
+	`t11 .test.5`:`greater`, //cmp
+	`t11 .test.6`:`greater`, //cmp
+	`t11 .test.7`:`greater`, //cmp
+	`t11 .test.8`:`greater`, //cmp
+	`t11 .test.9`:`greater`, //cmp
+	`t11 .usee`:`greater`, //cmp
+	`t11 all`:`greater`, //cmp
+	`t11 t10`:`greater`, //cmp
+	`t11 t12`:`smaller`, //cmp
+	`t11 t13`:`smaller`, //cmp
+	`t11 t14`:`smaller`, //cmp
+	`t11 t15`:`smaller`, //cmp
+	`t11 t1`:`rprefix`, //cmp
+	`t11 t2`:`smaller`, //cmp
+	`t11 t3`:`smaller`, //cmp
+	`t11 t4`:`smaller`, //cmp
+	`t11 t5`:`smaller`, //cmp
+	`t11 t6`:`smaller`, //cmp
+	`t11 t7`:`smaller`, //cmp
+	`t11 t8`:`smaller`, //cmp
+	`t11 t9`:`smaller`, //cmp
+	`t11 var.xxx`:`smaller`, //cmp
+	`t11 var.zzz`:`smaller`, //cmp
+	`t11 vars`:`smaller`, //cmp
+	`t11 xyz`:`smaller`, //cmp
+	`t12 .test.11`:`greater`, //cmp
+	`t12 .test.13`:`greater`, //cmp
+	`t12 .test.14`:`greater`, //cmp
+	`t12 .test.15`:`greater`, //cmp
+	`t12 .test.2`:`greater`, //cmp
+	`t12 .test.3`:`greater`, //cmp
+	`t12 .test.4`:`greater`, //cmp
+	`t12 .test.5`:`greater`, //cmp
+	`t12 .test.6`:`greater`, //cmp
+	`t12 .test.7`:`greater`, //cmp
+	`t12 .test.8`:`greater`, //cmp
+	`t12 .test.9`:`greater`, //cmp
+	`t12 .usee`:`greater`, //cmp
+	`t12 all`:`greater`, //cmp
+	`t12 t10`:`greater`, //cmp
+	`t12 t11`:`greater`, //cmp
+	`t12 t13`:`smaller`, //cmp
+	`t12 t14`:`smaller`, //cmp
+	`t12 t15`:`smaller`, //cmp
+	`t12 t1`:`rprefix`, //cmp
+	`t12 t2`:`smaller`, //cmp
+	`t12 t3`:`smaller`, //cmp
+	`t12 t4`:`smaller`, //cmp
+	`t12 t5`:`smaller`, //cmp
+	`t12 t6`:`smaller`, //cmp
+	`t12 t7`:`smaller`, //cmp
+	`t12 t8`:`smaller`, //cmp
+	`t12 t9`:`smaller`, //cmp
+	`t12 var.xxx`:`smaller`, //cmp
+	`t12 var.zzz`:`smaller`, //cmp
+	`t13 .test.13`:`greater`, //cmp
+	`t13 .test.14`:`greater`, //cmp
+	`t13 .test.15`:`greater`, //cmp
+	`t13 .test.2`:`greater`, //cmp
+	`t13 .test.3`:`greater`, //cmp
+	`t13 .test.4`:`greater`, //cmp
+	`t13 .test.5`:`greater`, //cmp
+	`t13 .test.6`:`greater`, //cmp
+	`t13 .test.7`:`greater`, //cmp
+	`t13 .test.8`:`greater`, //cmp
+	`t13 .test.9`:`greater`, //cmp
+	`t13 .usee`:`greater`, //cmp
+	`t13 all`:`greater`, //cmp
+	`t13 t10`:`greater`, //cmp
+	`t13 t11`:`greater`, //cmp
+	`t13 t12`:`greater`, //cmp
+	`t13 t14`:`smaller`, //cmp
+	`t13 t15`:`smaller`, //cmp
+	`t13 t1`:`rprefix`, //cmp
+	`t13 t2`:`smaller`, //cmp
+	`t13 t3`:`smaller`, //cmp
+	`t13 t4`:`smaller`, //cmp
+	`t13 t5`:`smaller`, //cmp
+	`t13 t6`:`smaller`, //cmp
+	`t13 t7`:`smaller`, //cmp
+	`t13 t8`:`smaller`, //cmp
+	`t13 t9`:`smaller`, //cmp
+	`t13 var.xxx`:`smaller`, //cmp
+	`t13 var.zzz`:`smaller`, //cmp
+	`t14 .test.13`:`greater`, //cmp
+	`t14 .test.14`:`greater`, //cmp
+	`t14 .test.15`:`greater`, //cmp
+	`t14 .test.2`:`greater`, //cmp
+	`t14 .test.3`:`greater`, //cmp
+	`t14 .test.4`:`greater`, //cmp
+	`t14 .test.5`:`greater`, //cmp
+	`t14 .test.6`:`greater`, //cmp
+	`t14 .test.7`:`greater`, //cmp
+	`t14 .test.8`:`greater`, //cmp
+	`t14 .test.9`:`greater`, //cmp
+	`t14 .usee`:`greater`, //cmp
+	`t14 all`:`greater`, //cmp
+	`t14 t10`:`greater`, //cmp
+	`t14 t11`:`greater`, //cmp
+	`t14 t12`:`greater`, //cmp
+	`t14 t13`:`greater`, //cmp
+	`t14 t15`:`smaller`, //cmp
+	`t14 t1`:`rprefix`, //cmp
+	`t14 t2`:`smaller`, //cmp
+	`t14 t3`:`smaller`, //cmp
+	`t14 t4`:`smaller`, //cmp
+	`t14 t5`:`smaller`, //cmp
+	`t14 t6`:`smaller`, //cmp
+	`t14 t7`:`smaller`, //cmp
+	`t14 t8`:`smaller`, //cmp
+	`t14 t9`:`smaller`, //cmp
+	`t14 var.xxx`:`smaller`, //cmp
+	`t14 var.yyy`:`smaller`, //cmp
+	`t14 var.zzz`:`smaller`, //cmp
+	`t14 var2`:`smaller`, //cmp
+	`t15 .test.13`:`greater`, //cmp
+	`t15 .test.14`:`greater`, //cmp
+	`t15 .test.15`:`greater`, //cmp
+	`t15 .test.2`:`greater`, //cmp
+	`t15 .test.3`:`greater`, //cmp
+	`t15 .test.4`:`greater`, //cmp
+	`t15 .test.5`:`greater`, //cmp
+	`t15 .test.6`:`greater`, //cmp
+	`t15 .test.7`:`greater`, //cmp
+	`t15 .test.8`:`greater`, //cmp
+	`t15 .test.9`:`greater`, //cmp
+	`t15 .usee`:`greater`, //cmp
+	`t15 all`:`greater`, //cmp
+	`t15 t10`:`greater`, //cmp
+	`t15 t11`:`greater`, //cmp
+	`t15 t12`:`greater`, //cmp
+	`t15 t13`:`greater`, //cmp
+	`t15 t14`:`greater`, //cmp
+	`t15 t1`:`rprefix`, //cmp
+	`t15 t2`:`smaller`, //cmp
+	`t15 t3`:`smaller`, //cmp
+	`t15 t4`:`smaller`, //cmp
+	`t15 t5`:`smaller`, //cmp
+	`t15 t6`:`smaller`, //cmp
+	`t15 t7`:`smaller`, //cmp
+	`t15 t8`:`smaller`, //cmp
+	`t15 t9`:`smaller`, //cmp
+	`t15 var.xxx`:`smaller`, //cmp
+	`t15 var.yyy`:`smaller`, //cmp
+	`t15 var.zzz`:`smaller`, //cmp
+	`t15 xyz`:`smaller`, //cmp
+	`t2 .test.13`:`greater`, //cmp
+	`t2 .test.14`:`greater`, //cmp
+	`t2 .test.15`:`greater`, //cmp
+	`t2 .test.2`:`greater`, //cmp
+	`t2 .test.3`:`greater`, //cmp
+	`t2 .test.4`:`greater`, //cmp
+	`t2 .test.5`:`greater`, //cmp
+	`t2 .test.6`:`greater`, //cmp
+	`t2 .test.7`:`greater`, //cmp
+	`t2 .test.8`:`greater`, //cmp
+	`t2 .test.9`:`greater`, //cmp
+	`t2 .usee`:`greater`, //cmp
+	`t2 all`:`greater`, //cmp
+	`t2 t10`:`greater`, //cmp
+	`t2 t11`:`greater`, //cmp
+	`t2 t12`:`greater`, //cmp
+	`t2 t13`:`greater`, //cmp
+	`t2 t14`:`greater`, //cmp
+	`t2 t15`:`greater`, //cmp
+	`t2 t1`:`greater`, //cmp
+	`t2 t3`:`smaller`, //cmp
+	`t2 t4`:`smaller`, //cmp
+	`t2 t5`:`smaller`, //cmp
+	`t2 t6`:`smaller`, //cmp
+	`t2 t7`:`smaller`, //cmp
+	`t2 t8`:`smaller`, //cmp
+	`t2 t9`:`smaller`, //cmp
+	`t2 var.xxx`:`smaller`, //cmp
+	`t2 var.yyy`:`smaller`, //cmp
+	`t2 var.zzz`:`smaller`, //cmp
+	`t2 var2`:`smaller`, //cmp
+	`t2 vars`:`smaller`, //cmp
+	`t3 .test.13`:`greater`, //cmp
+	`t3 .test.14`:`greater`, //cmp
+	`t3 .test.15`:`greater`, //cmp
+	`t3 .test.1`:`greater`, //cmp
+	`t3 .test.2`:`greater`, //cmp
+	`t3 .test.3`:`greater`, //cmp
+	`t3 .test.5`:`greater`, //cmp
+	`t3 .test.6`:`greater`, //cmp
+	`t3 .test.7`:`greater`, //cmp
+	`t3 .test.8`:`greater`, //cmp
+	`t3 .test.9`:`greater`, //cmp
+	`t3 .usee`:`greater`, //cmp
+	`t3 all`:`greater`, //cmp
+	`t3 t10`:`greater`, //cmp
+	`t3 t11`:`greater`, //cmp
+	`t3 t12`:`greater`, //cmp
+	`t3 t13`:`greater`, //cmp
+	`t3 t14`:`greater`, //cmp
+	`t3 t15`:`greater`, //cmp
+	`t3 t1`:`greater`, //cmp
+	`t3 t2`:`greater`, //cmp
+	`t3 t4`:`smaller`, //cmp
+	`t3 t5`:`smaller`, //cmp
+	`t3 t6`:`smaller`, //cmp
+	`t3 t7`:`smaller`, //cmp
+	`t3 t8`:`smaller`, //cmp
+	`t3 t9`:`smaller`, //cmp
+	`t3 var.xxx`:`smaller`, //cmp
+	`t3 var.yyy`:`smaller`, //cmp
+	`t3 var.zzz`:`smaller`, //cmp
+	`t3 var2`:`smaller`, //cmp
+	`t3 vars`:`smaller`, //cmp
+	`t4 .test.12`:`greater`, //cmp
+	`t4 .test.13`:`greater`, //cmp
+	`t4 .test.14`:`greater`, //cmp
+	`t4 .test.15`:`greater`, //cmp
+	`t4 .test.3`:`greater`, //cmp
+	`t4 .test.4`:`greater`, //cmp
+	`t4 .test.5`:`greater`, //cmp
+	`t4 .test.6`:`greater`, //cmp
+	`t4 .test.7`:`greater`, //cmp
+	`t4 .test.8`:`greater`, //cmp
+	`t4 .test.9`:`greater`, //cmp
+	`t4 .usee`:`greater`, //cmp
+	`t4 all`:`greater`, //cmp
+	`t4 t10`:`greater`, //cmp
+	`t4 t11`:`greater`, //cmp
+	`t4 t12`:`greater`, //cmp
+	`t4 t13`:`greater`, //cmp
+	`t4 t14`:`greater`, //cmp
+	`t4 t15`:`greater`, //cmp
+	`t4 t1`:`greater`, //cmp
+	`t4 t2`:`greater`, //cmp
+	`t4 t3`:`greater`, //cmp
+	`t4 t5`:`smaller`, //cmp
+	`t4 t6`:`smaller`, //cmp
+	`t4 t7`:`smaller`, //cmp
+	`t4 t8`:`smaller`, //cmp
+	`t4 t9`:`smaller`, //cmp
+	`t4 var.xxx`:`smaller`, //cmp
+	`t4 var.yyy`:`smaller`, //cmp
+	`t4 var.zzz`:`smaller`, //cmp
+	`t4 var2`:`smaller`, //cmp
+	`t4 vars`:`smaller`, //cmp
+	`t4 xyz`:`smaller`, //cmp
+	`t5 .test.13`:`greater`, //cmp
+	`t5 .test.14`:`greater`, //cmp
+	`t5 .test.15`:`greater`, //cmp
+	`t5 .test.3`:`greater`, //cmp
+	`t5 .test.5`:`greater`, //cmp
+	`t5 .test.6`:`greater`, //cmp
+	`t5 .test.7`:`greater`, //cmp
+	`t5 .test.8`:`greater`, //cmp
+	`t5 .test.9`:`greater`, //cmp
+	`t5 .usee`:`greater`, //cmp
+	`t5 all`:`greater`, //cmp
+	`t5 t11`:`greater`, //cmp
+	`t5 t12`:`greater`, //cmp
+	`t5 t13`:`greater`, //cmp
+	`t5 t14`:`greater`, //cmp
+	`t5 t15`:`greater`, //cmp
+	`t5 t1`:`greater`, //cmp
+	`t5 t2`:`greater`, //cmp
+	`t5 t3`:`greater`, //cmp
+	`t5 t4`:`greater`, //cmp
+	`t5 t6`:`smaller`, //cmp
+	`t5 t7`:`smaller`, //cmp
+	`t5 t8`:`smaller`, //cmp
+	`t5 t9`:`smaller`, //cmp
+	`t5 var.xxx`:`smaller`, //cmp
+	`t5 var.yyy`:`smaller`, //cmp
+	`t5 var.zzz`:`smaller`, //cmp
+	`t5 var2`:`smaller`, //cmp
+	`t5 vars`:`smaller`, //cmp
+	`t5 xyz`:`smaller`, //cmp
+	`t6 .test.13`:`greater`, //cmp
+	`t6 .test.14`:`greater`, //cmp
+	`t6 .test.15`:`greater`, //cmp
+	`t6 .test.3`:`greater`, //cmp
+	`t6 .test.5`:`greater`, //cmp
+	`t6 .test.6`:`greater`, //cmp
+	`t6 .test.7`:`greater`, //cmp
+	`t6 .test.8`:`greater`, //cmp
+	`t6 .test.9`:`greater`, //cmp
+	`t6 .usee`:`greater`, //cmp
+	`t6 all`:`greater`, //cmp
+	`t6 t11`:`greater`, //cmp
+	`t6 t12`:`greater`, //cmp
+	`t6 t13`:`greater`, //cmp
+	`t6 t14`:`greater`, //cmp
+	`t6 t15`:`greater`, //cmp
+	`t6 t1`:`greater`, //cmp
+	`t6 t2`:`greater`, //cmp
+	`t6 t3`:`greater`, //cmp
+	`t6 t4`:`greater`, //cmp
+	`t6 t5`:`greater`, //cmp
+	`t6 t7`:`smaller`, //cmp
+	`t6 t8`:`smaller`, //cmp
+	`t6 t9`:`smaller`, //cmp
+	`t6 var.xxx`:`smaller`, //cmp
+	`t6 var.yyy`:`smaller`, //cmp
+	`t6 var.zzz`:`smaller`, //cmp
+	`t6 var2`:`smaller`, //cmp
+	`t6 vars`:`smaller`, //cmp
+	`t6 xyz`:`smaller`, //cmp
+	`t7 .test.14`:`greater`, //cmp
+	`t7 .test.15`:`greater`, //cmp
+	`t7 .test.3`:`greater`, //cmp
+	`t7 .test.5`:`greater`, //cmp
+	`t7 .test.6`:`greater`, //cmp
+	`t7 .test.7`:`greater`, //cmp
+	`t7 .test.8`:`greater`, //cmp
+	`t7 .test.9`:`greater`, //cmp
+	`t7 .usee`:`greater`, //cmp
+	`t7 all`:`greater`, //cmp
+	`t7 t11`:`greater`, //cmp
+	`t7 t12`:`greater`, //cmp
+	`t7 t13`:`greater`, //cmp
+	`t7 t14`:`greater`, //cmp
+	`t7 t15`:`greater`, //cmp
+	`t7 t1`:`greater`, //cmp
+	`t7 t2`:`greater`, //cmp
+	`t7 t3`:`greater`, //cmp
+	`t7 t4`:`greater`, //cmp
+	`t7 t5`:`greater`, //cmp
+	`t7 t6`:`greater`, //cmp
+	`t7 t8`:`smaller`, //cmp
+	`t7 t9`:`smaller`, //cmp
+	`t7 var.xxx`:`smaller`, //cmp
+	`t7 var.yyy`:`smaller`, //cmp
+	`t7 var.zzz`:`smaller`, //cmp
+	`t7 var2`:`smaller`, //cmp
+	`t7 vars`:`smaller`, //cmp
+	`t7 xyz`:`smaller`, //cmp
+	`t8 .test.14`:`greater`, //cmp
+	`t8 .test.15`:`greater`, //cmp
+	`t8 .test.1`:`greater`, //cmp
+	`t8 .test.3`:`greater`, //cmp
+	`t8 .test.5`:`greater`, //cmp
+	`t8 .test.6`:`greater`, //cmp
+	`t8 .test.7`:`greater`, //cmp
+	`t8 .test.8`:`greater`, //cmp
+	`t8 .test.9`:`greater`, //cmp
+	`t8 .usee`:`greater`, //cmp
+	`t8 all`:`greater`, //cmp
+	`t8 t11`:`greater`, //cmp
+	`t8 t12`:`greater`, //cmp
+	`t8 t13`:`greater`, //cmp
+	`t8 t14`:`greater`, //cmp
+	`t8 t15`:`greater`, //cmp
+	`t8 t1`:`greater`, //cmp
+	`t8 t2`:`greater`, //cmp
+	`t8 t3`:`greater`, //cmp
+	`t8 t4`:`greater`, //cmp
+	`t8 t5`:`greater`, //cmp
+	`t8 t6`:`greater`, //cmp
+	`t8 t7`:`greater`, //cmp
+	`t8 t9`:`smaller`, //cmp
+	`t8 var.xxx`:`smaller`, //cmp
+	`t8 var.yyy`:`smaller`, //cmp
+	`t8 var.zzz`:`smaller`, //cmp
+	`t8 var2`:`smaller`, //cmp
+	`t8 vars`:`smaller`, //cmp
+	`t8 xyz`:`smaller`, //cmp
+	`t9 .test.14`:`greater`, //cmp
+	`t9 .test.15`:`greater`, //cmp
+	`t9 .test.1`:`greater`, //cmp
+	`t9 .test.3`:`greater`, //cmp
+	`t9 .test.5`:`greater`, //cmp
+	`t9 .test.6`:`greater`, //cmp
+	`t9 .test.7`:`greater`, //cmp
+	`t9 .test.8`:`greater`, //cmp
+	`t9 .test.9`:`greater`, //cmp
+	`t9 .usee`:`greater`, //cmp
+	`t9 all`:`greater`, //cmp
+	`t9 t11`:`greater`, //cmp
+	`t9 t12`:`greater`, //cmp
+	`t9 t13`:`greater`, //cmp
+	`t9 t14`:`greater`, //cmp
+	`t9 t15`:`greater`, //cmp
+	`t9 t1`:`greater`, //cmp
+	`t9 t2`:`greater`, //cmp
+	`t9 t3`:`greater`, //cmp
+	`t9 t4`:`greater`, //cmp
+	`t9 t5`:`greater`, //cmp
+	`t9 t6`:`greater`, //cmp
+	`t9 t7`:`greater`, //cmp
+	`t9 t8`:`greater`, //cmp
+	`t9 var.xxx`:`smaller`, //cmp
+	`t9 var.yyy`:`smaller`, //cmp
+	`t9 var.zzz`:`smaller`, //cmp
+	`t9 var2`:`smaller`, //cmp
+	`t9 vars`:`smaller`, //cmp
+	`t9 xyz`:`smaller`, //cmp
+	`test test.app`:`smaller`, //cmp
+	`test.app test.app`:`equal`, //cmp
+	`test.app test`:`rprefix`, //cmp
+	`test.app-0.0.1 test.app`:`greater`, //cmp
+	`test.app-0.0.1 test`:`rprefix`, //cmp
+	`test.app0.0.1 test.app-0.0.1`:`greater`, //cmp
+	`v *`:`smaller`, //cmp
+	`v1 v?.h`:`smaller`, //cmp
+	`v1 v`:`rprefix`, //cmp
+	`v1.h v?.h`:`smaller`, //cmp
+	`v1y *`:`smaller`, //cmp
+	`v2 v?.h`:`smaller`, //cmp
+	`v2 v`:`rprefix`, //cmp
+	`v2.h v?.h`:`smaller`, //cmp
+	`va2 va1`:`greater`, //cmp
+	`va2 va3`:`smaller`, //cmp
+	`va3 va1`:`greater`, //cmp
+	`var.xxx .test.14`:`greater`, //cmp
+	`var.xxx .test.15`:`greater`, //cmp
+	`var.xxx .test.3`:`greater`, //cmp
+	`var.xxx .test.5`:`greater`, //cmp
+	`var.xxx .test.6`:`greater`, //cmp
+	`var.xxx .test.7`:`greater`, //cmp
+	`var.xxx .test.8`:`greater`, //cmp
+	`var.xxx .test.9`:`greater`, //cmp
+	`var.xxx .usee`:`greater`, //cmp
+	`var.xxx all`:`greater`, //cmp
+	`var.xxx t10`:`greater`, //cmp
+	`var.xxx t11`:`greater`, //cmp
+	`var.xxx t12`:`greater`, //cmp
+	`var.xxx t13`:`greater`, //cmp
+	`var.xxx t14`:`greater`, //cmp
+	`var.xxx t15`:`greater`, //cmp
+	`var.xxx t1`:`greater`, //cmp
+	`var.xxx t2`:`greater`, //cmp
+	`var.xxx t3`:`greater`, //cmp
+	`var.xxx t4`:`greater`, //cmp
+	`var.xxx t5`:`greater`, //cmp
+	`var.xxx t6`:`greater`, //cmp
+	`var.xxx t7`:`greater`, //cmp
+	`var.xxx t8`:`greater`, //cmp
+	`var.xxx t9`:`greater`, //cmp
+	`var.xxx var.yyy`:`smaller`, //cmp
+	`var.xxx var.zzz`:`smaller`, //cmp
+	`var.xxx var2`:`smaller`, //cmp
+	`var.xxx vars`:`smaller`, //cmp
+	`var.xxx xyz`:`smaller`, //cmp
+	`var.yyy .test.14`:`greater`, //cmp
+	`var.yyy .test.15`:`greater`, //cmp
+	`var.yyy .test.3`:`greater`, //cmp
+	`var.yyy .test.5`:`greater`, //cmp
+	`var.yyy .test.6`:`greater`, //cmp
+	`var.yyy .test.7`:`greater`, //cmp
+	`var.yyy .test.8`:`greater`, //cmp
+	`var.yyy .test.9`:`greater`, //cmp
+	`var.yyy .usee`:`greater`, //cmp
+	`var.yyy all`:`greater`, //cmp
+	`var.yyy t11`:`greater`, //cmp
+	`var.yyy t12`:`greater`, //cmp
+	`var.yyy t13`:`greater`, //cmp
+	`var.yyy t14`:`greater`, //cmp
+	`var.yyy t15`:`greater`, //cmp
+	`var.yyy t1`:`greater`, //cmp
+	`var.yyy t2`:`greater`, //cmp
+	`var.yyy t3`:`greater`, //cmp
+	`var.yyy t4`:`greater`, //cmp
+	`var.yyy t5`:`greater`, //cmp
+	`var.yyy t6`:`greater`, //cmp
+	`var.yyy t7`:`greater`, //cmp
+	`var.yyy t8`:`greater`, //cmp
+	`var.yyy t9`:`greater`, //cmp
+	`var.yyy var.xxx`:`greater`, //cmp
+	`var.yyy var.zzz`:`smaller`, //cmp
+	`var.yyy var2`:`smaller`, //cmp
+	`var.yyy vars`:`smaller`, //cmp
+	`var.yyy xyz`:`smaller`, //cmp
+	`var.zzz .test.14`:`greater`, //cmp
+	`var.zzz .test.15`:`greater`, //cmp
+	`var.zzz .test.3`:`greater`, //cmp
+	`var.zzz .test.5`:`greater`, //cmp
+	`var.zzz .test.6`:`greater`, //cmp
+	`var.zzz .test.7`:`greater`, //cmp
+	`var.zzz .test.8`:`greater`, //cmp
+	`var.zzz .test.9`:`greater`, //cmp
+	`var.zzz .usee`:`greater`, //cmp
+	`var.zzz all`:`greater`, //cmp
+	`var.zzz t11`:`greater`, //cmp
+	`var.zzz t12`:`greater`, //cmp
+	`var.zzz t13`:`greater`, //cmp
+	`var.zzz t14`:`greater`, //cmp
+	`var.zzz t15`:`greater`, //cmp
+	`var.zzz t1`:`greater`, //cmp
+	`var.zzz t2`:`greater`, //cmp
+	`var.zzz t3`:`greater`, //cmp
+	`var.zzz t4`:`greater`, //cmp
+	`var.zzz t5`:`greater`, //cmp
+	`var.zzz t6`:`greater`, //cmp
+	`var.zzz t7`:`greater`, //cmp
+	`var.zzz t8`:`greater`, //cmp
+	`var.zzz t9`:`greater`, //cmp
+	`var.zzz var.xxx`:`greater`, //cmp
+	`var.zzz var.yyy`:`greater`, //cmp
+	`var.zzz var2`:`smaller`, //cmp
+	`var.zzz vars`:`smaller`, //cmp
+	`var.zzz xyz`:`smaller`, //cmp
+	`var2 .test.14`:`greater`, //cmp
+	`var2 .test.15`:`greater`, //cmp
+	`var2 .test.3`:`greater`, //cmp
+	`var2 .test.5`:`greater`, //cmp
+	`var2 .test.6`:`greater`, //cmp
+	`var2 .test.7`:`greater`, //cmp
+	`var2 .test.8`:`greater`, //cmp
+	`var2 .test.9`:`greater`, //cmp
+	`var2 .usee`:`greater`, //cmp
+	`var2 all`:`greater`, //cmp
+	`var2 t11`:`greater`, //cmp
+	`var2 t12`:`greater`, //cmp
+	`var2 t13`:`greater`, //cmp
+	`var2 t14`:`greater`, //cmp
+	`var2 t15`:`greater`, //cmp
+	`var2 t1`:`greater`, //cmp
+	`var2 t2`:`greater`, //cmp
+	`var2 t3`:`greater`, //cmp
+	`var2 t4`:`greater`, //cmp
+	`var2 t5`:`greater`, //cmp
+	`var2 t6`:`greater`, //cmp
+	`var2 t7`:`greater`, //cmp
+	`var2 t8`:`greater`, //cmp
+	`var2 t9`:`greater`, //cmp
+	`var2 var.xxx`:`greater`, //cmp
+	`var2 var.yyy`:`greater`, //cmp
+	`var2 var.zzz`:`greater`, //cmp
+	`var2 vars`:`smaller`, //cmp
+	`var2 xyz`:`smaller`, //cmp
+	`vars .test.14`:`greater`, //cmp
+	`vars .test.15`:`greater`, //cmp
+	`vars .test.3`:`greater`, //cmp
+	`vars .test.5`:`greater`, //cmp
+	`vars .test.6`:`greater`, //cmp
+	`vars .test.7`:`greater`, //cmp
+	`vars .test.8`:`greater`, //cmp
+	`vars .test.9`:`greater`, //cmp
+	`vars .usee`:`greater`, //cmp
+	`vars all`:`greater`, //cmp
+	`vars t11`:`greater`, //cmp
+	`vars t12`:`greater`, //cmp
+	`vars t13`:`greater`, //cmp
+	`vars t14`:`greater`, //cmp
+	`vars t15`:`greater`, //cmp
+	`vars t1`:`greater`, //cmp
+	`vars t2`:`greater`, //cmp
+	`vars t3`:`greater`, //cmp
+	`vars t4`:`greater`, //cmp
+	`vars t5`:`greater`, //cmp
+	`vars t6`:`greater`, //cmp
+	`vars t7`:`greater`, //cmp
+	`vars t8`:`greater`, //cmp
+	`vars t9`:`greater`, //cmp
+	`vars var.xxx`:`greater`, //cmp
+	`vars var.yyy`:`greater`, //cmp
+	`vars var.zzz`:`greater`, //cmp
+	`vars var2`:`greater`, //cmp
+	`vars xyz`:`smaller`, //cmp
+	`x a`:`greater`, //cmp
+	`x b`:`greater`, //cmp
+	`x c`:`greater`, //cmp
+	`x {}`:`rprefix`, //cmp
+	`x.h x.h`:`equal`, //cmp
+	`xv x`:`rprefix`, //cmp
+	`xv*y.h x*y.h`:`smaller`, //cmp
+	`xv1y x*y.h`:`smaller`, //cmp
+	`xv1y x`:`rprefix`, //cmp
+	`xv1y.h x*y.h`:`smaller`, //cmp
+	`xxx yyy`:`smaller`, //cmp
+	`xxx zzz`:`smaller`, //cmp
+	`xyz .test.14`:`greater`, //cmp
+	`xyz .test.15`:`greater`, //cmp
+	`xyz .test.1`:`greater`, //cmp
+	`xyz .test.3`:`greater`, //cmp
+	`xyz .test.5`:`greater`, //cmp
+	`xyz .test.6`:`greater`, //cmp
+	`xyz .test.7`:`greater`, //cmp
+	`xyz .test.8`:`greater`, //cmp
+	`xyz .test.9`:`greater`, //cmp
+	`xyz .usee`:`greater`, //cmp
+	`xyz all`:`greater`, //cmp
+	`xyz t11`:`greater`, //cmp
+	`xyz t12`:`greater`, //cmp
+	`xyz t13`:`greater`, //cmp
+	`xyz t14`:`greater`, //cmp
+	`xyz t15`:`greater`, //cmp
+	`xyz t1`:`greater`, //cmp
+	`xyz t2`:`greater`, //cmp
+	`xyz t3`:`greater`, //cmp
+	`xyz t4`:`greater`, //cmp
+	`xyz t5`:`greater`, //cmp
+	`xyz t6`:`greater`, //cmp
+	`xyz t7`:`greater`, //cmp
+	`xyz t8`:`greater`, //cmp
+	`xyz t9`:`greater`, //cmp
+	`xyz var.xxx`:`greater`, //cmp
+	`xyz var.yyy`:`greater`, //cmp
+	`xyz var.zzz`:`greater`, //cmp
+	`xyz var2`:`greater`, //cmp
+	`xyz vars`:`greater`, //cmp
+	`y.h y.h`:`equal`, //cmp
+	`yyy xxx`:`greater`, //cmp
+	`yyy zzz`:`smaller`, //cmp
+	`z zz`:`lprefix`, //cmp
+	`z.h z.h`:`equal`, //cmp
+	`z? zz`:`greater`, //cmp
+	`zzz xxx`:`greater`, //cmp
+	`zzz yyy`:`greater`, //cmp
+	`{=file foo.txt} %[testdata]/builtins/file/foo.txt`:`greater`, //cmp
+	`{=file foo.txt} {=file foo.txt}`:`equal`, //cmp
+	`{=project app.base} %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`{=project app.base} %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`{=project app.base} -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`{=project app.base} -l⇒{} c++`:`greater`, //cmp
+	`{=project app.base} HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`{=project app.base} PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`{=project app.base} PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`{=project app.base} PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`{=project app.base} PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`{=project app.base} PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`{=project app.base} PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`{=project app.base} PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`{=project app.base} PACKAGE⇒test.app`:`greater`, //cmp
+	`{=project app.base} VERSION⇒0.0.1`:`greater`, //cmp
+	`{=project app.base} configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`{=project app.base} configure.aligns=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.builtins=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.features=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.files=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`{=project app.base} configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`{=project app.base} configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`{=project app.base} configure.lib*={}`:`smaller`, //cmp
+	`{=project app.base} configure.package::=test.app`:`smaller`, //cmp
+	`{=project app.base} configure.sizes=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.structs=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.symbs=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.types=<nil>`:`smaller`, //cmp
+	`{=project app.base} configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`{=project app.base} configure.version::=0.0.1`:`smaller`, //cmp
+	`{=project app.base} lib.c++`:`smaller`, //cmp
 	`{=project app.base} {=project configure}`:`smaller`, //cmp
 	`{=project app.base} {=self app}`:`rprefix`, //cmp
-	`{=project app.base} {=uselist lib.c++}`:`smaller`, //cmp: {=project app.base} lib.c++
-	`{=project configure} {=def -I.objc++}`:`greater`, //cmp: {=project configure} -I.objc++⇒<nil>
-	`{=project configure} {=def -L}`:`greater`, //cmp: {=project configure} -L⇒/Volumes/workout/arm64&(target.sub)-apple-Darwin25.5.0-macho/bootstrap/lib/arm64&(target.sub)-apple-Darwin25.5.0-macho /Volumes/workout/arm64&(target.sub)-apple-Darwin25.5.0-macho/bootstrap/lib/arm64&(target.sub)-apple-Darwin25.5.0-macho /Volumes/workout/arm64&(target.sub)-apple-Darwin25.5.0-macho/bootstrap/lib/arm64&(target.sub)-apple-Darwin25.5.0-macho
-	`{=project configure} {=def -Werror}`:`greater`, //cmp: {=project configure} -Werror⇒ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time ignored-attributes unknown-attributes format format-invalid-specifier instantiation-after-specialization call-to-pure-virtual-from-ctor-dtor incompatible-pointer-types unguarded-availability-new date-time
-	`{=project configure} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=project configure} {=def -l}`:`greater`, //cmp
-	`{=project configure} {=def -no.ld}`:`greater`, //cmp
-	`{=project configure} {=def -no}`:`greater`, //cmp: {=project configure} -no⇒stdinc++ stdinc++
-	`{=project configure} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=project configure} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=project configure} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=project configure} {=def PACKAGE_NAME}`:`greater`, //cmp: {=project configure} PACKAGE_NAME⇒'app'
-	`{=project configure} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=project configure} {=def PACKAGE_TARNAME}`:`greater`, //cmp: {=project configure} PACKAGE_TARNAME⇒'app'-0.0.1
-	`{=project configure} {=def PACKAGE_URL}`:`greater`, //cmp: {=project configure} PACKAGE_URL⇒https://extbit.dev/package/extbit.app/0.0.1
-	`{=project configure} {=def PACKAGE_VENDOR}`:`greater`, //cmp: {=project configure} PACKAGE_VENDOR⇒'ExtBit LLC'
-	`{=project configure} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=project configure} {=def PACKAGE}`:`greater`, //cmp
-	`{=project configure} {=def VERSION}`:`greater`, //cmp: {=project configure} VERSION⇒0.0.1
-	`{=project configure} {=def cflags}`:`greater`, //cmp: {=project configure} cflags⇒$(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c) $(.flags $1,c)
-	`{=project configure} {=def configure.*}`:`lprefix`, //cmp
-	`{=project configure} {=def configure.aligns}`:`lprefix`, //cmp
-	`{=project configure} {=def configure.builtins}`:`lprefix`, //cmp: {=project configure} configure.builtins=<nil>
-	`{=project configure} {=def configure.features}`:`lprefix`, //cmp: {=project configure} configure.features=<nil>
-	`{=project configure} {=def configure.files}`:`lprefix`, //cmp: {=project configure} configure.files=<nil>
-	`{=project configure} {=def configure.funcs}`:`lprefix`, //cmp
-	`{=project configure} {=def configure.heads}`:`lprefix`, //cmp
-	`{=project configure} {=def configure.include.func.exit}`:`lprefix`, //cmp
-	`{=project configure} {=def configure.lib*}`:`lprefix`, //cmp: {=project configure} configure.lib*={}
-	`{=project configure} {=def configure.package}`:`lprefix`, //cmp: {=project configure} configure.package::=extbit.app
-	`{=project configure} {=def configure.sizes}`:`lprefix`, //cmp: {=project configure} configure.sizes=<nil>
-	`{=project configure} {=def configure.structs}`:`lprefix`, //cmp: {=project configure} configure.structs=<nil>
-	`{=project configure} {=def configure.symbs}`:`lprefix`, //cmp: {=project configure} configure.symbs=<nil>
-	`{=project configure} {=def configure.types}`:`lprefix`, //cmp
-	`{=project configure} {=def configure.vendor}`:`lprefix`, //cmp: {=project configure} configure.vendor='ExtBit LLC'
-	`{=project configure} {=def configure.version}`:`lprefix`, //cmp: {=project configure} configure.version::=0.0.1
-	`{=project configure} {=def darwin~-Wl.c++}`:`smaller`, //cmp: {=project configure} darwin~-Wl.c++⇒<nil>
-	`{=project configure} {=def darwin~-no.swift}`:`smaller`, //cmp: {=project configure} darwin~-no.swift⇒<nil>
-	`{=project configure} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=project configure} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=project configure} {=def darwin~configure.features}`:`smaller`, //cmp: {=project configure} darwin~configure.features=<nil>
-	`{=project configure} {=def darwin~configure.files}`:`smaller`, //cmp: {=project configure} darwin~configure.files=<nil>
-	`{=project configure} {=def darwin~configure.funcs}`:`smaller`, //cmp: {=project configure} darwin~configure.funcs=<nil>
-	`{=project configure} {=def darwin~configure.heads}`:`smaller`, //cmp: {=project configure} darwin~configure.heads=<nil>
-	`{=project configure} {=def darwin~configure.sizes}`:`smaller`, //cmp: {=project configure} darwin~configure.sizes=<nil>
-	`{=project configure} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=project configure} {=def darwin~configure.symbs}`:`smaller`, //cmp: {=project configure} darwin~configure.symbs=<nil>
-	`{=project configure} {=def darwin~configure.types}`:`smaller`, //cmp
-	`{=project configure} {=def loadlibs}`:`smaller`, //cmp: {=project configure} loadlibs⇒$(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs) $(.flag $1,loadlibs)
-	`{=project configure} {=project app.base}`:`greater`, //cmp: {=project configure} {=project app.base}
+	`{=project configure} %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`{=project configure} %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`{=project configure} -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`{=project configure} -l⇒{} c++`:`greater`, //cmp
+	`{=project configure} HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`{=project configure} PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`{=project configure} PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`{=project configure} PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`{=project configure} PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`{=project configure} PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`{=project configure} PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`{=project configure} PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`{=project configure} PACKAGE⇒test.app`:`greater`, //cmp
+	`{=project configure} VERSION⇒0.0.1`:`greater`, //cmp
+	`{=project configure} configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`lprefix`, //cmp
+	`{=project configure} configure.aligns=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.builtins=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.features=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.files=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.funcs=$(configure.funcs.stdlib.h)`:`lprefix`, //cmp
+	`{=project configure} configure.heads=<stdlib.h>`:`lprefix`, //cmp
+	`{=project configure} configure.include.func.exit=<stdlib.h>`:`lprefix`, //cmp
+	`{=project configure} configure.lib*={}`:`lprefix`, //cmp
+	`{=project configure} configure.package::=test.app`:`lprefix`, //cmp
+	`{=project configure} configure.sizes=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.structs=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.symbs=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.types=<nil>`:`lprefix`, //cmp
+	`{=project configure} configure.vendor='ExtBit LLC'`:`lprefix`, //cmp
+	`{=project configure} configure.version::=0.0.1`:`lprefix`, //cmp
+	`{=project configure} lib.c++`:`smaller`, //cmp
+	`{=project configure} {=project app.base}`:`greater`, //cmp
 	`{=project configure} {=self app}`:`greater`, //cmp
-	`{=project configure} {=uselist lib.c++}`:`smaller`, //cmp: {=project configure} lib.c++
-	`{=punct .} {= {= {=raw .}}}`:`equal`,
-	`{=punct .} {= {= {=raw}}}`:`rprefix`,
-	`{=punct .} {=compound {=word bar} {=punct .} {=word c}}`:`smaller`,
-	`{=punct .} {=punct .}`:`equal`,
-	`{=punct .} {=string .o}`:`lprefix`,
-	`{=punct .} {=string .test}`:`lprefix`,
-	`{=punct .} {=word .test}`:`lprefix`,
-	`{=punct .} {=word c}`:`smaller`,
-	`{=punct .} {=word foo}`:`smaller`,
-	`{=punct .} {=word oo}`:`smaller`,
-	`{=punct PROOT} {=Symbol foo.txt}`:`lprefix`, //cmp
-	`{=qualword {=compound {=strlit 'app'} {=decimal 0} {=}} {=decimal 0} {=decimal 1}} {=compound {= {=strlit 'app'}} {=flag {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}`:`greater`, //cmp: 'app'0.0.1 'app'-0.0.1
-	`{=qualword {=compound {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=}} {=word app}} {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: https://extbit.dev/package/extbit.app https://extbit.dev/package/extbit.app/0.0.1
-	`{=qualword {=decimal 0} {=decimal 0} {=decimal 1}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}`:`equal`, //cmp: 0.0.1 0.0.1
-	`{=qualword {=decimal 0} {=decimal 0} {=decimal 1}} {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}`:`equal`, //cmp: 0.0.1 0.0.1
-	`{=qualword {=word extbit} {=word app}} {= {= {=qualword {=word extbit} {=word app}}}}`:`equal`, //cmp: extbit.app extbit.app
-	`{=qualword {=word v1} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`smaller`, //cmp: v1.h v?.h
-	`{=qualword {=word v2} {=word h}} {=glob {=word v} {=meta ?} {=punct .} {=word h}}`:`smaller`, //cmp: v2.h v?.h
-	`{=qualword {=word xv1y} {=word h}} {=glob {=word x} {=meta *} {=word y} {=punct .} {=word h}}`:`smaller`, //cmp: xv1y.h x*y.h
-	`{=qualword {=word x} {=word h}} {= {=qualword {=word x} {=word h}}}`:`equal`,
-	`{=qualword {=word y} {=word h}} {= {=qualword {=word y} {=word h}}}`:`equal`,
-	`{=qualword {=word z} {=word h}} {= {=qualword {=word z} {=word h}}}`:`equal`,
-	`{=qualword {=} {=word test} {=word foobax}} {=qualword {=} {=word test} {=word fxx}}`:`smaller`,
-	`{=qualword {=} {=word test} {=word foobay}} {=qualword {=} {=word test} {=word fxx}}`:`smaller`,
-	`{=qualword {=} {=word test} {=word foobaz}} {=qualword {=} {=word test} {=word fxx}}`:`smaller`,
-	`{=raw 'app'-0.0.1} {= {=strlit 'app'}}`:`smaller`, //cmp: 'app'-0.0.1 'app'
-	`{=raw .self} {=raw .usee}`:`smaller`, //cmp: .self .usee
-	`{=raw .self} {=raw var.zzz}`:`smaller`, //cmp: .self var.zzz
-	`{=raw .self} {=raw var2}`:`smaller`, //cmp: .self var2
-	`{=raw .self} {=raw vars}`:`smaller`, //cmp: .self vars
-	`{=raw .self} {=raw xyz}`:`smaller`, //cmp: .self xyz
-	`{=raw .usee} {=raw .self}`:`greater`, //cmp: .usee .self
-	`{=raw .usee} {=raw var.zzz}`:`smaller`, //cmp: .usee var.zzz
-	`{=raw .usee} {=raw var2}`:`smaller`, //cmp: .usee var2
-	`{=raw .usee} {=raw vars}`:`smaller`, //cmp: .usee vars
-	`{=raw .usee} {=raw xyz}`:`smaller`, //cmp: .usee xyz
-	`{=raw Volumes} {=string foo.txt}`:`smaller`,
-	`{=raw https://extbit.dev/package/extbit.app/0.0.1/bugs} {= {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}}`:`rprefix`, //cmp: https://extbit.dev/package/extbit.app/0.0.1/bugs https://extbit.dev/package/extbit.app/0.0.1
-	`{=raw var.zzz} {=raw .usee}`:`greater`, //cmp: var.zzz .usee
-	`{=raw var.zzz} {=raw var2}`:`smaller`, //cmp: var.zzz var2
-	`{=raw var.zzz} {=raw vars}`:`smaller`, //cmp: var.zzz vars
-	`{=raw var.zzz} {=raw xyz}`:`smaller`, //cmp: var.zzz xyz
-	`{=raw var2} {=raw var.zzz}`:`greater`, //cmp: var2 var.zzz
-	`{=raw var2} {=raw vars}`:`smaller`, //cmp: var2 vars
-	`{=raw var2} {=raw xyz}`:`smaller`, //cmp: var2 xyz
-	`{=raw vars} {=raw var.zzz}`:`greater`, //cmp: vars var.zzz
-	`{=raw vars} {=raw var2}`:`greater`, //cmp: vars var2
-	`{=raw vars} {=raw xyz}`:`smaller`, //cmp: vars xyz
-	`{=raw xxx} {=raw yyy}`:`smaller`, //cmp: xxx yyy
-	`{=raw xxx} {=raw zzz}`:`smaller`, //cmp: xxx zzz
-	`{=raw xyz} {=raw .usee}`:`greater`, //cmp: xyz .usee
-	`{=raw xyz} {=raw var2}`:`greater`, //cmp: xyz var2
-	`{=raw xyz} {=raw vars}`:`greater`, //cmp: xyz vars
-	`{=raw yyy} {=raw xxx}`:`greater`, //cmp: yyy xxx
-	`{=raw yyy} {=raw zzz}`:`smaller`, //cmp: yyy zzz
-	`{=raw zzz} {=raw xxx}`:`greater`, //cmp: zzz xxx
-	`{=raw zzz} {=raw yyy}`:`greater`, //cmp: zzz yyy
-	`{=self app} {=def -D}`:`greater`, //cmp: {=self app} -D⇒$(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS __STDC_LIMIT_MACROS _LIBCPP_BUILDING_LIBRARY LIBCXXABI_USE_LLVM_UNWINDER $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) $(if &(variant.debug),_DEBUG,NDEBUG) _LIBCXXABI_BUILDING_LIBRARY cxxabi_shared_EXPORTS LIBCXX_BUILDING_LIBCXXABI
-	`{=self app} {=def -I}`:`greater`, //cmp: {=self app} -I⇒$(src) /Volumes/workspace/external/llvm-project/libcxx/src /Volumes/workspace/external/llvm-project/libcxx/src
-	`{=self app} {=def -L}`:`greater`, //cmp: {=self app} -L⇒&(outlib) &(outlib) &(outlib) &(outlib) &(outlib) &(outlib)
-	`{=self app} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=self app} {=def -f.c++}`:`greater`, //cmp: {=self app} -f.c++⇒autolink autolink autolink autolink autolink autolink
-	`{=self app} {=def -l}`:`greater`, //cmp
-	`{=self app} {=def -no.ld}`:`greater`, //cmp
-	`{=self app} {=def -no}`:`greater`, //cmp
-	`{=self app} {=def -stdlib.cuda}`:`greater`, //cmp: {=self app} -stdlib.cuda⇒<nil>
-	`{=self app} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=self app} {=def HAVE_STDLIB_H}`:`greater`,
-	`{=self app} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=self app} {=def PACKAGE}`:`greater`, //cmp
-	`{=self app} {=def VERSION}`:`greater`, //cmp
-	`{=self app} {=def configure.*}`:`smaller`, //cmp
-	`{=self app} {=def configure.aligns}`:`smaller`, //cmp
-	`{=self app} {=def configure.builtins}`:`smaller`, //cmp
-	`{=self app} {=def configure.features}`:`smaller`, //cmp
-	`{=self app} {=def configure.files}`:`smaller`, //cmp
-	`{=self app} {=def configure.funcs}`:`smaller`, //cmp
-	`{=self app} {=def configure.heads}`:`smaller`, //cmp
-	`{=self app} {=def configure.include.func.exit}`:`smaller`, //cmp
-	`{=self app} {=def configure.lib*}`:`smaller`, //cmp
-	`{=self app} {=def configure.package}`:`smaller`, //cmp
-	`{=self app} {=def configure.sizes}`:`smaller`, //cmp
-	`{=self app} {=def configure.structs}`:`smaller`, //cmp
-	`{=self app} {=def configure.symbs}`:`smaller`, //cmp
-	`{=self app} {=def configure.types}`:`smaller`, //cmp
-	`{=self app} {=def configure.vendor}`:`smaller`, //cmp
-	`{=self app} {=def configure.version}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.aligns}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.builtins}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.features}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.files}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.funcs}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.heads}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.sizes}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.structs}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.symbs}`:`smaller`, //cmp
-	`{=self app} {=def darwin~configure.types}`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.aligns=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.builtins=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.features=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.files=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.funcs=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.heads=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.sizes=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.structs=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.symbs=<nil>`:`smaller`, //cmp
+	`{=self app} %[target.os]~configure.types=<nil>`:`smaller`, //cmp
+	`{=self app} -L⇒&(target.out)/lib/&(target.triple)`:`greater`, //cmp
+	`{=self app} -l⇒{} c++`:`greater`, //cmp
+	`{=self app} HAVE_STDLIB_H⇒{}`:`greater`, //cmp
+	`{=self app} PACKAGE_BUGREPORT⇒"https://extbit.dev/package/test.app/0.0.1/bugs"`:`greater`, //cmp
+	`{=self app} PACKAGE_NAME⇒test.app`:`greater`, //cmp
+	`{=self app} PACKAGE_STRING⇒"test.app-0.0.1"`:`greater`, //cmp
+	`{=self app} PACKAGE_TARNAME⇒test.app-0.0.1`:`greater`, //cmp
+	`{=self app} PACKAGE_URL⇒https://extbit.dev/package/test.app/0.0.1`:`greater`, //cmp
+	`{=self app} PACKAGE_VENDOR⇒'ExtBit LLC'`:`greater`, //cmp
+	`{=self app} PACKAGE_VERSION⇒0.0.1`:`greater`, //cmp
+	`{=self app} PACKAGE⇒test.app`:`greater`, //cmp
+	`{=self app} VERSION⇒0.0.1`:`greater`, //cmp
+	`{=self app} configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
+	`{=self app} configure.aligns=<nil>`:`smaller`, //cmp
+	`{=self app} configure.builtins=<nil>`:`smaller`, //cmp
+	`{=self app} configure.features=<nil>`:`smaller`, //cmp
+	`{=self app} configure.files=<nil>`:`smaller`, //cmp
+	`{=self app} configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
+	`{=self app} configure.heads=<stdlib.h>`:`smaller`, //cmp
+	`{=self app} configure.include.func.exit=<stdlib.h>`:`smaller`, //cmp
+	`{=self app} configure.lib*={}`:`smaller`, //cmp
+	`{=self app} configure.package::=test.app`:`smaller`, //cmp
+	`{=self app} configure.sizes=<nil>`:`smaller`, //cmp
+	`{=self app} configure.structs=<nil>`:`smaller`, //cmp
+	`{=self app} configure.symbs=<nil>`:`smaller`, //cmp
+	`{=self app} configure.types=<nil>`:`smaller`, //cmp
+	`{=self app} configure.vendor='ExtBit LLC'`:`smaller`, //cmp
+	`{=self app} configure.version::=0.0.1`:`smaller`, //cmp
+	`{=self app} lib.c++`:`smaller`, //cmp
 	`{=self app} {=project app.base}`:`lprefix`, //cmp
 	`{=self app} {=project configure}`:`smaller`, //cmp
-	`{=self app} {=uselist lib.c++}`:`smaller`, //cmp
-	`{=strcomp {=raw 'app'-0.0.1}} {=strcomp {= {=strlit 'app'}} {=raw -} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}}`:`smaller`, //cmp: "'app'-0.0.1" "'app'-0.0.1"
-	`{=strcomp {=raw https://extbit.dev/package/extbit.app/0.0.1/bugs}} {=strcomp {= {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}} {=raw /bugs}}`:`rprefix`, //cmp: "https://extbit.dev/package/extbit.app/0.0.1/bugs" "https://extbit.dev/package/extbit.app/0.0.1/bugs"
-	`{=string .} {= {= {=raw .}}}`:`equal`,
-	`{=string .} {= {= {=raw}}}`:`rprefix`,
-	`{=string 0} {=flag {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}`:`greater`, //cmp: 0 -0.0.1
-	`{=string 1} {=meta ?}`:`smaller`, // 1 ?
-	`{=string 2} {=meta ?}`:`smaller`, // 2 ?
-	`{=string ar} {=meta *}`:`smaller`, // ar *
-	`{=string bar} {=meta **}`:`smaller`,
-	`{=string bar} {=meta *}`:`smaller`,
-	`{=string bar} {=word ba}`:`rprefix`, //cmp: bar ba
-	`{=string bar} {=word b}`:`rprefix`,
-	`{=string foo.txt} {=punct PROOT}`:`rprefix`,
-	`{=string foo.txt} {=raw Volumes}`:`greater`,
-	`{=string foo} {=string foo}`:`equal`,
-	`{=string foo} {=word f}`:`rprefix`,
-	`{=string h} {=string h}`:`equal`,
-	`{=string main} {=meta *}`:`smaller`,
-	`{=string oo} {=meta *?}`:`smaller`, // oo *?
-	`{=string o} {=meta *?}`:`smaller`, //cmp: o *?
-	`{=string r} {=meta *}`:`smaller`, //cmp: r *
-	`{=string r} {=meta ?}`:`smaller`, //cmp: r ?
-	`{=string v1y} {=meta *}`:`smaller`, // v1y *
-	`{=string v} {=meta *}`:`smaller`, // v *
-	`{=string zz} {=meta *}`:`smaller`,
-	`{=strlit 'ExtBit LLC'} {= {= {=strlit 'ExtBit LLC'}}}`:`equal`, //cmp: 'ExtBit LLC' 'ExtBit LLC'
-	`{=strlit 'app'} {= {=strlit 'app'}}`:`equal`, //cmp: 'app' 'app'
-	`{=strlit 'app'} {=string app}`:`equal`, //cmp: 'app' app
-	`{=token **} {=token **}`:`equal`,
-	`{=token **} {=word foo}`:`greater`,
-	`{=token *} {=token **}`:`smaller`,
-	`{=token -} {= {=flag {=word foo}}}`:`lprefix`,
-	`{=token -} {= {=flag {=}}}`:`equal`,
-	`{=token .} {=string .test}`:`lprefix`,
-	`{=token .} {=token .}`:`equal`,
-	`{=token .} {=word bar}`:`smaller`,
-	`{=true} {=true}`:`equal`, //cmp
-	`{=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {=word extbit}} []} {=url {=word https} {=qualword {=word extbit} {=word dev}} {=path {=punct PROOT} {=word package} {= {= {=qualword {=word extbit} {=word app}}}} {= {= {=qualword {=decimal 0} {=decimal 0} {=decimal 1}}}}} []}`:`lprefix`, //cmp: https://extbit.dev/package/extbit https://extbit.dev/package/extbit.app/0.0.1
-	`{=uselist lib.c++} {=def -L}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def -cxx-isystem}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def -l}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def -no.ld}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def -no}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def HAVE_FUN_EXIT}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def HAVE_STDLIB_H}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_BUGREPORT}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_NAME}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_STRING}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_TARNAME}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_URL}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_VENDOR}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE_VERSION}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def PACKAGE}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def VERSION}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.*}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.aligns}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.builtins}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.features}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.files}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.funcs}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.heads}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.include.func.exit}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.lib*}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.package}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.sizes}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.structs}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.symbs}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.types}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.vendor}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def configure.version}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.aligns}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.builtins}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.features}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.files}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.funcs}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.heads}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.sizes}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.structs}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.symbs}`:`greater`, //cmp
-	`{=uselist lib.c++} {=def darwin~configure.types}`:`greater`, //cmp
-	`{=uselist lib.c++} {=project app.base}`:`greater`, //cmp
-	`{=uselist lib.c++} {=project configure}`:`greater`, //cmp
-	`{=uselist lib.c++} {=self app}`:`greater`, //cmp
-	`{=word .self} {=word .test.10}`:`smaller`, //cmp
-	`{=word .self} {=word .test.11}`:`smaller`, //cmp
-	`{=word .self} {=word .test.12}`:`smaller`, //cmp
-	`{=word .self} {=word .test.13}`:`smaller`, //cmp
-	`{=word .self} {=word .test.14}`:`smaller`, //cmp
-	`{=word .self} {=word .test.15}`:`smaller`, //cmp
-	`{=word .self} {=word .test.1}`:`smaller`, //cmp
-	`{=word .self} {=word .test.2}`:`smaller`, //cmp
-	`{=word .self} {=word .test.3}`:`smaller`, //cmp
-	`{=word .self} {=word .test.4}`:`smaller`, //cmp
-	`{=word .self} {=word .test.5}`:`smaller`, //cmp
-	`{=word .self} {=word .test.6}`:`smaller`, //cmp
-	`{=word .self} {=word .test.7}`:`smaller`, //cmp
-	`{=word .self} {=word .test.8}`:`smaller`, //cmp
-	`{=word .self} {=word .test.9}`:`smaller`, //cmp
-	`{=word .self} {=word .usee}`:`smaller`, //cmp: .self .usee
-	`{=word .self} {=word all}`:`smaller`, //cmp
-	`{=word .self} {=word t10}`:`smaller`, //cmp
-	`{=word .self} {=word t11}`:`smaller`, //cmp
-	`{=word .self} {=word t12}`:`smaller`, //cmp
-	`{=word .self} {=word t13}`:`smaller`, //cmp
-	`{=word .self} {=word t14}`:`smaller`, //cmp
-	`{=word .self} {=word t15}`:`smaller`, //cmp
-	`{=word .self} {=word t1}`:`smaller`, //cmp
-	`{=word .self} {=word t2}`:`smaller`, //cmp
-	`{=word .self} {=word t3}`:`smaller`, //cmp
-	`{=word .self} {=word t5}`:`smaller`, //cmp
-	`{=word .self} {=word t7}`:`smaller`, //cmp
-	`{=word .self} {=word t8}`:`smaller`, //cmp
-	`{=word .self} {=word t9}`:`smaller`, //cmp
-	`{=word .self} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .self} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .self} {=word var.zzz}`:`smaller`, //cmp: .self var.zzz
-	`{=word .self} {=word var2}`:`smaller`, //cmp: .self var2
-	`{=word .self} {=word vars}`:`smaller`, //cmp: .self vars
-	`{=word .self} {=word xyz}`:`smaller`, //cmp: .self xyz
-	`{=word .test.10} {=word .self}`:`greater`, //cmp
-	`{=word .test.10} {=word .test.11}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.12}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.13}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.14}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.15}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.1}`:`rprefix`, //cmp
-	`{=word .test.10} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.10} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.10} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.10} {=word all}`:`smaller`, //cmp
-	`{=word .test.10} {=word t10}`:`smaller`, //cmp
-	`{=word .test.10} {=word t11}`:`smaller`, //cmp
-	`{=word .test.10} {=word t12}`:`smaller`, //cmp
-	`{=word .test.10} {=word t13}`:`smaller`, //cmp
-	`{=word .test.10} {=word t14}`:`smaller`, //cmp
-	`{=word .test.10} {=word t15}`:`smaller`, //cmp
-	`{=word .test.10} {=word t1}`:`smaller`, //cmp
-	`{=word .test.10} {=word t2}`:`smaller`, //cmp
-	`{=word .test.10} {=word t3}`:`smaller`, //cmp
-	`{=word .test.10} {=word t5}`:`smaller`, //cmp
-	`{=word .test.10} {=word t7}`:`smaller`, //cmp
-	`{=word .test.10} {=word t8}`:`smaller`, //cmp
-	`{=word .test.10} {=word t9}`:`smaller`, //cmp
-	`{=word .test.10} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.10} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.11} {=word .self}`:`greater`, //cmp
-	`{=word .test.11} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.11} {=word .test.12}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.13}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.14}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.15}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.1}`:`rprefix`, //cmp
-	`{=word .test.11} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.11} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.11} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.11} {=word all}`:`smaller`, //cmp
-	`{=word .test.11} {=word t10}`:`smaller`, //cmp
-	`{=word .test.11} {=word t11}`:`smaller`, //cmp
-	`{=word .test.11} {=word t12}`:`smaller`, //cmp
-	`{=word .test.11} {=word t13}`:`smaller`, //cmp
-	`{=word .test.11} {=word t14}`:`smaller`, //cmp
-	`{=word .test.11} {=word t15}`:`smaller`, //cmp
-	`{=word .test.11} {=word t1}`:`smaller`, //cmp
-	`{=word .test.11} {=word t2}`:`smaller`, //cmp
-	`{=word .test.11} {=word t3}`:`smaller`, //cmp
-	`{=word .test.11} {=word t5}`:`smaller`, //cmp
-	`{=word .test.11} {=word t7}`:`smaller`, //cmp
-	`{=word .test.11} {=word t8}`:`smaller`, //cmp
-	`{=word .test.11} {=word t9}`:`smaller`, //cmp
-	`{=word .test.11} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.11} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.12} {=word .self}`:`greater`, //cmp
-	`{=word .test.12} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.12} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.12} {=word .test.13}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.14}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.15}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.1}`:`rprefix`, //cmp
-	`{=word .test.12} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.12} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.12} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.12} {=word all}`:`smaller`, //cmp
-	`{=word .test.12} {=word t10}`:`smaller`, //cmp
-	`{=word .test.12} {=word t11}`:`smaller`, //cmp
-	`{=word .test.12} {=word t12}`:`smaller`, //cmp
-	`{=word .test.12} {=word t13}`:`smaller`, //cmp
-	`{=word .test.12} {=word t14}`:`smaller`, //cmp
-	`{=word .test.12} {=word t15}`:`smaller`, //cmp
-	`{=word .test.12} {=word t1}`:`smaller`, //cmp
-	`{=word .test.12} {=word t2}`:`smaller`, //cmp
-	`{=word .test.12} {=word t3}`:`smaller`, //cmp
-	`{=word .test.12} {=word t4}`:`smaller`, //cmp
-	`{=word .test.12} {=word t5}`:`smaller`, //cmp
-	`{=word .test.12} {=word t7}`:`smaller`, //cmp
-	`{=word .test.12} {=word t8}`:`smaller`, //cmp
-	`{=word .test.12} {=word t9}`:`smaller`, //cmp
-	`{=word .test.12} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.12} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.13} {=word .self}`:`greater`, //cmp
-	`{=word .test.13} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.13} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.13} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.13} {=word .test.14}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.15}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.1}`:`rprefix`, //cmp
-	`{=word .test.13} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.13} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.13} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.13} {=word all}`:`smaller`, //cmp
-	`{=word .test.13} {=word t10}`:`smaller`, //cmp
-	`{=word .test.13} {=word t11}`:`smaller`, //cmp
-	`{=word .test.13} {=word t12}`:`smaller`, //cmp
-	`{=word .test.13} {=word t13}`:`smaller`, //cmp
-	`{=word .test.13} {=word t14}`:`smaller`, //cmp
-	`{=word .test.13} {=word t15}`:`smaller`, //cmp
-	`{=word .test.13} {=word t1}`:`smaller`, //cmp
-	`{=word .test.13} {=word t2}`:`smaller`, //cmp
-	`{=word .test.13} {=word t3}`:`smaller`, //cmp
-	`{=word .test.13} {=word t5}`:`smaller`, //cmp
-	`{=word .test.13} {=word t7}`:`smaller`, //cmp
-	`{=word .test.13} {=word t8}`:`smaller`, //cmp
-	`{=word .test.13} {=word t9}`:`smaller`, //cmp
-	`{=word .test.13} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.13} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.14} {=word .self}`:`greater`, //cmp
-	`{=word .test.14} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.14} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.14} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.14} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.14} {=word .test.15}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.1}`:`rprefix`, //cmp
-	`{=word .test.14} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.14} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.14} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.14} {=word all}`:`smaller`, //cmp
-	`{=word .test.14} {=word t10}`:`smaller`, //cmp
-	`{=word .test.14} {=word t11}`:`smaller`, //cmp
-	`{=word .test.14} {=word t12}`:`smaller`, //cmp
-	`{=word .test.14} {=word t13}`:`smaller`, //cmp
-	`{=word .test.14} {=word t14}`:`smaller`, //cmp
-	`{=word .test.14} {=word t15}`:`smaller`, //cmp
-	`{=word .test.14} {=word t1}`:`smaller`, //cmp
-	`{=word .test.14} {=word t2}`:`smaller`, //cmp
-	`{=word .test.14} {=word t3}`:`smaller`, //cmp
-	`{=word .test.14} {=word t4}`:`smaller`, //cmp
-	`{=word .test.14} {=word t5}`:`smaller`, //cmp
-	`{=word .test.14} {=word t6}`:`smaller`, //cmp
-	`{=word .test.14} {=word t7}`:`smaller`, //cmp
-	`{=word .test.14} {=word t8}`:`smaller`, //cmp
-	`{=word .test.14} {=word t9}`:`smaller`, //cmp
-	`{=word .test.14} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.14} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.14} {=word var.zzz}`:`smaller`, //cmp
-	`{=word .test.14} {=word var2}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.15} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.15} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.15} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.15} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.15} {=word .test.1}`:`rprefix`, //cmp
-	`{=word .test.15} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.15} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.15} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.15} {=word all}`:`smaller`, //cmp
-	`{=word .test.15} {=word t10}`:`smaller`, //cmp
-	`{=word .test.15} {=word t11}`:`smaller`, //cmp
-	`{=word .test.15} {=word t12}`:`smaller`, //cmp
-	`{=word .test.15} {=word t13}`:`smaller`, //cmp
-	`{=word .test.15} {=word t14}`:`smaller`, //cmp
-	`{=word .test.15} {=word t15}`:`smaller`, //cmp
-	`{=word .test.15} {=word t1}`:`smaller`, //cmp
-	`{=word .test.15} {=word t2}`:`smaller`, //cmp
-	`{=word .test.15} {=word t3}`:`smaller`, //cmp
-	`{=word .test.15} {=word t5}`:`smaller`, //cmp
-	`{=word .test.15} {=word t7}`:`smaller`, //cmp
-	`{=word .test.15} {=word t8}`:`smaller`, //cmp
-	`{=word .test.15} {=word t9}`:`smaller`, //cmp
-	`{=word .test.15} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.15} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.1} {=word .self}`:`greater`, //cmp
-	`{=word .test.1} {=word .test.10}`:`lprefix`, //cmp
-	`{=word .test.1} {=word .test.11}`:`lprefix`, //cmp
-	`{=word .test.1} {=word .test.12}`:`lprefix`, //cmp
-	`{=word .test.1} {=word .test.13}`:`lprefix`, //cmp
-	`{=word .test.1} {=word .test.14}`:`lprefix`, //cmp
-	`{=word .test.1} {=word .test.15}`:`lprefix`, //cmp
-	`{=word .test.1} {=word .test.2}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.1} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.1} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.1} {=word all}`:`smaller`, //cmp
-	`{=word .test.1} {=word t10}`:`smaller`, //cmp
-	`{=word .test.1} {=word t11}`:`smaller`, //cmp
-	`{=word .test.1} {=word t13}`:`smaller`, //cmp
-	`{=word .test.1} {=word t14}`:`smaller`, //cmp
-	`{=word .test.1} {=word t15}`:`smaller`, //cmp
-	`{=word .test.1} {=word t1}`:`smaller`, //cmp
-	`{=word .test.1} {=word t2}`:`smaller`, //cmp
-	`{=word .test.1} {=word t3}`:`smaller`, //cmp
-	`{=word .test.1} {=word t5}`:`smaller`, //cmp
-	`{=word .test.1} {=word t7}`:`smaller`, //cmp
-	`{=word .test.1} {=word t8}`:`smaller`, //cmp
-	`{=word .test.1} {=word t9}`:`smaller`, //cmp
-	`{=word .test.1} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.1} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.2} {=word .self}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.1}`:`greater`, //cmp
-	`{=word .test.2} {=word .test.3}`:`smaller`, //cmp
-	`{=word .test.2} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.2} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.2} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.2} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.2} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.2} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.2} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.2} {=word all}`:`smaller`, //cmp
-	`{=word .test.2} {=word t10}`:`smaller`, //cmp
-	`{=word .test.2} {=word t11}`:`smaller`, //cmp
-	`{=word .test.2} {=word t12}`:`smaller`, //cmp
-	`{=word .test.2} {=word t13}`:`smaller`, //cmp
-	`{=word .test.2} {=word t14}`:`smaller`, //cmp
-	`{=word .test.2} {=word t15}`:`smaller`, //cmp
-	`{=word .test.2} {=word t1}`:`smaller`, //cmp
-	`{=word .test.2} {=word t2}`:`smaller`, //cmp
-	`{=word .test.2} {=word t3}`:`smaller`, //cmp
-	`{=word .test.2} {=word t5}`:`smaller`, //cmp
-	`{=word .test.2} {=word t7}`:`smaller`, //cmp
-	`{=word .test.2} {=word t8}`:`smaller`, //cmp
-	`{=word .test.2} {=word t9}`:`smaller`, //cmp
-	`{=word .test.2} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.2} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.2} {=word xyz}`:`smaller`, //cmp
-	`{=word .test.3} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.1}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.3} {=word .test.4}`:`smaller`, //cmp
-	`{=word .test.3} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.3} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.3} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.3} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.3} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.3} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.3} {=word all}`:`smaller`, //cmp
-	`{=word .test.3} {=word t10}`:`smaller`, //cmp
-	`{=word .test.3} {=word t11}`:`smaller`, //cmp
-	`{=word .test.3} {=word t12}`:`smaller`, //cmp
-	`{=word .test.3} {=word t13}`:`smaller`, //cmp
-	`{=word .test.3} {=word t14}`:`smaller`, //cmp
-	`{=word .test.3} {=word t15}`:`smaller`, //cmp
-	`{=word .test.3} {=word t1}`:`smaller`, //cmp
-	`{=word .test.3} {=word t2}`:`smaller`, //cmp
-	`{=word .test.3} {=word t3}`:`smaller`, //cmp
-	`{=word .test.3} {=word t4}`:`smaller`, //cmp
-	`{=word .test.3} {=word t5}`:`smaller`, //cmp
-	`{=word .test.3} {=word t7}`:`smaller`, //cmp
-	`{=word .test.3} {=word t8}`:`smaller`, //cmp
-	`{=word .test.3} {=word t9}`:`smaller`, //cmp
-	`{=word .test.3} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.3} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.3} {=word var2}`:`smaller`, //cmp
-	`{=word .test.4} {=word .self}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.1}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.3}`:`greater`, //cmp
-	`{=word .test.4} {=word .test.5}`:`smaller`, //cmp
-	`{=word .test.4} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.4} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.4} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.4} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.4} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.4} {=word all}`:`smaller`, //cmp
-	`{=word .test.4} {=word t10}`:`smaller`, //cmp
-	`{=word .test.4} {=word t11}`:`smaller`, //cmp
-	`{=word .test.4} {=word t12}`:`smaller`, //cmp
-	`{=word .test.4} {=word t13}`:`smaller`, //cmp
-	`{=word .test.4} {=word t14}`:`smaller`, //cmp
-	`{=word .test.4} {=word t15}`:`smaller`, //cmp
-	`{=word .test.4} {=word t1}`:`smaller`, //cmp
-	`{=word .test.4} {=word t2}`:`smaller`, //cmp
-	`{=word .test.4} {=word t3}`:`smaller`, //cmp
-	`{=word .test.4} {=word t5}`:`smaller`, //cmp
-	`{=word .test.4} {=word t7}`:`smaller`, //cmp
-	`{=word .test.4} {=word t8}`:`smaller`, //cmp
-	`{=word .test.4} {=word t9}`:`smaller`, //cmp
-	`{=word .test.4} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.4} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.4} {=word var2}`:`smaller`, //cmp
-	`{=word .test.4} {=word xyz}`:`smaller`, //cmp
-	`{=word .test.5} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.3}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.4}`:`greater`, //cmp
-	`{=word .test.5} {=word .test.6}`:`smaller`, //cmp
-	`{=word .test.5} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.5} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.5} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.5} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.5} {=word all}`:`smaller`, //cmp
-	`{=word .test.5} {=word t10}`:`smaller`, //cmp
-	`{=word .test.5} {=word t11}`:`smaller`, //cmp
-	`{=word .test.5} {=word t12}`:`smaller`, //cmp
-	`{=word .test.5} {=word t13}`:`smaller`, //cmp
-	`{=word .test.5} {=word t14}`:`smaller`, //cmp
-	`{=word .test.5} {=word t15}`:`smaller`, //cmp
-	`{=word .test.5} {=word t1}`:`smaller`, //cmp
-	`{=word .test.5} {=word t2}`:`smaller`, //cmp
-	`{=word .test.5} {=word t3}`:`smaller`, //cmp
-	`{=word .test.5} {=word t5}`:`smaller`, //cmp
-	`{=word .test.5} {=word t6}`:`smaller`, //cmp
-	`{=word .test.5} {=word t7}`:`smaller`, //cmp
-	`{=word .test.5} {=word t8}`:`smaller`, //cmp
-	`{=word .test.5} {=word t9}`:`smaller`, //cmp
-	`{=word .test.5} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.5} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.5} {=word var2}`:`smaller`, //cmp
-	`{=word .test.6} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.1}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.3}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.4}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.5}`:`greater`, //cmp
-	`{=word .test.6} {=word .test.7}`:`smaller`, //cmp
-	`{=word .test.6} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.6} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.6} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.6} {=word all}`:`smaller`, //cmp
-	`{=word .test.6} {=word t10}`:`smaller`, //cmp
-	`{=word .test.6} {=word t11}`:`smaller`, //cmp
-	`{=word .test.6} {=word t12}`:`smaller`, //cmp
-	`{=word .test.6} {=word t13}`:`smaller`, //cmp
-	`{=word .test.6} {=word t14}`:`smaller`, //cmp
-	`{=word .test.6} {=word t15}`:`smaller`, //cmp
-	`{=word .test.6} {=word t1}`:`smaller`, //cmp
-	`{=word .test.6} {=word t2}`:`smaller`, //cmp
-	`{=word .test.6} {=word t3}`:`smaller`, //cmp
-	`{=word .test.6} {=word t5}`:`smaller`, //cmp
-	`{=word .test.6} {=word t7}`:`smaller`, //cmp
-	`{=word .test.6} {=word t8}`:`smaller`, //cmp
-	`{=word .test.6} {=word t9}`:`smaller`, //cmp
-	`{=word .test.6} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.6} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.6} {=word var2}`:`smaller`, //cmp
-	`{=word .test.7} {=word .self}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.3}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.4}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.5}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.6}`:`greater`, //cmp
-	`{=word .test.7} {=word .test.8}`:`smaller`, //cmp
-	`{=word .test.7} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.7} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.7} {=word all}`:`smaller`, //cmp
-	`{=word .test.7} {=word t10}`:`smaller`, //cmp
-	`{=word .test.7} {=word t11}`:`smaller`, //cmp
-	`{=word .test.7} {=word t12}`:`smaller`, //cmp
-	`{=word .test.7} {=word t13}`:`smaller`, //cmp
-	`{=word .test.7} {=word t14}`:`smaller`, //cmp
-	`{=word .test.7} {=word t15}`:`smaller`, //cmp
-	`{=word .test.7} {=word t1}`:`smaller`, //cmp
-	`{=word .test.7} {=word t2}`:`smaller`, //cmp
-	`{=word .test.7} {=word t3}`:`smaller`, //cmp
-	`{=word .test.7} {=word t5}`:`smaller`, //cmp
-	`{=word .test.7} {=word t7}`:`smaller`, //cmp
-	`{=word .test.7} {=word t8}`:`smaller`, //cmp
-	`{=word .test.7} {=word t9}`:`smaller`, //cmp
-	`{=word .test.7} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.7} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.7} {=word var2}`:`smaller`, //cmp
-	`{=word .test.8} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.1}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.3}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.4}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.5}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.6}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.7}`:`greater`, //cmp
-	`{=word .test.8} {=word .test.9}`:`smaller`, //cmp
-	`{=word .test.8} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.8} {=word all}`:`smaller`, //cmp
-	`{=word .test.8} {=word t10}`:`smaller`, //cmp
-	`{=word .test.8} {=word t11}`:`smaller`, //cmp
-	`{=word .test.8} {=word t12}`:`smaller`, //cmp
-	`{=word .test.8} {=word t13}`:`smaller`, //cmp
-	`{=word .test.8} {=word t14}`:`smaller`, //cmp
-	`{=word .test.8} {=word t15}`:`smaller`, //cmp
-	`{=word .test.8} {=word t1}`:`smaller`, //cmp
-	`{=word .test.8} {=word t2}`:`smaller`, //cmp
-	`{=word .test.8} {=word t3}`:`smaller`, //cmp
-	`{=word .test.8} {=word t4}`:`smaller`, //cmp
-	`{=word .test.8} {=word t5}`:`smaller`, //cmp
-	`{=word .test.8} {=word t6}`:`smaller`, //cmp
-	`{=word .test.8} {=word t7}`:`smaller`, //cmp
-	`{=word .test.8} {=word t8}`:`smaller`, //cmp
-	`{=word .test.8} {=word t9}`:`smaller`, //cmp
-	`{=word .test.8} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.8} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.8} {=word var2}`:`smaller`, //cmp
-	`{=word .test.9} {=word .test.10}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.11}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.12}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.13}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.14}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.15}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.2}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.3}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.4}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.5}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.6}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.7}`:`greater`, //cmp
-	`{=word .test.9} {=word .test.8}`:`greater`, //cmp
-	`{=word .test.9} {=word .usee}`:`smaller`, //cmp
-	`{=word .test.9} {=word all}`:`smaller`, //cmp
-	`{=word .test.9} {=word t10}`:`smaller`, //cmp
-	`{=word .test.9} {=word t11}`:`smaller`, //cmp
-	`{=word .test.9} {=word t12}`:`smaller`, //cmp
-	`{=word .test.9} {=word t13}`:`smaller`, //cmp
-	`{=word .test.9} {=word t14}`:`smaller`, //cmp
-	`{=word .test.9} {=word t15}`:`smaller`, //cmp
-	`{=word .test.9} {=word t1}`:`smaller`, //cmp
-	`{=word .test.9} {=word t2}`:`smaller`, //cmp
-	`{=word .test.9} {=word t3}`:`smaller`, //cmp
-	`{=word .test.9} {=word t4}`:`smaller`, //cmp
-	`{=word .test.9} {=word t5}`:`smaller`, //cmp
-	`{=word .test.9} {=word t6}`:`smaller`, //cmp
-	`{=word .test.9} {=word t7}`:`smaller`, //cmp
-	`{=word .test.9} {=word t8}`:`smaller`, //cmp
-	`{=word .test.9} {=word t9}`:`smaller`, //cmp
-	`{=word .test.9} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .test.9} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .test.9} {=word var.zzz}`:`smaller`, //cmp
-	`{=word .test.9} {=word var2}`:`smaller`, //cmp
-	`{=word .usee} {=word .self}`:`greater`, //cmp: .usee .self
-	`{=word .usee} {=word .test.10}`:`greater`, //cmp
-	`{=word .usee} {=word .test.11}`:`greater`, //cmp
-	`{=word .usee} {=word .test.12}`:`greater`, //cmp
-	`{=word .usee} {=word .test.13}`:`greater`, //cmp
-	`{=word .usee} {=word .test.14}`:`greater`, //cmp
-	`{=word .usee} {=word .test.15}`:`greater`, //cmp
-	`{=word .usee} {=word .test.2}`:`greater`, //cmp
-	`{=word .usee} {=word .test.3}`:`greater`, //cmp
-	`{=word .usee} {=word .test.4}`:`greater`, //cmp
-	`{=word .usee} {=word .test.5}`:`greater`, //cmp
-	`{=word .usee} {=word .test.6}`:`greater`, //cmp
-	`{=word .usee} {=word .test.7}`:`greater`, //cmp
-	`{=word .usee} {=word .test.8}`:`greater`, //cmp
-	`{=word .usee} {=word .test.9}`:`greater`, //cmp
-	`{=word .usee} {=word all}`:`smaller`, //cmp
-	`{=word .usee} {=word t10}`:`smaller`, //cmp
-	`{=word .usee} {=word t11}`:`smaller`, //cmp
-	`{=word .usee} {=word t12}`:`smaller`, //cmp
-	`{=word .usee} {=word t13}`:`smaller`, //cmp
-	`{=word .usee} {=word t14}`:`smaller`, //cmp
-	`{=word .usee} {=word t15}`:`smaller`, //cmp
-	`{=word .usee} {=word t1}`:`smaller`, //cmp
-	`{=word .usee} {=word t2}`:`smaller`, //cmp
-	`{=word .usee} {=word t3}`:`smaller`, //cmp
-	`{=word .usee} {=word t4}`:`smaller`, //cmp
-	`{=word .usee} {=word t5}`:`smaller`, //cmp
-	`{=word .usee} {=word t7}`:`smaller`, //cmp
-	`{=word .usee} {=word t8}`:`smaller`, //cmp
-	`{=word .usee} {=word t9}`:`smaller`, //cmp
-	`{=word .usee} {=word var.xxx}`:`smaller`, //cmp
-	`{=word .usee} {=word var.yyy}`:`smaller`, //cmp
-	`{=word .usee} {=word var.zzz}`:`smaller`, //cmp: .usee var.zzz
-	`{=word .usee} {=word var2}`:`smaller`, //cmp: .usee var2
-	`{=word .usee} {=word vars}`:`smaller`, //cmp: .usee vars
-	`{=word .usee} {=word xyz}`:`smaller`, //cmp: .usee xyz
-	`{=word FOO} {=word foo}`:`smaller`,
-	`{=word HAVE_STDLIB_H} {=file .configure/header/HAVE_STDLIB_H.c}`:`greater`, //cmp
-	`{=word all} {=word .test.10}`:`greater`, //cmp
-	`{=word all} {=word .test.11}`:`greater`, //cmp
-	`{=word all} {=word .test.12}`:`greater`, //cmp
-	`{=word all} {=word .test.13}`:`greater`, //cmp
-	`{=word all} {=word .test.14}`:`greater`, //cmp
-	`{=word all} {=word .test.15}`:`greater`, //cmp
-	`{=word all} {=word .test.2}`:`greater`, //cmp
-	`{=word all} {=word .test.3}`:`greater`, //cmp
-	`{=word all} {=word .test.4}`:`greater`, //cmp
-	`{=word all} {=word .test.5}`:`greater`, //cmp
-	`{=word all} {=word .test.6}`:`greater`, //cmp
-	`{=word all} {=word .test.7}`:`greater`, //cmp
-	`{=word all} {=word .test.8}`:`greater`, //cmp
-	`{=word all} {=word .test.9}`:`greater`, //cmp
-	`{=word all} {=word .usee}`:`greater`, //cmp
-	`{=word all} {=word t10}`:`smaller`, //cmp
-	`{=word all} {=word t11}`:`smaller`, //cmp
-	`{=word all} {=word t12}`:`smaller`, //cmp
-	`{=word all} {=word t13}`:`smaller`, //cmp
-	`{=word all} {=word t14}`:`smaller`, //cmp
-	`{=word all} {=word t15}`:`smaller`, //cmp
-	`{=word all} {=word t1}`:`smaller`, //cmp
-	`{=word all} {=word t2}`:`smaller`, //cmp
-	`{=word all} {=word t3}`:`smaller`, //cmp
-	`{=word all} {=word t4}`:`smaller`, //cmp
-	`{=word all} {=word t5}`:`smaller`, //cmp
-	`{=word all} {=word t7}`:`smaller`, //cmp
-	`{=word all} {=word t8}`:`smaller`, //cmp
-	`{=word all} {=word t9}`:`smaller`, //cmp
-	`{=word all} {=word var.xxx}`:`smaller`, //cmp
-	`{=word all} {=word var.yyy}`:`smaller`, //cmp
-	`{=word all} {=word var.zzz}`:`smaller`, //cmp
-	`{=word all} {=word var2}`:`smaller`, //cmp
-	`{=word all} {=word vars}`:`smaller`, //cmp
-	`{=word app} {=word app}`:`equal`, //cmp: app app
-	`{=word a} {= {=word a}}`:`equal`, //cmp: a a
-	`{=word a} {=word d}`:`smaller`,
-	`{=word bar} {=glob {=meta **} {=punct .} {=word hh}}`:`smaller`, //cmp: bar **.hh
-	`{=word bar} {=glob {=meta *} {=punct .} {=word h}}`:`smaller`,
-	`{=word bar} {=glob {=word ba} {=meta *}}`:`smaller`, //cmp: bar ba*
-	`{=word bar} {=glob {=word ba} {=meta ?}}`:`smaller`, //cmp: bar ba?
-	`{=word bar} {=glob {=word b} {=meta *}}`:`smaller`, //cmp: bar b*
-	`{=word bar} {=string bar}`:`equal`,
-	`{=word b} {= {=word a}}`:`greater`, //cmp: b a
-	`{=word b} {= {=word b}}`:`equal`, //cmp: b b
-	`{=word b} {=meta **}`:`smaller`,
-	`{=word b} {=word d}`:`smaller`,
-	`{=word cast} {=word cast}`:`equal`, //cmp: cast cast
-	`{=word compat} {=word compat}`:`equal`, //cmp: compat compat
-	`{=word conf0} {= {=word conf0}}`:`equal`,
-	`{=word conf3} {=word bar}`:`greater`,
-	`{=word conf3} {=word foo}`:`smaller`,
-	`{=word conversion} {=word conversion}`:`equal`, //cmp: conversion conversion
-	`{=word covered} {=word covered}`:`equal`, //cmp: covered covered
-	`{=word c} {= {=word a}}`:`greater`, //cmp: c a
-	`{=word c} {= {=word b}}`:`greater`, //cmp: c b
-	`{=word c} {= {=word c}}`:`equal`, //cmp: c c
-	`{=word c} {=word d}`:`smaller`,
-	`{=word default} {=word default}`:`equal`, //cmp: default default
-	`{=word delete} {=word delete}`:`equal`, //cmp: delete delete
-	`{=word dtor} {=word dtor}`:`equal`, //cmp: dtor dtor
-	`{=word error} {=word error}`:`equal`, //cmp: error error
-	`{=word extbit} {=word extbit}`:`equal`, //cmp: extbit extbit
-	`{=word fallthrough} {=word fallthrough}`:`equal`, //cmp: fallthrough fallthrough
-	`{=word field} {=word field}`:`equal`, //cmp: field field
-	`{=word foobar} {= {= {=raw foobar}}}`:`equal`,
-	`{=word foobar} {=meta **}`:`smaller`,
-	`{=word foobar} {=string foobar.o}`:`lprefix`,
-	`{=word foobar} {=string foobar}`:`equal`,
-	`{=word foobar} {=token -}`:`greater`,
-	`{=word foobar} {=word foobar}`:`equal`,
-	`{=word foobax} {=word fxx}`:`smaller`, //cmp: foobax fxx
-	`{=word foobay} {=word fxx}`:`smaller`, //cmp: foobay fxx
-	`{=word foobaz} {=word fxx}`:`smaller`, //cmp: foobaz fxx
-	`{=word foo} {= {= {= {= {=word foo}}}}}`:`equal`, //cmp: foo foo
-	`{=word foo} {= {= {=raw foo}}}`:`equal`,
-	`{=word foo} {= {= {=word a}}}`:`greater`, //cmp: foo a
-	`{=word foo} {= {= {=word b}}}`:`greater`, //cmp: foo b
-	`{=word foo} {= {= {=word c}}}`:`greater`, //cmp: foo c
-	`{=word foo} {=glob {=word f} {=meta *?}}`:`smaller`, //cmp: foo f*?
-	`{=word foo} {=meta **}`:`smaller`,
-	`{=word foo} {=meta *}`:`smaller`,
-	`{=word foo} {=null}`:`rprefix`, //cmp: foo {}
-	`{=word foo} {=string foo-x-y-z.o}`:`lprefix`,
-	`{=word foo} {=string foo-x-y.o}`:`lprefix`,
-	`{=word foo} {=string foo-x.o}`:`lprefix`,
-	`{=word foo} {=string foo.o}`:`lprefix`,
-	`{=word foo} {=token **}`:`smaller`,
-	`{=word foo} {=token *}`:`smaller`,
-	`{=word foo} {=word bar}`:`greater`, //cmp: foo bar
-	`{=word foo} {=word foobar}`:`lprefix`,
-	`{=word foo} {=word foo}`:`equal`,
-	`{=word fo} {=word f}`:`rprefix`, //cmp: fo f
-	`{=word gcc} {=word gcc}`:`equal`, //cmp: gcc gcc
-	`{=word gnu} {=word gnu}`:`equal`, //cmp: gnu gnu
-	`{=word hidden} {=word hidden}`:`equal`, //cmp: hidden hidden
-	`{=word h} {=word h}`:`equal`,
-	`{=word implicit} {=word implicit}`:`equal`, //cmp: implicit implicit
-	`{=word include} {=word include}`:`equal`, //cmp: include include
-	`{=word init_flags_c} {=word init_flags_d}`:`smaller`,
-	`{=word init_flags} {=word init_flags_c}`:`lprefix`,
-	`{=word init_flags} {=word init_flags_d}`:`lprefix`,
-	`{=word init_langs_flags} {=word init_flags_c}`:`greater`,
-	`{=word init_langs_flags} {=word init_flags_d}`:`greater`,
-	`{=word init_langs_flags} {=word init_flags}`:`greater`,
-	`{=word initializers} {=word initializers}`:`equal`, //cmp: initializers initializers
-	`{=word inlines} {=word inlines}`:`equal`, //cmp: inlines inlines
-	`{=word long} {=word long}`:`equal`, //cmp: long long
-	`{=word main} {=glob {=meta *}}`:`smaller`, //cmp: main *
-	`{=word missing} {=word missing}`:`equal`, //cmp: missing missing
-	`{=word next} {=word next}`:`equal`, //cmp: next next
-	`{=word noexcept} {=word noexcept}`:`equal`, //cmp: noexcept noexcept
-	`{=word none} {=word none}`:`equal`, //cmp: none none
-	`{=word non} {=word non}`:`equal`, //cmp: non non
-	`{=word no} {=word no}`:`equal`, //cmp: no no
-	`{=word o} {= {= {=raw o}}}`:`equal`,
-	`{=word o} {=string o}`:`equal`,
-	`{=word parameter} {=word parameter}`:`equal`, //cmp: parameter parameter
-	`{=word qual} {=word qual}`:`equal`, //cmp: qual qual
-	`{=word rule0} {=word rule1}`:`smaller`, //cmp: rule0 rule1
-	`{=word sign} {=word sign}`:`equal`, //cmp: sign sign
-	`{=word src} {=word src}`:`equal`, //cmp: src src
-	`{=word stdinc++} {= {=word stdinc++}}`:`equal`, //cmp: stdinc++ stdinc++
-	`{=word strings} {=word strings}`:`equal`, //cmp: strings strings
-	`{=word string} {=word string}`:`equal`, //cmp: string string
-	`{=word switch} {=word switch}`:`equal`, //cmp: switch switch
-	`{=word t10} {=word .test.10}`:`greater`, //cmp
-	`{=word t10} {=word .test.11}`:`greater`, //cmp
-	`{=word t10} {=word .test.12}`:`greater`, //cmp
-	`{=word t10} {=word .test.13}`:`greater`, //cmp
-	`{=word t10} {=word .test.14}`:`greater`, //cmp
-	`{=word t10} {=word .test.15}`:`greater`, //cmp
-	`{=word t10} {=word .test.2}`:`greater`, //cmp
-	`{=word t10} {=word .test.3}`:`greater`, //cmp
-	`{=word t10} {=word .test.4}`:`greater`, //cmp
-	`{=word t10} {=word .test.5}`:`greater`, //cmp
-	`{=word t10} {=word .test.6}`:`greater`, //cmp
-	`{=word t10} {=word .test.7}`:`greater`, //cmp
-	`{=word t10} {=word .test.8}`:`greater`, //cmp
-	`{=word t10} {=word .test.9}`:`greater`, //cmp
-	`{=word t10} {=word .usee}`:`greater`, //cmp
-	`{=word t10} {=word all}`:`greater`, //cmp
-	`{=word t10} {=word t11}`:`smaller`, //cmp
-	`{=word t10} {=word t12}`:`smaller`, //cmp
-	`{=word t10} {=word t13}`:`smaller`, //cmp
-	`{=word t10} {=word t14}`:`smaller`, //cmp
-	`{=word t10} {=word t15}`:`smaller`, //cmp
-	`{=word t10} {=word t1}`:`rprefix`, //cmp
-	`{=word t10} {=word t2}`:`smaller`, //cmp
-	`{=word t10} {=word t3}`:`smaller`, //cmp
-	`{=word t10} {=word t4}`:`smaller`, //cmp
-	`{=word t10} {=word t5}`:`smaller`, //cmp
-	`{=word t10} {=word t6}`:`smaller`, //cmp
-	`{=word t10} {=word t7}`:`smaller`, //cmp
-	`{=word t10} {=word t8}`:`smaller`, //cmp
-	`{=word t10} {=word t9}`:`smaller`, //cmp
-	`{=word t10} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t10} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t10} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t10} {=word var2}`:`smaller`, //cmp
-	`{=word t11} {=word .test.10}`:`greater`, //cmp
-	`{=word t11} {=word .test.11}`:`greater`, //cmp
-	`{=word t11} {=word .test.12}`:`greater`, //cmp
-	`{=word t11} {=word .test.13}`:`greater`, //cmp
-	`{=word t11} {=word .test.14}`:`greater`, //cmp
-	`{=word t11} {=word .test.15}`:`greater`, //cmp
-	`{=word t11} {=word .test.2}`:`greater`, //cmp
-	`{=word t11} {=word .test.3}`:`greater`, //cmp
-	`{=word t11} {=word .test.4}`:`greater`, //cmp
-	`{=word t11} {=word .test.5}`:`greater`, //cmp
-	`{=word t11} {=word .test.6}`:`greater`, //cmp
-	`{=word t11} {=word .test.7}`:`greater`, //cmp
-	`{=word t11} {=word .test.8}`:`greater`, //cmp
-	`{=word t11} {=word .test.9}`:`greater`, //cmp
-	`{=word t11} {=word .usee}`:`greater`, //cmp
-	`{=word t11} {=word all}`:`greater`, //cmp
-	`{=word t11} {=word t10}`:`greater`, //cmp
-	`{=word t11} {=word t12}`:`smaller`, //cmp
-	`{=word t11} {=word t13}`:`smaller`, //cmp
-	`{=word t11} {=word t14}`:`smaller`, //cmp
-	`{=word t11} {=word t15}`:`smaller`, //cmp
-	`{=word t11} {=word t1}`:`rprefix`, //cmp
-	`{=word t11} {=word t2}`:`smaller`, //cmp
-	`{=word t11} {=word t3}`:`smaller`, //cmp
-	`{=word t11} {=word t4}`:`smaller`, //cmp
-	`{=word t11} {=word t5}`:`smaller`, //cmp
-	`{=word t11} {=word t6}`:`smaller`, //cmp
-	`{=word t11} {=word t7}`:`smaller`, //cmp
-	`{=word t11} {=word t8}`:`smaller`, //cmp
-	`{=word t11} {=word t9}`:`smaller`, //cmp
-	`{=word t11} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t11} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t11} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t11} {=word var2}`:`smaller`, //cmp
-	`{=word t11} {=word vars}`:`smaller`, //cmp
-	`{=word t12} {=word .self}`:`greater`, //cmp
-	`{=word t12} {=word .test.10}`:`greater`, //cmp
-	`{=word t12} {=word .test.11}`:`greater`, //cmp
-	`{=word t12} {=word .test.12}`:`greater`, //cmp
-	`{=word t12} {=word .test.13}`:`greater`, //cmp
-	`{=word t12} {=word .test.14}`:`greater`, //cmp
-	`{=word t12} {=word .test.15}`:`greater`, //cmp
-	`{=word t12} {=word .test.2}`:`greater`, //cmp
-	`{=word t12} {=word .test.3}`:`greater`, //cmp
-	`{=word t12} {=word .test.4}`:`greater`, //cmp
-	`{=word t12} {=word .test.5}`:`greater`, //cmp
-	`{=word t12} {=word .test.6}`:`greater`, //cmp
-	`{=word t12} {=word .test.7}`:`greater`, //cmp
-	`{=word t12} {=word .test.8}`:`greater`, //cmp
-	`{=word t12} {=word .test.9}`:`greater`, //cmp
-	`{=word t12} {=word .usee}`:`greater`, //cmp
-	`{=word t12} {=word all}`:`greater`, //cmp
-	`{=word t12} {=word t10}`:`greater`, //cmp
-	`{=word t12} {=word t11}`:`greater`, //cmp
-	`{=word t12} {=word t13}`:`smaller`, //cmp
-	`{=word t12} {=word t14}`:`smaller`, //cmp
-	`{=word t12} {=word t15}`:`smaller`, //cmp
-	`{=word t12} {=word t1}`:`rprefix`, //cmp
-	`{=word t12} {=word t2}`:`smaller`, //cmp
-	`{=word t12} {=word t3}`:`smaller`, //cmp
-	`{=word t12} {=word t4}`:`smaller`, //cmp
-	`{=word t12} {=word t5}`:`smaller`, //cmp
-	`{=word t12} {=word t6}`:`smaller`, //cmp
-	`{=word t12} {=word t7}`:`smaller`, //cmp
-	`{=word t12} {=word t8}`:`smaller`, //cmp
-	`{=word t12} {=word t9}`:`smaller`, //cmp
-	`{=word t12} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t12} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t12} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t12} {=word var2}`:`smaller`, //cmp
-	`{=word t13} {=word .test.10}`:`greater`, //cmp
-	`{=word t13} {=word .test.11}`:`greater`, //cmp
-	`{=word t13} {=word .test.12}`:`greater`, //cmp
-	`{=word t13} {=word .test.13}`:`greater`, //cmp
-	`{=word t13} {=word .test.14}`:`greater`, //cmp
-	`{=word t13} {=word .test.15}`:`greater`, //cmp
-	`{=word t13} {=word .test.2}`:`greater`, //cmp
-	`{=word t13} {=word .test.3}`:`greater`, //cmp
-	`{=word t13} {=word .test.4}`:`greater`, //cmp
-	`{=word t13} {=word .test.5}`:`greater`, //cmp
-	`{=word t13} {=word .test.6}`:`greater`, //cmp
-	`{=word t13} {=word .test.7}`:`greater`, //cmp
-	`{=word t13} {=word .test.8}`:`greater`, //cmp
-	`{=word t13} {=word .test.9}`:`greater`, //cmp
-	`{=word t13} {=word .usee}`:`greater`, //cmp
-	`{=word t13} {=word all}`:`greater`, //cmp
-	`{=word t13} {=word t10}`:`greater`, //cmp
-	`{=word t13} {=word t11}`:`greater`, //cmp
-	`{=word t13} {=word t12}`:`greater`, //cmp
-	`{=word t13} {=word t14}`:`smaller`, //cmp
-	`{=word t13} {=word t15}`:`smaller`, //cmp
-	`{=word t13} {=word t1}`:`rprefix`, //cmp
-	`{=word t13} {=word t2}`:`smaller`, //cmp
-	`{=word t13} {=word t3}`:`smaller`, //cmp
-	`{=word t13} {=word t4}`:`smaller`, //cmp
-	`{=word t13} {=word t5}`:`smaller`, //cmp
-	`{=word t13} {=word t6}`:`smaller`, //cmp
-	`{=word t13} {=word t7}`:`smaller`, //cmp
-	`{=word t13} {=word t8}`:`smaller`, //cmp
-	`{=word t13} {=word t9}`:`smaller`, //cmp
-	`{=word t13} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t13} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t13} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t13} {=word var2}`:`smaller`, //cmp
-	`{=word t13} {=word xyz}`:`smaller`, //cmp
-	`{=word t14} {=word .test.10}`:`greater`, //cmp
-	`{=word t14} {=word .test.11}`:`greater`, //cmp
-	`{=word t14} {=word .test.12}`:`greater`, //cmp
-	`{=word t14} {=word .test.13}`:`greater`, //cmp
-	`{=word t14} {=word .test.14}`:`greater`, //cmp
-	`{=word t14} {=word .test.15}`:`greater`, //cmp
-	`{=word t14} {=word .test.2}`:`greater`, //cmp
-	`{=word t14} {=word .test.3}`:`greater`, //cmp
-	`{=word t14} {=word .test.4}`:`greater`, //cmp
-	`{=word t14} {=word .test.5}`:`greater`, //cmp
-	`{=word t14} {=word .test.6}`:`greater`, //cmp
-	`{=word t14} {=word .test.7}`:`greater`, //cmp
-	`{=word t14} {=word .test.8}`:`greater`, //cmp
-	`{=word t14} {=word .test.9}`:`greater`, //cmp
-	`{=word t14} {=word .usee}`:`greater`, //cmp
-	`{=word t14} {=word all}`:`greater`, //cmp
-	`{=word t14} {=word t10}`:`greater`, //cmp
-	`{=word t14} {=word t11}`:`greater`, //cmp
-	`{=word t14} {=word t12}`:`greater`, //cmp
-	`{=word t14} {=word t13}`:`greater`, //cmp
-	`{=word t14} {=word t15}`:`smaller`, //cmp
-	`{=word t14} {=word t1}`:`rprefix`, //cmp
-	`{=word t14} {=word t2}`:`smaller`, //cmp
-	`{=word t14} {=word t3}`:`smaller`, //cmp
-	`{=word t14} {=word t4}`:`smaller`, //cmp
-	`{=word t14} {=word t5}`:`smaller`, //cmp
-	`{=word t14} {=word t6}`:`smaller`, //cmp
-	`{=word t14} {=word t7}`:`smaller`, //cmp
-	`{=word t14} {=word t8}`:`smaller`, //cmp
-	`{=word t14} {=word t9}`:`smaller`, //cmp
-	`{=word t14} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t14} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t14} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t14} {=word var2}`:`smaller`, //cmp
-	`{=word t15} {=word .test.10}`:`greater`, //cmp
-	`{=word t15} {=word .test.11}`:`greater`, //cmp
-	`{=word t15} {=word .test.12}`:`greater`, //cmp
-	`{=word t15} {=word .test.13}`:`greater`, //cmp
-	`{=word t15} {=word .test.14}`:`greater`, //cmp
-	`{=word t15} {=word .test.15}`:`greater`, //cmp
-	`{=word t15} {=word .test.2}`:`greater`, //cmp
-	`{=word t15} {=word .test.3}`:`greater`, //cmp
-	`{=word t15} {=word .test.4}`:`greater`, //cmp
-	`{=word t15} {=word .test.5}`:`greater`, //cmp
-	`{=word t15} {=word .test.6}`:`greater`, //cmp
-	`{=word t15} {=word .test.7}`:`greater`, //cmp
-	`{=word t15} {=word .test.8}`:`greater`, //cmp
-	`{=word t15} {=word .test.9}`:`greater`, //cmp
-	`{=word t15} {=word .usee}`:`greater`, //cmp
-	`{=word t15} {=word all}`:`greater`, //cmp
-	`{=word t15} {=word t10}`:`greater`, //cmp
-	`{=word t15} {=word t11}`:`greater`, //cmp
-	`{=word t15} {=word t12}`:`greater`, //cmp
-	`{=word t15} {=word t13}`:`greater`, //cmp
-	`{=word t15} {=word t14}`:`greater`, //cmp
-	`{=word t15} {=word t1}`:`rprefix`, //cmp
-	`{=word t15} {=word t2}`:`smaller`, //cmp
-	`{=word t15} {=word t3}`:`smaller`, //cmp
-	`{=word t15} {=word t4}`:`smaller`, //cmp
-	`{=word t15} {=word t5}`:`smaller`, //cmp
-	`{=word t15} {=word t6}`:`smaller`, //cmp
-	`{=word t15} {=word t7}`:`smaller`, //cmp
-	`{=word t15} {=word t8}`:`smaller`, //cmp
-	`{=word t15} {=word t9}`:`smaller`, //cmp
-	`{=word t15} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t15} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t15} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t15} {=word var2}`:`smaller`, //cmp
-	`{=word t15} {=word vars}`:`smaller`, //cmp
-	`{=word t1} {=word .self}`:`greater`, //cmp
-	`{=word t1} {=word .test.10}`:`greater`, //cmp
-	`{=word t1} {=word .test.11}`:`greater`, //cmp
-	`{=word t1} {=word .test.12}`:`greater`, //cmp
-	`{=word t1} {=word .test.13}`:`greater`, //cmp
-	`{=word t1} {=word .test.14}`:`greater`, //cmp
-	`{=word t1} {=word .test.15}`:`greater`, //cmp
-	`{=word t1} {=word .test.2}`:`greater`, //cmp
-	`{=word t1} {=word .test.3}`:`greater`, //cmp
-	`{=word t1} {=word .test.4}`:`greater`, //cmp
-	`{=word t1} {=word .test.5}`:`greater`, //cmp
-	`{=word t1} {=word .test.6}`:`greater`, //cmp
-	`{=word t1} {=word .test.7}`:`greater`, //cmp
-	`{=word t1} {=word .test.8}`:`greater`, //cmp
-	`{=word t1} {=word .test.9}`:`greater`, //cmp
-	`{=word t1} {=word .usee}`:`greater`, //cmp
-	`{=word t1} {=word all}`:`greater`, //cmp
-	`{=word t1} {=word t10}`:`lprefix`, //cmp
-	`{=word t1} {=word t11}`:`lprefix`, //cmp
-	`{=word t1} {=word t12}`:`lprefix`, //cmp
-	`{=word t1} {=word t13}`:`lprefix`, //cmp
-	`{=word t1} {=word t14}`:`lprefix`, //cmp
-	`{=word t1} {=word t15}`:`lprefix`, //cmp
-	`{=word t1} {=word t2}`:`smaller`, //cmp
-	`{=word t1} {=word t3}`:`smaller`, //cmp
-	`{=word t1} {=word t4}`:`smaller`, //cmp
-	`{=word t1} {=word t5}`:`smaller`, //cmp
-	`{=word t1} {=word t6}`:`smaller`, //cmp
-	`{=word t1} {=word t7}`:`smaller`, //cmp
-	`{=word t1} {=word t8}`:`smaller`, //cmp
-	`{=word t1} {=word t9}`:`smaller`, //cmp
-	`{=word t1} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t1} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t1} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t1} {=word var2}`:`smaller`, //cmp
-	`{=word t2} {=word .test.10}`:`greater`, //cmp
-	`{=word t2} {=word .test.11}`:`greater`, //cmp
-	`{=word t2} {=word .test.12}`:`greater`, //cmp
-	`{=word t2} {=word .test.13}`:`greater`, //cmp
-	`{=word t2} {=word .test.14}`:`greater`, //cmp
-	`{=word t2} {=word .test.15}`:`greater`, //cmp
-	`{=word t2} {=word .test.2}`:`greater`, //cmp
-	`{=word t2} {=word .test.3}`:`greater`, //cmp
-	`{=word t2} {=word .test.4}`:`greater`, //cmp
-	`{=word t2} {=word .test.5}`:`greater`, //cmp
-	`{=word t2} {=word .test.6}`:`greater`, //cmp
-	`{=word t2} {=word .test.7}`:`greater`, //cmp
-	`{=word t2} {=word .test.8}`:`greater`, //cmp
-	`{=word t2} {=word .test.9}`:`greater`, //cmp
-	`{=word t2} {=word .usee}`:`greater`, //cmp
-	`{=word t2} {=word all}`:`greater`, //cmp
-	`{=word t2} {=word t10}`:`greater`, //cmp
-	`{=word t2} {=word t11}`:`greater`, //cmp
-	`{=word t2} {=word t12}`:`greater`, //cmp
-	`{=word t2} {=word t13}`:`greater`, //cmp
-	`{=word t2} {=word t14}`:`greater`, //cmp
-	`{=word t2} {=word t15}`:`greater`, //cmp
-	`{=word t2} {=word t1}`:`greater`, //cmp
-	`{=word t2} {=word t3}`:`smaller`, //cmp
-	`{=word t2} {=word t4}`:`smaller`, //cmp
-	`{=word t2} {=word t5}`:`smaller`, //cmp
-	`{=word t2} {=word t6}`:`smaller`, //cmp
-	`{=word t2} {=word t7}`:`smaller`, //cmp
-	`{=word t2} {=word t8}`:`smaller`, //cmp
-	`{=word t2} {=word t9}`:`smaller`, //cmp
-	`{=word t2} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t2} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t2} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t2} {=word var2}`:`smaller`, //cmp
-	`{=word t2} {=word vars}`:`smaller`, //cmp
-	`{=word t2} {=word xyz}`:`smaller`, //cmp
-	`{=word t3} {=word .test.10}`:`greater`, //cmp
-	`{=word t3} {=word .test.11}`:`greater`, //cmp
-	`{=word t3} {=word .test.13}`:`greater`, //cmp
-	`{=word t3} {=word .test.14}`:`greater`, //cmp
-	`{=word t3} {=word .test.15}`:`greater`, //cmp
-	`{=word t3} {=word .test.2}`:`greater`, //cmp
-	`{=word t3} {=word .test.3}`:`greater`, //cmp
-	`{=word t3} {=word .test.4}`:`greater`, //cmp
-	`{=word t3} {=word .test.5}`:`greater`, //cmp
-	`{=word t3} {=word .test.6}`:`greater`, //cmp
-	`{=word t3} {=word .test.7}`:`greater`, //cmp
-	`{=word t3} {=word .test.8}`:`greater`, //cmp
-	`{=word t3} {=word .test.9}`:`greater`, //cmp
-	`{=word t3} {=word .usee}`:`greater`, //cmp
-	`{=word t3} {=word all}`:`greater`, //cmp
-	`{=word t3} {=word t10}`:`greater`, //cmp
-	`{=word t3} {=word t11}`:`greater`, //cmp
-	`{=word t3} {=word t12}`:`greater`, //cmp
-	`{=word t3} {=word t13}`:`greater`, //cmp
-	`{=word t3} {=word t14}`:`greater`, //cmp
-	`{=word t3} {=word t15}`:`greater`, //cmp
-	`{=word t3} {=word t1}`:`greater`, //cmp
-	`{=word t3} {=word t2}`:`greater`, //cmp
-	`{=word t3} {=word t4}`:`smaller`, //cmp
-	`{=word t3} {=word t5}`:`smaller`, //cmp
-	`{=word t3} {=word t6}`:`smaller`, //cmp
-	`{=word t3} {=word t7}`:`smaller`, //cmp
-	`{=word t3} {=word t8}`:`smaller`, //cmp
-	`{=word t3} {=word t9}`:`smaller`, //cmp
-	`{=word t3} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t3} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t3} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t3} {=word var2}`:`smaller`, //cmp
-	`{=word t3} {=word vars}`:`smaller`, //cmp
-	`{=word t3} {=word xyz}`:`smaller`, //cmp
-	`{=word t4} {=word .test.10}`:`greater`, //cmp
-	`{=word t4} {=word .test.11}`:`greater`, //cmp
-	`{=word t4} {=word .test.13}`:`greater`, //cmp
-	`{=word t4} {=word .test.14}`:`greater`, //cmp
-	`{=word t4} {=word .test.15}`:`greater`, //cmp
-	`{=word t4} {=word .test.2}`:`greater`, //cmp
-	`{=word t4} {=word .test.3}`:`greater`, //cmp
-	`{=word t4} {=word .test.4}`:`greater`, //cmp
-	`{=word t4} {=word .test.5}`:`greater`, //cmp
-	`{=word t4} {=word .test.6}`:`greater`, //cmp
-	`{=word t4} {=word .test.7}`:`greater`, //cmp
-	`{=word t4} {=word .test.8}`:`greater`, //cmp
-	`{=word t4} {=word .test.9}`:`greater`, //cmp
-	`{=word t4} {=word .usee}`:`greater`, //cmp
-	`{=word t4} {=word all}`:`greater`, //cmp
-	`{=word t4} {=word t10}`:`greater`, //cmp
-	`{=word t4} {=word t11}`:`greater`, //cmp
-	`{=word t4} {=word t12}`:`greater`, //cmp
-	`{=word t4} {=word t13}`:`greater`, //cmp
-	`{=word t4} {=word t14}`:`greater`, //cmp
-	`{=word t4} {=word t15}`:`greater`, //cmp
-	`{=word t4} {=word t1}`:`greater`, //cmp
-	`{=word t4} {=word t2}`:`greater`, //cmp
-	`{=word t4} {=word t3}`:`greater`, //cmp
-	`{=word t4} {=word t5}`:`smaller`, //cmp
-	`{=word t4} {=word t6}`:`smaller`, //cmp
-	`{=word t4} {=word t7}`:`smaller`, //cmp
-	`{=word t4} {=word t8}`:`smaller`, //cmp
-	`{=word t4} {=word t9}`:`smaller`, //cmp
-	`{=word t4} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t4} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t4} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t4} {=word var2}`:`smaller`, //cmp
-	`{=word t4} {=word vars}`:`smaller`, //cmp
-	`{=word t4} {=word xyz}`:`smaller`, //cmp
-	`{=word t5} {=word .test.10}`:`greater`, //cmp
-	`{=word t5} {=word .test.11}`:`greater`, //cmp
-	`{=word t5} {=word .test.12}`:`greater`, //cmp
-	`{=word t5} {=word .test.13}`:`greater`, //cmp
-	`{=word t5} {=word .test.14}`:`greater`, //cmp
-	`{=word t5} {=word .test.15}`:`greater`, //cmp
-	`{=word t5} {=word .test.2}`:`greater`, //cmp
-	`{=word t5} {=word .test.3}`:`greater`, //cmp
-	`{=word t5} {=word .test.4}`:`greater`, //cmp
-	`{=word t5} {=word .test.5}`:`greater`, //cmp
-	`{=word t5} {=word .test.6}`:`greater`, //cmp
-	`{=word t5} {=word .test.7}`:`greater`, //cmp
-	`{=word t5} {=word .test.8}`:`greater`, //cmp
-	`{=word t5} {=word .test.9}`:`greater`, //cmp
-	`{=word t5} {=word .usee}`:`greater`, //cmp
-	`{=word t5} {=word all}`:`greater`, //cmp
-	`{=word t5} {=word t10}`:`greater`, //cmp
-	`{=word t5} {=word t11}`:`greater`, //cmp
-	`{=word t5} {=word t12}`:`greater`, //cmp
-	`{=word t5} {=word t13}`:`greater`, //cmp
-	`{=word t5} {=word t14}`:`greater`, //cmp
-	`{=word t5} {=word t15}`:`greater`, //cmp
-	`{=word t5} {=word t1}`:`greater`, //cmp
-	`{=word t5} {=word t2}`:`greater`, //cmp
-	`{=word t5} {=word t3}`:`greater`, //cmp
-	`{=word t5} {=word t4}`:`greater`, //cmp
-	`{=word t5} {=word t6}`:`smaller`, //cmp
-	`{=word t5} {=word t7}`:`smaller`, //cmp
-	`{=word t5} {=word t8}`:`smaller`, //cmp
-	`{=word t5} {=word t9}`:`smaller`, //cmp
-	`{=word t5} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t5} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t5} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t5} {=word var2}`:`smaller`, //cmp
-	`{=word t5} {=word vars}`:`smaller`, //cmp
-	`{=word t5} {=word xyz}`:`smaller`, //cmp
-	`{=word t6} {=word .test.10}`:`greater`, //cmp
-	`{=word t6} {=word .test.11}`:`greater`, //cmp
-	`{=word t6} {=word .test.13}`:`greater`, //cmp
-	`{=word t6} {=word .test.14}`:`greater`, //cmp
-	`{=word t6} {=word .test.15}`:`greater`, //cmp
-	`{=word t6} {=word .test.2}`:`greater`, //cmp
-	`{=word t6} {=word .test.3}`:`greater`, //cmp
-	`{=word t6} {=word .test.4}`:`greater`, //cmp
-	`{=word t6} {=word .test.5}`:`greater`, //cmp
-	`{=word t6} {=word .test.6}`:`greater`, //cmp
-	`{=word t6} {=word .test.7}`:`greater`, //cmp
-	`{=word t6} {=word .test.8}`:`greater`, //cmp
-	`{=word t6} {=word .test.9}`:`greater`, //cmp
-	`{=word t6} {=word .usee}`:`greater`, //cmp
-	`{=word t6} {=word all}`:`greater`, //cmp
-	`{=word t6} {=word t10}`:`greater`, //cmp
-	`{=word t6} {=word t11}`:`greater`, //cmp
-	`{=word t6} {=word t12}`:`greater`, //cmp
-	`{=word t6} {=word t13}`:`greater`, //cmp
-	`{=word t6} {=word t14}`:`greater`, //cmp
-	`{=word t6} {=word t15}`:`greater`, //cmp
-	`{=word t6} {=word t1}`:`greater`, //cmp
-	`{=word t6} {=word t2}`:`greater`, //cmp
-	`{=word t6} {=word t3}`:`greater`, //cmp
-	`{=word t6} {=word t4}`:`greater`, //cmp
-	`{=word t6} {=word t5}`:`greater`, //cmp
-	`{=word t6} {=word t7}`:`smaller`, //cmp
-	`{=word t6} {=word t8}`:`smaller`, //cmp
-	`{=word t6} {=word t9}`:`smaller`, //cmp
-	`{=word t6} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t6} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t6} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t6} {=word var2}`:`smaller`, //cmp
-	`{=word t6} {=word vars}`:`smaller`, //cmp
-	`{=word t6} {=word xyz}`:`smaller`, //cmp
-	`{=word t7} {=word .test.10}`:`greater`, //cmp
-	`{=word t7} {=word .test.11}`:`greater`, //cmp
-	`{=word t7} {=word .test.13}`:`greater`, //cmp
-	`{=word t7} {=word .test.14}`:`greater`, //cmp
-	`{=word t7} {=word .test.15}`:`greater`, //cmp
-	`{=word t7} {=word .test.2}`:`greater`, //cmp
-	`{=word t7} {=word .test.3}`:`greater`, //cmp
-	`{=word t7} {=word .test.4}`:`greater`, //cmp
-	`{=word t7} {=word .test.5}`:`greater`, //cmp
-	`{=word t7} {=word .test.6}`:`greater`, //cmp
-	`{=word t7} {=word .test.8}`:`greater`, //cmp
-	`{=word t7} {=word .test.9}`:`greater`, //cmp
-	`{=word t7} {=word .usee}`:`greater`, //cmp
-	`{=word t7} {=word all}`:`greater`, //cmp
-	`{=word t7} {=word t10}`:`greater`, //cmp
-	`{=word t7} {=word t11}`:`greater`, //cmp
-	`{=word t7} {=word t12}`:`greater`, //cmp
-	`{=word t7} {=word t13}`:`greater`, //cmp
-	`{=word t7} {=word t14}`:`greater`, //cmp
-	`{=word t7} {=word t15}`:`greater`, //cmp
-	`{=word t7} {=word t1}`:`greater`, //cmp
-	`{=word t7} {=word t2}`:`greater`, //cmp
-	`{=word t7} {=word t3}`:`greater`, //cmp
-	`{=word t7} {=word t4}`:`greater`, //cmp
-	`{=word t7} {=word t5}`:`greater`, //cmp
-	`{=word t7} {=word t6}`:`greater`, //cmp
-	`{=word t7} {=word t8}`:`smaller`, //cmp
-	`{=word t7} {=word t9}`:`smaller`, //cmp
-	`{=word t7} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t7} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t7} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t7} {=word var2}`:`smaller`, //cmp
-	`{=word t7} {=word vars}`:`smaller`, //cmp
-	`{=word t7} {=word xyz}`:`smaller`, //cmp
-	`{=word t8} {=word .test.10}`:`greater`, //cmp
-	`{=word t8} {=word .test.13}`:`greater`, //cmp
-	`{=word t8} {=word .test.14}`:`greater`, //cmp
-	`{=word t8} {=word .test.15}`:`greater`, //cmp
-	`{=word t8} {=word .test.2}`:`greater`, //cmp
-	`{=word t8} {=word .test.3}`:`greater`, //cmp
-	`{=word t8} {=word .test.4}`:`greater`, //cmp
-	`{=word t8} {=word .test.5}`:`greater`, //cmp
-	`{=word t8} {=word .test.6}`:`greater`, //cmp
-	`{=word t8} {=word .test.8}`:`greater`, //cmp
-	`{=word t8} {=word .test.9}`:`greater`, //cmp
-	`{=word t8} {=word .usee}`:`greater`, //cmp
-	`{=word t8} {=word all}`:`greater`, //cmp
-	`{=word t8} {=word t10}`:`greater`, //cmp
-	`{=word t8} {=word t11}`:`greater`, //cmp
-	`{=word t8} {=word t12}`:`greater`, //cmp
-	`{=word t8} {=word t13}`:`greater`, //cmp
-	`{=word t8} {=word t14}`:`greater`, //cmp
-	`{=word t8} {=word t15}`:`greater`, //cmp
-	`{=word t8} {=word t1}`:`greater`, //cmp
-	`{=word t8} {=word t2}`:`greater`, //cmp
-	`{=word t8} {=word t3}`:`greater`, //cmp
-	`{=word t8} {=word t4}`:`greater`, //cmp
-	`{=word t8} {=word t5}`:`greater`, //cmp
-	`{=word t8} {=word t6}`:`greater`, //cmp
-	`{=word t8} {=word t7}`:`greater`, //cmp
-	`{=word t8} {=word t9}`:`smaller`, //cmp
-	`{=word t8} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t8} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t8} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t8} {=word var2}`:`smaller`, //cmp
-	`{=word t8} {=word vars}`:`smaller`, //cmp
-	`{=word t8} {=word xyz}`:`smaller`, //cmp
-	`{=word t9} {=word .test.10}`:`greater`, //cmp
-	`{=word t9} {=word .test.13}`:`greater`, //cmp
-	`{=word t9} {=word .test.14}`:`greater`, //cmp
-	`{=word t9} {=word .test.15}`:`greater`, //cmp
-	`{=word t9} {=word .test.2}`:`greater`, //cmp
-	`{=word t9} {=word .test.3}`:`greater`, //cmp
-	`{=word t9} {=word .test.4}`:`greater`, //cmp
-	`{=word t9} {=word .test.5}`:`greater`, //cmp
-	`{=word t9} {=word .test.6}`:`greater`, //cmp
-	`{=word t9} {=word .test.8}`:`greater`, //cmp
-	`{=word t9} {=word .test.9}`:`greater`, //cmp
-	`{=word t9} {=word .usee}`:`greater`, //cmp
-	`{=word t9} {=word all}`:`greater`, //cmp
-	`{=word t9} {=word t10}`:`greater`, //cmp
-	`{=word t9} {=word t11}`:`greater`, //cmp
-	`{=word t9} {=word t12}`:`greater`, //cmp
-	`{=word t9} {=word t13}`:`greater`, //cmp
-	`{=word t9} {=word t14}`:`greater`, //cmp
-	`{=word t9} {=word t15}`:`greater`, //cmp
-	`{=word t9} {=word t1}`:`greater`, //cmp
-	`{=word t9} {=word t2}`:`greater`, //cmp
-	`{=word t9} {=word t3}`:`greater`, //cmp
-	`{=word t9} {=word t4}`:`greater`, //cmp
-	`{=word t9} {=word t5}`:`greater`, //cmp
-	`{=word t9} {=word t6}`:`greater`, //cmp
-	`{=word t9} {=word t7}`:`greater`, //cmp
-	`{=word t9} {=word t8}`:`greater`, //cmp
-	`{=word t9} {=word var.xxx}`:`smaller`, //cmp
-	`{=word t9} {=word var.yyy}`:`smaller`, //cmp
-	`{=word t9} {=word var.zzz}`:`smaller`, //cmp
-	`{=word t9} {=word var2}`:`smaller`, //cmp
-	`{=word t9} {=word vars}`:`smaller`, //cmp
-	`{=word t9} {=word xyz}`:`smaller`, //cmp
-	`{=word test} {=word test}`:`equal`,
-	`{=word thing} {=word thing}`:`equal`, //cmp: thing thing
-	`{=word type} {=word type}`:`equal`, //cmp: type type
-	`{=word unused} {=word unused}`:`equal`, //cmp: unused unused
-	`{=word v1} {=word v}`:`rprefix`, // v1 v
-	`{=word v2} {=word v}`:`rprefix`, // v2 v
-	`{=word va2} {=word va1}`:`greater`, //cmp
-	`{=word va2} {=word va3}`:`smaller`, //cmp
-	`{=word va3} {=word va1}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.10}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.13}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.14}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.15}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.2}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.3}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.4}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.5}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.6}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.8}`:`greater`, //cmp
-	`{=word var.xxx} {=word .test.9}`:`greater`, //cmp
-	`{=word var.xxx} {=word .usee}`:`greater`, //cmp
-	`{=word var.xxx} {=word all}`:`greater`, //cmp
-	`{=word var.xxx} {=word t10}`:`greater`, //cmp
-	`{=word var.xxx} {=word t11}`:`greater`, //cmp
-	`{=word var.xxx} {=word t12}`:`greater`, //cmp
-	`{=word var.xxx} {=word t13}`:`greater`, //cmp
-	`{=word var.xxx} {=word t14}`:`greater`, //cmp
-	`{=word var.xxx} {=word t15}`:`greater`, //cmp
-	`{=word var.xxx} {=word t1}`:`greater`, //cmp
-	`{=word var.xxx} {=word t2}`:`greater`, //cmp
-	`{=word var.xxx} {=word t3}`:`greater`, //cmp
-	`{=word var.xxx} {=word t4}`:`greater`, //cmp
-	`{=word var.xxx} {=word t5}`:`greater`, //cmp
-	`{=word var.xxx} {=word t6}`:`greater`, //cmp
-	`{=word var.xxx} {=word t7}`:`greater`, //cmp
-	`{=word var.xxx} {=word t8}`:`greater`, //cmp
-	`{=word var.xxx} {=word t9}`:`greater`, //cmp
-	`{=word var.xxx} {=word var.yyy}`:`smaller`, //cmp
-	`{=word var.xxx} {=word var.zzz}`:`smaller`, //cmp
-	`{=word var.xxx} {=word var2}`:`smaller`, //cmp
-	`{=word var.xxx} {=word vars}`:`smaller`, //cmp
-	`{=word var.xxx} {=word xyz}`:`smaller`, //cmp
-	`{=word var.yyy} {=word .test.10}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.13}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.14}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.15}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.2}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.3}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.4}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.5}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.6}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.8}`:`greater`, //cmp
-	`{=word var.yyy} {=word .test.9}`:`greater`, //cmp
-	`{=word var.yyy} {=word .usee}`:`greater`, //cmp
-	`{=word var.yyy} {=word all}`:`greater`, //cmp
-	`{=word var.yyy} {=word t10}`:`greater`, //cmp
-	`{=word var.yyy} {=word t11}`:`greater`, //cmp
-	`{=word var.yyy} {=word t12}`:`greater`, //cmp
-	`{=word var.yyy} {=word t13}`:`greater`, //cmp
-	`{=word var.yyy} {=word t14}`:`greater`, //cmp
-	`{=word var.yyy} {=word t15}`:`greater`, //cmp
-	`{=word var.yyy} {=word t1}`:`greater`, //cmp
-	`{=word var.yyy} {=word t2}`:`greater`, //cmp
-	`{=word var.yyy} {=word t3}`:`greater`, //cmp
-	`{=word var.yyy} {=word t4}`:`greater`, //cmp
-	`{=word var.yyy} {=word t5}`:`greater`, //cmp
-	`{=word var.yyy} {=word t6}`:`greater`, //cmp
-	`{=word var.yyy} {=word t7}`:`greater`, //cmp
-	`{=word var.yyy} {=word t8}`:`greater`, //cmp
-	`{=word var.yyy} {=word t9}`:`greater`, //cmp
-	`{=word var.yyy} {=word var.xxx}`:`greater`, //cmp
-	`{=word var.yyy} {=word var.zzz}`:`smaller`, //cmp
-	`{=word var.yyy} {=word var2}`:`smaller`, //cmp
-	`{=word var.yyy} {=word vars}`:`smaller`, //cmp
-	`{=word var.yyy} {=word xyz}`:`smaller`, //cmp
-	`{=word var.zzz} {=word .test.10}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.13}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.14}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.15}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.1}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.2}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.3}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.4}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.5}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.6}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.8}`:`greater`, //cmp
-	`{=word var.zzz} {=word .test.9}`:`greater`, //cmp
-	`{=word var.zzz} {=word .usee}`:`greater`, //cmp: var.zzz .usee
-	`{=word var.zzz} {=word all}`:`greater`, //cmp
-	`{=word var.zzz} {=word t10}`:`greater`, //cmp
-	`{=word var.zzz} {=word t11}`:`greater`, //cmp
-	`{=word var.zzz} {=word t12}`:`greater`, //cmp
-	`{=word var.zzz} {=word t13}`:`greater`, //cmp
-	`{=word var.zzz} {=word t14}`:`greater`, //cmp
-	`{=word var.zzz} {=word t15}`:`greater`, //cmp
-	`{=word var.zzz} {=word t1}`:`greater`, //cmp
-	`{=word var.zzz} {=word t2}`:`greater`, //cmp
-	`{=word var.zzz} {=word t3}`:`greater`, //cmp
-	`{=word var.zzz} {=word t4}`:`greater`, //cmp
-	`{=word var.zzz} {=word t5}`:`greater`, //cmp
-	`{=word var.zzz} {=word t6}`:`greater`, //cmp
-	`{=word var.zzz} {=word t7}`:`greater`, //cmp
-	`{=word var.zzz} {=word t8}`:`greater`, //cmp
-	`{=word var.zzz} {=word t9}`:`greater`, //cmp
-	`{=word var.zzz} {=word var.xxx}`:`greater`, //cmp
-	`{=word var.zzz} {=word var.yyy}`:`greater`, //cmp
-	`{=word var.zzz} {=word var2}`:`smaller`, //cmp: var.zzz var2
-	`{=word var.zzz} {=word vars}`:`smaller`, //cmp
-	`{=word var.zzz} {=word xyz}`:`smaller`, //cmp: var.zzz xyz
-	`{=word var2} {=word .test.10}`:`greater`, //cmp
-	`{=word var2} {=word .test.13}`:`greater`, //cmp
-	`{=word var2} {=word .test.14}`:`greater`, //cmp
-	`{=word var2} {=word .test.15}`:`greater`, //cmp
-	`{=word var2} {=word .test.2}`:`greater`, //cmp
-	`{=word var2} {=word .test.3}`:`greater`, //cmp
-	`{=word var2} {=word .test.4}`:`greater`, //cmp
-	`{=word var2} {=word .test.5}`:`greater`, //cmp
-	`{=word var2} {=word .test.6}`:`greater`, //cmp
-	`{=word var2} {=word .test.8}`:`greater`, //cmp
-	`{=word var2} {=word .test.9}`:`greater`, //cmp
-	`{=word var2} {=word .usee}`:`greater`, //cmp
-	`{=word var2} {=word all}`:`greater`, //cmp
-	`{=word var2} {=word t10}`:`greater`, //cmp
-	`{=word var2} {=word t11}`:`greater`, //cmp
-	`{=word var2} {=word t12}`:`greater`, //cmp
-	`{=word var2} {=word t13}`:`greater`, //cmp
-	`{=word var2} {=word t14}`:`greater`, //cmp
-	`{=word var2} {=word t15}`:`greater`, //cmp
-	`{=word var2} {=word t1}`:`greater`, //cmp
-	`{=word var2} {=word t2}`:`greater`, //cmp
-	`{=word var2} {=word t3}`:`greater`, //cmp
-	`{=word var2} {=word t4}`:`greater`, //cmp
-	`{=word var2} {=word t5}`:`greater`, //cmp
-	`{=word var2} {=word t6}`:`greater`, //cmp
-	`{=word var2} {=word t7}`:`greater`, //cmp
-	`{=word var2} {=word t8}`:`greater`, //cmp
-	`{=word var2} {=word t9}`:`greater`, //cmp
-	`{=word var2} {=word var.xxx}`:`greater`, //cmp
-	`{=word var2} {=word var.yyy}`:`greater`, //cmp
-	`{=word var2} {=word var.zzz}`:`greater`, //cmp: var2 var.zzz
-	`{=word var2} {=word vars}`:`smaller`, //cmp: var2 vars
-	`{=word var2} {=word xyz}`:`smaller`, //cmp: var2 xyz
-	`{=word vars} {=word .test.10}`:`greater`, //cmp
-	`{=word vars} {=word .test.13}`:`greater`, //cmp
-	`{=word vars} {=word .test.14}`:`greater`, //cmp
-	`{=word vars} {=word .test.15}`:`greater`, //cmp
-	`{=word vars} {=word .test.2}`:`greater`, //cmp
-	`{=word vars} {=word .test.3}`:`greater`, //cmp
-	`{=word vars} {=word .test.4}`:`greater`, //cmp
-	`{=word vars} {=word .test.5}`:`greater`, //cmp
-	`{=word vars} {=word .test.6}`:`greater`, //cmp
-	`{=word vars} {=word .test.8}`:`greater`, //cmp
-	`{=word vars} {=word .test.9}`:`greater`, //cmp
-	`{=word vars} {=word .usee}`:`greater`, //cmp
-	`{=word vars} {=word all}`:`greater`, //cmp
-	`{=word vars} {=word t10}`:`greater`, //cmp
-	`{=word vars} {=word t11}`:`greater`, //cmp
-	`{=word vars} {=word t12}`:`greater`, //cmp
-	`{=word vars} {=word t13}`:`greater`, //cmp
-	`{=word vars} {=word t14}`:`greater`, //cmp
-	`{=word vars} {=word t15}`:`greater`, //cmp
-	`{=word vars} {=word t1}`:`greater`, //cmp
-	`{=word vars} {=word t2}`:`greater`, //cmp
-	`{=word vars} {=word t3}`:`greater`, //cmp
-	`{=word vars} {=word t4}`:`greater`, //cmp
-	`{=word vars} {=word t5}`:`greater`, //cmp
-	`{=word vars} {=word t6}`:`greater`, //cmp
-	`{=word vars} {=word t7}`:`greater`, //cmp
-	`{=word vars} {=word t8}`:`greater`, //cmp
-	`{=word vars} {=word t9}`:`greater`, //cmp
-	`{=word vars} {=word var.xxx}`:`greater`, //cmp
-	`{=word vars} {=word var.yyy}`:`greater`, //cmp
-	`{=word vars} {=word var.zzz}`:`greater`, //cmp: vars var.zzz
-	`{=word vars} {=word var2}`:`greater`, //cmp: vars var2
-	`{=word vars} {=word xyz}`:`smaller`, //cmp: vars xyz
-	`{=word virtual} {=word virtual}`:`equal`, //cmp: virtual virtual
-	`{=word visibility} {=word visibility}`:`equal`, //cmp: visibility visibility
-	`{=word v} {=meta *}`:`smaller`,
-	`{=word write} {=word write}`:`equal`, //cmp: write write
-	`{=word xv1y} {=word x}`:`rprefix`,
-	`{=word xv} {=word x}`:`rprefix`,
-	`{=word xyz} {=word .test.10}`:`greater`, //cmp
-	`{=word xyz} {=word .test.13}`:`greater`, //cmp
-	`{=word xyz} {=word .test.14}`:`greater`, //cmp
-	`{=word xyz} {=word .test.15}`:`greater`, //cmp
-	`{=word xyz} {=word .test.2}`:`greater`, //cmp
-	`{=word xyz} {=word .test.3}`:`greater`, //cmp
-	`{=word xyz} {=word .test.4}`:`greater`, //cmp
-	`{=word xyz} {=word .test.5}`:`greater`, //cmp
-	`{=word xyz} {=word .test.6}`:`greater`, //cmp
-	`{=word xyz} {=word .test.8}`:`greater`, //cmp
-	`{=word xyz} {=word .test.9}`:`greater`, //cmp
-	`{=word xyz} {=word .usee}`:`greater`, //cmp: xyz .usee
-	`{=word xyz} {=word all}`:`greater`, //cmp
-	`{=word xyz} {=word t10}`:`greater`, //cmp
-	`{=word xyz} {=word t11}`:`greater`, //cmp
-	`{=word xyz} {=word t12}`:`greater`, //cmp
-	`{=word xyz} {=word t13}`:`greater`, //cmp
-	`{=word xyz} {=word t14}`:`greater`, //cmp
-	`{=word xyz} {=word t15}`:`greater`, //cmp
-	`{=word xyz} {=word t1}`:`greater`, //cmp
-	`{=word xyz} {=word t2}`:`greater`, //cmp
-	`{=word xyz} {=word t3}`:`greater`, //cmp
-	`{=word xyz} {=word t4}`:`greater`, //cmp
-	`{=word xyz} {=word t5}`:`greater`, //cmp
-	`{=word xyz} {=word t6}`:`greater`, //cmp
-	`{=word xyz} {=word t7}`:`greater`, //cmp
-	`{=word xyz} {=word t8}`:`greater`, //cmp
-	`{=word xyz} {=word t9}`:`greater`, //cmp
-	`{=word xyz} {=word var.xxx}`:`greater`, //cmp
-	`{=word xyz} {=word var.yyy}`:`greater`, //cmp
-	`{=word xyz} {=word var.zzz}`:`greater`, //cmp
-	`{=word xyz} {=word var2}`:`greater`, //cmp: xyz var2
-	`{=word xyz} {=word vars}`:`greater`, //cmp: xyz vars
-	`{=word x} {= {= {=null}}}`:`rprefix`, //cmp: x {}
-	`{=word x} {= {= {=raw x}}}`:`equal`,
-	`{=word x} {= {=word a}}`:`greater`, //cmp: x a
-	`{=word x} {= {=word b}}`:`greater`, //cmp: x b
-	`{=word x} {= {=word c}}`:`greater`, //cmp: x c
-	`{=word x} {=meta ?}`:`smaller`,
-	`{=word x} {=string config}`:`greater`,
-	`{=word x} {=string x.h}`:`lprefix`,
-	`{=word x} {=word xxx}`:`lprefix`,
-	`{=word y} {= {= {=raw y}}}`:`equal`,
-	`{=word zz} {=glob {=meta *} {=punct .} {=word h}}`:`smaller`,
-	`{=word zz} {=glob {=meta *}}`:`smaller`,
-	`{=word z} {= {= {=raw z}}}`:`equal`,
-	`{=word z} {=Symbol zz}`:`lprefix`, //cmp
-	`{=yes} {=yes}`:`equal`, //cmp
-	`{=} {=word foobar}`:`lprefix`,
 })
+var checked_cmp = make(map[string]struct{}, len(checkpoints_cmp))
 func check_cmp(ctx Context, l, r any) func(*cmpres) {
-	k := rxLC.ReplaceAllString(sf("%v %v", ts(l,ctx), ts(r,ctx)), "{=")
+	var k = sf("%v %v", l, r)
 	return func(_res *cmpres) {
+		if _, ok := checked_cmp[k]; ok { return } else { checked_cmp[k] = struct{}{} }
 		if !truly(ctx, is_test_mode{}) { return }
 		if (*_res) == cmpEqual {
 			if rxLC.ReplaceAllString(ts(l,ctx), "{=") == rxLC.ReplaceAllString(ts(r,ctx), "{=") { return }
@@ -7250,14 +6699,6 @@ func check_cmp(ctx Context, l, r any) func(*cmpres) {
 				if d, ok := unbox(d.x).(*def); ok && strings.Contains(d.name.String(), "use.") { return }
 				return
 			}
-
-			if p := _project(ctx); p != nil { switch p.spec.String() {
-			// case strings.HasSuffix(spec, ".smart/modules/lib/unwind"): return
-			// case strings.HasSuffix(spec, ".smart/modules/lib/c++abi"): return
-			// case strings.HasSuffix(spec, ".smart/modules/lib/c++inc"): return
-			// case strings.HasSuffix(spec, ".smart/modules/lib/c++"): return
-			case "testdata/template": return
-			}}
 			
 			if true { prompt(ctx, "	`%v`:`%v`, //cmp\n", k, t); flush(ctx) } else
 			if false { prompt(ctx, "	`%v`:`%v`, //cmp: %v %v\n", k, t, l, r); flush(ctx) } else
@@ -10381,61 +9822,14 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	}
 	return fixCheckpoints1(m)
 }(map[string]any{
-	`[builtins trimsuffix] [%[dir:testdata:/(%[3]s)] ] true`:`false [] [%[dir:testdata:/(%[3]s)] ] [] 2 %[dir:testdata:len(/)]`,
-	`[testdata builtins trimsuffix] [%[testdata:/(%[3]s)] builtins trimsuffix] true`:`true [testdata builtins trimsuffix] [%[dir:testdata:/(%[3]s)] ] [] 0 %[dir:testdata:len(/)]`,
-	`[testdata builtins trimsuffix] [%[testdata:/(%[3]s)] builtins trimsuffix] false`:`false [] [%[dir:testdata:/(%[3]s)] builtins trimsuffix] [] 0 1`,
-	testdata_f(`[testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [testdata builtins trimsuffix ] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2,"testdata"}, len(testdata_l)-1),
-	testdata_f(`[testdata ** ] [%[2]s builtins trimsuffix] true`): testdata_f(`false [] [%[2]s builtins trimsuffix] [] 3 %[4]d`, len(testdata_l)+1),
-	testdata_f(`[testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [testdata builtins trimsuffix] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2,"testdata"}, len(testdata_l)-1),
-	testdata_f(`[ testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [ testdata builtins trimsuffix ] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2," testdata"}, len(testdata_l)-1),
-	testdata_f(`[ testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [ testdata builtins trimsuffix] [%[2]s] [builtins/trimsuffix] 0 %[4]d`, trim_suffix{1,"/testdata"}, trim_suffix{2," testdata"}, len(testdata_l)-1),
-	testdata_f(`[ ** *data *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s test builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ ** *data *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s test builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s/builtins/trimprefix] 3 %[4]d`, trim_prefix{1,"/"}, len(testdata_l)+3),
-	testdata_f(`[ ** ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins ] [trimprefix] [%[1]s/builtins] 3 %[4]d`, trim_prefix{1,"/"}, len(testdata_l)+1),
-	testdata_f(`[ ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s/builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}),
-	testdata_f(`[ ** ] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins ] [trimsuffix] [%[1]s/builtins] 0 0`, trim_prefix{1,"/"}),
-	testdata_f(`[ ** testdata ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ ** testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ ** testdata **] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
-	testdata_f(`[ ** testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ ** testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)),
-	testdata_f(`[ ** testdata] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s] [ builtins trimprefix] [%[1]s] 3 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)),
-	testdata_f(`[ *? *data *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s test builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ *? *data *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s test builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s/builtins/trimprefix] 3 %[4]d`, trim_prefix{1,"/"}, len(testdata_l)+3), 
-	testdata_f(`[ *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s/builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}), 
-	testdata_f(`[ *? t*a *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s estdat builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ *? t*a *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s estdat builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ *? test* ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s data builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ *? test* ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s data builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ *? test* *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s data builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ *? test* *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s data builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ *? testdata *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 5 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[ *? testdata *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ *? testdata *?] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
-	testdata_f(`[ *? testdata *?] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}),
-	testdata_f(`[ *? testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 4 %[4]d`, trim_prefix{1,"/"}, trim_suffix{1,"/testdata"}, len(testdata_l)),
-	testdata_f(`[** testdata ** ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[** testdata ** ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
-	testdata_f(`[** testdata **] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
-	testdata_f(`[** testdata **] [%[2]s builtins trimprefix] true`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 0 0`, trim_suffix{1,"/testdata"}),
-	testdata_f(`[** testdata **] [%[2]s builtins trimsuffix] false`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
-	testdata_f(`[** testdata **] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
-	testdata_f(`[** testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)),
-	testdata_f(`[** testdata] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s] [ builtins trimprefix] [%[1]s] 2 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)),
-	testdata_f(`[*? testdata *? ] [%[2]s builtins trimprefix ] false`): testdata_f(`true [%[2]s builtins trimprefix ] [] [%[1]s builtins/trimprefix] 4 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+3),
-	testdata_f(`[*? testdata *? ] [%[2]s builtins trimsuffix ] true`): testdata_f(`true [%[2]s builtins trimsuffix ] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
-	testdata_f(`[*? testdata *?] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s builtins trimprefix] [] [%[1]s builtins/trimprefix] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)+2),
-	testdata_f(`[*? testdata *?] [%[2]s builtins trimsuffix] true`): testdata_f(`true [%[2]s builtins trimsuffix] [] [%[1]s builtins/trimsuffix] 0 0`, trim_suffix{1,"/testdata"}),
-	testdata_f(`[*? testdata ] [%[2]s builtins trimprefix] false`): testdata_f(`true [%[2]s ] [builtins trimprefix] [%[1]s] 3 %[4]d`, trim_suffix{1,"/testdata"}, len(testdata_l)),
-	"[%[dir:testdata:/(%[3]s)] ] [%[testdata:/(%[3]s)] configuration two] false":"true [%[dir:testdata:/(%[3]s)] ] [testdata configuration two] [] 8 7",
-	"[%[dir:testdata:/(%[3]s)] ] [%[testdata:/(%[3]s)] configuration] false":"true [%[dir:testdata:/(%[3]s)] ] [testdata configuration] [] 8 7",
+	"[ builtins] [ builtins trimprefix] false": "true [ builtins] [ trimprefix] [] 2 2",
 	"[%[dir:modules:/(%[3]s)] ] [app .base] false":"false [] [app .base] [] 0 1",
 	"[%[dir:modules:/(%[3]s)] ] [configure .base] false":"false [] [configure .base] [] 0 1",
 	"[%[dir:modules:/(%[3]s)] ] [lib std] false":"false [] [lib std] [] 0 1",
 	"[%[dir:modules:/(%[3]s)] ] [sys dl] false":"false [] [sys dl] [] 0 1",
 	"[%[dir:modules:/(%[3]s)] ] [sys pthread] false":"false [] [sys pthread] [] 0 1",
+	"[%[dir:testdata:/(%[3]s)] ] [%[testdata:/(%[3]s)] configuration two] false":"true [%[dir:testdata:/(%[3]s)] ] [testdata configuration two] [] 8 7",
+	"[%[dir:testdata:/(%[3]s)] ] [%[testdata:/(%[3]s)] configuration] false":"true [%[dir:testdata:/(%[3]s)] ] [testdata configuration] [] 8 7",
 	"[%[modules:/(%[3]s)] ] [app .base] false":"false [] [app .base] [] 0 1",
 	"[%[modules:/(%[3]s)] ] [configure .base] false":"false [] [configure .base] [] 0 1",
 	"[%[modules:/(%[3]s)] ] [lib std] false":"false [] [lib std] [] 0 1",
@@ -10446,7 +9840,6 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[%[workspace:/(%[3]s)] ] [lib std] false":"false [] [lib std] [] 0 1",
 	"[%[workspace:/(%[3]s)] ] [sys dl] false":"false [] [sys dl] [] 0 1",
 	"[%[workspace:/(%[3]s)] ] [sys pthread] false":"false [] [sys pthread] [] 0 1",
-	"[ builtins] [ builtins trimprefix] false": "true [ builtins] [ trimprefix] [] 2 2",
 	"[* a.c] [main a.c] false":"true [main a.c] [] [main] 2 2",
 	"[** .smart modules ] [%[modules:/(%[3]s)] app .base] false":"true [%[modules:/(%[3]s)] ] [app .base] [%[dir.2:modules]] 4 %[modules:len(/)]",
 	"[** .smart modules ] [%[modules:/(%[3]s)] app] false":"true [%[modules:/(%[3]s)] ] [app] [%[dir.2:modules]] 4 %[modules:len(/)]",
@@ -10921,6 +10314,54 @@ var checkpoints_matchPathPath = func(m map[string]any) map[string]any {
 	"[z] [.test a b cy a b c y z] false":"false [] [.test a b cy a b c y z] [] 0 9",
 	"[z] [.test xxx a b c yyy z] false":"false [] [.test xxx a b c yyy z] [] 0 7",
 	"[z] [.test xxx-yyy z] false":"false [] [.test xxx-yyy z] [] 0 3",
+	`[ ** *data *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] test builtins/trimprefix] 5 %[testdata:len(/)+3]`,
+	`[ ** *data *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] test builtins/trimsuffix] 0 0`,
+	`[ ** ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[trim(/):testdata]/builtins/trimprefix] 3 %[testdata:len(/)+3]`,
+	`[ ** ] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] builtins ] [trimprefix] [%[trim(/):testdata]/builtins] 3 %[testdata:len(/)+1]`,
+	`[ ** ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[trim(/):testdata]/builtins/trimsuffix] 0 0`,
+	`[ ** ] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [%[testdata:/(%[3]s)] builtins ] [trimsuffix] [%[trim(/):testdata]/builtins] 0 0`,
+	`[ ** testdata ** ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] builtins/trimprefix] 5 %[testdata:len(/)+3]`,
+	`[ ** testdata ** ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] builtins/trimsuffix] 0 0`, 
+	`[ ** testdata **] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix] [] [%[dir+trim(/):testdata] builtins/trimprefix] 4 %[testdata:len(/)+2]`, 
+	`[ ** testdata **] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix] [] [%[dir+trim(/):testdata] builtins/trimsuffix] 0 0`, 
+	`[ ** testdata ] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] ] [builtins trimprefix] [%[dir+trim(/):testdata]] 4 %[testdata:len(/)]`, 
+	`[ ** testdata] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)]] [ builtins trimprefix] [%[dir+trim(/):testdata]] 3 %[testdata:len(/)]`, 
+	`[ *? *data *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] test builtins/trimprefix] 5 %[testdata:len(/)+3]`, 
+	`[ *? *data *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] test builtins/trimsuffix] 0 0`, 
+	`[ *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[trim(/):testdata]/builtins/trimprefix] 3 %[testdata:len(/)+3]`, 
+	`[ *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[trim(/):testdata]/builtins/trimsuffix] 0 0`, 
+	`[ *? t*a *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] estdat builtins/trimprefix] 5 %[testdata:len(/)+3]`, 
+	`[ *? t*a *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] estdat builtins/trimsuffix] 0 0`, 
+	`[ *? test* ** ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] data builtins/trimprefix] 5 %[testdata:len(/)+3]`, 
+	`[ *? test* ** ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] data builtins/trimsuffix] 0 0`, 
+	`[ *? test* *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] data builtins/trimprefix] 5 %[testdata:len(/)+3]`, 
+	`[ *? test* *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] data builtins/trimsuffix] 0 0`, 
+	`[ *? testdata *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir+trim(/):testdata] builtins/trimprefix] 5 %[testdata:len(/)+3]`, 
+	`[ *? testdata *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir+trim(/):testdata] builtins/trimsuffix] 0 0`, 
+	`[ *? testdata *?] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix] [] [%[dir+trim(/):testdata] builtins/trimprefix] 4 %[testdata:len(/)+2]`, 
+	`[ *? testdata *?] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix] [] [%[dir+trim(/):testdata] builtins/trimsuffix] 0 0`, 
+	`[ *? testdata ] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] ] [builtins trimprefix] [%[dir+trim(/):testdata]] 4 %[testdata:len(/)]`, 
+	`[ testdata ** ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [ testdata builtins trimsuffix ] [%[dir:testdata:/(%[3]s)]] [builtins/trimsuffix] 0 %[testdata:len(/)-1]`,
+	`[ testdata **] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [ testdata builtins trimsuffix] [%[dir:testdata:/(%[3]s)]] [builtins/trimsuffix] 0 %[testdata:len(/)-1]`,
+	`[** testdata ** ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir:testdata] builtins/trimprefix] 4 %[testdata:len(/)+3]`, 
+	`[** testdata ** ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir:testdata] builtins/trimsuffix] 0 0`, 
+	`[** testdata **] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix] [] [%[dir:testdata] builtins/trimprefix] 3 %[testdata:len(/)+2]`, 
+	`[** testdata **] [%[testdata:/(%[3]s)] builtins trimprefix] true`: `true [%[testdata:/(%[3]s)] builtins trimprefix] [] [%[dir:testdata] builtins/trimprefix] 0 0`, 
+	`[** testdata **] [%[testdata:/(%[3]s)] builtins trimsuffix] false`: `true [%[testdata:/(%[3]s)] builtins trimsuffix] [] [%[dir:testdata] builtins/trimsuffix] 3 %[testdata:len(/)+2]`, 
+	`[** testdata **] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix] [] [%[dir:testdata] builtins/trimsuffix] 0 0`, 
+	`[** testdata ] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] ] [builtins trimprefix] [%[dir:testdata]] 3 %[testdata:len(/)]`, 
+	`[** testdata] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)]] [ builtins trimprefix] [%[dir:testdata]] 2 %[testdata:len(/)]`, 
+	`[*? testdata *? ] [%[testdata:/(%[3]s)] builtins trimprefix ] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix ] [] [%[dir:testdata] builtins/trimprefix] 4 %[testdata:len(/)+3]`, 
+	`[*? testdata *? ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix ] [] [%[dir:testdata] builtins/trimsuffix] 0 0`, 
+	`[*? testdata *?] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] builtins trimprefix] [] [%[dir:testdata] builtins/trimprefix] 3 %[testdata:len(/)+2]`, 
+	`[*? testdata *?] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [%[testdata:/(%[3]s)] builtins trimsuffix] [] [%[dir:testdata] builtins/trimsuffix] 0 0`, 
+	`[*? testdata ] [%[testdata:/(%[3]s)] builtins trimprefix] false`: `true [%[testdata:/(%[3]s)] ] [builtins trimprefix] [%[dir:testdata]] 3 %[testdata:len(/)]`,
+	`[builtins trimsuffix] [%[dir:testdata:/(%[3]s)] ] true`:`false [] [%[dir:testdata:/(%[3]s)] ] [] 2 %[dir:testdata:len(/)]`,
+	`[testdata ** ] [%[testdata:/(%[3]s)] builtins trimsuffix ] true`: `true [testdata builtins trimsuffix ] [%[dir:testdata:/(%[3]s)] ] [builtins/trimsuffix] 0 %[testdata:len(/)-1]`,
+	`[testdata ** ] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `false [] [%[testdata:/(%[3]s)] builtins trimsuffix] [] 3 %[testdata:len(/)+1]`,
+	`[testdata **] [%[testdata:/(%[3]s)] builtins trimsuffix] true`: `true [testdata builtins trimsuffix] [%[dir:testdata:/(%[3]s)] ] [builtins/trimsuffix] 0 %[testdata:len(/)-1]`,
+	`[testdata builtins trimsuffix] [%[testdata:/(%[3]s)] builtins trimsuffix] false`:`false [] [%[dir:testdata:/(%[3]s)] builtins trimsuffix] [] 0 1`,
+	`[testdata builtins trimsuffix] [%[testdata:/(%[3]s)] builtins trimsuffix] true`:`true [testdata builtins trimsuffix] [%[dir:testdata:/(%[3]s)] ] [] 0 %[dir:testdata:len(/)]`,
 })
 func check_matchPathPath(ctx Context, elems, segments []Value, trail bool) func(*bool, *[]Value, *[]Value, *[]Value, *int, *int) {
 	var k = sf("%v %v %v", elems, segments, trail)
@@ -10946,15 +10387,15 @@ func check_matchPathPath(ctx Context, elems, segments []Value, trail bool) func(
 
 			if false  { prompt(ctx, `	"%s":"%s", //matchPathPath`+"\n", k, t) } else
 			{ debug(pc(ctx,elems),
-				_f(`matchPathPath: "%s":"%s",`, k, t),
+				_f(`matchPathPath: "%s":"%s",`, unfix(k), unfix(t)),
 				_f("elements: %v", ts(elems, ctx)),
 				_f("segments: %v", ts(segments, ctx)),
 				callstack{num:10}, trace{}) }
 		} else if v != t {
 			if false { prompt(ctx, `	"%s":"%s", //matchPathPath != "%v"`+"\n", k, t, v) } else
 			{ debug(pc(ctx,elems),
-				_f(`matchPathPath: "%s"`, k),
-				_f("got: %v", t),
+				_f(`matchPathPath: "%s"`, unfix(k)),
+				_f("got: %s", unfix(t)),
 				_f("!= : %v", v),
 				_f("elements: %v", ts(elems, ctx)),
 				_f("segments: %v", ts(segments, ctx)),
@@ -10964,9 +10405,9 @@ func check_matchPathPath(ctx Context, elems, segments []Value, trail bool) func(
 }
 
 var checkpoints__string_com = map[string]any{
-	`$1$2$3`:`{}{}{}`,
-	`$(a1)-$(a2)-3`:`{}-{}-3`,
 	`$(a1)-$(a2)-3-$(a1)$(a2)$(a3)`:`{}-{}-3-{}{}{}`,
+	`$(a1)-$(a2)-3`:`{}-{}-3`,
+	`$1$2$3`:`{}{}{}`,
 	`&(.test.$_)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
 	`&(.test.bar)⌜foo bar⌟{}88`:`{}⌜foo bar⌟{}88`,
 	`&(.test.bar)⌜foo bar⌟{}99`:`{}⌜foo bar⌟{}99`,
@@ -10975,290 +10416,19 @@ var checkpoints__string_com = map[string]any{
 	`&(.test.h)a`:`-a`,
 	`&(.test.h)b`:`-b`,
 	`&(.test.h)c`:`-c`,
-	`&(host.arch)&(host.sub)-&(host.vendor)-&(host.sys)-&(host.abi)`:uname_f(`%[3]s{}-apple-%[1]s%[2]s-extbit`),
-	`&(target.arch)&(target.sub)-&(target.vendor)-&(target.sys)-&(target.abi)`:[]string{
-		uname_f(`%[3]s{}-apple-%[1]s%[2]s-extbit`),
-		uname_f(`%[3]s{}-apple-%[1]s%[2]s-macho`),
-	},
-	`&(target.arch)-&(target.vendor)-&(target.os)-&(target.abi)`:[]string{`foo-bar-{}-0`,},
-	`&(target.os)~--sysroot.c++`:[]string{uname_f(`%[1]s~--sysroot.c++`,trim_tolower{1}),`foo~--sysroot.c++`},
-	`&(target.os)~--sysroot.c`:[]string{uname_f(`%[1]s~--sysroot.c`,trim_tolower{1}),`foo~--sysroot.c`},
-	`&(target.os)~--sysroot.cl`:[]string{uname_f(`%[1]s~--sysroot.cl`,trim_tolower{1}),`foo~--sysroot.cl`},
-	`&(target.os)~--sysroot.cuda++`:[]string{uname_f(`%[1]s~--sysroot.cuda++`,trim_tolower{1}),`foo~--sysroot.cuda++`},
-	`&(target.os)~--sysroot.cuda`:[]string{uname_f(`%[1]s~--sysroot.cuda`,trim_tolower{1}),`foo~--sysroot.cuda`},
-	`&(target.os)~--sysroot.objc++`:[]string{uname_f(`%[1]s~--sysroot.objc++`,trim_tolower{1}),`foo~--sysroot.objc++`},
-	`&(target.os)~--sysroot.objc`:[]string{uname_f(`%[1]s~--sysroot.objc`,trim_tolower{1}),`foo~--sysroot.objc`},
-	`&(target.os)~--sysroot.swift`:[]string{uname_f(`%[1]s~--sysroot.swift`,trim_tolower{1}),`foo~--sysroot.swift`},
-	`&(target.os)~--sysroot`:[]string{uname_f(`%[1]s~--sysroot`,trim_tolower{1}),`foo~--sysroot`},
-	`&(target.os)~-D.c++`:[]string{uname_f(`%[1]s~-D.c++`,trim_tolower{1}),`foo~-D.c++`},
-	`&(target.os)~-D.c`:[]string{uname_f(`%[1]s~-D.c`,trim_tolower{1}),`foo~-D.c`},
-	`&(target.os)~-D.cl`:[]string{uname_f(`%[1]s~-D.cl`,trim_tolower{1}),`foo~-D.cl`},
-	`&(target.os)~-D.cuda++`:[]string{uname_f(`%[1]s~-D.cuda++`,trim_tolower{1}),`foo~-D.cuda++`},
-	`&(target.os)~-D.cuda`:[]string{uname_f(`%[1]s~-D.cuda`,trim_tolower{1}),`foo~-D.cuda`},
-	`&(target.os)~-D.objc++`:[]string{uname_f(`%[1]s~-D.objc++`,trim_tolower{1}),`foo~-D.objc++`},
-	`&(target.os)~-D.objc`:[]string{uname_f(`%[1]s~-D.objc`,trim_tolower{1}),`foo~-D.objc`},
-	`&(target.os)~-D.swift`:[]string{uname_f(`%[1]s~-D.swift`,trim_tolower{1}),`foo~-D.swift`},
-	`&(target.os)~-D`:[]string{uname_f(`%[1]s~-D`,trim_tolower{1}),`foo~-D`},
-	`&(target.os)~-I.c++`:[]string{uname_f(`%[1]s~-I.c++`,trim_tolower{1}),`foo~-I.c++`},
-	`&(target.os)~-I.c`:[]string{uname_f(`%[1]s~-I.c`,trim_tolower{1}),`foo~-I.c`},
-	`&(target.os)~-I.cl`:[]string{uname_f(`%[1]s~-I.cl`,trim_tolower{1}),`foo~-I.cl`},
-	`&(target.os)~-I.cuda++`:[]string{uname_f(`%[1]s~-I.cuda++`,trim_tolower{1}),`foo~-I.cuda++`},
-	`&(target.os)~-I.cuda`:[]string{uname_f(`%[1]s~-I.cuda`,trim_tolower{1}),`foo~-I.cuda`},
-	`&(target.os)~-I.objc++`:[]string{uname_f(`%[1]s~-I.objc++`,trim_tolower{1}),`foo~-I.objc++`},
-	`&(target.os)~-I.objc`:[]string{uname_f(`%[1]s~-I.objc`,trim_tolower{1}),`foo~-I.objc`},
-	`&(target.os)~-I.swift`:[]string{uname_f(`%[1]s~-I.swift`,trim_tolower{1}),`foo~-I.swift`},
-	`&(target.os)~-I`:[]string{uname_f(`%[1]s~-I`,trim_tolower{1}),`foo~-I`},
-	`&(target.os)~-L.c++`:[]string{uname_f(`%[1]s~-L.c++`,trim_tolower{1}),`foo~-L.c++`},
-	`&(target.os)~-L.c`:[]string{uname_f(`%[1]s~-L.c`,trim_tolower{1}),`foo~-L.c`},
-	`&(target.os)~-L.cl`:[]string{uname_f(`%[1]s~-L.cl`,trim_tolower{1}),`foo~-L.cl`},
-	`&(target.os)~-L.cuda++`:[]string{uname_f(`%[1]s~-L.cuda++`,trim_tolower{1}),`foo~-L.cuda++`},
-	`&(target.os)~-L.cuda`:[]string{uname_f(`%[1]s~-L.cuda`,trim_tolower{1}),`foo~-L.cuda`},
-	`&(target.os)~-L.objc++`:[]string{uname_f(`%[1]s~-L.objc++`,trim_tolower{1}),`foo~-L.objc++`},
-	`&(target.os)~-L.objc`:[]string{uname_f(`%[1]s~-L.objc`,trim_tolower{1}),`foo~-L.objc`},
-	`&(target.os)~-L.swift`:[]string{uname_f(`%[1]s~-L.swift`,trim_tolower{1}),`foo~-L.swift`},
-	`&(target.os)~-L`:[]string{uname_f(`%[1]s~-L`,trim_tolower{1}),`foo~-L`},
-	`&(target.os)~-O.c++`:[]string{uname_f(`%[1]s~-O.c++`,trim_tolower{1}),`foo~-O.c++`},
-	`&(target.os)~-O.c`:[]string{uname_f(`%[1]s~-O.c`,trim_tolower{1}),`foo~-O.c`},
-	`&(target.os)~-O.cl`:[]string{uname_f(`%[1]s~-O.cl`,trim_tolower{1}),`foo~-O.cl`},
-	`&(target.os)~-O.cuda++`:[]string{uname_f(`%[1]s~-O.cuda++`,trim_tolower{1}),`foo~-O.cuda++`},
-	`&(target.os)~-O.cuda`:[]string{uname_f(`%[1]s~-O.cuda`,trim_tolower{1}),`foo~-O.cuda`},
-	`&(target.os)~-O.objc++`:[]string{uname_f(`%[1]s~-O.objc++`,trim_tolower{1}),`foo~-O.objc++`},
-	`&(target.os)~-O.objc`:[]string{uname_f(`%[1]s~-O.objc`,trim_tolower{1}),`foo~-O.objc`},
-	`&(target.os)~-O.swift`:[]string{uname_f(`%[1]s~-O.swift`,trim_tolower{1}),`foo~-O.swift`},
-	`&(target.os)~-O`:[]string{uname_f(`%[1]s~-O`,trim_tolower{1}),`foo~-O`},
-	`&(target.os)~-W.c++`:[]string{uname_f(`%[1]s~-W.c++`,trim_tolower{1}),`foo~-W.c++`},
-	`&(target.os)~-W.c`:[]string{uname_f(`%[1]s~-W.c`,trim_tolower{1}),`foo~-W.c`},
-	`&(target.os)~-W.cl`:[]string{uname_f(`%[1]s~-W.cl`,trim_tolower{1}),`foo~-W.cl`},
-	`&(target.os)~-W.cuda++`:[]string{uname_f(`%[1]s~-W.cuda++`,trim_tolower{1}),`foo~-W.cuda++`},
-	`&(target.os)~-W.cuda`:[]string{uname_f(`%[1]s~-W.cuda`,trim_tolower{1}),`foo~-W.cuda`},
-	`&(target.os)~-W.objc++`:[]string{uname_f(`%[1]s~-W.objc++`,trim_tolower{1}),`foo~-W.objc++`},
-	`&(target.os)~-W.objc`:[]string{uname_f(`%[1]s~-W.objc`,trim_tolower{1}),`foo~-W.objc`},
-	`&(target.os)~-W.swift`:[]string{uname_f(`%[1]s~-W.swift`,trim_tolower{1}),`foo~-W.swift`},
-	`&(target.os)~-W`:[]string{uname_f(`%[1]s~-W`,trim_tolower{1}),`foo~-W`},
-	`&(target.os)~-Werror.c++`:[]string{uname_f(`%[1]s~-Werror.c++`,trim_tolower{1}),`foo~-Werror.c++`},
-	`&(target.os)~-Werror.c`:[]string{uname_f(`%[1]s~-Werror.c`,trim_tolower{1}),`foo~-Werror.c`},
-	`&(target.os)~-Werror.cl`:[]string{uname_f(`%[1]s~-Werror.cl`,trim_tolower{1}),`foo~-Werror.cl`},
-	`&(target.os)~-Werror.cuda++`:[]string{uname_f(`%[1]s~-Werror.cuda++`,trim_tolower{1}),`foo~-Werror.cuda++`},
-	`&(target.os)~-Werror.cuda`:[]string{uname_f(`%[1]s~-Werror.cuda`,trim_tolower{1}),`foo~-Werror.cuda`},
-	`&(target.os)~-Werror.objc++`:[]string{uname_f(`%[1]s~-Werror.objc++`,trim_tolower{1}),`foo~-Werror.objc++`},
-	`&(target.os)~-Werror.objc`:[]string{uname_f(`%[1]s~-Werror.objc`,trim_tolower{1}),`foo~-Werror.objc`},
-	`&(target.os)~-Werror.swift`:[]string{uname_f(`%[1]s~-Werror.swift`,trim_tolower{1}),`foo~-Werror.swift`},
-	`&(target.os)~-Werror`:[]string{uname_f(`%[1]s~-Werror`,trim_tolower{1}),`foo~-Werror`},
-	`&(target.os)~-Wl.c++`:[]string{uname_f(`%[1]s~-Wl.c++`,trim_tolower{1}),`foo~-Wl.c++`},
-	`&(target.os)~-Wl.c`:[]string{uname_f(`%[1]s~-Wl.c`,trim_tolower{1}),`foo~-Wl.c`},
-	`&(target.os)~-Wl.cl`:[]string{uname_f(`%[1]s~-Wl.cl`,trim_tolower{1}),`foo~-Wl.cl`},
-	`&(target.os)~-Wl.cuda++`:[]string{uname_f(`%[1]s~-Wl.cuda++`,trim_tolower{1}),`foo~-Wl.cuda++`},
-	`&(target.os)~-Wl.cuda`:[]string{uname_f(`%[1]s~-Wl.cuda`,trim_tolower{1}),`foo~-Wl.cuda`},
-	`&(target.os)~-Wl.objc++`:[]string{uname_f(`%[1]s~-Wl.objc++`,trim_tolower{1}),`foo~-Wl.objc++`},
-	`&(target.os)~-Wl.objc`:[]string{uname_f(`%[1]s~-Wl.objc`,trim_tolower{1}),`foo~-Wl.objc`},
-	`&(target.os)~-Wl.swift`:[]string{uname_f(`%[1]s~-Wl.swift`,trim_tolower{1}),`foo~-Wl.swift`},
-	`&(target.os)~-Wl`:[]string{uname_f(`%[1]s~-Wl`,trim_tolower{1}),`foo~-Wl`},
-	`&(target.os)~-Wno-error.c++`:[]string{uname_f(`%[1]s~-Wno-error.c++`,trim_tolower{1}),`foo~-Wno-error.c++`},
-	`&(target.os)~-Wno-error.c`:[]string{uname_f(`%[1]s~-Wno-error.c`,trim_tolower{1}),`foo~-Wno-error.c`},
-	`&(target.os)~-Wno-error.cl`:[]string{uname_f(`%[1]s~-Wno-error.cl`,trim_tolower{1}),`foo~-Wno-error.cl`},
-	`&(target.os)~-Wno-error.cuda++`:[]string{uname_f(`%[1]s~-Wno-error.cuda++`,trim_tolower{1}),`foo~-Wno-error.cuda++`},
-	`&(target.os)~-Wno-error.cuda`:[]string{uname_f(`%[1]s~-Wno-error.cuda`,trim_tolower{1}),`foo~-Wno-error.cuda`},
-	`&(target.os)~-Wno-error.objc++`:[]string{uname_f(`%[1]s~-Wno-error.objc++`,trim_tolower{1}),`foo~-Wno-error.objc++`},
-	`&(target.os)~-Wno-error.objc`:[]string{uname_f(`%[1]s~-Wno-error.objc`,trim_tolower{1}),`foo~-Wno-error.objc`},
-	`&(target.os)~-Wno-error.swift`:[]string{uname_f(`%[1]s~-Wno-error.swift`,trim_tolower{1}),`foo~-Wno-error.swift`},
-	`&(target.os)~-Wno-error`:[]string{uname_f(`%[1]s~-Wno-error`,trim_tolower{1}),`foo~-Wno-error`},
-	`&(target.os)~-f.c++`:[]string{uname_f(`%[1]s~-f.c++`,trim_tolower{1}),`foo~-f.c++`},
-	`&(target.os)~-f.c`:[]string{uname_f(`%[1]s~-f.c`,trim_tolower{1}),`foo~-f.c`},
-	`&(target.os)~-f.cl`:[]string{uname_f(`%[1]s~-f.cl`,trim_tolower{1}),`foo~-f.cl`},
-	`&(target.os)~-f.cuda++`:[]string{uname_f(`%[1]s~-f.cuda++`,trim_tolower{1}),`foo~-f.cuda++`},
-	`&(target.os)~-f.cuda`:[]string{uname_f(`%[1]s~-f.cuda`,trim_tolower{1}),`foo~-f.cuda`},
-	`&(target.os)~-f.ld.c++`:[]string{uname_f(`%[1]s~-f.ld.c++`,trim_tolower{1}),`foo~-f.ld.c++`},
-	`&(target.os)~-f.ld.c`:[]string{uname_f(`%[1]s~-f.ld.c`,trim_tolower{1}),`foo~-f.ld.c`},
-	`&(target.os)~-f.ld.cl`:[]string{uname_f(`%[1]s~-f.ld.cl`,trim_tolower{1}),`foo~-f.ld.cl`},
-	`&(target.os)~-f.ld.cuda++`:[]string{uname_f(`%[1]s~-f.ld.cuda++`,trim_tolower{1}),`foo~-f.ld.cuda++`},
-	`&(target.os)~-f.ld.cuda`:[]string{uname_f(`%[1]s~-f.ld.cuda`,trim_tolower{1}),`foo~-f.ld.cuda`},
-	`&(target.os)~-f.ld.objc++`:[]string{uname_f(`%[1]s~-f.ld.objc++`,trim_tolower{1}),`foo~-f.ld.objc++`},
-	`&(target.os)~-f.ld.objc`:[]string{uname_f(`%[1]s~-f.ld.objc`,trim_tolower{1}),`foo~-f.ld.objc`},
-	`&(target.os)~-f.ld.swift`:[]string{uname_f(`%[1]s~-f.ld.swift`,trim_tolower{1}),`foo~-f.ld.swift`},
-	`&(target.os)~-f.ld`:[]string{uname_f(`%[1]s~-f.ld`,trim_tolower{1}),`foo~-f.ld`},
-	`&(target.os)~-f.objc++`:[]string{uname_f(`%[1]s~-f.objc++`,trim_tolower{1}),`foo~-f.objc++`},
-	`&(target.os)~-f.objc`:[]string{uname_f(`%[1]s~-f.objc`,trim_tolower{1}),`foo~-f.objc`},
-	`&(target.os)~-f.swift`:[]string{uname_f(`%[1]s~-f.swift`,trim_tolower{1}),`foo~-f.swift`},
-	`&(target.os)~-f`:[]string{uname_f(`%[1]s~-f`,trim_tolower{1}),`foo~-f`},
-	`&(target.os)~-framework`:[]string{uname_f(`%[1]s~-framework`,trim_tolower{1}),`foo~-framework`},
-	`&(target.os)~-g.c++`:[]string{uname_f(`%[1]s~-g.c++`,trim_tolower{1}),`foo~-g.c++`},
-	`&(target.os)~-g.c`:[]string{uname_f(`%[1]s~-g.c`,trim_tolower{1}),`foo~-g.c`},
-	`&(target.os)~-g.cl`:[]string{uname_f(`%[1]s~-g.cl`,trim_tolower{1}),`foo~-g.cl`},
-	`&(target.os)~-g.cuda++`:[]string{uname_f(`%[1]s~-g.cuda++`,trim_tolower{1}),`foo~-g.cuda++`},
-	`&(target.os)~-g.cuda`:[]string{uname_f(`%[1]s~-g.cuda`,trim_tolower{1}),`foo~-g.cuda`},
-	`&(target.os)~-g.objc++`:[]string{uname_f(`%[1]s~-g.objc++`,trim_tolower{1}),`foo~-g.objc++`},
-	`&(target.os)~-g.objc`:[]string{uname_f(`%[1]s~-g.objc`,trim_tolower{1}),`foo~-g.objc`},
-	`&(target.os)~-g.swift`:[]string{uname_f(`%[1]s~-g.swift`,trim_tolower{1}),`foo~-g.swift`},
-	`&(target.os)~-g`:[]string{uname_f(`%[1]s~-g`,trim_tolower{1}),`foo~-g`},
-	`&(target.os)~-isysroot.c++`:[]string{uname_f(`%[1]s~-isysroot.c++`,trim_tolower{1}),`foo~-isysroot.c++`},
-	`&(target.os)~-isysroot.c`:[]string{uname_f(`%[1]s~-isysroot.c`,trim_tolower{1}),`foo~-isysroot.c`},
-	`&(target.os)~-isysroot.cl`:[]string{uname_f(`%[1]s~-isysroot.cl`,trim_tolower{1}),`foo~-isysroot.cl`},
-	`&(target.os)~-isysroot.cuda++`:[]string{uname_f(`%[1]s~-isysroot.cuda++`,trim_tolower{1}),`foo~-isysroot.cuda++`},
-	`&(target.os)~-isysroot.cuda`:[]string{uname_f(`%[1]s~-isysroot.cuda`,trim_tolower{1}),`foo~-isysroot.cuda`},
-	`&(target.os)~-isysroot.objc++`:[]string{uname_f(`%[1]s~-isysroot.objc++`,trim_tolower{1}),`foo~-isysroot.objc++`},
-	`&(target.os)~-isysroot.objc`:[]string{uname_f(`%[1]s~-isysroot.objc`,trim_tolower{1}),`foo~-isysroot.objc`},
-	`&(target.os)~-isysroot.swift`:[]string{uname_f(`%[1]s~-isysroot.swift`,trim_tolower{1}),`foo~-isysroot.swift`},
-	`&(target.os)~-isysroot`:[]string{uname_f(`%[1]s~-isysroot`,trim_tolower{1}),`foo~-isysroot`},
-	`&(target.os)~-iwithsysroot`:[]string{uname_f(`%[1]s~-iwithsysroot`,trim_tolower{1}),`foo~-iwithsysroot`},
-	`&(target.os)~-iwithsysroot.c`:[]string{uname_f(`%[1]s~-iwithsysroot.c`,trim_tolower{1}),`foo~-iwithsysroot.c`},
-	`&(target.os)~-iwithsysroot.c++`:[]string{uname_f(`%[1]s~-iwithsysroot.c++`,trim_tolower{1}),`foo~-iwithsysroot.c++`},
-	`&(target.os)~-iwithsysroot.cl`:[]string{uname_f(`%[1]s~-iwithsysroot.cl`,trim_tolower{1}),`foo~-iwithsysroot.cl`},
-	`&(target.os)~-iwithsysroot.cuda`:[]string{uname_f(`%[1]s~-iwithsysroot.cuda`,trim_tolower{1}),`foo~-iwithsysroot.cuda`},
-	`&(target.os)~-iwithsysroot.cuda++`:[]string{uname_f(`%[1]s~-iwithsysroot.cuda++`,trim_tolower{1}),`foo~-iwithsysroot.cuda++`},
-	`&(target.os)~-iwithsysroot.objc`:[]string{uname_f(`%[1]s~-iwithsysroot.objc`,trim_tolower{1}),`foo~-iwithsysroot.objc`},
-	`&(target.os)~-iwithsysroot.objc++`:[]string{uname_f(`%[1]s~-iwithsysroot.objc++`,trim_tolower{1}),`foo~-iwithsysroot.objc++`},
-	`&(target.os)~-iwithsysroot.swift`:[]string{uname_f(`%[1]s~-iwithsysroot.swift`,trim_tolower{1}),`foo~-iwithsysroot.swift`},
-	`&(target.os)~-iframeworkwithsysroot`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot`,trim_tolower{1}),`foo~-iframeworkwithsysroot`},
-	`&(target.os)~-iframeworkwithsysroot.c`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.c`,trim_tolower{1}),`foo~-iframeworkwithsysroot.c`},
-	`&(target.os)~-iframeworkwithsysroot.c++`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.c++`,trim_tolower{1}),`foo~-iframeworkwithsysroot.c++`},
-	`&(target.os)~-iframeworkwithsysroot.cl`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.cl`,trim_tolower{1}),`foo~-iframeworkwithsysroot.cl`},
-	`&(target.os)~-iframeworkwithsysroot.cuda`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.cuda`,trim_tolower{1}),`foo~-iframeworkwithsysroot.cuda`},
-	`&(target.os)~-iframeworkwithsysroot.cuda++`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.cuda++`,trim_tolower{1}),`foo~-iframeworkwithsysroot.cuda++`},
-	`&(target.os)~-iframeworkwithsysroot.objc`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.objc`,trim_tolower{1}),`foo~-iframeworkwithsysroot.objc`},
-	`&(target.os)~-iframeworkwithsysroot.objc++`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.objc++`,trim_tolower{1}),`foo~-iframeworkwithsysroot.objc++`},
-	`&(target.os)~-iframeworkwithsysroot.swift`:[]string{uname_f(`%[1]s~-iframeworkwithsysroot.swift`,trim_tolower{1}),`foo~-iframeworkwithsysroot.swift`},
-	`&(target.os)~-iframework`:[]string{uname_f(`%[1]s~-iframework`,trim_tolower{1}),`foo~-iframework`},
-	`&(target.os)~-iframework.c`:[]string{uname_f(`%[1]s~-iframework.c`,trim_tolower{1}),`foo~-iframework.c`},
-	`&(target.os)~-iframework.c++`:[]string{uname_f(`%[1]s~-iframework.c++`,trim_tolower{1}),`foo~-iframework.c++`},
-	`&(target.os)~-iframework.cl`:[]string{uname_f(`%[1]s~-iframework.cl`,trim_tolower{1}),`foo~-iframework.cl`},
-	`&(target.os)~-iframework.cuda`:[]string{uname_f(`%[1]s~-iframework.cuda`,trim_tolower{1}),`foo~-iframework.cuda`},
-	`&(target.os)~-iframework.cuda++`:[]string{uname_f(`%[1]s~-iframework.cuda++`,trim_tolower{1}),`foo~-iframework.cuda++`},
-	`&(target.os)~-iframework.objc`:[]string{uname_f(`%[1]s~-iframework.objc`,trim_tolower{1}),`foo~-iframework.objc`},
-	`&(target.os)~-iframework.objc++`:[]string{uname_f(`%[1]s~-iframework.objc++`,trim_tolower{1}),`foo~-iframework.objc++`},
-	`&(target.os)~-iframework.swift`:[]string{uname_f(`%[1]s~-iframework.swift`,trim_tolower{1}),`foo~-iframework.swift`},
-	`&(target.os)~-isystem`:[]string{uname_f(`%[1]s~-isystem`,trim_tolower{1}),`foo~-isystem`},
-	`&(target.os)~-isystem.c`:[]string{uname_f(`%[1]s~-isystem.c`,trim_tolower{1}),`foo~-isystem.c`},
-	`&(target.os)~-isystem.c++`:[]string{uname_f(`%[1]s~-isystem.c++`,trim_tolower{1}),`foo~-isystem.c++`},
-	`&(target.os)~-isystem.cl`:[]string{uname_f(`%[1]s~-isystem.cl`,trim_tolower{1}),`foo~-isystem.cl`},
-	`&(target.os)~-isystem.cuda`:[]string{uname_f(`%[1]s~-isystem.cuda`,trim_tolower{1}),`foo~-isystem.cuda`},
-	`&(target.os)~-isystem.cuda++`:[]string{uname_f(`%[1]s~-isystem.cuda++`,trim_tolower{1}),`foo~-isystem.cuda++`},
-	`&(target.os)~-isystem.objc`:[]string{uname_f(`%[1]s~-isystem.objc`,trim_tolower{1}),`foo~-isystem.objc`},
-	`&(target.os)~-isystem.objc++`:[]string{uname_f(`%[1]s~-isystem.objc++`,trim_tolower{1}),`foo~-isystem.objc++`},
-	`&(target.os)~-isystem.swift`:[]string{uname_f(`%[1]s~-isystem.swift`,trim_tolower{1}),`foo~-isystem.swift`},
-	`&(target.os)~-isystem-after`:[]string{uname_f(`%[1]s~-isystem-after`,trim_tolower{1}),`foo~-isystem-after`},
-	`&(target.os)~-isystem-after.c`:[]string{uname_f(`%[1]s~-isystem-after.c`,trim_tolower{1}),`foo~-isystem-after.c`},
-	`&(target.os)~-isystem-after.c++`:[]string{uname_f(`%[1]s~-isystem-after.c++`,trim_tolower{1}),`foo~-isystem-after.c++`},
-	`&(target.os)~-isystem-after.cl`:[]string{uname_f(`%[1]s~-isystem-after.cl`,trim_tolower{1}),`foo~-isystem-after.cl`},
-	`&(target.os)~-isystem-after.cuda`:[]string{uname_f(`%[1]s~-isystem-after.cuda`,trim_tolower{1}),`foo~-isystem-after.cuda`},
-	`&(target.os)~-isystem-after.cuda++`:[]string{uname_f(`%[1]s~-isystem-after.cuda++`,trim_tolower{1}),`foo~-isystem-after.cuda++`},
-	`&(target.os)~-isystem-after.objc`:[]string{uname_f(`%[1]s~-isystem-after.objc`,trim_tolower{1}),`foo~-isystem-after.objc`},
-	`&(target.os)~-isystem-after.objc++`:[]string{uname_f(`%[1]s~-isystem-after.objc++`,trim_tolower{1}),`foo~-isystem-after.objc++`},
-	`&(target.os)~-isystem-after.swift`:[]string{uname_f(`%[1]s~-isystem-after.swift`,trim_tolower{1}),`foo~-isystem-after.swift`},
-	`&(target.os)~-cxx-isystem`:[]string{uname_f(`%[1]s~-cxx-isystem`,trim_tolower{1}),`foo~-cxx-isystem`},
-	`&(target.os)~-cxx-isystem.c`:[]string{uname_f(`%[1]s~-cxx-isystem.c`,trim_tolower{1}),`foo~-cxx-isystem.c`},
-	`&(target.os)~-cxx-isystem.c++`:[]string{uname_f(`%[1]s~-cxx-isystem.c++`,trim_tolower{1}),`foo~-cxx-isystem.c++`},
-	`&(target.os)~-cxx-isystem.cl`:[]string{uname_f(`%[1]s~-cxx-isystem.cl`,trim_tolower{1}),`foo~-cxx-isystem.cl`},
-	`&(target.os)~-cxx-isystem.cuda`:[]string{uname_f(`%[1]s~-cxx-isystem.cuda`,trim_tolower{1}),`foo~-cxx-isystem.cuda`},
-	`&(target.os)~-cxx-isystem.cuda++`:[]string{uname_f(`%[1]s~-cxx-isystem.cuda++`,trim_tolower{1}),`foo~-cxx-isystem.cuda++`},
-	`&(target.os)~-cxx-isystem.objc`:[]string{uname_f(`%[1]s~-cxx-isystem.objc`,trim_tolower{1}),`foo~-cxx-isystem.objc`},
-	`&(target.os)~-cxx-isystem.objc++`:[]string{uname_f(`%[1]s~-cxx-isystem.objc++`,trim_tolower{1}),`foo~-cxx-isystem.objc++`},
-	`&(target.os)~-cxx-isystem.swift`:[]string{uname_f(`%[1]s~-cxx-isystem.swift`,trim_tolower{1}),`foo~-cxx-isystem.swift`},
-	`&(target.os)~-stdlib`:[]string{uname_f(`%[1]s~-stdlib`,trim_tolower{1}),`foo~-stdlib`},
-	`&(target.os)~-stdlib.c`:[]string{uname_f(`%[1]s~-stdlib.c`,trim_tolower{1}),`foo~-stdlib.c`},
-	`&(target.os)~-stdlib.c++`:[]string{uname_f(`%[1]s~-stdlib.c++`,trim_tolower{1}),`foo~-stdlib.c++`},
-	`&(target.os)~-stdlib.cl`:[]string{uname_f(`%[1]s~-stdlib.cl`,trim_tolower{1}),`foo~-stdlib.cl`},
-	`&(target.os)~-stdlib.cuda`:[]string{uname_f(`%[1]s~-stdlib.cuda`,trim_tolower{1}),`foo~-stdlib.cuda`},
-	`&(target.os)~-stdlib.cuda++`:[]string{uname_f(`%[1]s~-stdlib.cuda++`,trim_tolower{1}),`foo~-stdlib.cuda++`},
-	`&(target.os)~-stdlib.objc`:[]string{uname_f(`%[1]s~-stdlib.objc`,trim_tolower{1}),`foo~-stdlib.objc`},
-	`&(target.os)~-stdlib.objc++`:[]string{uname_f(`%[1]s~-stdlib.objc++`,trim_tolower{1}),`foo~-stdlib.objc++`},
-	`&(target.os)~-stdlib.swift`:[]string{uname_f(`%[1]s~-stdlib.swift`,trim_tolower{1}),`foo~-stdlib.swift`},
-	`&(target.os)~-stdlib++-isystem`:[]string{uname_f(`%[1]s~-stdlib++-isystem`,trim_tolower{1}),`foo~-stdlib++-isystem`},
-	`&(target.os)~-stdlib++-isystem.c`:[]string{uname_f(`%[1]s~-stdlib++-isystem.c`,trim_tolower{1}),`foo~-stdlib++-isystem.c`},
-	`&(target.os)~-stdlib++-isystem.c++`:[]string{uname_f(`%[1]s~-stdlib++-isystem.c++`,trim_tolower{1}),`foo~-stdlib++-isystem.c++`},
-	`&(target.os)~-stdlib++-isystem.cl`:[]string{uname_f(`%[1]s~-stdlib++-isystem.cl`,trim_tolower{1}),`foo~-stdlib++-isystem.cl`},
-	`&(target.os)~-stdlib++-isystem.cuda`:[]string{uname_f(`%[1]s~-stdlib++-isystem.cuda`,trim_tolower{1}),`foo~-stdlib++-isystem.cuda`},
-	`&(target.os)~-stdlib++-isystem.cuda++`:[]string{uname_f(`%[1]s~-stdlib++-isystem.cuda++`,trim_tolower{1}),`foo~-stdlib++-isystem.cuda++`},
-	`&(target.os)~-stdlib++-isystem.objc`:[]string{uname_f(`%[1]s~-stdlib++-isystem.objc`,trim_tolower{1}),`foo~-stdlib++-isystem.objc`},
-	`&(target.os)~-stdlib++-isystem.objc++`:[]string{uname_f(`%[1]s~-stdlib++-isystem.objc++`,trim_tolower{1}),`foo~-stdlib++-isystem.objc++`},
-	`&(target.os)~-stdlib++-isystem.swift`:[]string{uname_f(`%[1]s~-stdlib++-isystem.swift`,trim_tolower{1}),`foo~-stdlib++-isystem.swift`},
-	`&(target.os)~-diagnostics`:[]string{uname_f(`%[1]s~-diagnostics`,trim_tolower{1}),`foo~-diagnostics`},
-	`&(target.os)~-diagnostics.c`:[]string{uname_f(`%[1]s~-diagnostics.c`,trim_tolower{1}),`foo~-diagnostics.c`},
-	`&(target.os)~-diagnostics.c++`:[]string{uname_f(`%[1]s~-diagnostics.c++`,trim_tolower{1}),`foo~-diagnostics.c++`},
-	`&(target.os)~-diagnostics.cl`:[]string{uname_f(`%[1]s~-diagnostics.cl`,trim_tolower{1}),`foo~-diagnostics.cl`},
-	`&(target.os)~-diagnostics.cuda`:[]string{uname_f(`%[1]s~-diagnostics.cuda`,trim_tolower{1}),`foo~-diagnostics.cuda`},
-	`&(target.os)~-diagnostics.cuda++`:[]string{uname_f(`%[1]s~-diagnostics.cuda++`,trim_tolower{1}),`foo~-diagnostics.cuda++`},
-	`&(target.os)~-diagnostics.objc`:[]string{uname_f(`%[1]s~-diagnostics.objc`,trim_tolower{1}),`foo~-diagnostics.objc`},
-	`&(target.os)~-diagnostics.objc++`:[]string{uname_f(`%[1]s~-diagnostics.objc++`,trim_tolower{1}),`foo~-diagnostics.objc++`},
-	`&(target.os)~-diagnostics.swift`:[]string{uname_f(`%[1]s~-diagnostics.swift`,trim_tolower{1}),`foo~-diagnostics.swift`},
-	`&(target.os)~-platform_version.c`:[]string{uname_f(`%[1]s~-platform_version.c`,trim_tolower{1}),`foo~-platform_version.c`},
-	`&(target.os)~-platform_version.c++`:[]string{uname_f(`%[1]s~-platform_version.c++`,trim_tolower{1}),`foo~-platform_version.c++`},
-	`&(target.os)~-platform_version.cl`:[]string{uname_f(`%[1]s~-platform_version.cl`,trim_tolower{1}),`foo~-platform_version.cl`},
-	`&(target.os)~-platform_version.cuda`:[]string{uname_f(`%[1]s~-platform_version.cuda`,trim_tolower{1}),`foo~-platform_version.cuda`},
-	`&(target.os)~-platform_version.cuda++`:[]string{uname_f(`%[1]s~-platform_version.cuda++`,trim_tolower{1}),`foo~-platform_version.cuda++`},
-	`&(target.os)~-platform_version.objc`:[]string{uname_f(`%[1]s~-platform_version.objc`,trim_tolower{1}),`foo~-platform_version.objc`},
-	`&(target.os)~-platform_version.objc++`:[]string{uname_f(`%[1]s~-platform_version.objc++`,trim_tolower{1}),`foo~-platform_version.objc++`},
-	`&(target.os)~--target`:[]string{uname_f(`%[1]s~--target`,trim_tolower{1}),`foo~--target`},
-	`&(target.os)~-l`:[]string{uname_f(`%[1]s~-l`,trim_tolower{1}),`foo~-l`},
-	`&(target.os)~ld`:[]string{uname_f(`%[1]s~ld`,trim_tolower{1}),`foo~ld`},
-	`&(target.os)~ld.framework`:[]string{uname_f(`%[1]s~ld.framework`,trim_tolower{1}),`foo~ld.framework`},
-	`&(target.os)~ldlibs`:[]string{uname_f(`%[1]s~ldlibs`,trim_tolower{1}),`foo~ldlibs`},
-	`&(target.os)~loadlibs`:[]string{uname_f(`%[1]s~loadlibs`,trim_tolower{1}),`foo~loadlibs`},
-	`&(target.os)~arflags`:[]string{uname_f(`%[1]s~arflags`,trim_tolower{1}),`foo~arflags`},
-	`&(target.os)~asmflags`:[]string{uname_f(`%[1]s~asmflags`,trim_tolower{1}),`foo~asmflags`},
-	`&(target.os)~cflags`:[]string{uname_f(`%[1]s~cflags`,trim_tolower{1}),`foo~cflags`},
-	`&(target.os)~cppflags`:[]string{uname_f(`%[1]s~cppflags`,trim_tolower{1}),`foo~cppflags`},
-	`&(target.os)~cxxflags`:[]string{uname_f(`%[1]s~cxxflags`,trim_tolower{1}),`foo~cxxflags`},
-	`&(target.os)~ocflags`:[]string{uname_f(`%[1]s~ocflags`,trim_tolower{1}),`foo~ocflags`},
-	`&(target.os)~ocxxflags`:[]string{uname_f(`%[1]s~ocxxflags`,trim_tolower{1}),`foo~ocxxflags`},
-	`&(target.os)~clflags`:[]string{uname_f(`%[1]s~clflags`,trim_tolower{1}),`foo~clflags`},
-	`&(target.os)~cudaflags`:[]string{uname_f(`%[1]s~cudaflags`,trim_tolower{1}),`foo~cudaflags`},
-	`&(target.os)~cudaxxflags`:[]string{uname_f(`%[1]s~cudaxxflags`,trim_tolower{1}),`foo~cudaxxflags`},
-	`&(target.os)~ldflags.shared`:[]string{uname_f(`%[1]s~ldflags.shared`,trim_tolower{1}),`foo~ldflags.shared`},
-	`&(target.os)~-m.c++`:[]string{uname_f(`%[1]s~-m.c++`,trim_tolower{1}),`foo~-m.c++`},
-	`&(target.os)~-m.c`:[]string{uname_f(`%[1]s~-m.c`,trim_tolower{1}),`foo~-m.c`},
-	`&(target.os)~-m.cl`:[]string{uname_f(`%[1]s~-m.cl`,trim_tolower{1}),`foo~-m.cl`},
-	`&(target.os)~-m.cuda++`:[]string{uname_f(`%[1]s~-m.cuda++`,trim_tolower{1}),`foo~-m.cuda++`},
-	`&(target.os)~-m.cuda`:[]string{uname_f(`%[1]s~-m.cuda`,trim_tolower{1}),`foo~-m.cuda`},
-	`&(target.os)~-m.objc++`:[]string{uname_f(`%[1]s~-m.objc++`,trim_tolower{1}),`foo~-m.objc++`},
-	`&(target.os)~-m.objc`:[]string{uname_f(`%[1]s~-m.objc`,trim_tolower{1}),`foo~-m.objc`},
-	`&(target.os)~-m.swift`:[]string{uname_f(`%[1]s~-m.swift`,trim_tolower{1}),`foo~-m.swift`},
-	`&(target.os)~-m`:[]string{uname_f(`%[1]s~-m`,trim_tolower{1}),`foo~-m`},
-	`&(target.os)~-no.c++`:[]string{uname_f(`%[1]s~-no.c++`,trim_tolower{1}),`foo~-no.c++`},
-	`&(target.os)~-no.c`:[]string{uname_f(`%[1]s~-no.c`,trim_tolower{1}),`foo~-no.c`},
-	`&(target.os)~-no.cl`:[]string{uname_f(`%[1]s~-no.cl`,trim_tolower{1}),`foo~-no.cl`},
-	`&(target.os)~-no.cuda++`:[]string{uname_f(`%[1]s~-no.cuda++`,trim_tolower{1}),`foo~-no.cuda++`},
-	`&(target.os)~-no.cuda`:[]string{uname_f(`%[1]s~-no.cuda`,trim_tolower{1}),`foo~-no.cuda`},
-	`&(target.os)~-no.ld.c++`:[]string{uname_f(`%[1]s~-no.ld.c++`,trim_tolower{1}),`foo~-no.ld.c++`},
-	`&(target.os)~-no.ld.c`:[]string{uname_f(`%[1]s~-no.ld.c`,trim_tolower{1}),`foo~-no.ld.c`},
-	`&(target.os)~-no.ld.cl`:[]string{uname_f(`%[1]s~-no.ld.cl`,trim_tolower{1}),`foo~-no.ld.cl`},
-	`&(target.os)~-no.ld.cuda++`:[]string{uname_f(`%[1]s~-no.ld.cuda++`,trim_tolower{1}),`foo~-no.ld.cuda++`},
-	`&(target.os)~-no.ld.cuda`:[]string{uname_f(`%[1]s~-no.ld.cuda`,trim_tolower{1}),`foo~-no.ld.cuda`},
-	`&(target.os)~-no.ld.objc++`:[]string{uname_f(`%[1]s~-no.ld.objc++`,trim_tolower{1}),`foo~-no.ld.objc++`},
-	`&(target.os)~-no.ld.objc`:[]string{uname_f(`%[1]s~-no.ld.objc`,trim_tolower{1}),`foo~-no.ld.objc`},
-	`&(target.os)~-no.ld.swift`:[]string{uname_f(`%[1]s~-no.ld.swift`,trim_tolower{1}),`foo~-no.ld.swift`},
-	`&(target.os)~-no.ld`:[]string{uname_f(`%[1]s~-no.ld`,trim_tolower{1}),`foo~-no.ld`},
-	`&(target.os)~-no.objc++`:[]string{uname_f(`%[1]s~-no.objc++`,trim_tolower{1}),`foo~-no.objc++`},
-	`&(target.os)~-no.objc`:[]string{uname_f(`%[1]s~-no.objc`,trim_tolower{1}),`foo~-no.objc`},
-	`&(target.os)~-no.swift`:[]string{uname_f(`%[1]s~-no.swift`,trim_tolower{1}),`foo~-no.swift`},
-	`&(target.os)~-no`:[]string{uname_f(`%[1]s~-no`,trim_tolower{1}),`foo~-no`},
-	`&(target.os)~-platform_version.swift`:[]string{uname_f(`%[1]s~-platform_version.swift`,trim_tolower{1}),`foo~-platform_version.swift`},
-	`&(target.os)~-platform_version`:[]string{uname_f(`%[1]s~-platform_version`,trim_tolower{1}),`foo~-platform_version`},
-	`&(target.os)~-v.c++`:[]string{uname_f(`%[1]s~-v.c++`,trim_tolower{1}),`foo~-v.c++`},
-	`&(target.os)~-v.c`:[]string{uname_f(`%[1]s~-v.c`,trim_tolower{1}),`foo~-v.c`},
-	`&(target.os)~-v.cl`:[]string{uname_f(`%[1]s~-v.cl`,trim_tolower{1}),`foo~-v.cl`},
-	`&(target.os)~-v.cuda++`:[]string{uname_f(`%[1]s~-v.cuda++`,trim_tolower{1}),`foo~-v.cuda++`},
-	`&(target.os)~-v.cuda`:[]string{uname_f(`%[1]s~-v.cuda`,trim_tolower{1}),`foo~-v.cuda`},
-	`&(target.os)~-v.objc++`:[]string{uname_f(`%[1]s~-v.objc++`,trim_tolower{1}),`foo~-v.objc++`},
-	`&(target.os)~-v.objc`:[]string{uname_f(`%[1]s~-v.objc`,trim_tolower{1}),`foo~-v.objc`},
-	`&(target.os)~-v.swift`:[]string{uname_f(`%[1]s~-v.swift`,trim_tolower{1}),`foo~-v.swift`},
-	`&(target.os)~-v`:[]string{uname_f(`%[1]s~-v`,trim_tolower{1}),`foo~-v`},
-	`&(target.os)~ldflags.program`:[]string{uname_f(`%[1]s~ldflags.program`,trim_tolower{1}),`foo~ldflags.program`},
-	`&(target.os)~ldflags`:[]string{uname_f(`%[1]s~ldflags`,trim_tolower{1}),`foo~ldflags`},
-	`&(target.os)~loadlibes`:[]string{uname_f(`%[1]s~loadlibes`,trim_tolower{1}),`foo~loadlibes`},
-	`&(uname.os)&(target.release)`:[]string{uname_f(`%[1]s%[2]s`,/* trim_tolower{1} */)},
 	`&(va3)zz`:`{}zz`,
 	`.test~&(.test.s)`:`.test~foo`,
 	`X{&(.test.xa)}`:`X~1~`,
 	`X{&(.test.xb)}`:`X~2~`,
 	`YX{&(.test.xa)}`:`YX~1~`,
 	`YX{&(.test.xb)}`:`YX~2~`,
+	`fo-{&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)}`:[]string{`fo-a1`,`fo-b2`,`fo-c3`},
 	`fo-{&(.test.a.x.1.y.0.z)}`:[]string{`fo-ax`,`fo-ay`,`fo-az`},
 	`fo-{&(.test.b.x.1.y.0.z)}`:[]string{`fo-bx`,`fo-by`,`fo-bz`},
 	`fo-{&(.test.b.x.2.y.0.z)}`:[]string{`fo-cx`,`fo-cy`,`fo-cz`},
 	`fo-{&(.test.c.x.1.y.0.z)}`:[]string{`fo-dx`,`fo-dy`,`fo-dz`},
 	`fo-{&(.test.c.x.2.y.0.z)}`:[]string{`fo-ex`,`fo-ey`,`fo-ez`},
 	`fo-{&(.test.c.x.3.y.0.z)}`:[]string{`fo-fx`,`fo-fy`,`fo-fz`},
-	`fo-{&(.test.⌜a b c⌟.x.⌜1 2 3⌟.y.0.z)}`:[]string{`fo-a1`,`fo-b2`,`fo-c3`},
 	`foo&(va2)bar`:`foo{}bar`,
 	`foo_ab-$1-$2`:`foo_ab-{}-{}`,
 	`foo_ba-$2-$1`:`foo_ba-{}-{}`,
@@ -11277,30 +10447,19 @@ var checkpoints__string_com = map[string]any{
 	`x{&(.test.z)}y1{}zz`:`xwy1{}zz`,
 	`x{&(.test.z)}y2{}zz`:`xwy2{}zz`,
 	`x{&(.test.z)}y3{}zz`:`xwy3{}zz`,
-	`x{a b c}`:[]string{`xa`, `xb`, `xc`},
+	`x{a b c}`:[]string{`xa`,`xb`,`xc`},
 }
 func check__string_com(ctx Context, _c *compound, _v Value) {
-	var (
-		k = sf("%v", _c)
-		t = sf("%v", _v)
-		v = checkpoints__string_com[k]
-	)
-	if v == nil {
-		if k == t { return }
-		debug(pc(ctx,_c),
-			_f("`%v`:`%v`,", _c, _v),
-			_f("%v", ts(_c, ctx)),
-			_f("%v", ts(_v, ctx)),
-			callstack{num:5}, trace{})
-	} else {
+	if v, ok := checkpoints__string_com[_c.String()]; ok {
+		var t = sf("%v", _v)
 		switch w := v.(type) {
 		case []string: for _, v := range w { if t == v { return } }
 		case   string:                       if t == w { return }
 		}
 		debug(pc(ctx,_c),
-			_f(`%v → %v != %v ; %v`, _c, t, v, _c.elems),
-			_f("%v", ts(_c, ctx)),
-			_f("%v", ts(_v, ctx)),
+			_f(`%v → %v != %v`, _c, t, v),
+			_f("%v", ts(_c,ctx)),
+			_f("%v", ts(_v,ctx)),
 			callstack{num:5}, trace{})
 	}
 	return
@@ -12306,10 +11465,10 @@ var checkpoints_uncache = fixCheckpoints1(map[string]any{
 	`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} shared`:`[]`,
 	`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} stamp`:`[]`,
 	`{lib:{*:{.:{dylib:{0:lib*.dylib,.:{*:{0:lib*.dylib.*}}},so:{0:lib*.so,.:{*:{0:lib*.so.*}}}}}},Availability:{.:{h:{0:Availability.h}}},AvailabilityMacros:{.:{h:{0:AvailabilityMacros.h}}}} {}`:`[]`,
-	`{stamp:{0:{=file stamp}},-compiles-c:{0:-compiles-c},-compiles-c++:{0:-compiles-c++},-cc:{0:-cc},-cxx:{0:-cxx},-symbol-c:{0:-symbol-c},-symbol-c++:{0:-symbol-c++},-function-c:{0:-function-c},-function-c++:{0:-function-c++},-type-c:{0:-type-c},-type-c++:{0:-type-c++},-variable-c:{0:-variable-c},-variable-c++:{0:-variable-c++},-struct-member-c:{0:-struct-member-c},-struct-member-c++:{0:-struct-member-c++},-headers-c:{0:-headers-c},-headers-c++:{0:-headers-c++},-library-c:{0:-library-c},-library-c++:{0:-library-c++},-feature-c:{0:-feature-c},-feature-c++:{0:-feature-c++},-sizeof-c:{0:-sizeof-c},-sizeof-c++:{0:-sizeof-c++},-alignof-c:{0:-alignof-c},-alignof-c++:{0:-alignof-c++},-program-stdout:{0:-program-stdout},-program-stderr:{0:-program-stderr},-program-status:{0:-program-status},-program-status-is:{0:-program-status-is},-stdout:{0:-stdout},-stderr:{0:-stderr},-status:{0:-status},-status2:{0:-status2},-git-rev:{0:-git-rev},-git-tag:{0:-git-tag},-preprocess-c:{0:-preprocess-c},-preprocess-c++:{0:-preprocess-c++},-stdc-headers:{0:-stdc-headers},-file:{0:-file},-float-words-big-endian:{0:-float-words-big-endian},-int-words-big-endian:{0:-int-words-big-endian},.:{configure:{std:{float-words-bigendian:{.:{c:{0:.configure/std/float-words-bigendian.c}}},int-words-bigendian:{.:{c:{0:.configure/std/int-words-bigendian.c}}},ansi:{.:{headers:{.:{c:{0:.configure/std/ansi.headers.c}}}}}},arch:{.:{c:{0:.configure/arch.c}}},pthread:{.:{c:{0:.configure/pthread.c}}}}}} -function-c`:`[{0:-function-c}]`,
-	`{stamp:{0:{=file stamp}},-compiles-c:{0:-compiles-c},-compiles-c++:{0:-compiles-c++},-cc:{0:-cc},-cxx:{0:-cxx},-symbol-c:{0:-symbol-c},-symbol-c++:{0:-symbol-c++},-function-c:{0:-function-c},-function-c++:{0:-function-c++},-type-c:{0:-type-c},-type-c++:{0:-type-c++},-variable-c:{0:-variable-c},-variable-c++:{0:-variable-c++},-struct-member-c:{0:-struct-member-c},-struct-member-c++:{0:-struct-member-c++},-headers-c:{0:-headers-c},-headers-c++:{0:-headers-c++},-library-c:{0:-library-c},-library-c++:{0:-library-c++},-feature-c:{0:-feature-c},-feature-c++:{0:-feature-c++},-sizeof-c:{0:-sizeof-c},-sizeof-c++:{0:-sizeof-c++},-alignof-c:{0:-alignof-c},-alignof-c++:{0:-alignof-c++},-program-stdout:{0:-program-stdout},-program-stderr:{0:-program-stderr},-program-status:{0:-program-status},-program-status-is:{0:-program-status-is},-stdout:{0:-stdout},-stderr:{0:-stderr},-status:{0:-status},-status2:{0:-status2},-git-rev:{0:-git-rev},-git-tag:{0:-git-tag},-preprocess-c:{0:-preprocess-c},-preprocess-c++:{0:-preprocess-c++},-stdc-headers:{0:-stdc-headers},-file:{0:-file},-float-words-big-endian:{0:-float-words-big-endian},-int-words-big-endian:{0:-int-words-big-endian},.:{configure:{std:{float-words-bigendian:{.:{c:{0:.configure/std/float-words-bigendian.c}}},int-words-bigendian:{.:{c:{0:.configure/std/int-words-bigendian.c}}},ansi:{.:{headers:{.:{c:{0:.configure/std/ansi.headers.c}}}}}},arch:{.:{c:{0:.configure/arch.c}}},pthread:{.:{c:{0:.configure/pthread.c}}}}}} -headers-c`:`[{0:-headers-c}]`,
-	`{stamp:{0:{=file stamp}},-compiles-c:{0:-compiles-c},-compiles-c++:{0:-compiles-c++},-cc:{0:-cc},-cxx:{0:-cxx},-symbol-c:{0:-symbol-c},-symbol-c++:{0:-symbol-c++},-function-c:{0:-function-c},-function-c++:{0:-function-c++},-type-c:{0:-type-c},-type-c++:{0:-type-c++},-variable-c:{0:-variable-c},-variable-c++:{0:-variable-c++},-struct-member-c:{0:-struct-member-c},-struct-member-c++:{0:-struct-member-c++},-headers-c:{0:-headers-c},-headers-c++:{0:-headers-c++},-library-c:{0:-library-c},-library-c++:{0:-library-c++},-feature-c:{0:-feature-c},-feature-c++:{0:-feature-c++},-sizeof-c:{0:-sizeof-c},-sizeof-c++:{0:-sizeof-c++},-alignof-c:{0:-alignof-c},-alignof-c++:{0:-alignof-c++},-program-stdout:{0:-program-stdout},-program-stderr:{0:-program-stderr},-program-status:{0:-program-status},-program-status-is:{0:-program-status-is},-stdout:{0:-stdout},-stderr:{0:-stderr},-status:{0:-status},-status2:{0:-status2},-git-rev:{0:-git-rev},-git-tag:{0:-git-tag},-preprocess-c:{0:-preprocess-c},-preprocess-c++:{0:-preprocess-c++},-stdc-headers:{0:-stdc-headers},-file:{0:-file},-float-words-big-endian:{0:-float-words-big-endian},-int-words-big-endian:{0:-int-words-big-endian},.:{configure:{std:{float-words-bigendian:{.:{c:{0:.configure/std/float-words-bigendian.c}}},int-words-bigendian:{.:{c:{0:.configure/std/int-words-bigendian.c}}},ansi:{.:{headers:{.:{c:{0:.configure/std/ansi.headers.c}}}}}},arch:{.:{c:{0:.configure/arch.c}}},pthread:{.:{c:{0:.configure/pthread.c}}}}}} {=file .configure/header/HAVE_STDLIB_H.c}`:`[]`,
-	`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{0:auto-configure},autoheader:{0:autoheader},autoreconf:{0:autoreconf},configure-input:{0:configure-input},configure-file:{0:configure-file},clean:{0:clean},generate-export-header:{0:generate-export-header}-clean:{0:-clean}} {=file .configure/header/HAVE_STDLIB_H.c}`:`[]`,
+	`{stamp:{0:{=file stamp}},-compiles-c:{0:-compiles-c},-compiles-c++:{0:-compiles-c++},-cc:{0:-cc},-cxx:{0:-cxx},-symbol-c:{0:-symbol-c},-symbol-c++:{0:-symbol-c++},-function-c:{0:-function-c},-function-c++:{0:-function-c++},-type-c:{0:-type-c},-type-c++:{0:-type-c++},-variable-c:{0:-variable-c},-variable-c++:{0:-variable-c++},-struct-member-c:{0:-struct-member-c},-struct-member-c++:{0:-struct-member-c++},-headers-c:{0:-headers-c},-headers-c++:{0:-headers-c++},-library-c:{0:-library-c},-library-c++:{0:-library-c++},-feature-c:{0:-feature-c},-feature-c++:{0:-feature-c++},-sizeof-c:{0:-sizeof-c},-sizeof-c++:{0:-sizeof-c++},-alignof-c:{0:-alignof-c},-alignof-c++:{0:-alignof-c++},-program-stdout:{0:-program-stdout},-program-stderr:{0:-program-stderr},-program-status:{0:-program-status},-program-status-is:{0:-program-status-is},-stdout:{0:-stdout},-stderr:{0:-stderr},-status:{0:-status},-status2:{0:-status2},-git-rev:{0:-git-rev},-git-tag:{0:-git-tag},-preprocess-c:{0:-preprocess-c},-preprocess-c++:{0:-preprocess-c++},-stdc-headers:{0:-stdc-headers},-file:{0:-file}} -function-c`:`[{0:-function-c}]`,
+	`{stamp:{0:{=file stamp}},-compiles-c:{0:-compiles-c},-compiles-c++:{0:-compiles-c++},-cc:{0:-cc},-cxx:{0:-cxx},-symbol-c:{0:-symbol-c},-symbol-c++:{0:-symbol-c++},-function-c:{0:-function-c},-function-c++:{0:-function-c++},-type-c:{0:-type-c},-type-c++:{0:-type-c++},-variable-c:{0:-variable-c},-variable-c++:{0:-variable-c++},-struct-member-c:{0:-struct-member-c},-struct-member-c++:{0:-struct-member-c++},-headers-c:{0:-headers-c},-headers-c++:{0:-headers-c++},-library-c:{0:-library-c},-library-c++:{0:-library-c++},-feature-c:{0:-feature-c},-feature-c++:{0:-feature-c++},-sizeof-c:{0:-sizeof-c},-sizeof-c++:{0:-sizeof-c++},-alignof-c:{0:-alignof-c},-alignof-c++:{0:-alignof-c++},-program-stdout:{0:-program-stdout},-program-stderr:{0:-program-stderr},-program-status:{0:-program-status},-program-status-is:{0:-program-status-is},-stdout:{0:-stdout},-stderr:{0:-stderr},-status:{0:-status},-status2:{0:-status2},-git-rev:{0:-git-rev},-git-tag:{0:-git-tag},-preprocess-c:{0:-preprocess-c},-preprocess-c++:{0:-preprocess-c++},-stdc-headers:{0:-stdc-headers},-file:{0:-file}} -headers-c`:`[{0:-headers-c}]`,
+	`{stamp:{0:{=file stamp}},-compiles-c:{0:-compiles-c},-compiles-c++:{0:-compiles-c++},-cc:{0:-cc},-cxx:{0:-cxx},-symbol-c:{0:-symbol-c},-symbol-c++:{0:-symbol-c++},-function-c:{0:-function-c},-function-c++:{0:-function-c++},-type-c:{0:-type-c},-type-c++:{0:-type-c++},-variable-c:{0:-variable-c},-variable-c++:{0:-variable-c++},-struct-member-c:{0:-struct-member-c},-struct-member-c++:{0:-struct-member-c++},-headers-c:{0:-headers-c},-headers-c++:{0:-headers-c++},-library-c:{0:-library-c},-library-c++:{0:-library-c++},-feature-c:{0:-feature-c},-feature-c++:{0:-feature-c++},-sizeof-c:{0:-sizeof-c},-sizeof-c++:{0:-sizeof-c++},-alignof-c:{0:-alignof-c},-alignof-c++:{0:-alignof-c++},-program-stdout:{0:-program-stdout},-program-stderr:{0:-program-stderr},-program-status:{0:-program-status},-program-status-is:{0:-program-status-is},-stdout:{0:-stdout},-stderr:{0:-stderr},-status:{0:-status},-status2:{0:-status2},-git-rev:{0:-git-rev},-git-tag:{0:-git-tag},-preprocess-c:{0:-preprocess-c},-preprocess-c++:{0:-preprocess-c++},-stdc-headers:{0:-stdc-headers},-file:{0:-file}} {=file .configure/header/HAVE_STDLIB_H.c}`:`[]`,
+	`{stamp:{0:{=file stamp}},archive:{0:archive},shared:{0:shared},program:{0:program},module:{0:module},preprocess:{0:preprocess},depfile-c:{0:depfile-c},depfile-c++:{0:depfile-c++},depfile-objc:{0:depfile-objc},depfile-objc++:{0:depfile-objc++},auto-configure:{0:auto-configure},autoheader:{0:autoheader},autoreconf:{0:autoreconf},configure-input:{0:configure-input},configure-file:{0:configure-file},clean:{0:clean},generate-export-header:{0:generate-export-header},-clean:{0:-clean}} {=file .configure/header/HAVE_STDLIB_H.c}`:`[]`,
 	`{stamp:{0:{=file stamp}},touch:{0:touch},update-file:{0:update-file},symlink:{0:symlink}} {=file .configure/header/HAVE_STDLIB_H.c}`:`[]`,
 	`{stamp:{0:{=file stamp}}} -function-c`:`[]`,
 	`{stamp:{0:{=file stamp}}} -headers-c`:`[]`,
