@@ -1467,25 +1467,32 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
 
 	// 1. Rank comparison (Globs)
 	if metaL.Rank > 0 || metaR.Rank > 0 {
-		if res := cmp_rank(metaL.Rank, metaR.Rank); res != cmpEqual {
+		if res := cmp_rank(int(metaL.Rank), int(metaR.Rank)); res != cmpEqual {
 			return res, metaL.Text, metaR.Text
 		}
 	}
 
 	// 2. Numeric comparison (Ints, Floats, and Mixed)
-	if metaL.NumKind > 0 && metaR.NumKind > 0 {
-		if metaL.NumKind == NumInt && metaR.NumKind == NumInt {
+	if metaL.Kind > 0 && metaR.Kind > 0 {
+		if metaL.Kind == NumInt && metaR.Kind == NumInt {
 			// Fast path: Pure Int64 comparison
-			if metaL.IntVal < metaR.IntVal { return cmpSmaller, metaL.Text, metaR.Text }
-			if metaL.IntVal > metaR.IntVal { return cmpGreater, metaL.Text, metaR.Text }
+			intL := int64(numbers[metaL.NumIdx])
+			intR := int64(numbers[metaR.NumIdx])
+			if intL < intR { return cmpSmaller, metaL.Text, metaR.Text }
+			if intL > intR { return cmpGreater, metaL.Text, metaR.Text }
 		} else {
 			// Mixed or Pure Float comparison
-			fL := metaL.FloatVal
-			if metaL.NumKind == NumInt { fL = float64(metaL.IntVal) }
-			
-			fR := metaR.FloatVal
-			if metaR.NumKind == NumInt { fR = float64(metaR.IntVal) }
-			
+			var fL, fR float64
+			if metaL.Kind == NumInt {
+				fL = float64(int64(numbers[metaL.NumIdx]))
+			} else {
+				fL = math.Float64frombits(numbers[metaL.NumIdx])
+			}
+			if metaR.Kind == NumInt {
+				fR = float64(int64(numbers[metaR.NumIdx]))
+			} else {
+				fR = math.Float64frombits(numbers[metaR.NumIdx])
+			}
 			if fL < fR { return cmpSmaller, metaL.Text, metaR.Text }
 			if fL > fR { return cmpGreater, metaL.Text, metaR.Text }
 		}
@@ -10398,36 +10405,37 @@ func (sym Symbol) String() string {
 
 const (
 	NumNaN int8 = 0
-	NumInt  int8 = 1
-	NumFlt  int8 = 2
+	NumInt int8 = 1
+	NumFlt int8 = 2
 )
 
-// TODO: optimize the storage, when we have large amount of symbols,
-//       plus the rate of number over non-number text is normally very small,
-//       there is a high need to compress the storage.
+// SymMeta is squeezed down to exactly 24 bytes!
+// Fits nearly 3 structs per cache line.
 type SymMeta struct {
-	Text     string
-	IntVal   int64   // Populated if NumKind == NumInt
-	FloatVal float64 // Populated if NumKind == NumFlt
-	Rank     int     // Pre-calculated globRank (0 = literal, >0 = has *, ?, etc.)
-	NumKind  int8    // NumNaN, NumInt, or NumFlt
+	Text     string // 16 bytes (String header: pointer + length)
+	NumIdx   int32  // 4 bytes (Index into global `symNumbers` pool. -1 if NaN)
+	Rank     int16  // 2 bytes (Pre-calculated globRank (0 = literal, >0 = has *, ?, etc.))
+	Kind     int8   // 1 byte (NumNaN, NumInt, or NumFlt)
+	_        byte   // 1 byte padding
 }
 
 func newSymMeta(s string) SymMeta { // Return by VALUE
 	meta := SymMeta{
 		Text: s,
-		Rank: globRank(s),
+		Rank: int16(globRank(s)),
 	}
 
 	// Fast boundary check: starts with digit, '-', or '.'
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		// TODO: A better int64/float64 parser is required!
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
-			meta.NumKind = NumInt
-			meta.IntVal = val
+			meta.Kind = NumInt
+			meta.NumIdx = int32(len(numbers))
+			numbers = append(numbers, uint64(val))
 		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
-			meta.NumKind = NumFlt
-			meta.FloatVal = val
+			meta.Kind = NumFlt
+			meta.NumIdx = int32(len(numbers))
+			numbers = append(numbers, math.Float64bits(val))
 		}
 	}
 	return meta
@@ -10444,6 +10452,7 @@ var (
 		}
 		return strs, syms
 	}()
+	numbers []uint64 // The dense side-table for numbers!
 )
 
 // intern takes a string, registers it if new, and returns its unique Symbol ID.
