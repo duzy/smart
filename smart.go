@@ -10413,22 +10413,24 @@ type SymMeta struct {
 	NumKind  int8    // NumNaN, NumInt, or NumFlt
 }
 
-func newSymMeta(s string) SymMeta {
-	var numKind int8 = NumNaN
-	var intVal int64
-	var fltVal float64
+func newSymMeta(s string) SymMeta { // Return by VALUE
+	meta := SymMeta{
+		Text: s,
+		Rank: globRank(s),
+	}
 
 	// Fast boundary check: starts with digit, '-', or '.'
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
+		// TODO: A better int64/float64 parser is required!
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
-			numKind = NumInt
-			intVal = val
+			meta.NumKind = NumInt
+			meta.IntVal = val
 		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
-			numKind = NumFlt
-			fltVal = val
+			meta.NumKind = NumFlt
+			meta.FloatVal = val
 		}
 	}
-	return SymMeta{ s, intVal, fltVal, globRank(s), numKind }
+	return meta
 }
 
 var (
