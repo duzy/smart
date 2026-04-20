@@ -10402,6 +10402,9 @@ const (
 	NumFlt  int8 = 2
 )
 
+// TODO: optimize the storage, when we have large amount of symbols,
+//       plus the rate of number over non-number text is normally very small,
+//       there is a high need to compress the storage.
 type SymMeta struct {
 	Text     string
 	IntVal   int64   // Populated if NumKind == NumInt
@@ -10410,7 +10413,7 @@ type SymMeta struct {
 	NumKind  int8    // NumNaN, NumInt, or NumFlt
 }
 
-func newSymMeta(s string) *SymMeta {
+func newSymMeta(s string) SymMeta {
 	var numKind int8 = NumNaN
 	var intVal int64
 	var fltVal float64
@@ -10425,14 +10428,14 @@ func newSymMeta(s string) *SymMeta {
 			fltVal = val
 		}
 	}
-	return &SymMeta{ s, intVal, fltVal, globRank(s), numKind }
+	return SymMeta{ s, intVal, fltVal, globRank(s), numKind }
 }
 
 var (
 	vocabM sync.RWMutex
-	vocab, strToSym = func() ([]*SymMeta, map[string]Symbol) {
+	vocab, strToSym = func() ([]SymMeta, map[string]Symbol) {
 		size := len(coreSymbols)+mapThreshold
-		strs := make([]*SymMeta, 0, size)
+		strs := make([]SymMeta, 0, size)
 		syms := make(map[string]Symbol, size)
 		for i, s := range coreSymbols {
 			syms[s], strs = Symbol(i), append(strs, newSymMeta(s))
