@@ -1,5 +1,0 @@
-project testtoolchainbooting (app)
-
-use toolchain/booting
-
-stamp: $(.usee) touch

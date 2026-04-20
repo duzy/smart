@@ -1,6 +1,0 @@
-project testvalue
-
-.test.z = z-$1-$2
-.test.y = $(.test.z y$1,y$2)
-.test.x = $(.test.y x$1,x$2)
-.test   = $(.test.x  $1, $2)

@@ -1,5 +1,0 @@
-project testvalue
-
-.test.x = $(.test$1)
-.test   = $(.test.x .$1)
-.test.w := foobar

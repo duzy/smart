@@ -1,9 +1,0 @@
-project testbuiltins
-
-files (
-    (foo.txt) ⇒ $/
-)
-
-val1 := foo.txt
-val2 := $(file foo.txt)
-val3 := {=fullname foo.txt}

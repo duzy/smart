@@ -1,5 +1,0 @@
-project testvalcache
-
-files (
-    (*/a.c &(gen)) ⇒ src
-)

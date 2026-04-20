@@ -1,6 +1,0 @@
-project testbuiltins
-
-val14.1 := $(xor {=true}, {=true})
-val14.2 := $(xor {=true}, {=false})
-val14.3 := $(xor {=false},{=true})
-val14.4 := $(xor {=false},{=false})

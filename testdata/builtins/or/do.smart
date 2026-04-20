@@ -1,6 +1,0 @@
-project testbuiltins
-
-val11.0 := -no -yes -false -true
-val11 := $(or -no,-yes,xx)
-val12 := $(or -yes,-no,xx)
-val13 := $(or -false,-no,xx)

@@ -1,1 +1,0 @@
-project -set(variant=darwin/arm64/bootstrap) (..)

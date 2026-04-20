@@ -1,6 +1,0 @@
-project testvalcache.a (..)
-
-gen  := x.h y.h z.h
-val1 := $(wildcard(-sort) x.h y.h z.h)
-val2 := $(wildcard(-sort) *.h)
-val3 := $(wildcard main/a.c)

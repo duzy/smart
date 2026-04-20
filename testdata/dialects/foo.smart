@@ -1,5 +1,0 @@
-module foo
-
-FOOBAR = foo bar
-
-#eval println $(FOOBAR)

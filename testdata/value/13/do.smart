@@ -1,5 +1,0 @@
-project testvalue
-
-foo := &(-g!foobar)
-
--g!foobar := not-foobar

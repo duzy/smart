@@ -1,3 +1,3 @@
-[submodule "testdata/.smart"]
-	path = testdata/.smart
-	url = /Volumes/.repo/smart/modules.test
+[submodule "testdata"]
+	path = testdata
+	url = /Volumes/.repo/smart/testdata

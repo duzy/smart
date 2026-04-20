@@ -1,7 +1,0 @@
-project testbuiltins
-
-val0   = &(&(.test))
-val1  := &(&(.test))
-val2 ::= &(&(.test))
-
-.test := foo

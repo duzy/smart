@@ -1,4 +1,0 @@
-project
-
-name := $(.self)
-item := {=yes}

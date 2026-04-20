@@ -1,8 +1,0 @@
-project testcustomconfigure
-configure FOO0 = 123
-configure (
-    FOO1 -answer( 'checking for FOO1'); {=true}
-    FOO2 -bool(   'checking for FOO2'); {=true}
-    FOO3 -boolean('checking for FOO3'); {=true}
-    FOO4 -value(  'checking for FOO4'); {=true}
-)
