@@ -1472,13 +1472,26 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
 		}
 	}
 
-	// 2. Numeric comparison (Versions / Indices)
-	// Example: "2" vs "10" -> mathematically 2 < 10
-	if metaL.IsNum && metaR.IsNum {
-		if metaL.NumVal < metaR.NumVal { return cmpSmaller, metaL.Text, metaR.Text }
-		if metaL.NumVal > metaR.NumVal { return cmpGreater, metaL.Text, metaR.Text }
-		// If they equal mathematically (e.g. "01" vs "1"), we fall through 
-		// to string alignment to ensure strict structural parity.
+	// 2. Numeric comparison (Ints, Floats, and Mixed)
+	if metaL.NumKind > 0 && metaR.NumKind > 0 {
+		if metaL.NumKind == NumInt && metaR.NumKind == NumInt {
+			// Fast path: Pure Int64 comparison
+			if metaL.IntVal < metaR.IntVal { return cmpSmaller, metaL.Text, metaR.Text }
+			if metaL.IntVal > metaR.IntVal { return cmpGreater, metaL.Text, metaR.Text }
+		} else {
+			// Mixed or Pure Float comparison
+			fL := metaL.FloatVal
+			if metaL.NumKind == NumInt { fL = float64(metaL.IntVal) }
+			
+			fR := metaR.FloatVal
+			if metaR.NumKind == NumInt { fR = float64(metaR.IntVal) }
+			
+			if fL < fR { return cmpSmaller, metaL.Text, metaR.Text }
+			if fL > fR { return cmpGreater, metaL.Text, metaR.Text }
+		}
+		
+		// If mathematically equal (e.g. "01" vs "1", or "1.0" vs "1"), 
+		// fall through to string alignment for strict structural parity!
 	}
 
 	// 3. String Sequence Alignment & Fragmentation
@@ -10383,26 +10396,36 @@ func (sym Symbol) String() string {
 	return "<invalid-symbol-id>"
 }
 
+const (
+	NumNaN int8 = 0
+	NumInt  int8 = 1
+	NumFlt  int8 = 2
+)
+
 type SymMeta struct {
-	Text   string
-	Rank   int   // Pre-calculated globRank (0 = literal, >0 = has *, ?, etc.)
-	IsNum  bool  // True if Text is a valid integer
-	NumVal int64 // The parsed integer value (if IsNum is true)
+	Text     string
+	IntVal   int64   // Populated if NumKind == NumInt
+	FloatVal float64 // Populated if NumKind == NumFlt
+	Rank     int     // Pre-calculated globRank (0 = literal, >0 = has *, ?, etc.)
+	NumKind  int8    // NumNaN, NumInt, or NumFlt
 }
 
 func newSymMeta(s string) *SymMeta {
-	var isNum bool
-	var numVal int64
-	// Fast check to avoid passing non-numbers to strconv
-	if len(s) > 0 && (s[0] == '-' || ('0' <= s[0] && s[0] <= '9')) {
+	var numKind int8 = NumNaN
+	var intVal int64
+	var fltVal float64
+
+	// Fast boundary check: starts with digit, '-', or '.'
+	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
-			isNum = true
-			numVal = val
+			numKind = NumInt
+			intVal = val
+		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
+			numKind = NumFlt
+			fltVal = val
 		}
 	}
-	return &SymMeta{
-		s, globRank(s), isNum, numVal,
-	}
+	return &SymMeta{ s, intVal, fltVal, globRank(s), numKind }
 }
 
 var (
