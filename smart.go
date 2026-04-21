@@ -1376,15 +1376,16 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *loc: return symbolize(t.Value)
 	case *xloc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
-	case self: return []Symbol{t.project.name}
-	case *project: return []Symbol{t.name}
-	case *word: return []Symbol{t.s}
+	case *word: return readSymSeq(t.s)//[]Symbol{t.s}
 	case *globmeta: return []Symbol{intern(t.token.String())}
 	case *punct: return []Symbol{intern(t.token.String())}
 	case *answer: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *boolean: return []Symbol{_if(t.bool,symTrue,symFalse)}
 	case *prediction: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *option: return []Symbol{_if(t.bool,symOn,symOff)}
+	case *def: return readSymSeq(t.name)
+	case *project: return readSymSeq(t.name)
+	case self: return readSymSeq(t.project.name)
 
 	case *integer: // Base struct, in case the parser ever emits it directly
 		var s Symbol 
@@ -1457,7 +1458,8 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
     return
 }
 
-func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
+// cmp_symbol handles atomic comparisons and returns the strings for dynamic fragmentation.
+func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	if checkpoints { defer check_cmp_symbol(ctx, x, y) (&result) }
 
 	vocabM.RLock()
@@ -1465,48 +1467,39 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, _, _ string) {
 	metaR := vocab[y]
 	vocabM.RUnlock()
 
+	sx, sy = metaL.Text, metaR.Text
+
 	// 1. Rank comparison (Globs)
-	if rL, rR := int(metaL.Rank()), int(metaR.Rank()); rL > 0 || rR > 0 {
+	if rL, rR := metaL.Rank(), metaR.Rank(); rL > 0 || rR > 0 {
 		if res := cmp_rank(rL, rR); res != cmpEqual {
-			return res, metaL.Text, metaR.Text
+			return res, sx, sy
 		}
 	}
 
-	// 2. Numeric comparison (Ints, Floats, and Mixed)
-	if kL, kR := metaL.Kind(), metaR.Kind(); kL > 0 && kR > 0 {
+	// 2. Numeric comparison
+	kL, kR := metaL.Kind(), metaR.Kind()
+	if kL > 0 && kR > 0 {
+		var iL, iR int64
+		var fL, fR float64
+
+		if kL == NumInt { iL = int64(numbers[metaL.Idx]) } else { fL = math.Float64frombits(numbers[metaL.Idx]) }
+		if kR == NumInt { iR = int64(numbers[metaR.Idx]) } else { fR = math.Float64frombits(numbers[metaR.Idx]) }
+
 		if kL == NumInt && kR == NumInt {
-			// Fast path: Pure Int64 comparison
-			intL := int64(numbers[metaL.NumIdx])
-			intR := int64(numbers[metaR.NumIdx])
-			if intL < intR { return cmpSmaller, metaL.Text, metaR.Text }
-			if intL > intR { return cmpGreater, metaL.Text, metaR.Text }
+			if iL < iR { return cmpSmaller, sx, sy }
+			if iL > iR { return cmpGreater, sx, sy }
 		} else {
-			// Mixed or Pure Float comparison
-			var fL, fR float64
-			if kL == NumInt {
-				fL = float64(int64(numbers[metaL.NumIdx]))
-			} else {
-				fL = math.Float64frombits(numbers[metaL.NumIdx])
-			}
-			if kR == NumInt {
-				fR = float64(int64(numbers[metaR.NumIdx]))
-			} else {
-				fR = math.Float64frombits(numbers[metaR.NumIdx])
-			}
-			if fL < fR { return cmpSmaller, metaL.Text, metaR.Text }
-			if fL > fR { return cmpGreater, metaL.Text, metaR.Text }
+			if kL == NumInt { fL = float64(iL) }
+			if kR == NumInt { fR = float64(iR) }
+			if fL < fR { return cmpSmaller, sx, sy }
+			if fL > fR { return cmpGreater, sx, sy }
 		}
-		
-		// If mathematically equal (e.g. "01" vs "1", or "1.0" vs "1"), 
-		// fall through to string alignment for strict structural parity!
 	}
 
-	// 3. String Sequence Alignment & Fragmentation
-	var sx, sy = metaL.Text, metaR.Text
+	// 3. String Prefix & Alphabetical Fallback
 	if len(sx) < len(sy) && strings.HasPrefix(sy, sx) { return cmpLprefix, sx, sy }
 	if len(sy) < len(sx) && strings.HasPrefix(sx, sy) { return cmpRprefix, sx, sy }
-	
-	// 4. Alphabetical Fallback
+
 	if sx < sy { return cmpSmaller, sx, sy }
 	if sx > sy { return cmpGreater, sx, sy }
 	return cmpEqual, sx, sy
@@ -1518,33 +1511,34 @@ func cmp_symbols(ctx Context, x, y []Symbol) (result cmpres) {
 	i, lenX, lenY := 0, len(x), len(y)
 
 	for i < lenX && i < lenY {
-		if lx, ly := x[i], y[i]; lx == ly { // FAST PATH: O(1) Integer Equality
+		lx, ly := x[i], y[i]
+		
+		if lx == ly { // FAST PATH: O(1) Integer Equality
 			i++
-		} else {
-			// Fragmentation (Sequential Alignment)
-			// If one symbol is a prefix of the other, we must "split" the sequence
-			switch res, sx, sy := cmp_symbol(ctx, lx, ly); res {
-			case cmpLprefix:
-				tail := sy[len(sx):]
-				restX := x[i+1:]
-				restY := append([]Symbol{intern(tail)}, y[i+1:]...)
-				return cmp_symbols(ctx, restX, restY)
-			case cmpRprefix:
-				tail := sx[len(sy):]
-				restX := append([]Symbol{intern(tail)}, x[i+1:]...)
-				restY := y[i+1:]
-				return cmp_symbols(ctx, restX, restY)
-			default:
-				// Any hard mismatch returns smaller/greater immediately.
-				return res
-			}
+			continue
+		} 
+		
+		// 2. Fragmentation (Dynamic Concatenation Alignment)
+		switch res, sx, sy := cmp_symbol(ctx, lx, ly); res {
+		case cmpLprefix:
+			tail := sy[len(sx):]
+			restX := x[i+1:]
+			restY := append([]Symbol{intern(tail)}, y[i+1:]...)
+			return cmp_symbols(ctx, restX, restY)
+		case cmpRprefix:
+			tail := sx[len(sy):]
+			restX := append([]Symbol{intern(tail)}, x[i+1:]...)
+			restY := y[i+1:]
+			return cmp_symbols(ctx, restX, restY)
+		default:
+			// Hard mismatch (e.g., "foo" vs "bar", or "10" vs "2")
+			return res
 		}
 	}
 
 	// Boundary Tie-breakers
-	// If we exhausted a sequence without a mismatch, it's a perfect prefix!
-	if lenX < lenY { return cmpLprefix } // L is shorter, so L is a prefix of R
-	if lenX > lenY { return cmpRprefix } // R is shorter, so R is a prefix of L
+	if lenX < lenY { return cmpLprefix } 
+	if lenX > lenY { return cmpRprefix } 
 	return cmpEqual
 }
 
@@ -8712,11 +8706,9 @@ func _rw(pos Pos, s string) Value {
 	if s == "" { return &valbase{pos} }
 	if len(s) < 64 {
 		vocabM.RLock()
-		if sym, ok := strToSym[s]; ok {
-			vocabM.RUnlock()
-			return &word{valbase{pos},sym}
-		}
+		sym, ok := symbols[s]
 		vocabM.RUnlock()
+		if ok { return &word{valbase{pos},sym} }
 	}
 	return &raw{valbase{pos},s}
 }
@@ -10093,21 +10085,50 @@ const (
 	sym_9
 
 	symUnderscore   // "_"
-	symDash     // "-"
-	symDollarSign // "$"
-	symAmpersand  // "&"
-	symAt      // @
-	symBar     // |
-	symCaret   // ^
-	symLAngle  // <
-	symRAngle  // >
-	symPercent // %
-	symAsterisk// *
-	symQues    // ?
-	symAsteriskAst // **
-	symAsteriskQues// *?
-	symPlus    // +
-	symTilde   // ~
+	symDash         // "-"
+	symDollarSign   // "$"
+	symAmpersand    // "&"
+	symApostrophe   // '
+	symQuotation    // "
+	symTilde        // ~
+	symAsteriskAst  // **
+	symAsteriskQues // *?
+	symAt           // @
+	symAtD          // @D
+	symAtF          // @F
+	symAtApost      // @'
+	symBar          // |
+	symBarD         // |D
+	symBarF         // |F
+	symBarApost     // |'
+	symCaret        // ^
+	symCaretD       // ^D
+	symCaretF       // ^F
+	symCaretApost   // ^'
+	symLAngle       // <
+	symLAngleD      // <D
+	symLAngleF      // <F
+	symLAngleApost  // <'
+	symRAngle       // >
+	symRAngleD      // >D
+	symRAngleF      // >F
+	symRAngleApost  // >'
+	symPercent      // %
+	symPercentD     // %D
+	symPercentF     // %F
+	symPercentApost // %'
+	symAsterisk     // *
+	symAsteriskD    // *D
+	symAsteriskF    // *F
+	symAsteriskApost// *'
+	symQues         // ?
+	symQuesD        // ?D
+	symQuesF        // ?F
+	symQuesApost    // ?'
+	symPlus         // +
+	symPlusD        // +D
+	symPlusF        // +F
+	symPlusApost    // +'
 
 	symSpace        //
 	symSlash        // /
@@ -10347,6 +10368,12 @@ const (
 	symTruncate
 	symReturn
 	symServeHttp
+
+	symHttp
+	symHttps
+	symFtp
+	symFtps
+	symMailto
 	
 	symUnderline     = symUnderscore
 	symWildcardOne   = symAsterisk // *
@@ -10358,7 +10385,17 @@ const (
 // coreSymbols are symbols don't need to be serialized on compilation.
 var coreSymbols = []string{
 	"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"_", "-", "$", "&", "@", "|", "^", "<", ">", "%", "*", "?", "**", "*?", "+", "~",
+	"_", "-", "$", "&", "'", `"`, "~", "**", "*?",
+	"@", "@D", "@F", "@'",
+	"|", "|D", "|F", "|'",
+	"^", "^D", "^F", "^'",
+	"<", "<D", "<F", "<'",
+	">", ">D", ">F", ">'",
+	"%", "%D", "%F", "%'",
+	"*", "*D", "*F", "*'",
+	"?", "?D", "?F", "?'",
+	"+", "+D", "+F", "+'",
+	
 	" ", "/", ",", ".", "..", dot_base, dot_configure, dot_container,
 	".os", ".mode", ".goals", ".smart", "os", "mode", "goals", "smart",
 
@@ -10392,6 +10429,8 @@ var coreSymbols = []string{
 	"undir", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9", "undirs",
 	"reldir", "relative-dir", "file", "stat", "wildcard", "read-dir", "printf", "clean",
 	"chdir", "rename", "remove", "link", "symlink", "truncate", "return", "serve-http",
+
+	"http", "https", "ftp", "ftps", "mailto",
 }
 
 func (sym Symbol) String() string {
@@ -10404,59 +10443,110 @@ func (sym Symbol) String() string {
 }
 
 const (
-	NumNaN int8 = 0
-	NumInt int8 = 1
-	NumFlt int8 = 2
+	NumNaN uint8 = 0 // Raw string, Idx is ignored
+	NumInt uint8 = 1 // Idx points to `numbers`
+	NumFlt uint8 = 2 // Idx points to `numbers`
+	SymSeq uint8 = 3 // Idx points to `sequences`
 )
 
 // SymMeta is precisely 24 bytes. Fits nearly 3 per CPU cache line!
 type SymMeta struct {
 	Text     string // 16 bytes (String header: pointer + length)
-	NumIdx   int32  // 4 bytes (Index into `numbers` pool. -1 if NaN)
+	Idx      int32  // 4 bytes (Index into `numbers` OR `sequences` based on Kind)
 	Flags    uint8  // 1 byte (Bits for Kind (0-1) and Rank (2-5))
 	// 3 bytes implicit compiler padding
 }
 
 // Inline helper methods for clean access
-func (m SymMeta) Kind() int8 { return int8(m.Flags & 0x03) }
+func (m SymMeta) Kind() uint8 { return m.Flags & 0x03 }
 func (m SymMeta) Rank() int  { return int((m.Flags >> 2) & 0x0F) }
 
-func newSymMeta(s string) SymMeta { // Return by VALUE
-	meta, kind := SymMeta{ Text: s, NumIdx: -1 }, int8(NumNaN)
+var (
+	vocabM sync.RWMutex
+	vocab     []SymMeta
+	numbers   []uint64   // Side-table for numbers!
+	sequences [][]Symbol // Side-table for shredded sequences!
+	symbols map[string]Symbol
+)
 
-	// Fast boundary check: starts with digit, '-', or '.'
+func init() {
+	size := len(coreSymbols) + mapThreshold
+	
+	// 1. Initialize globals immediately
+	symbols = make(map[string]Symbol, size) 
+	vocab = make([]SymMeta, 0, size)
+	numbers = make([]uint64, 0, size/20)
+
+	// PASS 1: Reserve the exact IDs for core constants
+	// This prevents recursive shreds from stealing early IDs.
+	for i, s := range coreSymbols {
+		symbols[s] = Symbol(i)
+		vocab = append(vocab, SymMeta{}) // Append an empty placeholder
+	}
+
+	// PASS 2: Safely calculate the metadata and shreds
+	// Now if makeSymMeta recursively calls internLocked, the new 
+	// shreds will safely be appended AFTER the core symbols.
+	for i, s := range coreSymbols {
+		vocab[i] = makeSymMeta(s)
+	}
+
+	keywords = make(map[Symbol]token, OFF - PROJECT)
+	for i := PROJECT; i <= OFF; i++ {
+		if s := tokens[i]; s != "" { keywords[internLocked(s)] = i }
+	}
+}
+
+func makeSymMeta(s string) SymMeta { // Return by VALUE
+	meta, kind := SymMeta{ Text: s, Idx: -1 }, NumNaN
+
+	// 1. Fast boundary check for numbers: starts with digit, '-', or '.'
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		// TODO: A better int64/float64 parser is required!
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
 			kind = NumInt
-			meta.NumIdx = int32(len(numbers))
+			meta.Idx = int32(len(numbers))
 			numbers = append(numbers, uint64(val))
 		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
 			kind = NumFlt
-			meta.NumIdx = int32(len(numbers))
+			meta.Idx = int32(len(numbers))
 			numbers = append(numbers, math.Float64bits(val))
 		}
 	}
 
-	meta.Flags = uint8(kind | (int8(globRank(s))<<2))
+	// 2. If NOT a number, check for Shredding (Sequences)
+	if kind == NumNaN && strings.ContainsAny(s, ".-/") {
+		kind, meta.Idx = SymSeq, int32(len(sequences))
+		
+		var start int
+		var seq []Symbol
+		for i := 0; i < len(s); i++ {
+			ch := s[i]
+			if ch == '.' || ch == '-' || ch == '/' {
+				if i > start {
+					// Safe recursive call without deadlocking!
+					seq = append(seq, internLocked(s[start:i])) 
+				}
+				switch ch {
+				case '.': seq = append(seq, symDot)
+				case '-': seq = append(seq, symDash)
+				case '/': seq = append(seq, symSlash)
+				}
+				start = i + 1
+			}
+		}
+		if start < len(s) {
+			seq = append(seq, internLocked(s[start:]))
+		}
+		sequences = append(sequences, seq)
+	}
+
+	meta.Flags = kind | (uint8(globRank(s))<<2)
 
 	return meta
 }
 
-var (
-	vocabM sync.RWMutex
-	vocab, strToSym = func() ([]SymMeta, map[string]Symbol) {
-		size := len(coreSymbols)+mapThreshold
-		strs := make([]SymMeta, 0, size)
-		syms := make(map[string]Symbol, size)
-		numbers = make([]uint64, 0, size/20)
-		for i, s := range coreSymbols {
-			syms[s], strs = Symbol(i), append(strs, newSymMeta(s))
-		}
-		return strs, syms
-	}()
-	numbers []uint64 // The dense side-table for numbers!
-)
+const illegalSymChars = "./-" // ' ' \t \n \r
 
 // intern takes a string, registers it if new, and returns its unique Symbol ID.
 func intern(s string) Symbol {
@@ -10468,10 +10558,15 @@ func intern(s string) Symbol {
 	case "**": return symWildcardAny
 	case "*?": return symWildcardShort
 	}
+	if false && checkpoints {
+		if len(s)>1 && strings.ContainsAny(s, illegalSymChars) {
+			panic(`illegal symbol contains any of "`+illegalSymChars+`": `+s)
+		}
+	}
 
 	// Zero-allocation fast-path lookup
 	vocabM.RLock()
-	if sym, ok := strToSym[s]; ok {
+	if sym, ok := symbols[s]; ok {
 		vocabM.RUnlock()
 		return sym
 	}
@@ -10479,14 +10574,7 @@ func intern(s string) Symbol {
 
 	// Slow-path registration
 	vocabM.Lock()
-	if sym, ok := strToSym[s]; ok {
-		vocabM.Unlock()
-		return sym
-	}
-
-	sym := Symbol(len(vocab))
-	strToSym[s] = sym
-	vocab = append(vocab, newSymMeta(s))
+	sym := internLocked(s)
 	vocabM.Unlock()
 	return sym
 }
@@ -10507,28 +10595,66 @@ func internBytes(b []byte) Symbol {
 		case '?': return symWildcardShort
 		}
 	}
+	if false && checkpoints {
+		if bytes.ContainsAny(b, illegalSymChars) {
+			panic(`illegal symbol contains any of "`+illegalSymChars+`": `+string(b))
+		}
+	}
+
+	s := string(b)
 
 	// Zero-allocation map lookup
 	vocabM.RLock()
-	if sym, ok := strToSym[string(b)]; ok {
+	if sym, ok := symbols[s]; ok {
 		vocabM.RUnlock()
 		return sym
 	}
 	vocabM.RUnlock()
 
-	// Slow-path registration
-	s := string(b)
 	vocabM.Lock()
-	if sym, ok := strToSym[s]; ok {
-		vocabM.Unlock()
+	sym := internLocked(s)
+	vocabM.Unlock()
+	return sym
+}
+
+// internLocked assumes vocabM.Lock() is already held by the caller!
+func internLocked(s string) Symbol {
+	if sym, ok := symbols[s]; ok {
 		return sym
 	}
 
+	// Slice Mutation during append Evaluation:
+	//   This `vocab = append(vocab, makeSymMeta(s))` silently corrupts and overwrites
+	//   the memory of `vocab`, because `makeSymMeta` is calling this `internLocked` too.
+	//
+	// FIXME: break cycling invocation: makeSymMeta->internLocked->makeSymMeta!
+
+	// 1. Claim the ID and reserve the slot IMMEDIATELY
 	sym := Symbol(len(vocab))
-	strToSym[s] = sym
-	vocab = append(vocab, newSymMeta(s))
-	vocabM.Unlock()
+	symbols[s] = sym
+	vocab = append(vocab, SymMeta{/* Text: s, Idx: -1 */}) // Placeholder
+
+	// 2. Evaluate the metadata (This is now safe to recurse!)
+	meta := makeSymMeta(s)
+
+	// 3. Overwrite the placeholder with the actual data
+	vocab[sym] = meta
+
 	return sym
+}
+
+func readSymSeq(sym Symbol) []Symbol {
+	vocabM.RLock()
+	meta := vocab[sym]
+	vocabM.RUnlock()
+
+	var seq []Symbol
+	if meta.Kind() == SymSeq {
+		seq = sequences[meta.Idx]
+	} else {
+		seq = []Symbol{sym}
+	}
+	return seq
 }
 
 // nodeEntry preserves order
@@ -15496,13 +15622,7 @@ func (tok token) String() (s string) {
 	return
 }
 
-var keywords = func() map[Symbol]token {
-	res := make(map[Symbol]token, OFF - PROJECT)
-	for i := PROJECT; i <= OFF; i++ {
-		if s := tokens[i]; s != "" { res[intern(s)] = i }
-	}
-	return res
-} ()
+var keywords map[Symbol]token
 
 // lookup_keyword maps an identifier to its keyword token or IDENT (if not a keyword).
 func lookup_keyword(s Symbol) token {
@@ -18070,13 +18190,7 @@ func (l ul) path(ctx Context, start Value) (res *path) {
 }
 
 var schemeNames = []string{"file", "http", "https", "ftp", "ftps", "mailto"}
-var schemes = func() (schemes []Symbol) {
-	// 1. CRITICAL FIX: Pre-intern at startup to guarantee thread safety
-	// and eliminate the `if schemes == nil` check on every single call!
-	schemes = make([]Symbol, len(schemeNames))
-	for i, name := range schemeNames { schemes[i] = intern(name) }
-	return
-} ()
+var schemes = []Symbol{symFile, symHttp, symHttps, symFtp, symFtps, symMailto}
 
 func isKnownScheme(s Symbol) bool {
 	// 2. FAST PATH: Zero-allocation integer comparison.
@@ -20224,22 +20338,46 @@ func (l ul) modification(ctx Context) *modification {
 //
 // Similar to makefile automatic variables, see
 //   * https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
-var rule_autos = func(names []string) map[Symbol]struct{} {
-	res := make(map[Symbol]struct{}, len(names))
-	for _, name := range names { res[intern(name)] = struct{}{} }
-	return res
-}([]string{
-	"@", "@D", "@F", "@'",
-	"^", "^D", "^F", "^'",
-	"<", "<D", "<F", "<'",
-	">", ">D", ">F", ">'",
-	"%", "%D", "%F", "%'",
-	"?", "?D", "?F", "?'",
-	"+", "+D", "+F", "+'",
-	"*", "*D", "*F", "*'",
-	"|", "|D", "|F", "|'",
-	"-", "~",
-})
+var rule_autos = map[Symbol]struct{}{
+	symAt           : struct{}{}, // @
+	symAtD          : struct{}{}, // @D
+	symAtF          : struct{}{}, // @F
+	symAtApost      : struct{}{}, // @'
+	symBar          : struct{}{}, // |
+	symBarD         : struct{}{}, // |D
+	symBarF         : struct{}{}, // |F
+	symBarApost     : struct{}{}, // |'
+	symCaret        : struct{}{}, // ^
+	symCaretD       : struct{}{}, // ^D
+	symCaretF       : struct{}{}, // ^F
+	symCaretApost   : struct{}{}, // ^'
+	symLAngle       : struct{}{}, // <
+	symLAngleD      : struct{}{}, // <D
+	symLAngleF      : struct{}{}, // <F
+	symLAngleApost  : struct{}{}, // <'
+	symRAngle       : struct{}{}, // >
+	symRAngleD      : struct{}{}, // >D
+	symRAngleF      : struct{}{}, // >F
+	symRAngleApost  : struct{}{}, // >'
+	symPercent      : struct{}{}, // %
+	symPercentD     : struct{}{}, // %D
+	symPercentF     : struct{}{}, // %F
+	symPercentApost : struct{}{}, // %'
+	symAsterisk     : struct{}{}, // *
+	symAsteriskD    : struct{}{}, // *D
+	symAsteriskF    : struct{}{}, // *F
+	symAsteriskApost: struct{}{}, // *'
+	symQues         : struct{}{}, // ?
+	symQuesD        : struct{}{}, // ?D
+	symQuesF        : struct{}{}, // ?F
+	symQuesApost    : struct{}{}, // ?'
+	symPlus         : struct{}{}, // +
+	symPlusD        : struct{}{}, // +D
+	symPlusF        : struct{}{}, // +F
+	symPlusApost    : struct{}{}, // +'
+	symDash         : struct{}{}, // -
+	symTilde        : struct{}{}, // ~
+}
 
 func (l ul) rule(ctx Context, targets []Value) (result Value) {
 	if l_traverse.enabled || debugSyntax(ctx, "rule") { defer un(l_trace(l_traverse, "rule")) }
