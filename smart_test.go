@@ -8177,7 +8177,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 	if c := proj.tempfile(ctx, configuration_sm); c == nil {
 		ctx.err("%s is nil", configuration_sm)
 	} else {
-		if c.dir != outtmp {
+		if c.dir != intern(outtmp) {
 			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
 		}
 		if c.sub != symEmpty {
@@ -8202,7 +8202,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 	if c := proj.configuration_sm(ctx); c == nil {
 		ctx.err("%s is nil", configuration_sm)
 	} else {
-		if c.dir != outtmp {
+		if c.dir != intern(outtmp) {
 			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
 		}
 		if c.sub != symEmpty {
@@ -8236,7 +8236,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		if c.name != intern(configuration_sm) {
 			ctx.err("%s: %s", proj.name, c.name)
 		}
-		if s, t := dirs(1,c.dir), dirs(2,outtmp); s != t {
+		if s, t := dirs(1,c.dir.String()), dirs(2,outtmp); s != t {
 			ctx.err("%s: %s != %s", proj.name, s, t)
 		}
 		if c.sub != symEmpty {
@@ -8255,7 +8255,7 @@ func testConfigureDefault(ctx *testcase, spec, name string) {
 		if c.name != intern(configuration_sm) {
 			ctx.err("%s: %s", proj.name, c.name)
 		}
-		if s, t := dirs(1,c.dir), dirs(2,outtmp); s != t {
+		if s, t := dirs(1,c.dir.String()), dirs(2,outtmp); s != t {
 			ctx.err("%s: %s != %s", proj.name, s, t)
 		}
 		if c.sub != symEmpty {
@@ -8351,7 +8351,7 @@ func testConfigureDefault2(ctx *testcase, spec, name string) {
 		if c.name != intern(configuration_sm) {
 			ctx.err("%s: %s", proj.name, c.name)
 		}
-		if c.dir != outtmp {
+		if c.dir != intern(outtmp) {
 			ctx.err("%s: %s != %s", proj.name, c.dir, outtmp)
 		}
 		if c.sub != symEmpty {
@@ -9473,7 +9473,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: %v", proj.name, tst{v1})
 	} else if z, y := x.Value.(*file); !y {
 		ctx.err("%v: %v", proj.name, tst{x.Value})
-	} else if z.dir != srcinc {
+	} else if z.dir != intern(srcinc) {
 		ctx.err("%s: %s != %s", z.name, z.dir, srcinc)
 	} else if d := ctx.def(s+".b"); d == nil {
 		ctx.err(s+".b")
@@ -9496,7 +9496,7 @@ func testLLVMConfig1(ctx *testcase) {
 		ctx.err("%v: %v", proj.name, tst{v1})
 	} else if z, y := x.Value.(*file); !y {
 		ctx.err("%v: %v", proj.name, tst{x.Value})
-	} else if z.dir != outinc {
+	} else if z.dir != intern(outinc) {
 		ctx.err("%s: %s != %s", z.name, z.dir, srcinc)
 	} else if d := ctx.def(s+".b"); d == nil {
 		ctx.err(s+".b")
@@ -12181,7 +12181,8 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`$(defs(-capture=1 -sort) {=regex ^var\.([xyz]+)})`:`xxx yyy zzz`,
 		`$(defs(-capture=1 -sort) !{=regex ^var\.([xy]+)})`:`.self .usee var.zzz var2 vars xyz`,
 		`$(defs(-capture=1 -sort)`:`xxx yyy zzz`,
-		`$(defs(-sort) *)`:`.self .test.1 .test.10 .test.11 .test.12 .test.13 .test.14 .test.15 .test.2 .test.3 .test.4 .test.5 .test.6 .test.7 .test.8 .test.9 .usee all t1 t10 t11 t12 t13 t14 t15 t2 t3 t4 t5 t6 t7 t8 t9 var.xxx var.yyy var.zzz var2 vars xyz`,
+		`$(defs(-sort) *)`:checkresult{`.self .test.1 .test.2 .test.3 .test.4 .test.5 .test.6 .test.7 .test.8 .test.9 .test.10 .test.11 .test.12 .test.13 .test.14 .test.15 .usee all t1 t10 t11 t12 t13 t14 t15 t2 t3 t4 t5 t6 t7 t8 t9 var.xxx var.yyy var.zzz var2 vars xyz`,
+			`{=list {108:8 {108:10:word .self}} {108:8 {108:10:word .test.1}} {108:8 {108:10:word .test.2}} {108:8 {108:10:word .test.3}} {108:8 {108:10:word .test.4}} {108:8 {108:10:word .test.5}} {108:8 {108:10:word .test.6}} {108:8 {108:10:word .test.7}} {108:8 {108:10:word .test.8}} {108:8 {108:10:word .test.9}} {108:8 {108:10:word .test.10}} {108:8 {108:10:word .test.11}} {108:8 {108:10:word .test.12}} {108:8 {108:10:word .test.13}} {108:8 {108:10:word .test.14}} {108:8 {108:10:word .test.15}} {108:8 {108:10:word .usee}} {108:8 {108:10:word all}} {108:8 {108:10:word t1}} {108:8 {108:10:word t10}} {108:8 {108:10:word t11}} {108:8 {108:10:word t12}} {108:8 {108:10:word t13}} {108:8 {108:10:word t14}} {108:8 {108:10:word t15}} {108:8 {108:10:word t2}} {108:8 {108:10:word t3}} {108:8 {108:10:word t4}} {108:8 {108:10:word t5}} {108:8 {108:10:word t6}} {108:8 {108:10:word t7}} {108:8 {108:10:word t8}} {108:8 {108:10:word t9}} {108:8 {108:10:word var.xxx}} {108:8 {108:10:word var.yyy}} {108:8 {108:10:word var.zzz}} {108:8 {108:10:word var2}} {108:8 {108:10:word vars}} {108:8 {108:10:word xyz}}}`},
 		`$(xyz)`:`xxx yyy zzz`,
 	},
 	`testdata/template/foreach`: map[string]any{
@@ -13109,166 +13110,6 @@ func check_string(ctx Context, v any) func(*Value, *string) {
 }
 
 var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
-	`.test.10 xyz`:`smaller`, //cmp
-	`xyz t9`:`greater`,
-	`. t9`:`smaller`,
-	`all t9`:`smaller`,
-	`t10 t9`:`smaller`,
-	`t13 t9`:`smaller`,
-	`vars t9`:`greater`,
-	`t12 t9`:`smaller`,
-	`t14 t9`:`smaller`,
-	`var2 t9`:`greater`,
-	`12 4`:`greater`,
-	`3 8`:`smaller`,
-	`8 3`:`greater`,
-	`11 8`:`greater`,
-	`4 8`:`smaller`,
-	`7 8`:`smaller`,
-	`13 8`:`greater`,
-	`10 8`:`greater`,
-	`1 8`:`smaller`,
-	`15 8`:`greater`,
-	`6 8`:`smaller`,
-	`9 8`:`greater`,
-	`14 8`:`greater`,
-	`12 8`:`greater`,
-	`2 8`:`smaller`,
-	`5 8`:`smaller`,
-	`4 5`:`smaller`,
-	`7 5`:`greater`,
-	`1 7`:`smaller`,
-	`1 5`:`smaller`,
-	`1 4`:`smaller`,
-	`6 5`:`greater`,
-	`3 6`:`smaller`,
-	`3 5`:`smaller`,
-	`3 4`:`smaller`,
-	`3 1`:`greater`,
-	`2 7`:`smaller`,
-	`2 6`:`smaller`,
-	`2 5`:`smaller`,
-	`2 4`:`smaller`,
-	`2 3`:`smaller`,
-	`2 1`:`greater`,
-	`10 12`:`smaller`,
-	`10 11`:`smaller`,
-	`13 12`:`greater`,
-	`15 13`:`greater`,
-	`9 15`:`smaller`,
-	`9 13`:`smaller`,
-	`9 11`:`smaller`,
-	`9 10`:`smaller`,
-	`14 15`:`smaller`,
-	`t10 t2`:`smaller`,
-	`t11 t2`:`smaller`,
-	`6 15`:`smaller`,
-	`9 6`:`greater`,
-	`3 9`:`smaller`,
-	`11 9`:`greater`,
-	`14 9`:`greater`,
-	`1 9`:`smaller`,
-	`13 9`:`greater`,
-	`8 9`:`smaller`,
-	`7 9`:`smaller`,
-	`2 9`:`smaller`,
-	`6 9`:`smaller`,
-	`12 9`:`greater`,
-	`5 9`:`smaller`,
-	`15 9`:`greater`,
-	`10 9`:`greater`,
-	`4 9`:`smaller`,
-	`1 3`:`smaller`,
-	`8 4`:`greater`,
-	`7 4`:`greater`,
-	`6 4`:`greater`,
-	`5 6`:`smaller`,
-	`5 4`:`greater`,
-	`11 13`:`smaller`,
-	`12 13`:`smaller`,
-	`10 13`:`smaller`,
-	`11 10`:`greater`,
-	`12 11`:`greater`,
-	`var t3`:`greater`,
-	`t8 t3`:`greater`,
-	`var2 t3`:`greater`,
-	`xyz t3`:`greater`,
-	`vars t3`:`greater`,
-	`t6 t3`:`greater`,
-	`t5 var2`:`smaller`,
-	`t4 xyz`:`smaller`,
-	`14 5`:`greater`,
-	`10 5`:`greater`,
-	`9 5`:`greater`,
-	`15 5`:`greater`,
-	`12 5`:`greater`,
-	`11 5`:`greater`,
-	`8 5`:`greater`,
-	`3 2`:`greater`,
-	`4 3`:`greater`,
-	`9 7`:`greater`,
-	`13 7`:`greater`,
-	`15 7`:`greater`,
-	`12 7`:`greater`,
-	`11 7`:`greater`,
-	`14 10`:`greater`,
-	`11 15`:`smaller`,
-	`12 15`:`smaller`,
-	`12 14`:`smaller`,
-	`13 15`:`smaller`,
-	`13 14`:`smaller`,
-	`var2 t13`:`greater`,
-	`xyz t13`:`greater`,
-	`vars t13`:`greater`,
-	`t2 var2`:`smaller`,
-	`4 10`:`smaller`,
-	`2 10`:`smaller`,
-	`12 10`:`greater`,
-	`15 10`:`greater`,
-	`1 10`:`smaller`,
-	`3 10`:`smaller`,
-	`6 10`:`smaller`,
-	`13 10`:`greater`,
-	`1 2`:`smaller`,
-	`8 13`:`smaller`,
-	`8 11`:`smaller`,
-	`14 11`:`greater`,
-	`4 11`:`smaller`,
-	`3 11`:`smaller`,
-	`5 11`:`smaller`,
-	`1 11`:`smaller`,
-	`15 11`:`greater`,
-	`7 11`:`smaller`,
-	`6 11`:`smaller`,
-	`5 15`:`smaller`,
-	`10 15`:`smaller`,
-	`8 15`:`smaller`,
-	`7 15`:`smaller`,
-	`6 13`:`smaller`,
-	`6 12`:`smaller`,
-	`t10 var2`:`smaller`,
-	`t14 var2`:`smaller`,
-	`t13 var2`:`smaller`,
-	`t12 var2`:`smaller`,
-	`t3 var2`:`smaller`,
-	`t15 var2`:`smaller`,
-	`5 12`:`smaller`,
-	`4 12`:`smaller`,
-	`7 12`:`smaller`,
-	`14 12`:`greater`,
-	`3 12`:`smaller`,
-	`2 12`:`smaller`,
-	`1 12`:`smaller`,
-	`15 12`:`greater`,
-	`10 1`:`greater`,
-	`var2 t2`:`greater`,
-	`var t2`:`greater`,
-	`7 14`:`smaller`,
-	`7 13`:`smaller`,
-	`7 6`:`greater`,
-	`1 6`:`smaller`,
-	`4 7`:`smaller`,
-	`10 14`:`smaller`,
 	`* **`:`smaller`,
 	`* v`:`greater`,
 	`* x`:`greater`,
@@ -13298,39 +13139,224 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`. t6`:`smaller`,
 	`. t7`:`smaller`,
 	`. t8`:`smaller`,
+	`. t9`:`smaller`,
 	`. var2`:`smaller`,
 	`. var`:`smaller`,
 	`. vars`:`smaller`,
 	`. xyz`:`smaller`,
+	`.test.10 xyz`:`smaller`, //cmp
+	`.test.2 .test.1`:`greater`, //cmp
+	`.test.6 .test.1`:`greater`, //cmp
+	`1 10`:`smaller`,
+	`1 11`:`smaller`,
+	`1 12`:`smaller`,
+	`1 13`:`smaller`,
+	`1 14`:`smaller`,
+	`1 15`:`smaller`,
+	`1 2`:`smaller`,
+	`1 3`:`smaller`,
+	`1 4`:`smaller`,
+	`1 5`:`smaller`,
+	`1 6`:`smaller`,
+	`1 7`:`smaller`,
+	`1 8`:`smaller`,
+	`1 9`:`smaller`,
 	`1 ?`:`smaller`,
+	`10 11`:`smaller`,
+	`10 12`:`smaller`,
+	`10 13`:`smaller`,
+	`10 14`:`smaller`,
+	`10 15`:`smaller`,
+	`10 1`:`greater`,
+	`10 2`:`greater`,
+	`10 3`:`greater`,
+	`10 4`:`greater`,
+	`10 5`:`greater`,
+	`10 6`:`greater`,
 	`10 7`:`greater`,
+	`10 8`:`greater`,
+	`10 9`:`greater`,
+	`11 10`:`greater`,
 	`11 12`:`smaller`,
+	`11 13`:`smaller`,
 	`11 14`:`smaller`,
+	`11 15`:`smaller`,
+	`11 1`:`greater`,
+	`11 2`:`greater`,
 	`11 3`:`greater`,
+	`11 4`:`greater`,
+	`11 5`:`greater`,
+	`11 6`:`greater`,
+	`11 7`:`greater`,
+	`11 8`:`greater`,
+	`11 9`:`greater`,
+	`12 10`:`greater`,
+	`12 11`:`greater`,
+	`12 13`:`smaller`,
+	`12 14`:`smaller`,
+	`12 15`:`smaller`,
+	`12 1`:`greater`,
+	`12 2`:`greater`,
+	`12 3`:`greater`,
+	`12 4`:`greater`,
+	`12 5`:`greater`,
+	`12 6`:`greater`,
+	`12 7`:`greater`,
+	`12 8`:`greater`,
+	`12 9`:`greater`,
+	`13 10`:`greater`,
 	`13 11`:`greater`,
+	`13 12`:`greater`,
+	`13 14`:`smaller`,
+	`13 15`:`smaller`,
+	`13 1`:`greater`,
+	`13 2`:`greater`,
+	`13 4`:`greater`,
 	`13 5`:`greater`,
+	`13 6`:`greater`,
+	`13 7`:`greater`,
+	`13 8`:`greater`,
+	`13 9`:`greater`,
+	`14 10`:`greater`,
+	`14 11`:`greater`,
+	`14 12`:`greater`,
 	`14 13`:`greater`,
+	`14 15`:`smaller`,
+	`14 1`:`greater`,
+	`14 2`:`greater`,
+	`14 4`:`greater`,
+	`14 5`:`greater`,
+	`14 6`:`greater`,
 	`14 7`:`greater`,
+	`14 8`:`greater`,
+	`14 9`:`greater`,
+	`15 10`:`greater`,
+	`15 11`:`greater`,
+	`15 12`:`greater`,
+	`15 13`:`greater`,
 	`15 14`:`greater`,
+	`15 1`:`greater`,
 	`15 2`:`greater`,
 	`15 4`:`greater`,
+	`15 5`:`greater`,
 	`15 6`:`greater`,
+	`15 7`:`greater`,
+	`15 8`:`greater`,
+	`15 9`:`greater`,
 	`2 .`:`greater`,
+	`2 10`:`smaller`,
 	`2 11`:`smaller`,
+	`2 12`:`smaller`,
+	`2 13`:`smaller`,
+	`2 14`:`smaller`,
+	`2 15`:`smaller`,
+	`2 1`:`greater`,
+	`2 3`:`smaller`,
+	`2 4`:`smaller`,
+	`2 5`:`smaller`,
+	`2 6`:`smaller`,
+	`2 7`:`smaller`,
+	`2 8`:`smaller`,
+	`2 9`:`smaller`,
 	`2 ?`:`smaller`,
+	`3 10`:`smaller`,
+	`3 11`:`smaller`,
+	`3 12`:`smaller`,
+	`3 13`:`smaller`,
+	`3 14`:`smaller`,
+	`3 15`:`smaller`,
+	`3 1`:`greater`,
+	`3 2`:`greater`,
+	`3 4`:`smaller`,
+	`3 5`:`smaller`,
+	`3 6`:`smaller`,
 	`3 7`:`smaller`,
+	`3 8`:`smaller`,
+	`3 9`:`smaller`,
+	`4 10`:`smaller`,
+	`4 11`:`smaller`,
+	`4 12`:`smaller`,
+	`4 13`:`smaller`,
+	`4 14`:`smaller`,
+	`4 15`:`smaller`,
+	`4 1`:`greater`,
+	`4 2`:`greater`,
+	`4 3`:`greater`,
+	`4 5`:`smaller`,
 	`4 6`:`smaller`,
+	`4 7`:`smaller`,
+	`4 8`:`smaller`,
+	`4 9`:`smaller`,
 	`5 10`:`smaller`,
+	`5 11`:`smaller`,
+	`5 12`:`smaller`,
+	`5 13`:`smaller`,
 	`5 14`:`smaller`,
+	`5 15`:`smaller`,
+	`5 1`:`greater`,
+	`5 2`:`greater`,
+	`5 3`:`greater`,
+	`5 4`:`greater`,
+	`5 6`:`smaller`,
 	`5 7`:`smaller`,
+	`5 8`:`smaller`,
+	`5 9`:`smaller`,
+	`6 10`:`smaller`,
+	`6 11`:`smaller`,
+	`6 12`:`smaller`,
+	`6 13`:`smaller`,
+	`6 14`:`smaller`,
+	`6 15`:`smaller`,
+	`6 1`:`greater`,
+	`6 2`:`greater`,
+	`6 3`:`greater`,
+	`6 4`:`greater`,
+	`6 5`:`greater`,
 	`6 7`:`smaller`,
+	`6 8`:`smaller`,
+	`6 9`:`smaller`,
 	`7 10`:`smaller`,
+	`7 11`:`smaller`,
+	`7 12`:`smaller`,
+	`7 13`:`smaller`,
+	`7 14`:`smaller`,
+	`7 15`:`smaller`,
+	`7 1`:`greater`,
+	`7 2`:`greater`,
+	`7 3`:`greater`,
+	`7 4`:`greater`,
+	`7 5`:`greater`,
+	`7 6`:`greater`,
+	`7 8`:`smaller`,
+	`7 9`:`smaller`,
 	`8 10`:`smaller`,
+	`8 11`:`smaller`,
 	`8 12`:`smaller`,
+	`8 13`:`smaller`,
 	`8 14`:`smaller`,
+	`8 15`:`smaller`,
+	`8 1`:`greater`,
+	`8 2`:`greater`,
+	`8 3`:`greater`,
+	`8 4`:`greater`,
+	`8 5`:`greater`,
+	`8 6`:`greater`,
 	`8 7`:`greater`,
+	`8 9`:`smaller`,
+	`9 10`:`smaller`,
+	`9 11`:`smaller`,
 	`9 12`:`smaller`,
+	`9 13`:`smaller`,
 	`9 14`:`smaller`,
+	`9 15`:`smaller`,
+	`9 1`:`greater`,
+	`9 2`:`greater`,
+	`9 3`:`greater`,
+	`9 4`:`greater`,
+	`9 5`:`greater`,
+	`9 6`:`greater`,
+	`9 7`:`greater`,
+	`9 8`:`greater`,
 	`? *`:`smaller`,
 	`? x`:`greater`,
 	`? z`:`greater`,
@@ -13346,8 +13372,11 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`all t2`:`smaller`,
 	`all t3`:`smaller`,
 	`all t4`:`smaller`,
+	`all t5`:`smaller`,
 	`all t6`:`smaller`,
 	`all t7`:`smaller`,
+	`all t8`:`smaller`,
+	`all t9`:`smaller`,
 	`all var`:`smaller`,
 	`ar *`:`smaller`,
 	`b a`:`greater`,
@@ -13398,12 +13427,15 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t10 t14`:`smaller`,
 	`t10 t15`:`smaller`,
 	`t10 t1`:`rprefix`,
+	`t10 t2`:`smaller`,
 	`t10 t3`:`smaller`,
 	`t10 t4`:`smaller`,
 	`t10 t5`:`smaller`,
 	`t10 t6`:`smaller`,
 	`t10 t7`:`smaller`,
 	`t10 t8`:`smaller`,
+	`t10 t9`:`smaller`,
+	`t10 var2`:`smaller`,
 	`t10 var`:`smaller`,
 	`t11 .`:`greater`,
 	`t11 all`:`greater`,
@@ -13413,11 +13445,13 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t11 t14`:`smaller`,
 	`t11 t15`:`smaller`,
 	`t11 t1`:`rprefix`,
+	`t11 t2`:`smaller`,
 	`t11 t3`:`smaller`,
 	`t11 t4`:`smaller`,
 	`t11 t5`:`smaller`,
 	`t11 t6`:`smaller`,
 	`t11 t7`:`smaller`,
+	`t11 t8`:`smaller`,
 	`t11 t9`:`smaller`,
 	`t11 var2`:`smaller`,
 	`t11 var`:`smaller`,
@@ -13436,6 +13470,8 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t12 t6`:`smaller`,
 	`t12 t7`:`smaller`,
 	`t12 t8`:`smaller`,
+	`t12 t9`:`smaller`,
+	`t12 var2`:`smaller`,
 	`t12 var`:`smaller`,
 	`t13 .`:`greater`,
 	`t13 all`:`greater`,
@@ -13452,6 +13488,8 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t13 t6`:`smaller`,
 	`t13 t7`:`smaller`,
 	`t13 t8`:`smaller`,
+	`t13 t9`:`smaller`,
+	`t13 var2`:`smaller`,
 	`t13 var`:`smaller`,
 	`t14 .`:`greater`,
 	`t14 all`:`greater`,
@@ -13468,7 +13506,11 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t14 t6`:`smaller`,
 	`t14 t7`:`smaller`,
 	`t14 t8`:`smaller`,
+	`t14 t9`:`smaller`,
+	`t14 var2`:`smaller`,
 	`t14 var`:`smaller`,
+	`t14 vars`:`smaller`,
+	`t14 xyz`:`smaller`,
 	`t15 .`:`greater`,
 	`t15 all`:`greater`,
 	`t15 t10`:`greater`,
@@ -13485,7 +13527,10 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t15 t7`:`smaller`,
 	`t15 t8`:`smaller`,
 	`t15 t9`:`smaller`,
+	`t15 var2`:`smaller`,
 	`t15 var`:`smaller`,
+	`t15 vars`:`smaller`,
+	`t15 xyz`:`smaller`,
 	`t2 .`:`greater`,
 	`t2 all`:`greater`,
 	`t2 t10`:`greater`,
@@ -13502,6 +13547,7 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t2 t7`:`smaller`,
 	`t2 t8`:`smaller`,
 	`t2 t9`:`smaller`,
+	`t2 var2`:`smaller`,
 	`t2 var`:`smaller`,
 	`t2 vars`:`smaller`,
 	`t3 .`:`greater`,
@@ -13520,7 +13566,10 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t3 t7`:`smaller`,
 	`t3 t8`:`smaller`,
 	`t3 t9`:`smaller`,
+	`t3 var2`:`smaller`,
 	`t3 var`:`smaller`,
+	`t3 vars`:`smaller`,
+	`t3 xyz`:`smaller`,
 	`t4 .`:`greater`,
 	`t4 all`:`greater`,
 	`t4 t10`:`greater`,
@@ -13540,6 +13589,7 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t4 var2`:`smaller`,
 	`t4 var`:`smaller`,
 	`t4 vars`:`smaller`,
+	`t4 xyz`:`smaller`,
 	`t5 .`:`greater`,
 	`t5 all`:`greater`,
 	`t5 t10`:`greater`,
@@ -13556,6 +13606,7 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t5 t7`:`smaller`,
 	`t5 t8`:`smaller`,
 	`t5 t9`:`smaller`,
+	`t5 var2`:`smaller`,
 	`t5 var`:`smaller`,
 	`t5 vars`:`smaller`,
 	`t5 xyz`:`smaller`,
@@ -13569,6 +13620,7 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t6 t15`:`greater`,
 	`t6 t1`:`greater`,
 	`t6 t2`:`greater`,
+	`t6 t3`:`greater`,
 	`t6 t4`:`greater`,
 	`t6 t5`:`greater`,
 	`t6 t7`:`smaller`,
@@ -13587,6 +13639,7 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t7 t14`:`greater`,
 	`t7 t15`:`greater`,
 	`t7 t1`:`greater`,
+	`t7 t2`:`greater`,
 	`t7 t3`:`greater`,
 	`t7 t4`:`greater`,
 	`t7 t5`:`greater`,
@@ -13606,6 +13659,8 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t8 t14`:`greater`,
 	`t8 t15`:`greater`,
 	`t8 t1`:`greater`,
+	`t8 t2`:`greater`,
+	`t8 t3`:`greater`,
 	`t8 t4`:`greater`,
 	`t8 t5`:`greater`,
 	`t8 t6`:`greater`,
@@ -13624,6 +13679,7 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`t9 t14`:`greater`,
 	`t9 t15`:`greater`,
 	`t9 t1`:`greater`,
+	`t9 t2`:`greater`,
 	`t9 t3`:`greater`,
 	`t9 t4`:`greater`,
 	`t9 t5`:`greater`,
@@ -13644,66 +13700,15 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`v2 v`:`rprefix`,
 	`var .`:`greater`,
 	`var all`:`greater`,
-	`3 14`:`smaller`,
-	`2 14`:`smaller`,
-	`6 14`:`smaller`,
-	`1 14`:`smaller`,
-	`4 14`:`smaller`,
-	`all t5`:`smaller`,
-	`12 2`:`greater`,
-	`10 2`:`greater`,
-	`14 2`:`greater`,
-	`13 2`:`greater`,
-	`11 2`:`greater`,
-	`5 2`:`greater`,
-	`8 2`:`greater`,
-	`6 2`:`greater`,
-	`7 2`:`greater`,
-	`9 2`:`greater`,
-	`2 13`:`smaller`,
-	`4 13`:`smaller`,
-	`5 13`:`smaller`,
-	`1 13`:`smaller`,
-	`11 6`:`greater`,
-	`10 6`:`greater`,
-	`8 6`:`greater`,
-	`14 1`:`greater`,
-	`8 1`:`greater`,
-	`6 1`:`greater`,
-	`11 1`:`greater`,
-	`7 1`:`greater`,
-	`15 1`:`greater`,
-	`13 1`:`greater`,
-	`12 1`:`greater`,
-	`9 1`:`greater`,
-	`5 3`:`greater`,
-	`t9 t2`:`greater`,
-	`t7 t2`:`greater`,
-	`xyz t2`:`greater`,
-	`t8 t2`:`greater`,
-	`11 4`:`greater`,
-	`t15 vars`:`smaller`,
-	`14 6`:`greater`,
-	`13 6`:`greater`,
-	`10 4`:`greater`,
-	`12 3`:`greater`,
-	`t3 xyz`:`smaller`,
-	`vars t2`:`greater`,
-	`var t15`:`greater`,
-	`t14 xyz`:`smaller`,
-	`5 1`:`greater`,
-	`12 6`:`greater`,
-	`3 13`:`smaller`,
-	`4 1`:`greater`,
-	`all t8`:`smaller`,
-	`t11 t8`:`smaller`,
-	`4 2`:`greater`,
 	`var t10`:`greater`,
 	`var t11`:`greater`,
 	`var t12`:`greater`,
 	`var t13`:`greater`,
 	`var t14`:`greater`,
+	`var t15`:`greater`,
 	`var t1`:`greater`,
+	`var t2`:`greater`,
+	`var t3`:`greater`,
 	`var t4`:`greater`,
 	`var t5`:`greater`,
 	`var t6`:`greater`,
@@ -13718,14 +13723,18 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`var2 t10`:`greater`,
 	`var2 t11`:`greater`,
 	`var2 t12`:`greater`,
+	`var2 t13`:`greater`,
 	`var2 t14`:`greater`,
 	`var2 t15`:`greater`,
 	`var2 t1`:`greater`,
+	`var2 t2`:`greater`,
+	`var2 t3`:`greater`,
 	`var2 t4`:`greater`,
 	`var2 t5`:`greater`,
 	`var2 t6`:`greater`,
 	`var2 t7`:`greater`,
 	`var2 t8`:`greater`,
+	`var2 t9`:`greater`,
 	`var2 var`:`rprefix`,
 	`var2 vars`:`smaller`,
 	`var2 xyz`:`smaller`,
@@ -13734,14 +13743,18 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`vars t10`:`greater`,
 	`vars t11`:`greater`,
 	`vars t12`:`greater`,
+	`vars t13`:`greater`,
 	`vars t14`:`greater`,
 	`vars t15`:`greater`,
 	`vars t1`:`greater`,
+	`vars t2`:`greater`,
+	`vars t3`:`greater`,
 	`vars t4`:`greater`,
 	`vars t5`:`greater`,
 	`vars t6`:`greater`,
 	`vars t7`:`greater`,
 	`vars t8`:`greater`,
+	`vars t9`:`greater`,
 	`vars var2`:`greater`,
 	`vars var`:`rprefix`,
 	`vars xyz`:`smaller`,
@@ -13757,14 +13770,18 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`xyz t10`:`greater`,
 	`xyz t11`:`greater`,
 	`xyz t12`:`greater`,
+	`xyz t13`:`greater`,
 	`xyz t14`:`greater`,
 	`xyz t15`:`greater`,
 	`xyz t1`:`greater`,
+	`xyz t2`:`greater`,
+	`xyz t3`:`greater`,
 	`xyz t4`:`greater`,
 	`xyz t5`:`greater`,
 	`xyz t6`:`greater`,
 	`xyz t7`:`greater`,
 	`xyz t8`:`greater`,
+	`xyz t9`:`greater`,
 	`xyz var2`:`greater`,
 	`xyz var`:`greater`,
 	`xyz vars`:`greater`,
@@ -13773,23 +13790,27 @@ var checkpoints_cmp_symbol = fixCheckpoints1(map[string]any{
 	`z zz`:`lprefix`,
 	`zzz xxx`:`greater`,
 	`zzz yyy`:`greater`,
-	`t10 .test.10`:`greater`, //cmp
-	`t14 vars`:`smaller`,
-	`.test.6 .test.1`:`greater`, //cmp
-	`.test.2 .test.1`:`greater`, //cmp
-	`6 3`:`greater`,
-	`7 3`:`greater`,
-	`9 3`:`greater`,
-	`10 3`:`greater`,
-	`13 4`:`greater`,
-	`9 4`:`greater`,
-	`14 4`:`greater`,
+	`all var2`:`smaller`,
+	`t1 var2`:`smaller`,
+	`t12 xyz`:`smaller`,
+	`t12 vars`:`smaller`,
+	`t13 vars`:`smaller`,
+	`va3 va1`:`greater`,
 })
 var has_new_cmp_symbol int
 var checked_cmp_symbol = make(map[string]struct{}, len(checkpoints_cmp_symbols))
 func check_cmp_symbol(ctx Context, l, r Symbol) func(*cmpres) {
 	for _, sym := range []Symbol{l, r} {
-		if s := sym.String(); len(s)>1 && strings.ContainsAny(s, illegalSymChars) {
+		vocabM.RLock()
+		meta := vocab[sym]
+		vocabM.RUnlock()
+		s := sym.String()
+		if false && len(s) == 1 && meta.Kind() == SymSeq {
+			debug(ctx,
+				_f("bad symbol sequence: %s (%d)", s, sym),
+				callstack{stop:"smart.runcase"}, trace{})
+		}
+		if len(s)>1 && strings.ContainsAny(s, illegalSymChars) {
 			debug(ctx,
 				_f(`illegal symbol contains any of "%s"`, illegalSymChars),
 				_f("symbol: %s (%d)", s, sym),
@@ -13819,7 +13840,22 @@ func check_cmp_symbol(ctx Context, l, r Symbol) func(*cmpres) {
 }
 
 var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
+	`[* . gen] [x . gen]`:`greater`,
+	`[* . gen] [y . gen]`:`greater`,
 	`[* . h] [** . h]`:`smaller`,
+	`[* . h] [x . h]`:`greater`,
+	`[* . h] [y . h]`:`greater`,
+	`[* . h] [z . h]`:`greater`,
+	`[** . c++] [foo . c++]`:`greater`,
+	`[** . c++] [foo / bar . c++]`:`greater`,
+	`[** . c++] [x . c++]`:`greater`,
+	`[** . c++] [y . c++]`:`greater`,
+	`[** . c] [foo . c]`:`greater`,
+	`[** . c] [foo / bar . c]`:`greater`,
+	`[** . c] [foo / z . c]`:`greater`,
+	`[** . gen] [a . gen]`:`greater`,
+	`[** . gen] [b . gen]`:`greater`,
+	`[** . gen] [foo / c . gen]`:`greater`,
 	`[** . h] [** . h]`:`equal`,
 	`[** . h] [foo / * . h]`:`greater`,
 	`[** . h] [foo / bar / v ? . h]`:`greater`,
@@ -13832,6 +13868,9 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. self] [. test . 10]`:`smaller`,
 	`[. self] [. test . 11]`:`smaller`,
 	`[. self] [. test . 12]`:`smaller`,
+	`[. self] [. test . 13]`:`smaller`,
+	`[. self] [. test . 14]`:`smaller`,
+	`[. self] [. test . 15]`:`smaller`,
 	`[. self] [. test . 1]`:`smaller`,
 	`[. self] [. test . 2]`:`smaller`,
 	`[. self] [. test . 3]`:`smaller`,
@@ -13849,12 +13888,17 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. self] [t13]`:`smaller`,
 	`[. self] [t14]`:`smaller`,
 	`[. self] [t15]`:`smaller`,
+	`[. self] [t1]`:`smaller`,
+	`[. self] [t2]`:`smaller`,
 	`[. self] [t3]`:`smaller`,
 	`[. self] [t4]`:`smaller`,
 	`[. self] [t5]`:`smaller`,
+	`[. self] [t6]`:`smaller`,
 	`[. self] [t7]`:`smaller`,
 	`[. self] [t8]`:`smaller`,
+	`[. self] [t9]`:`smaller`,
 	`[. self] [var . xxx]`:`smaller`,
+	`[. self] [var . yyy]`:`smaller`,
 	`[. self] [var . zzz]`:`smaller`,
 	`[. self] [var2]`:`smaller`,
 	`[. self] [vars]`:`smaller`,
@@ -13864,8 +13908,12 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 10] [. test . 13]`:`smaller`,
 	`[. test . 10] [. test . 14]`:`smaller`,
 	`[. test . 10] [. test . 15]`:`smaller`,
+	`[. test . 10] [. test . 1]`:`greater`,
 	`[. test . 10] [. test . 2]`:`greater`,
+	`[. test . 10] [. test . 3]`:`greater`,
+	`[. test . 10] [. test . 4]`:`greater`,
 	`[. test . 10] [. test . 5]`:`greater`,
+	`[. test . 10] [. test . 6]`:`greater`,
 	`[. test . 10] [. test . 7]`:`greater`,
 	`[. test . 10] [. test . 8]`:`greater`,
 	`[. test . 10] [. test . 9]`:`greater`,
@@ -13881,10 +13929,14 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 10] [t2]`:`smaller`,
 	`[. test . 10] [t3]`:`smaller`,
 	`[. test . 10] [t4]`:`smaller`,
+	`[. test . 10] [t5]`:`smaller`,
 	`[. test . 10] [t6]`:`smaller`,
 	`[. test . 10] [t7]`:`smaller`,
 	`[. test . 10] [t8]`:`smaller`,
+	`[. test . 10] [t9]`:`smaller`,
 	`[. test . 10] [var . xxx]`:`smaller`,
+	`[. test . 10] [var . yyy]`:`smaller`,
+	`[. test . 10] [var . zzz]`:`smaller`,
 	`[. test . 10] [xyz]`:`smaller`,
 	`[. test . 11] [. self]`:`greater`,
 	`[. test . 11] [. test . 10]`:`greater`,
@@ -13892,7 +13944,12 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 11] [. test . 13]`:`smaller`,
 	`[. test . 11] [. test . 14]`:`smaller`,
 	`[. test . 11] [. test . 15]`:`smaller`,
+	`[. test . 11] [. test . 1]`:`greater`,
+	`[. test . 11] [. test . 2]`:`greater`,
+	`[. test . 11] [. test . 3]`:`greater`,
+	`[. test . 11] [. test . 4]`:`greater`,
 	`[. test . 11] [. test . 5]`:`greater`,
+	`[. test . 11] [. test . 6]`:`greater`,
 	`[. test . 11] [. test . 7]`:`greater`,
 	`[. test . 11] [. test . 8]`:`greater`,
 	`[. test . 11] [. test . 9]`:`greater`,
@@ -13908,17 +13965,25 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 11] [t2]`:`smaller`,
 	`[. test . 11] [t3]`:`smaller`,
 	`[. test . 11] [t4]`:`smaller`,
+	`[. test . 11] [t5]`:`smaller`,
 	`[. test . 11] [t6]`:`smaller`,
 	`[. test . 11] [t7]`:`smaller`,
 	`[. test . 11] [t8]`:`smaller`,
 	`[. test . 11] [t9]`:`smaller`,
 	`[. test . 11] [var . xxx]`:`smaller`,
+	`[. test . 11] [var . yyy]`:`smaller`,
+	`[. test . 11] [var . zzz]`:`smaller`,
 	`[. test . 12] [. test . 10]`:`greater`,
 	`[. test . 12] [. test . 11]`:`greater`,
 	`[. test . 12] [. test . 13]`:`smaller`,
 	`[. test . 12] [. test . 14]`:`smaller`,
 	`[. test . 12] [. test . 15]`:`smaller`,
+	`[. test . 12] [. test . 1]`:`greater`,
+	`[. test . 12] [. test . 2]`:`greater`,
+	`[. test . 12] [. test . 3]`:`greater`,
+	`[. test . 12] [. test . 4]`:`greater`,
 	`[. test . 12] [. test . 5]`:`greater`,
+	`[. test . 12] [. test . 6]`:`greater`,
 	`[. test . 12] [. test . 7]`:`greater`,
 	`[. test . 12] [. test . 8]`:`greater`,
 	`[. test . 12] [. test . 9]`:`greater`,
@@ -13931,18 +13996,29 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 12] [t14]`:`smaller`,
 	`[. test . 12] [t15]`:`smaller`,
 	`[. test . 12] [t1]`:`smaller`,
+	`[. test . 12] [t2]`:`smaller`,
 	`[. test . 12] [t3]`:`smaller`,
 	`[. test . 12] [t4]`:`smaller`,
+	`[. test . 12] [t5]`:`smaller`,
 	`[. test . 12] [t6]`:`smaller`,
 	`[. test . 12] [t7]`:`smaller`,
 	`[. test . 12] [t8]`:`smaller`,
+	`[. test . 12] [t9]`:`smaller`,
 	`[. test . 12] [var . xxx]`:`smaller`,
+	`[. test . 12] [var . yyy]`:`smaller`,
+	`[. test . 12] [var . zzz]`:`smaller`,
+	`[. test . 12] [var2]`:`smaller`,
+	`[. test . 12] [vars]`:`smaller`,
 	`[. test . 13] [. test . 10]`:`greater`,
 	`[. test . 13] [. test . 11]`:`greater`,
 	`[. test . 13] [. test . 12]`:`greater`,
 	`[. test . 13] [. test . 14]`:`smaller`,
 	`[. test . 13] [. test . 15]`:`smaller`,
+	`[. test . 13] [. test . 1]`:`greater`,
+	`[. test . 13] [. test . 2]`:`greater`,
+	`[. test . 13] [. test . 4]`:`greater`,
 	`[. test . 13] [. test . 5]`:`greater`,
+	`[. test . 13] [. test . 6]`:`greater`,
 	`[. test . 13] [. test . 7]`:`greater`,
 	`[. test . 13] [. test . 8]`:`greater`,
 	`[. test . 13] [. test . 9]`:`greater`,
@@ -13955,17 +14031,28 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 13] [t14]`:`smaller`,
 	`[. test . 13] [t15]`:`smaller`,
 	`[. test . 13] [t1]`:`smaller`,
+	`[. test . 13] [t2]`:`smaller`,
 	`[. test . 13] [t3]`:`smaller`,
 	`[. test . 13] [t4]`:`smaller`,
+	`[. test . 13] [t5]`:`smaller`,
 	`[. test . 13] [t6]`:`smaller`,
 	`[. test . 13] [t7]`:`smaller`,
 	`[. test . 13] [t8]`:`smaller`,
+	`[. test . 13] [t9]`:`smaller`,
 	`[. test . 13] [var . xxx]`:`smaller`,
+	`[. test . 13] [var . yyy]`:`smaller`,
+	`[. test . 13] [var . zzz]`:`smaller`,
+	`[. test . 13] [xyz]`:`smaller`,
 	`[. test . 14] [. test . 10]`:`greater`,
+	`[. test . 14] [. test . 11]`:`greater`,
 	`[. test . 14] [. test . 12]`:`greater`,
 	`[. test . 14] [. test . 13]`:`greater`,
 	`[. test . 14] [. test . 15]`:`smaller`,
+	`[. test . 14] [. test . 1]`:`greater`,
+	`[. test . 14] [. test . 2]`:`greater`,
+	`[. test . 14] [. test . 4]`:`greater`,
 	`[. test . 14] [. test . 5]`:`greater`,
+	`[. test . 14] [. test . 6]`:`greater`,
 	`[. test . 14] [. test . 7]`:`greater`,
 	`[. test . 14] [. test . 8]`:`greater`,
 	`[. test . 14] [. test . 9]`:`greater`,
@@ -13978,18 +14065,27 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 14] [t14]`:`smaller`,
 	`[. test . 14] [t15]`:`smaller`,
 	`[. test . 14] [t1]`:`smaller`,
+	`[. test . 14] [t2]`:`smaller`,
 	`[. test . 14] [t3]`:`smaller`,
 	`[. test . 14] [t4]`:`smaller`,
+	`[. test . 14] [t5]`:`smaller`,
 	`[. test . 14] [t6]`:`smaller`,
 	`[. test . 14] [t7]`:`smaller`,
 	`[. test . 14] [t8]`:`smaller`,
+	`[. test . 14] [t9]`:`smaller`,
 	`[. test . 14] [var . xxx]`:`smaller`,
+	`[. test . 14] [var . yyy]`:`smaller`,
 	`[. test . 14] [var . zzz]`:`smaller`,
+	`[. test . 14] [var2]`:`smaller`,
 	`[. test . 15] [. test . 10]`:`greater`,
+	`[. test . 15] [. test . 11]`:`greater`,
 	`[. test . 15] [. test . 12]`:`greater`,
 	`[. test . 15] [. test . 13]`:`greater`,
 	`[. test . 15] [. test . 14]`:`greater`,
+	`[. test . 15] [. test . 2]`:`greater`,
+	`[. test . 15] [. test . 4]`:`greater`,
 	`[. test . 15] [. test . 5]`:`greater`,
+	`[. test . 15] [. test . 6]`:`greater`,
 	`[. test . 15] [. test . 7]`:`greater`,
 	`[. test . 15] [. test . 8]`:`greater`,
 	`[. test . 15] [. test . 9]`:`greater`,
@@ -14005,15 +14101,22 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 15] [t2]`:`smaller`,
 	`[. test . 15] [t3]`:`smaller`,
 	`[. test . 15] [t4]`:`smaller`,
+	`[. test . 15] [t5]`:`smaller`,
 	`[. test . 15] [t6]`:`smaller`,
 	`[. test . 15] [t7]`:`smaller`,
 	`[. test . 15] [t8]`:`smaller`,
+	`[. test . 15] [t9]`:`smaller`,
 	`[. test . 15] [var . xxx]`:`smaller`,
+	`[. test . 15] [var . yyy]`:`smaller`,
+	`[. test . 15] [var . zzz]`:`smaller`,
 	`[. test . 15] [var2]`:`smaller`,
 	`[. test . 1] [. self]`:`greater`,
 	`[. test . 1] [. test . 10]`:`smaller`,
 	`[. test . 1] [. test . 11]`:`smaller`,
 	`[. test . 1] [. test . 12]`:`smaller`,
+	`[. test . 1] [. test . 13]`:`smaller`,
+	`[. test . 1] [. test . 14]`:`smaller`,
+	`[. test . 1] [. test . 15]`:`smaller`,
 	`[. test . 1] [. test . 2]`:`smaller`,
 	`[. test . 1] [. test . 3]`:`smaller`,
 	`[. test . 1] [. test . 4]`:`smaller`,
@@ -14022,6 +14125,7 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 1] [. test . 7]`:`smaller`,
 	`[. test . 1] [. test . 8]`:`smaller`,
 	`[. test . 1] [. test . 9]`:`smaller`,
+	`[. test . 1] [. usee]`:`smaller`,
 	`[. test . 1] [all]`:`smaller`,
 	`[. test . 1] [t10]`:`smaller`,
 	`[. test . 1] [t11]`:`smaller`,
@@ -14030,17 +14134,25 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 1] [t14]`:`smaller`,
 	`[. test . 1] [t15]`:`smaller`,
 	`[. test . 1] [t1]`:`smaller`,
+	`[. test . 1] [t2]`:`smaller`,
 	`[. test . 1] [t3]`:`smaller`,
 	`[. test . 1] [t4]`:`smaller`,
 	`[. test . 1] [t5]`:`smaller`,
+	`[. test . 1] [t6]`:`smaller`,
 	`[. test . 1] [t7]`:`smaller`,
 	`[. test . 1] [t8]`:`smaller`,
+	`[. test . 1] [t9]`:`smaller`,
 	`[. test . 1] [var . xxx]`:`smaller`,
+	`[. test . 1] [var . yyy]`:`smaller`,
+	`[. test . 1] [var . zzz]`:`smaller`,
 	`[. test . 1] [vars]`:`smaller`,
 	`[. test . 2] [. self]`:`greater`,
 	`[. test . 2] [. test . 10]`:`smaller`,
 	`[. test . 2] [. test . 11]`:`smaller`,
 	`[. test . 2] [. test . 12]`:`smaller`,
+	`[. test . 2] [. test . 13]`:`smaller`,
+	`[. test . 2] [. test . 14]`:`smaller`,
+	`[. test . 2] [. test . 15]`:`smaller`,
 	`[. test . 2] [. test . 1]`:`greater`,
 	`[. test . 2] [. test . 3]`:`smaller`,
 	`[. test . 2] [. test . 4]`:`smaller`,
@@ -14049,6 +14161,7 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 2] [. test . 7]`:`smaller`,
 	`[. test . 2] [. test . 8]`:`smaller`,
 	`[. test . 2] [. test . 9]`:`smaller`,
+	`[. test . 2] [. usee]`:`smaller`,
 	`[. test . 2] [all]`:`smaller`,
 	`[. test . 2] [t10]`:`smaller`,
 	`[. test . 2] [t11]`:`smaller`,
@@ -14056,15 +14169,28 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 2] [t13]`:`smaller`,
 	`[. test . 2] [t14]`:`smaller`,
 	`[. test . 2] [t15]`:`smaller`,
+	`[. test . 2] [t1]`:`smaller`,
+	`[. test . 2] [t2]`:`smaller`,
 	`[. test . 2] [t3]`:`smaller`,
 	`[. test . 2] [t4]`:`smaller`,
+	`[. test . 2] [t5]`:`smaller`,
+	`[. test . 2] [t6]`:`smaller`,
 	`[. test . 2] [t7]`:`smaller`,
 	`[. test . 2] [t8]`:`smaller`,
+	`[. test . 2] [t9]`:`smaller`,
 	`[. test . 2] [var . xxx]`:`smaller`,
+	`[. test . 2] [var . yyy]`:`smaller`,
+	`[. test . 2] [var . zzz]`:`smaller`,
+	`[. test . 2] [var2]`:`smaller`,
+	`[. test . 2] [vars]`:`smaller`,
 	`[. test . 2] [xyz]`:`smaller`,
+	`[. test . 3] [. self]`:`greater`,
 	`[. test . 3] [. test . 10]`:`smaller`,
 	`[. test . 3] [. test . 11]`:`smaller`,
 	`[. test . 3] [. test . 12]`:`smaller`,
+	`[. test . 3] [. test . 13]`:`smaller`,
+	`[. test . 3] [. test . 14]`:`smaller`,
+	`[. test . 3] [. test . 15]`:`smaller`,
 	`[. test . 3] [. test . 1]`:`greater`,
 	`[. test . 3] [. test . 2]`:`greater`,
 	`[. test . 3] [. test . 4]`:`smaller`,
@@ -14073,6 +14199,7 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 3] [. test . 7]`:`smaller`,
 	`[. test . 3] [. test . 8]`:`smaller`,
 	`[. test . 3] [. test . 9]`:`smaller`,
+	`[. test . 3] [. usee]`:`smaller`,
 	`[. test . 3] [all]`:`smaller`,
 	`[. test . 3] [t10]`:`smaller`,
 	`[. test . 3] [t11]`:`smaller`,
@@ -14080,15 +14207,25 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 3] [t13]`:`smaller`,
 	`[. test . 3] [t14]`:`smaller`,
 	`[. test . 3] [t15]`:`smaller`,
+	`[. test . 3] [t1]`:`smaller`,
 	`[. test . 3] [t3]`:`smaller`,
 	`[. test . 3] [t4]`:`smaller`,
+	`[. test . 3] [t5]`:`smaller`,
+	`[. test . 3] [t6]`:`smaller`,
 	`[. test . 3] [t7]`:`smaller`,
 	`[. test . 3] [t8]`:`smaller`,
+	`[. test . 3] [t9]`:`smaller`,
 	`[. test . 3] [var . xxx]`:`smaller`,
+	`[. test . 3] [var . yyy]`:`smaller`,
+	`[. test . 3] [var . zzz]`:`smaller`,
 	`[. test . 4] [. self]`:`greater`,
 	`[. test . 4] [. test . 10]`:`smaller`,
 	`[. test . 4] [. test . 11]`:`smaller`,
 	`[. test . 4] [. test . 12]`:`smaller`,
+	`[. test . 4] [. test . 13]`:`smaller`,
+	`[. test . 4] [. test . 14]`:`smaller`,
+	`[. test . 4] [. test . 15]`:`smaller`,
+	`[. test . 4] [. test . 1]`:`greater`,
 	`[. test . 4] [. test . 2]`:`greater`,
 	`[. test . 4] [. test . 3]`:`greater`,
 	`[. test . 4] [. test . 5]`:`smaller`,
@@ -14096,6 +14233,7 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 4] [. test . 7]`:`smaller`,
 	`[. test . 4] [. test . 8]`:`smaller`,
 	`[. test . 4] [. test . 9]`:`smaller`,
+	`[. test . 4] [. usee]`:`smaller`,
 	`[. test . 4] [all]`:`smaller`,
 	`[. test . 4] [t10]`:`smaller`,
 	`[. test . 4] [t11]`:`smaller`,
@@ -14103,23 +14241,34 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 4] [t13]`:`smaller`,
 	`[. test . 4] [t14]`:`smaller`,
 	`[. test . 4] [t15]`:`smaller`,
+	`[. test . 4] [t1]`:`smaller`,
 	`[. test . 4] [t3]`:`smaller`,
 	`[. test . 4] [t4]`:`smaller`,
+	`[. test . 4] [t5]`:`smaller`,
+	`[. test . 4] [t6]`:`smaller`,
 	`[. test . 4] [t7]`:`smaller`,
 	`[. test . 4] [t8]`:`smaller`,
 	`[. test . 4] [t9]`:`smaller`,
 	`[. test . 4] [var . xxx]`:`smaller`,
+	`[. test . 4] [var . yyy]`:`smaller`,
+	`[. test . 4] [var . zzz]`:`smaller`,
+	`[. test . 4] [vars]`:`smaller`,
 	`[. test . 5] [. self]`:`greater`,
 	`[. test . 5] [. test . 10]`:`smaller`,
 	`[. test . 5] [. test . 11]`:`smaller`,
 	`[. test . 5] [. test . 12]`:`smaller`,
+	`[. test . 5] [. test . 13]`:`smaller`,
 	`[. test . 5] [. test . 14]`:`smaller`,
+	`[. test . 5] [. test . 15]`:`smaller`,
+	`[. test . 5] [. test . 1]`:`greater`,
 	`[. test . 5] [. test . 2]`:`greater`,
+	`[. test . 5] [. test . 3]`:`greater`,
 	`[. test . 5] [. test . 4]`:`greater`,
 	`[. test . 5] [. test . 6]`:`smaller`,
 	`[. test . 5] [. test . 7]`:`smaller`,
 	`[. test . 5] [. test . 8]`:`smaller`,
 	`[. test . 5] [. test . 9]`:`smaller`,
+	`[. test . 5] [. usee]`:`smaller`,
 	`[. test . 5] [all]`:`smaller`,
 	`[. test . 5] [t10]`:`smaller`,
 	`[. test . 5] [t11]`:`smaller`,
@@ -14130,14 +14279,25 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 5] [t1]`:`smaller`,
 	`[. test . 5] [t3]`:`smaller`,
 	`[. test . 5] [t4]`:`smaller`,
+	`[. test . 5] [t5]`:`smaller`,
 	`[. test . 5] [t6]`:`smaller`,
 	`[. test . 5] [t7]`:`smaller`,
 	`[. test . 5] [t8]`:`smaller`,
+	`[. test . 5] [t9]`:`smaller`,
 	`[. test . 5] [var . xxx]`:`smaller`,
+	`[. test . 5] [var . yyy]`:`smaller`,
+	`[. test . 5] [var . zzz]`:`smaller`,
+	`[. test . 5] [var2]`:`smaller`,
+	`[. test . 6] [. self]`:`greater`,
 	`[. test . 6] [. test . 10]`:`smaller`,
 	`[. test . 6] [. test . 11]`:`smaller`,
 	`[. test . 6] [. test . 12]`:`smaller`,
+	`[. test . 6] [. test . 13]`:`smaller`,
+	`[. test . 6] [. test . 14]`:`smaller`,
+	`[. test . 6] [. test . 15]`:`smaller`,
+	`[. test . 6] [. test . 1]`:`greater`,
 	`[. test . 6] [. test . 2]`:`greater`,
+	`[. test . 6] [. test . 3]`:`greater`,
 	`[. test . 6] [. test . 4]`:`greater`,
 	`[. test . 6] [. test . 5]`:`greater`,
 	`[. test . 6] [. test . 7]`:`smaller`,
@@ -14154,17 +14314,26 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 6] [t1]`:`smaller`,
 	`[. test . 6] [t3]`:`smaller`,
 	`[. test . 6] [t4]`:`smaller`,
+	`[. test . 6] [t5]`:`smaller`,
 	`[. test . 6] [t6]`:`smaller`,
 	`[. test . 6] [t7]`:`smaller`,
 	`[. test . 6] [t8]`:`smaller`,
+	`[. test . 6] [t9]`:`smaller`,
 	`[. test . 6] [var . xxx]`:`smaller`,
+	`[. test . 6] [var . yyy]`:`smaller`,
+	`[. test . 6] [var . zzz]`:`smaller`,
 	`[. test . 6] [vars]`:`smaller`,
+	`[. test . 7] [. self]`:`greater`,
 	`[. test . 7] [. test . 10]`:`smaller`,
 	`[. test . 7] [. test . 11]`:`smaller`,
 	`[. test . 7] [. test . 12]`:`smaller`,
 	`[. test . 7] [. test . 13]`:`smaller`,
 	`[. test . 7] [. test . 14]`:`smaller`,
 	`[. test . 7] [. test . 15]`:`smaller`,
+	`[. test . 7] [. test . 1]`:`greater`,
+	`[. test . 7] [. test . 2]`:`greater`,
+	`[. test . 7] [. test . 3]`:`greater`,
+	`[. test . 7] [. test . 4]`:`greater`,
 	`[. test . 7] [. test . 5]`:`greater`,
 	`[. test . 7] [. test . 6]`:`greater`,
 	`[. test . 7] [. test . 8]`:`smaller`,
@@ -14181,16 +14350,27 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 7] [t2]`:`smaller`,
 	`[. test . 7] [t3]`:`smaller`,
 	`[. test . 7] [t4]`:`smaller`,
+	`[. test . 7] [t5]`:`smaller`,
 	`[. test . 7] [t6]`:`smaller`,
 	`[. test . 7] [t7]`:`smaller`,
 	`[. test . 7] [t8]`:`smaller`,
+	`[. test . 7] [t9]`:`smaller`,
 	`[. test . 7] [var . xxx]`:`smaller`,
+	`[. test . 7] [var . yyy]`:`smaller`,
+	`[. test . 7] [var . zzz]`:`smaller`,
+	`[. test . 7] [var2]`:`smaller`,
+	`[. test . 7] [vars]`:`smaller`,
+	`[. test . 8] [. self]`:`greater`,
 	`[. test . 8] [. test . 10]`:`smaller`,
 	`[. test . 8] [. test . 11]`:`smaller`,
 	`[. test . 8] [. test . 12]`:`smaller`,
 	`[. test . 8] [. test . 13]`:`smaller`,
 	`[. test . 8] [. test . 14]`:`smaller`,
+	`[. test . 8] [. test . 15]`:`smaller`,
+	`[. test . 8] [. test . 1]`:`greater`,
 	`[. test . 8] [. test . 2]`:`greater`,
+	`[. test . 8] [. test . 3]`:`greater`,
+	`[. test . 8] [. test . 4]`:`greater`,
 	`[. test . 8] [. test . 5]`:`greater`,
 	`[. test . 8] [. test . 6]`:`greater`,
 	`[. test . 8] [. test . 7]`:`greater`,
@@ -14206,16 +14386,25 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 8] [t1]`:`smaller`,
 	`[. test . 8] [t3]`:`smaller`,
 	`[. test . 8] [t4]`:`smaller`,
+	`[. test . 8] [t5]`:`smaller`,
 	`[. test . 8] [t6]`:`smaller`,
 	`[. test . 8] [t7]`:`smaller`,
 	`[. test . 8] [t8]`:`smaller`,
+	`[. test . 8] [t9]`:`smaller`,
 	`[. test . 8] [var . xxx]`:`smaller`,
+	`[. test . 8] [var . yyy]`:`smaller`,
+	`[. test . 8] [var . zzz]`:`smaller`,
+	`[. test . 8] [var2]`:`smaller`,
 	`[. test . 9] [. test . 10]`:`smaller`,
 	`[. test . 9] [. test . 11]`:`smaller`,
 	`[. test . 9] [. test . 12]`:`smaller`,
 	`[. test . 9] [. test . 13]`:`smaller`,
 	`[. test . 9] [. test . 14]`:`smaller`,
+	`[. test . 9] [. test . 15]`:`smaller`,
+	`[. test . 9] [. test . 1]`:`greater`,
 	`[. test . 9] [. test . 2]`:`greater`,
+	`[. test . 9] [. test . 3]`:`greater`,
+	`[. test . 9] [. test . 4]`:`greater`,
 	`[. test . 9] [. test . 5]`:`greater`,
 	`[. test . 9] [. test . 6]`:`greater`,
 	`[. test . 9] [. test . 7]`:`greater`,
@@ -14229,19 +14418,30 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. test . 9] [t14]`:`smaller`,
 	`[. test . 9] [t15]`:`smaller`,
 	`[. test . 9] [t1]`:`smaller`,
+	`[. test . 9] [t2]`:`smaller`,
 	`[. test . 9] [t3]`:`smaller`,
 	`[. test . 9] [t4]`:`smaller`,
+	`[. test . 9] [t5]`:`smaller`,
 	`[. test . 9] [t6]`:`smaller`,
 	`[. test . 9] [t7]`:`smaller`,
 	`[. test . 9] [t8]`:`smaller`,
+	`[. test . 9] [t9]`:`smaller`,
 	`[. test . 9] [var . xxx]`:`smaller`,
+	`[. test . 9] [var . yyy]`:`smaller`,
+	`[. test . 9] [var . zzz]`:`smaller`,
+	`[. test . 9] [var2]`:`smaller`,
 	`[. usee] [. self]`:`greater`,
 	`[. usee] [. test . 10]`:`greater`,
+	`[. usee] [. test . 11]`:`greater`,
 	`[. usee] [. test . 12]`:`greater`,
 	`[. usee] [. test . 13]`:`greater`,
 	`[. usee] [. test . 14]`:`greater`,
 	`[. usee] [. test . 15]`:`greater`,
+	`[. usee] [. test . 1]`:`greater`,
+	`[. usee] [. test . 2]`:`greater`,
+	`[. usee] [. test . 4]`:`greater`,
 	`[. usee] [. test . 5]`:`greater`,
+	`[. usee] [. test . 6]`:`greater`,
 	`[. usee] [. test . 7]`:`greater`,
 	`[. usee] [. test . 8]`:`greater`,
 	`[. usee] [. test . 9]`:`greater`,
@@ -14253,12 +14453,16 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[. usee] [t14]`:`smaller`,
 	`[. usee] [t15]`:`smaller`,
 	`[. usee] [t1]`:`smaller`,
+	`[. usee] [t2]`:`smaller`,
 	`[. usee] [t3]`:`smaller`,
 	`[. usee] [t4]`:`smaller`,
+	`[. usee] [t5]`:`smaller`,
 	`[. usee] [t6]`:`smaller`,
 	`[. usee] [t7]`:`smaller`,
 	`[. usee] [t8]`:`smaller`,
+	`[. usee] [t9]`:`smaller`,
 	`[. usee] [var . xxx]`:`smaller`,
+	`[. usee] [var . yyy]`:`smaller`,
 	`[. usee] [var . zzz]`:`smaller`,
 	`[. usee] [var2]`:`smaller`,
 	`[. usee] [vars]`:`smaller`,
@@ -14288,13 +14492,19 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[] [4]`:`lprefix`,
 	`[] [5]`:`lprefix`,
 	`[a] [a]`:`equal`,
+	`[a] [d]`:`smaller`,
 	`[all] [. self]`:`greater`,
 	`[all] [. test . 10]`:`greater`,
+	`[all] [. test . 11]`:`greater`,
 	`[all] [. test . 12]`:`greater`,
 	`[all] [. test . 13]`:`greater`,
 	`[all] [. test . 14]`:`greater`,
+	`[all] [. test . 15]`:`greater`,
 	`[all] [. test . 1]`:`greater`,
+	`[all] [. test . 4]`:`greater`,
 	`[all] [. test . 5]`:`greater`,
+	`[all] [. test . 6]`:`greater`,
+	`[all] [. test . 7]`:`greater`,
 	`[all] [. test . 8]`:`greater`,
 	`[all] [. test . 9]`:`greater`,
 	`[all] [. usee]`:`greater`,
@@ -14312,14 +14522,20 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[all] [t6]`:`smaller`,
 	`[all] [t7]`:`smaller`,
 	`[all] [t8]`:`smaller`,
+	`[all] [t9]`:`smaller`,
 	`[all] [var . xxx]`:`smaller`,
+	`[all] [var . yyy]`:`smaller`,
+	`[all] [var . zzz]`:`smaller`,
 	`[ar / v1 . h] [* / v * . h]`:`smaller`,
 	`[ar / v2 . h] [* / v * . h]`:`smaller`,
 	`[b] [a]`:`greater`,
 	`[b] [b]`:`equal`,
+	`[b] [d]`:`smaller`,
 	`[bar] [bar]`:`equal`,
+	`[c] [d]`:`smaller`,
 	`[conf3] [bar]`:`greater`,
 	`[conf3] [foo]`:`smaller`,
+	`[d] [d]`:`equal`,
 	`[fo ? / ** / x . h] [f *? / x . h]`:`smaller`,
 	`[foo / * . h] [foo / * . h]`:`equal`,
 	`[foo / ** / x . h] [f *? / x . h]`:`smaller`,
@@ -14338,8 +14554,10 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[foo / bar / zz / ? . h] [foo / bar / zz / x . h]`:`greater`,
 	`[foo / xv * y . h] [foo / x * y . h]`:`smaller`,
 	`[foo / xv1y . h] [foo / x * y . h]`:`smaller`,
+	`[foo bar] [foo /]`:`greater`,
 	`[foo] [foo]`:`equal`,
 	`[foobar / config / * . def . am] [** . def . am]`:`smaller`,
+	`[main / a . c] [* / a . c]`:`smaller`,
 	`[o ? / ** / x . h] [*? / x . h]`:`smaller`,
 	`[oo / ** / x . h] [*? / x . h]`:`smaller`,
 	`[r / v1 . h] [* / v ? . h]`:`smaller`,
@@ -14349,12 +14567,17 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[s] [. yyy]`:`greater`,
 	`[s] [. zzz]`:`greater`,
 	`[t10] [. test . 10]`:`greater`,
+	`[t10] [. test . 11]`:`greater`,
 	`[t10] [. test . 12]`:`greater`,
 	`[t10] [. test . 13]`:`greater`,
 	`[t10] [. test . 14]`:`greater`,
+	`[t10] [. test . 15]`:`greater`,
 	`[t10] [. test . 1]`:`greater`,
+	`[t10] [. test . 3]`:`greater`,
 	`[t10] [. test . 4]`:`greater`,
 	`[t10] [. test . 5]`:`greater`,
+	`[t10] [. test . 6]`:`greater`,
+	`[t10] [. test . 7]`:`greater`,
 	`[t10] [. test . 8]`:`greater`,
 	`[t10] [. test . 9]`:`greater`,
 	`[t10] [. usee]`:`greater`,
@@ -14374,13 +14597,20 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t10] [t8]`:`smaller`,
 	`[t10] [t9]`:`smaller`,
 	`[t10] [var . xxx]`:`smaller`,
+	`[t10] [var . yyy]`:`smaller`,
+	`[t10] [var . zzz]`:`smaller`,
 	`[t10] [var2]`:`smaller`,
 	`[t11] [. test . 10]`:`greater`,
+	`[t11] [. test . 11]`:`greater`,
 	`[t11] [. test . 12]`:`greater`,
 	`[t11] [. test . 13]`:`greater`,
 	`[t11] [. test . 14]`:`greater`,
+	`[t11] [. test . 15]`:`greater`,
 	`[t11] [. test . 1]`:`greater`,
+	`[t11] [. test . 4]`:`greater`,
 	`[t11] [. test . 5]`:`greater`,
+	`[t11] [. test . 6]`:`greater`,
+	`[t11] [. test . 7]`:`greater`,
 	`[t11] [. test . 8]`:`greater`,
 	`[t11] [. test . 9]`:`greater`,
 	`[t11] [. usee]`:`greater`,
@@ -14400,11 +14630,19 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t11] [t8]`:`smaller`,
 	`[t11] [t9]`:`smaller`,
 	`[t11] [var . xxx]`:`smaller`,
+	`[t11] [var . yyy]`:`smaller`,
 	`[t11] [var . zzz]`:`smaller`,
+	`[t11] [var2]`:`smaller`,
 	`[t12] [. test . 10]`:`greater`,
+	`[t12] [. test . 11]`:`greater`,
 	`[t12] [. test . 12]`:`greater`,
 	`[t12] [. test . 13]`:`greater`,
+	`[t12] [. test . 14]`:`greater`,
+	`[t12] [. test . 15]`:`greater`,
+	`[t12] [. test . 4]`:`greater`,
 	`[t12] [. test . 5]`:`greater`,
+	`[t12] [. test . 6]`:`greater`,
+	`[t12] [. test . 7]`:`greater`,
 	`[t12] [. test . 8]`:`greater`,
 	`[t12] [. test . 9]`:`greater`,
 	`[t12] [. usee]`:`greater`,
@@ -14424,11 +14662,19 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t12] [t8]`:`smaller`,
 	`[t12] [t9]`:`smaller`,
 	`[t12] [var . xxx]`:`smaller`,
+	`[t12] [var . yyy]`:`smaller`,
 	`[t12] [var . zzz]`:`smaller`,
+	`[t12] [var2]`:`smaller`,
 	`[t13] [. test . 10]`:`greater`,
+	`[t13] [. test . 11]`:`greater`,
 	`[t13] [. test . 12]`:`greater`,
 	`[t13] [. test . 13]`:`greater`,
+	`[t13] [. test . 14]`:`greater`,
+	`[t13] [. test . 15]`:`greater`,
+	`[t13] [. test . 1]`:`greater`,
+	`[t13] [. test . 4]`:`greater`,
 	`[t13] [. test . 5]`:`greater`,
+	`[t13] [. test . 6]`:`greater`,
 	`[t13] [. test . 7]`:`greater`,
 	`[t13] [. test . 8]`:`greater`,
 	`[t13] [. test . 9]`:`greater`,
@@ -14449,13 +14695,20 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t13] [t8]`:`smaller`,
 	`[t13] [t9]`:`smaller`,
 	`[t13] [var . xxx]`:`smaller`,
+	`[t13] [var . yyy]`:`smaller`,
 	`[t13] [var . zzz]`:`smaller`,
+	`[t13] [var2]`:`smaller`,
 	`[t14] [. test . 10]`:`greater`,
+	`[t14] [. test . 11]`:`greater`,
 	`[t14] [. test . 12]`:`greater`,
 	`[t14] [. test . 13]`:`greater`,
 	`[t14] [. test . 14]`:`greater`,
+	`[t14] [. test . 15]`:`greater`,
 	`[t14] [. test . 1]`:`greater`,
+	`[t14] [. test . 4]`:`greater`,
 	`[t14] [. test . 5]`:`greater`,
+	`[t14] [. test . 6]`:`greater`,
+	`[t14] [. test . 7]`:`greater`,
 	`[t14] [. test . 8]`:`greater`,
 	`[t14] [. test . 9]`:`greater`,
 	`[t14] [. usee]`:`greater`,
@@ -14473,14 +14726,21 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t14] [t6]`:`smaller`,
 	`[t14] [t7]`:`smaller`,
 	`[t14] [t8]`:`smaller`,
+	`[t14] [t9]`:`smaller`,
 	`[t14] [var . xxx]`:`smaller`,
+	`[t14] [var . yyy]`:`smaller`,
 	`[t14] [var . zzz]`:`smaller`,
 	`[t14] [var2]`:`smaller`,
+	`[t14] [vars]`:`smaller`,
 	`[t15] [. test . 10]`:`greater`,
 	`[t15] [. test . 11]`:`greater`,
 	`[t15] [. test . 12]`:`greater`,
 	`[t15] [. test . 13]`:`greater`,
+	`[t15] [. test . 14]`:`greater`,
+	`[t15] [. test . 15]`:`greater`,
+	`[t15] [. test . 4]`:`greater`,
 	`[t15] [. test . 5]`:`greater`,
+	`[t15] [. test . 6]`:`greater`,
 	`[t15] [. test . 7]`:`greater`,
 	`[t15] [. test . 8]`:`greater`,
 	`[t15] [. test . 9]`:`greater`,
@@ -14503,13 +14763,17 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t15] [var . xxx]`:`smaller`,
 	`[t15] [var . yyy]`:`smaller`,
 	`[t15] [var . zzz]`:`smaller`,
+	`[t15] [var2]`:`smaller`,
 	`[t1] [. test . 10]`:`greater`,
+	`[t1] [. test . 11]`:`greater`,
 	`[t1] [. test . 12]`:`greater`,
 	`[t1] [. test . 13]`:`greater`,
 	`[t1] [. test . 14]`:`greater`,
 	`[t1] [. test . 15]`:`greater`,
+	`[t1] [. test . 4]`:`greater`,
 	`[t1] [. test . 5]`:`greater`,
 	`[t1] [. test . 6]`:`greater`,
+	`[t1] [. test . 7]`:`greater`,
 	`[t1] [. test . 8]`:`greater`,
 	`[t1] [. test . 9]`:`greater`,
 	`[t1] [. usee]`:`greater`,
@@ -14527,12 +14791,21 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t1] [t6]`:`smaller`,
 	`[t1] [t7]`:`smaller`,
 	`[t1] [t8]`:`smaller`,
+	`[t1] [t9]`:`smaller`,
 	`[t1] [var . xxx]`:`smaller`,
+	`[t1] [var . yyy]`:`smaller`,
+	`[t1] [var . zzz]`:`smaller`,
 	`[t2] [. test . 10]`:`greater`,
+	`[t2] [. test . 11]`:`greater`,
 	`[t2] [. test . 12]`:`greater`,
 	`[t2] [. test . 13]`:`greater`,
+	`[t2] [. test . 14]`:`greater`,
+	`[t2] [. test . 15]`:`greater`,
+	`[t2] [. test . 3]`:`greater`,
+	`[t2] [. test . 4]`:`greater`,
 	`[t2] [. test . 5]`:`greater`,
 	`[t2] [. test . 6]`:`greater`,
+	`[t2] [. test . 7]`:`greater`,
 	`[t2] [. test . 8]`:`greater`,
 	`[t2] [. test . 9]`:`greater`,
 	`[t2] [. usee]`:`greater`,
@@ -14554,10 +14827,18 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t2] [var . xxx]`:`smaller`,
 	`[t2] [var . yyy]`:`smaller`,
 	`[t2] [var . zzz]`:`smaller`,
+	`[t2] [var2]`:`smaller`,
+	`[t2] [vars]`:`smaller`,
 	`[t3] [. test . 10]`:`greater`,
+	`[t3] [. test . 11]`:`greater`,
 	`[t3] [. test . 12]`:`greater`,
 	`[t3] [. test . 13]`:`greater`,
+	`[t3] [. test . 14]`:`greater`,
+	`[t3] [. test . 15]`:`greater`,
+	`[t3] [. test . 4]`:`greater`,
 	`[t3] [. test . 5]`:`greater`,
+	`[t3] [. test . 6]`:`greater`,
+	`[t3] [. test . 7]`:`greater`,
 	`[t3] [. test . 8]`:`greater`,
 	`[t3] [. test . 9]`:`greater`,
 	`[t3] [. usee]`:`greater`,
@@ -14579,11 +14860,17 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t3] [var . xxx]`:`smaller`,
 	`[t3] [var . yyy]`:`smaller`,
 	`[t3] [var . zzz]`:`smaller`,
+	`[t3] [var2]`:`smaller`,
+	`[t4] [. self]`:`greater`,
 	`[t4] [. test . 10]`:`greater`,
+	`[t4] [. test . 11]`:`greater`,
 	`[t4] [. test . 12]`:`greater`,
 	`[t4] [. test . 13]`:`greater`,
 	`[t4] [. test . 14]`:`greater`,
+	`[t4] [. test . 15]`:`greater`,
+	`[t4] [. test . 4]`:`greater`,
 	`[t4] [. test . 5]`:`greater`,
+	`[t4] [. test . 7]`:`greater`,
 	`[t4] [. test . 8]`:`greater`,
 	`[t4] [. test . 9]`:`greater`,
 	`[t4] [. usee]`:`greater`,
@@ -14593,6 +14880,7 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t4] [t12]`:`greater`,
 	`[t4] [t13]`:`greater`,
 	`[t4] [t14]`:`greater`,
+	`[t4] [t15]`:`greater`,
 	`[t4] [t1]`:`greater`,
 	`[t4] [t2]`:`greater`,
 	`[t4] [t3]`:`greater`,
@@ -14604,12 +14892,19 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t4] [var . xxx]`:`smaller`,
 	`[t4] [var . yyy]`:`smaller`,
 	`[t4] [var . zzz]`:`smaller`,
+	`[t4] [var2]`:`smaller`,
+	`[t4] [vars]`:`smaller`,
 	`[t4] [xyz]`:`smaller`,
 	`[t5] [. test . 10]`:`greater`,
+	`[t5] [. test . 11]`:`greater`,
 	`[t5] [. test . 12]`:`greater`,
 	`[t5] [. test . 13]`:`greater`,
 	`[t5] [. test . 14]`:`greater`,
+	`[t5] [. test . 15]`:`greater`,
+	`[t5] [. test . 4]`:`greater`,
 	`[t5] [. test . 5]`:`greater`,
+	`[t5] [. test . 6]`:`greater`,
+	`[t5] [. test . 7]`:`greater`,
 	`[t5] [. test . 8]`:`greater`,
 	`[t5] [. test . 9]`:`greater`,
 	`[t5] [. usee]`:`greater`,
@@ -14632,11 +14927,20 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t5] [var . yyy]`:`smaller`,
 	`[t5] [var . zzz]`:`smaller`,
 	`[t5] [var2]`:`smaller`,
+	`[t5] [vars]`:`smaller`,
+	`[t5] [xyz]`:`smaller`,
 	`[t6] [. test . 10]`:`greater`,
+	`[t6] [. test . 11]`:`greater`,
 	`[t6] [. test . 12]`:`greater`,
 	`[t6] [. test . 13]`:`greater`,
+	`[t6] [. test . 14]`:`greater`,
+	`[t6] [. test . 15]`:`greater`,
 	`[t6] [. test . 1]`:`greater`,
+	`[t6] [. test . 3]`:`greater`,
+	`[t6] [. test . 4]`:`greater`,
 	`[t6] [. test . 5]`:`greater`,
+	`[t6] [. test . 6]`:`greater`,
+	`[t6] [. test . 7]`:`greater`,
 	`[t6] [. test . 8]`:`greater`,
 	`[t6] [. test . 9]`:`greater`,
 	`[t6] [. usee]`:`greater`,
@@ -14647,6 +14951,7 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t6] [t13]`:`greater`,
 	`[t6] [t14]`:`greater`,
 	`[t6] [t15]`:`greater`,
+	`[t6] [t1]`:`greater`,
 	`[t6] [t2]`:`greater`,
 	`[t6] [t3]`:`greater`,
 	`[t6] [t4]`:`greater`,
@@ -14658,15 +14963,22 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t6] [var . yyy]`:`smaller`,
 	`[t6] [var . zzz]`:`smaller`,
 	`[t6] [var2]`:`smaller`,
+	`[t6] [vars]`:`smaller`,
 	`[t6] [xyz]`:`smaller`,
 	`[t7] [. test . 10]`:`greater`,
+	`[t7] [. test . 11]`:`greater`,
 	`[t7] [. test . 12]`:`greater`,
 	`[t7] [. test . 13]`:`greater`,
 	`[t7] [. test . 14]`:`greater`,
+	`[t7] [. test . 15]`:`greater`,
 	`[t7] [. test . 1]`:`greater`,
+	`[t7] [. test . 4]`:`greater`,
 	`[t7] [. test . 5]`:`greater`,
+	`[t7] [. test . 6]`:`greater`,
+	`[t7] [. test . 7]`:`greater`,
 	`[t7] [. test . 8]`:`greater`,
 	`[t7] [. test . 9]`:`greater`,
+	`[t7] [. usee]`:`greater`,
 	`[t7] [all]`:`greater`,
 	`[t7] [t10]`:`greater`,
 	`[t7] [t11]`:`greater`,
@@ -14674,6 +14986,8 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t7] [t13]`:`greater`,
 	`[t7] [t14]`:`greater`,
 	`[t7] [t15]`:`greater`,
+	`[t7] [t1]`:`greater`,
+	`[t7] [t2]`:`greater`,
 	`[t7] [t3]`:`greater`,
 	`[t7] [t4]`:`greater`,
 	`[t7] [t5]`:`greater`,
@@ -14687,21 +15001,31 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t7] [vars]`:`smaller`,
 	`[t7] [xyz]`:`smaller`,
 	`[t8] [. test . 10]`:`greater`,
+	`[t8] [. test . 11]`:`greater`,
 	`[t8] [. test . 12]`:`greater`,
 	`[t8] [. test . 13]`:`greater`,
 	`[t8] [. test . 14]`:`greater`,
+	`[t8] [. test . 15]`:`greater`,
 	`[t8] [. test . 1]`:`greater`,
+	`[t8] [. test . 4]`:`greater`,
 	`[t8] [. test . 5]`:`greater`,
+	`[t8] [. test . 6]`:`greater`,
+	`[t8] [. test . 7]`:`greater`,
 	`[t8] [. test . 8]`:`greater`,
 	`[t8] [. test . 9]`:`greater`,
+	`[t8] [. usee]`:`greater`,
 	`[t8] [all]`:`greater`,
 	`[t8] [t10]`:`greater`,
 	`[t8] [t11]`:`greater`,
 	`[t8] [t12]`:`greater`,
 	`[t8] [t13]`:`greater`,
 	`[t8] [t14]`:`greater`,
+	`[t8] [t15]`:`greater`,
+	`[t8] [t1]`:`greater`,
+	`[t8] [t2]`:`greater`,
 	`[t8] [t3]`:`greater`,
 	`[t8] [t4]`:`greater`,
+	`[t8] [t5]`:`greater`,
 	`[t8] [t6]`:`greater`,
 	`[t8] [t7]`:`greater`,
 	`[t8] [t9]`:`smaller`,
@@ -14712,20 +15036,29 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[t8] [vars]`:`smaller`,
 	`[t8] [xyz]`:`smaller`,
 	`[t9] [. test . 10]`:`greater`,
+	`[t9] [. test . 11]`:`greater`,
 	`[t9] [. test . 12]`:`greater`,
 	`[t9] [. test . 13]`:`greater`,
+	`[t9] [. test . 14]`:`greater`,
+	`[t9] [. test . 15]`:`greater`,
 	`[t9] [. test . 1]`:`greater`,
 	`[t9] [. test . 5]`:`greater`,
+	`[t9] [. test . 7]`:`greater`,
 	`[t9] [. test . 8]`:`greater`,
 	`[t9] [. test . 9]`:`greater`,
+	`[t9] [. usee]`:`greater`,
 	`[t9] [all]`:`greater`,
 	`[t9] [t10]`:`greater`,
 	`[t9] [t11]`:`greater`,
 	`[t9] [t12]`:`greater`,
 	`[t9] [t13]`:`greater`,
 	`[t9] [t14]`:`greater`,
+	`[t9] [t15]`:`greater`,
+	`[t9] [t1]`:`greater`,
+	`[t9] [t2]`:`greater`,
 	`[t9] [t3]`:`greater`,
 	`[t9] [t4]`:`greater`,
+	`[t9] [t5]`:`greater`,
 	`[t9] [t6]`:`greater`,
 	`[t9] [t7]`:`greater`,
 	`[t9] [t8]`:`greater`,
@@ -14738,18 +15071,28 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[v * y . h] [* y . h]`:`smaller`,
 	`[v1y . h] [* y . h]`:`smaller`,
 	`[var . xxx] [. test . 10]`:`greater`,
+	`[var . xxx] [. test . 11]`:`greater`,
 	`[var . xxx] [. test . 12]`:`greater`,
+	`[var . xxx] [. test . 13]`:`greater`,
 	`[var . xxx] [. test . 14]`:`greater`,
+	`[var . xxx] [. test . 15]`:`greater`,
 	`[var . xxx] [. test . 5]`:`greater`,
+	`[var . xxx] [. test . 7]`:`greater`,
 	`[var . xxx] [. test . 8]`:`greater`,
+	`[var . xxx] [. test . 9]`:`greater`,
+	`[var . xxx] [. usee]`:`greater`,
 	`[var . xxx] [all]`:`greater`,
 	`[var . xxx] [t10]`:`greater`,
 	`[var . xxx] [t11]`:`greater`,
 	`[var . xxx] [t12]`:`greater`,
 	`[var . xxx] [t13]`:`greater`,
 	`[var . xxx] [t14]`:`greater`,
+	`[var . xxx] [t15]`:`greater`,
+	`[var . xxx] [t1]`:`greater`,
+	`[var . xxx] [t2]`:`greater`,
 	`[var . xxx] [t3]`:`greater`,
 	`[var . xxx] [t4]`:`greater`,
+	`[var . xxx] [t5]`:`greater`,
 	`[var . xxx] [t6]`:`greater`,
 	`[var . xxx] [t7]`:`greater`,
 	`[var . xxx] [t8]`:`greater`,
@@ -14760,18 +15103,28 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[var . xxx] [vars]`:`smaller`,
 	`[var . xxx] [xyz]`:`smaller`,
 	`[var . yyy] [. test . 10]`:`greater`,
+	`[var . yyy] [. test . 11]`:`greater`,
 	`[var . yyy] [. test . 12]`:`greater`,
+	`[var . yyy] [. test . 13]`:`greater`,
 	`[var . yyy] [. test . 14]`:`greater`,
+	`[var . yyy] [. test . 15]`:`greater`,
 	`[var . yyy] [. test . 5]`:`greater`,
+	`[var . yyy] [. test . 7]`:`greater`,
 	`[var . yyy] [. test . 8]`:`greater`,
+	`[var . yyy] [. test . 9]`:`greater`,
+	`[var . yyy] [. usee]`:`greater`,
 	`[var . yyy] [all]`:`greater`,
 	`[var . yyy] [t10]`:`greater`,
 	`[var . yyy] [t11]`:`greater`,
 	`[var . yyy] [t12]`:`greater`,
 	`[var . yyy] [t13]`:`greater`,
 	`[var . yyy] [t14]`:`greater`,
+	`[var . yyy] [t15]`:`greater`,
+	`[var . yyy] [t1]`:`greater`,
+	`[var . yyy] [t2]`:`greater`,
 	`[var . yyy] [t3]`:`greater`,
 	`[var . yyy] [t4]`:`greater`,
+	`[var . yyy] [t5]`:`greater`,
 	`[var . yyy] [t6]`:`greater`,
 	`[var . yyy] [t7]`:`greater`,
 	`[var . yyy] [t8]`:`greater`,
@@ -14782,11 +15135,16 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[var . yyy] [vars]`:`smaller`,
 	`[var . yyy] [xyz]`:`smaller`,
 	`[var . zzz] [. test . 10]`:`greater`,
+	`[var . zzz] [. test . 11]`:`greater`,
 	`[var . zzz] [. test . 12]`:`greater`,
+	`[var . zzz] [. test . 13]`:`greater`,
 	`[var . zzz] [. test . 14]`:`greater`,
+	`[var . zzz] [. test . 15]`:`greater`,
 	`[var . zzz] [. test . 1]`:`greater`,
 	`[var . zzz] [. test . 5]`:`greater`,
+	`[var . zzz] [. test . 7]`:`greater`,
 	`[var . zzz] [. test . 8]`:`greater`,
+	`[var . zzz] [. test . 9]`:`greater`,
 	`[var . zzz] [. usee]`:`greater`,
 	`[var . zzz] [all]`:`greater`,
 	`[var . zzz] [t10]`:`greater`,
@@ -14794,8 +15152,12 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[var . zzz] [t12]`:`greater`,
 	`[var . zzz] [t13]`:`greater`,
 	`[var . zzz] [t14]`:`greater`,
+	`[var . zzz] [t15]`:`greater`,
+	`[var . zzz] [t1]`:`greater`,
+	`[var . zzz] [t2]`:`greater`,
 	`[var . zzz] [t3]`:`greater`,
 	`[var . zzz] [t4]`:`greater`,
+	`[var . zzz] [t5]`:`greater`,
 	`[var . zzz] [t6]`:`greater`,
 	`[var . zzz] [t7]`:`greater`,
 	`[var . zzz] [t8]`:`greater`,
@@ -14806,58 +15168,89 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[var . zzz] [vars]`:`smaller`,
 	`[var . zzz] [xyz]`:`smaller`,
 	`[var2] [. test . 10]`:`greater`,
+	`[var2] [. test . 11]`:`greater`,
 	`[var2] [. test . 12]`:`greater`,
+	`[var2] [. test . 13]`:`greater`,
 	`[var2] [. test . 14]`:`greater`,
+	`[var2] [. test . 15]`:`greater`,
 	`[var2] [. test . 5]`:`greater`,
+	`[var2] [. test . 7]`:`greater`,
 	`[var2] [. test . 8]`:`greater`,
+	`[var2] [. test . 9]`:`greater`,
+	`[var2] [. usee]`:`greater`,
 	`[var2] [all]`:`greater`,
 	`[var2] [t10]`:`greater`,
 	`[var2] [t11]`:`greater`,
 	`[var2] [t12]`:`greater`,
 	`[var2] [t13]`:`greater`,
 	`[var2] [t14]`:`greater`,
+	`[var2] [t15]`:`greater`,
+	`[var2] [t1]`:`greater`,
+	`[var2] [t2]`:`greater`,
 	`[var2] [t3]`:`greater`,
 	`[var2] [t4]`:`greater`,
+	`[var2] [t5]`:`greater`,
 	`[var2] [t6]`:`greater`,
 	`[var2] [t7]`:`greater`,
 	`[var2] [t8]`:`greater`,
+	`[var2] [t9]`:`greater`,
 	`[var2] [var . xxx]`:`greater`,
 	`[var2] [var . yyy]`:`greater`,
 	`[var2] [var . zzz]`:`greater`,
 	`[var2] [vars]`:`smaller`,
 	`[var2] [xyz]`:`smaller`,
 	`[vars] [. test . 10]`:`greater`,
+	`[vars] [. test . 11]`:`greater`,
 	`[vars] [. test . 12]`:`greater`,
+	`[vars] [. test . 13]`:`greater`,
+	`[vars] [. test . 14]`:`greater`,
+	`[vars] [. test . 15]`:`greater`,
+	`[vars] [. test . 3]`:`greater`,
 	`[vars] [. test . 5]`:`greater`,
+	`[vars] [. test . 7]`:`greater`,
 	`[vars] [. test . 8]`:`greater`,
+	`[vars] [. test . 9]`:`greater`,
+	`[vars] [. usee]`:`greater`,
 	`[vars] [all]`:`greater`,
 	`[vars] [t10]`:`greater`,
 	`[vars] [t11]`:`greater`,
 	`[vars] [t12]`:`greater`,
 	`[vars] [t13]`:`greater`,
 	`[vars] [t14]`:`greater`,
+	`[vars] [t15]`:`greater`,
+	`[vars] [t1]`:`greater`,
+	`[vars] [t2]`:`greater`,
 	`[vars] [t3]`:`greater`,
 	`[vars] [t4]`:`greater`,
+	`[vars] [t5]`:`greater`,
 	`[vars] [t6]`:`greater`,
 	`[vars] [t7]`:`greater`,
 	`[vars] [t8]`:`greater`,
+	`[vars] [t9]`:`greater`,
 	`[vars] [var . xxx]`:`greater`,
 	`[vars] [var . yyy]`:`greater`,
 	`[vars] [var . zzz]`:`greater`,
 	`[vars] [var2]`:`greater`,
 	`[vars] [xyz]`:`smaller`,
 	`[x   x q   x p   x] [x   x q   x p   x]`:`equal`,
+	`[x . h] [x . h]`:`equal`,
 	`[x] []`:`rprefix`,
 	`[x] [a]`:`greater`,
 	`[x] [b]`:`greater`,
 	`[x] [c]`:`greater`,
 	`[xxx] [yyy]`:`smaller`,
 	`[xxx] [zzz]`:`smaller`,
+	`[xyz] [. self]`:`greater`,
 	`[xyz] [. test . 10]`:`greater`,
+	`[xyz] [. test . 11]`:`greater`,
 	`[xyz] [. test . 12]`:`greater`,
+	`[xyz] [. test . 13]`:`greater`,
 	`[xyz] [. test . 14]`:`greater`,
+	`[xyz] [. test . 15]`:`greater`,
 	`[xyz] [. test . 5]`:`greater`,
+	`[xyz] [. test . 7]`:`greater`,
 	`[xyz] [. test . 8]`:`greater`,
+	`[xyz] [. test . 9]`:`greater`,
 	`[xyz] [. usee]`:`greater`,
 	`[xyz] [all]`:`greater`,
 	`[xyz] [t10]`:`greater`,
@@ -14865,235 +15258,43 @@ var checkpoints_cmp_symbols = fixCheckpoints1(map[string]any{
 	`[xyz] [t12]`:`greater`,
 	`[xyz] [t13]`:`greater`,
 	`[xyz] [t14]`:`greater`,
+	`[xyz] [t15]`:`greater`,
+	`[xyz] [t1]`:`greater`,
+	`[xyz] [t2]`:`greater`,
 	`[xyz] [t3]`:`greater`,
 	`[xyz] [t4]`:`greater`,
+	`[xyz] [t5]`:`greater`,
 	`[xyz] [t6]`:`greater`,
 	`[xyz] [t7]`:`greater`,
 	`[xyz] [t8]`:`greater`,
+	`[xyz] [t9]`:`greater`,
 	`[xyz] [var . xxx]`:`greater`,
+	`[xyz] [var . yyy]`:`greater`,
 	`[xyz] [var . zzz]`:`greater`,
 	`[xyz] [var2]`:`greater`,
 	`[xyz] [vars]`:`greater`,
+	`[y . h] [y . h]`:`equal`,
 	`[yyy] [xxx]`:`greater`,
 	`[yyy] [zzz]`:`smaller`,
+	`[z . h] [z . h]`:`equal`,
 	`[zzz] [xxx]`:`greater`,
 	`[zzz] [yyy]`:`greater`,
-	`[var2] [. test . 9]`:`greater`,
-	`[var . zzz] [. test . 9]`:`greater`,
-	`[var . yyy] [. test . 9]`:`greater`,
-	`[vars] [. test . 9]`:`greater`,
-	`[xyz] [. test . 9]`:`greater`,
-	`[vars] [t2]`:`greater`,
-	`[. test . 9] [t2]`:`smaller`,
-	`[. test . 12] [t2]`:`smaller`,
-	`[var . xxx] [t2]`:`greater`,
-	`[t9] [t2]`:`greater`,
-	`[t8] [t2]`:`greater`,
-	`[t7] [t2]`:`greater`,
-	`[. test . 13] [t2]`:`smaller`,
-	`[var . yyy] [t2]`:`greater`,
-	`[xyz] [t2]`:`greater`,
-	`[var2] [t2]`:`greater`,
-	`[. test . 14] [t2]`:`smaller`,
-	`[var . zzz] [t2]`:`greater`,
-	`[. test . 11] [. test . 1]`:`greater`,
-	`[. test . 13] [t9]`:`smaller`,
-	`[. usee] [t9]`:`smaller`,
-	`[. test . 8] [t9]`:`smaller`,
-	`[. test . 12] [t9]`:`smaller`,
-	`[. test . 6] [t9]`:`smaller`,
-	`[. test . 14] [t9]`:`smaller`,
-	`[t1] [t9]`:`smaller`,
-	`[. test . 1] [t9]`:`smaller`,
-	`[. self] [t9]`:`smaller`,
-	`[. test . 5] [t9]`:`smaller`,
-	`[all] [t9]`:`smaller`,
-	`[. test . 7] [t9]`:`smaller`,
-	`[. test . 15] [t9]`:`smaller`,
-	`[. test . 9] [t9]`:`smaller`,
-	`[. test . 2] [t9]`:`smaller`,
-	`[. test . 3] [t9]`:`smaller`,
-	`[. test . 10] [t9]`:`smaller`,
-	`[. test . 11] [. test . 6]`:`greater`,
-	`[. test . 5] [. test . 15]`:`smaller`,
-	`[. test . 14] [. test . 11]`:`greater`,
-	`[t4] [. test . 11]`:`greater`,
-	`[t10] [. test . 11]`:`greater`,
-	`[t6] [. test . 11]`:`greater`,
-	`[var . yyy] [. test . 11]`:`greater`,
-	`[var . xxx] [. test . 11]`:`greater`,
-	`[t11] [. test . 11]`:`greater`,
-	`[t1] [. test . 11]`:`greater`,
-	`[vars] [. test . 11]`:`greater`,
-	`[all] [. test . 11]`:`greater`,
-	`[var . zzz] [. test . 11]`:`greater`,
-	`[. usee] [. test . 11]`:`greater`,
-	`[t9] [. test . 11]`:`greater`,
-	`[t5] [. test . 11]`:`greater`,
-	`[t13] [. test . 11]`:`greater`,
-	`[var2] [. test . 11]`:`greater`,
-	`[. test . 15] [. test . 11]`:`greater`,
-	`[t2] [. test . 11]`:`greater`,
-	`[t3] [. test . 11]`:`greater`,
-	`[t14] [. test . 11]`:`greater`,
-	`[t7] [. test . 11]`:`greater`,
-	`[t8] [. test . 11]`:`greater`,
-	`[t12] [. test . 11]`:`greater`,
-	`[xyz] [. test . 11]`:`greater`,
-	`[. test . 7] [. test . 1]`:`greater`,
-	`[t5] [. test . 15]`:`greater`,
-	`[. test . 11] [t5]`:`smaller`,
-	`[xyz] [t5]`:`greater`,
-	`[t8] [t5]`:`greater`,
-	`[. test . 14] [t5]`:`smaller`,
-	`[. test . 15] [t5]`:`smaller`,
-	`[. usee] [t5]`:`smaller`,
-	`[var2] [t5]`:`greater`,
-	`[var . yyy] [t5]`:`greater`,
-	`[var . xxx] [t5]`:`greater`,
-	`[. test . 13] [t5]`:`smaller`,
-	`[var . zzz] [t5]`:`greater`,
-	`[. test . 12] [t5]`:`smaller`,
-	`[vars] [t5]`:`greater`,
-	`[t6] [vars]`:`smaller`,
-	`[t15] [. test . 14]`:`greater`,
-	`[t12] [. test . 14]`:`greater`,
-	`[. test . 12] [var . yyy]`:`smaller`,
-	`[t12] [var . yyy]`:`smaller`,
-	`[. test . 2] [var . yyy]`:`smaller`,
-	`[. test . 7] [var . yyy]`:`smaller`,
-	`[t13] [var . yyy]`:`smaller`,
-	`[all] [var . yyy]`:`smaller`,
-	`[t10] [var . yyy]`:`smaller`,
-	`[. test . 9] [var . yyy]`:`smaller`,
-	`[. usee] [var . yyy]`:`smaller`,
-	`[. test . 4] [var . yyy]`:`smaller`,
-	`[. test . 6] [var . yyy]`:`smaller`,
-	`[. test . 14] [var . yyy]`:`smaller`,
-	`[. test . 15] [var . yyy]`:`smaller`,
-	`[. self] [var . yyy]`:`smaller`,
-	`[. test . 8] [var . yyy]`:`smaller`,
-	`[. test . 10] [var . yyy]`:`smaller`,
-	`[. test . 13] [var . yyy]`:`smaller`,
-	`[t14] [var . yyy]`:`smaller`,
-	`[. test . 3] [var . yyy]`:`smaller`,
-	`[. test . 5] [var . yyy]`:`smaller`,
-	`[. test . 11] [var . yyy]`:`smaller`,
-	`[t1] [var . yyy]`:`smaller`,
-	`[xyz] [var . yyy]`:`greater`,
-	`[. test . 1] [var . yyy]`:`smaller`,
-	`[t11] [var . yyy]`:`smaller`,
-	`[. test . 1] [. test . 14]`:`smaller`,
-	`[t9] [. test . 14]`:`greater`,
-	`[t6] [. test . 14]`:`greater`,
-	`[. test . 3] [. test . 14]`:`smaller`,
-	`[. test . 2] [. test . 14]`:`smaller`,
-	`[t13] [. test . 14]`:`greater`,
-	`[t2] [. test . 14]`:`greater`,
-	`[. self] [. test . 14]`:`smaller`,
-	`[t3] [. test . 14]`:`greater`,
-	`[. test . 6] [. test . 14]`:`smaller`,
-	`[. test . 4] [. test . 14]`:`smaller`,
-	`[. test . 6] [. test . 1]`:`greater`,
-	`[. test . 5] [. test . 1]`:`greater`,
-	`[t4] [t15]`:`greater`,
-	`[t9] [t15]`:`greater`,
-	`[var . xxx] [t15]`:`greater`,
-	`[t13] [. test . 15]`:`greater`,
-	`[. test . 2] [. usee]`:`smaller`,
-	`[. test . 3] [. usee]`:`smaller`,
-	`[. test . 1] [. usee]`:`smaller`,
-	`[. test . 5] [. usee]`:`smaller`,
-	`[. test . 4] [. usee]`:`smaller`,
-	`[. test . 14] [. test . 1]`:`greater`,
-	`[. test . 12] [. test . 1]`:`greater`,
-	`[t5] [xyz]`:`smaller`,
-	`[t5] [vars]`:`smaller`,
-	`[. test . 11] [. test . 3]`:`greater`,
-	`[xyz] [. self]`:`greater`,
-	`[t4] [vars]`:`smaller`,
-	`[t4] [var2]`:`smaller`,
-	`[. test . 6] [var . zzz]`:`smaller`,
-	`[t2] [vars]`:`smaller`,
-	`[t2] [var2]`:`smaller`,
-	`[t3] [var2]`:`smaller`,
-	`[t15] [var2]`:`smaller`,
-	`[vars] [. test . 14]`:`greater`,
-	`[. test . 7] [var2]`:`smaller`,
-	`[. test . 5] [. test . 3]`:`greater`,
-	`[. self] [t2]`:`smaller`,
-	`[all] [. test . 15]`:`greater`,
-	`[t5] [. test . 6]`:`greater`,
-	`[t14] [. test . 6]`:`greater`,
-	`[t8] [t15]`:`greater`,
-	`[. test . 2] [vars]`:`smaller`,
-	`[. test . 9] [. test . 1]`:`greater`,
-	`[. test . 7] [. test . 2]`:`greater`,
-	`[t8] [. test . 6]`:`greater`,
-	`[t7] [. test . 6]`:`greater`,
-	`[. test . 10] [. test . 6]`:`greater`,
-	`[. usee] [t2]`:`smaller`,
-	`[var . xxx] [. test . 9]`:`greater`,
-	`[. test . 6] [. self]`:`greater`,
-	`[t9] [t5]`:`greater`,
-	`[vars] [t9]`:`greater`,
-	`[var2] [t9]`:`greater`,
-	`[t14] [t9]`:`smaller`,
-	`[xyz] [t9]`:`greater`,
-	`[. test . 7] [. self]`:`greater`,
-	`[var . xxx] [. test . 7]`:`greater`,
-	`[t1] [. test . 7]`:`greater`,
-	`[t11] [. test . 7]`:`greater`,
-	`[t10] [. test . 7]`:`greater`,
-	`[t6] [. test . 7]`:`greater`,
-	`[var2] [. test . 7]`:`greater`,
-	`[vars] [. test . 7]`:`greater`,
-	`[xyz] [. test . 7]`:`greater`,
-	`[t7] [. test . 7]`:`greater`,
-	`[t8] [. test . 7]`:`greater`,
-	`[t2] [. test . 7]`:`greater`,
-	`[t14] [. test . 7]`:`greater`,
-	`[var . zzz] [. test . 7]`:`greater`,
-	`[var . yyy] [. test . 7]`:`greater`,
-	`[all] [. test . 7]`:`greater`,
-	`[t9] [. test . 7]`:`greater`,
-	`[t5] [. test . 7]`:`greater`,
-	`[t3] [. test . 7]`:`greater`,
-	`[t4] [. test . 7]`:`greater`,
-	`[t12] [. test . 7]`:`greater`,
-	`[. test . 3] [. self]`:`greater`,
-	`[. test . 4] [. test . 1]`:`greater`,
-	`[. test . 13] [. test . 1]`:`greater`,
-	`[. self] [. test . 13]`:`smaller`,
-	`[var . xxx] [. test . 13]`:`greater`,
-	`[. test . 3] [. test . 13]`:`smaller`,
-	`[. test . 2] [. test . 13]`:`smaller`,
-	`[var2] [. test . 13]`:`greater`,
-	`[. test . 1] [. test . 13]`:`smaller`,
-	`[. test . 5] [. test . 13]`:`smaller`,
-	`[. test . 6] [. test . 13]`:`smaller`,
-	`[vars] [. test . 13]`:`greater`,
-	`[var . yyy] [. test . 13]`:`greater`,
-	`[. test . 4] [. test . 13]`:`smaller`,
-	`[xyz] [. test . 13]`:`greater`,
-	`[var . zzz] [. test . 13]`:`greater`,
-	`[. test . 12] [. test . 3]`:`greater`,
-	`[. test . 14] [. test . 2]`:`greater`,
-	`[. test . 8] [. test . 3]`:`greater`,
-	`[t10] [. test . 3]`:`greater`,
-	`[t4] [. self]`:`greater`,
-	`[. test . 4] [t1]`:`smaller`,
-	`[. test . 7] [. test . 4]`:`greater`,
 })
 var has_new_cmp_symbols int
 var checked_cmp_symbols = make(map[string]struct{}, len(checkpoints_cmp_symbols))
 func check_cmp_symbols(ctx Context, l, r []Symbol) func(*cmpres) {
 	for _, sym := range append(append([]Symbol{}, l...), r...) {
-		if s := sym.String(); len(s)>1 && strings.ContainsAny(s, illegalSymChars) {
-			debug(ctx,
-				_f(`illegal symbol contains any of "%s"`, illegalSymChars),
-				_f("symbol: %s (%d)", s, sym),
-				callstack{stop:"smart.runcase"}, trace{})
+		vocabM.RLock()
+		meta := vocab[sym]
+		vocabM.RUnlock()
+		if true || meta.Kind() != SymSeq {
+			var s = sym.String()
+			if len(s)>1 && strings.ContainsAny(s, illegalSymChars) {
+				debug(ctx,
+					_f(`illegal symbol contains any of "%s"`, illegalSymChars),
+					_f("symbol: %s (%d, kind=%d, rank=%d)", s, sym, meta.Kind(), meta.Rank()),
+					callstack{stop:"smart.runcase"}, trace{})
+			}
 		}
 	}
 	
@@ -15685,6 +15886,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.self all`:`smaller`, //cmp
 	`.self t10`:`smaller`, //cmp
 	`.self t11`:`smaller`, //cmp
+	`.self t12`:`smaller`, //cmp
 	`.self t13`:`smaller`, //cmp
 	`.self t14`:`smaller`, //cmp
 	`.self t15`:`smaller`, //cmp
@@ -15721,6 +15923,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.1 all`:`smaller`, //cmp
 	`.test.1 t10`:`smaller`, //cmp
 	`.test.1 t11`:`smaller`, //cmp
+	`.test.1 t12`:`smaller`, //cmp
 	`.test.1 t13`:`smaller`, //cmp
 	`.test.1 t14`:`smaller`, //cmp
 	`.test.1 t15`:`smaller`, //cmp
@@ -15734,6 +15937,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.1 t8`:`smaller`, //cmp
 	`.test.1 t9`:`smaller`, //cmp
 	`.test.1 var.xxx`:`smaller`, //cmp
+	`.test.1 var.yyy`:`smaller`, //cmp
 	`.test.1 var.zzz`:`smaller`, //cmp
 	`.test.1 vars`:`smaller`, //cmp
 	`.test.10 .self`:`greater`, //cmp
@@ -15755,6 +15959,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.10 all`:`smaller`, //cmp
 	`.test.10 t10`:`smaller`, //cmp
 	`.test.10 t11`:`smaller`, //cmp
+	`.test.10 t12`:`smaller`, //cmp
 	`.test.10 t13`:`smaller`, //cmp
 	`.test.10 t14`:`smaller`, //cmp
 	`.test.10 t15`:`smaller`, //cmp
@@ -15788,6 +15993,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.11 all`:`smaller`, //cmp
 	`.test.11 t10`:`smaller`, //cmp
 	`.test.11 t11`:`smaller`, //cmp
+	`.test.11 t12`:`smaller`, //cmp
 	`.test.11 t13`:`smaller`, //cmp
 	`.test.11 t14`:`smaller`, //cmp
 	`.test.11 t15`:`smaller`, //cmp
@@ -15820,6 +16026,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.12 all`:`smaller`, //cmp
 	`.test.12 t10`:`smaller`, //cmp
 	`.test.12 t11`:`smaller`, //cmp
+	`.test.12 t12`:`smaller`, //cmp
 	`.test.12 t13`:`smaller`, //cmp
 	`.test.12 t14`:`smaller`, //cmp
 	`.test.12 t15`:`smaller`, //cmp
@@ -15854,6 +16061,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.13 all`:`smaller`, //cmp
 	`.test.13 t10`:`smaller`, //cmp
 	`.test.13 t11`:`smaller`, //cmp
+	`.test.13 t12`:`smaller`, //cmp
 	`.test.13 t13`:`smaller`, //cmp
 	`.test.13 t14`:`smaller`, //cmp
 	`.test.13 t15`:`smaller`, //cmp
@@ -16074,6 +16282,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.5 t8`:`smaller`, //cmp
 	`.test.5 t9`:`smaller`, //cmp
 	`.test.5 var.xxx`:`smaller`, //cmp
+	`.test.5 var.yyy`:`smaller`, //cmp
 	`.test.5 var.zzz`:`smaller`, //cmp
 	`.test.6 .self`:`greater`, //cmp
 	`.test.6 .test.10`:`smaller`, //cmp
@@ -16116,6 +16325,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.7 .test.13`:`smaller`, //cmp
 	`.test.7 .test.14`:`smaller`, //cmp
 	`.test.7 .test.15`:`smaller`, //cmp
+	`.test.7 .test.1`:`greater`, //cmp
 	`.test.7 .test.2`:`greater`, //cmp
 	`.test.7 .test.3`:`greater`, //cmp
 	`.test.7 .test.4`:`greater`, //cmp
@@ -16175,6 +16385,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.test.8 t9`:`smaller`, //cmp
 	`.test.8 var.xxx`:`smaller`, //cmp
 	`.test.8 var.zzz`:`smaller`, //cmp
+	`.test.8 var2`:`smaller`, //cmp
 	`.test.9 .test.10`:`smaller`, //cmp
 	`.test.9 .test.11`:`smaller`, //cmp
 	`.test.9 .test.12`:`smaller`, //cmp
@@ -16242,6 +16453,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`.usee t8`:`smaller`, //cmp
 	`.usee t9`:`smaller`, //cmp
 	`.usee var.xxx`:`smaller`, //cmp
+	`.usee var.yyy`:`smaller`, //cmp
 	`.usee var.zzz`:`smaller`, //cmp
 	`.usee var2`:`smaller`, //cmp
 	`.usee vars`:`smaller`, //cmp
@@ -16842,6 +17054,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`all t8`:`smaller`, //cmp
 	`all t9`:`smaller`, //cmp
 	`all var.xxx`:`smaller`, //cmp
+	`all var.yyy`:`smaller`, //cmp
 	`all var.zzz`:`smaller`, //cmp
 	`all var2`:`smaller`, //cmp
 	`app-0.0.1 .`:`greater`, //cmp
@@ -17613,6 +17826,7 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`r *`:`smaller`, //cmp
 	`r ?`:`smaller`, //cmp
 	`rule0 rule1`:`smaller`, //cmp
+	`t1 .test.10`:`greater`, //cmp
 	`t1 .test.11`:`greater`, //cmp
 	`t1 .test.12`:`greater`, //cmp
 	`t1 .test.13`:`greater`, //cmp
@@ -17643,8 +17857,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t1 t8`:`smaller`, //cmp
 	`t1 t9`:`smaller`, //cmp
 	`t1 var.xxx`:`smaller`, //cmp
+	`t1 var.yyy`:`smaller`, //cmp
 	`t1 var.zzz`:`smaller`, //cmp
 	`t1 var2`:`smaller`, //cmp
+	`t10 .test.10`:`greater`, //cmp
 	`t10 .test.11`:`greater`, //cmp
 	`t10 .test.12`:`greater`, //cmp
 	`t10 .test.13`:`greater`, //cmp
@@ -17675,10 +17891,12 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t10 t8`:`smaller`, //cmp
 	`t10 t9`:`smaller`, //cmp
 	`t10 var.xxx`:`smaller`, //cmp
+	`t10 var.yyy`:`smaller`, //cmp
 	`t10 var.zzz`:`smaller`, //cmp
 	`t10 vars`:`smaller`, //cmp
 	`t10 xyz`:`smaller`, //cmp
 	`t11 .self`:`greater`, //cmp
+	`t11 .test.10`:`greater`, //cmp
 	`t11 .test.11`:`greater`, //cmp
 	`t11 .test.12`:`greater`, //cmp
 	`t11 .test.13`:`greater`, //cmp
@@ -17709,10 +17927,12 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t11 t8`:`smaller`, //cmp
 	`t11 t9`:`smaller`, //cmp
 	`t11 var.xxx`:`smaller`, //cmp
+	`t11 var.yyy`:`smaller`, //cmp
 	`t11 var.zzz`:`smaller`, //cmp
 	`t11 var2`:`smaller`, //cmp
 	`t11 vars`:`smaller`, //cmp
 	`t11 xyz`:`smaller`, //cmp
+	`t12 .test.10`:`greater`, //cmp
 	`t12 .test.11`:`greater`, //cmp
 	`t12 .test.12`:`greater`, //cmp
 	`t12 .test.13`:`greater`, //cmp
@@ -17746,6 +17966,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t12 var.yyy`:`smaller`, //cmp
 	`t12 var.zzz`:`smaller`, //cmp
 	`t12 var2`:`smaller`, //cmp
+	`t13 .test.10`:`greater`, //cmp
+	`t13 .test.11`:`greater`, //cmp
 	`t13 .test.12`:`greater`, //cmp
 	`t13 .test.13`:`greater`, //cmp
 	`t13 .test.14`:`greater`, //cmp
@@ -17775,8 +17997,11 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t13 t8`:`smaller`, //cmp
 	`t13 t9`:`smaller`, //cmp
 	`t13 var.xxx`:`smaller`, //cmp
+	`t13 var.yyy`:`smaller`, //cmp
 	`t13 var.zzz`:`smaller`, //cmp
 	`t13 var2`:`smaller`, //cmp
+	`t14 .test.10`:`greater`, //cmp
+	`t14 .test.11`:`greater`, //cmp
 	`t14 .test.12`:`greater`, //cmp
 	`t14 .test.13`:`greater`, //cmp
 	`t14 .test.14`:`greater`, //cmp
@@ -17810,6 +18035,9 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t14 var.zzz`:`smaller`, //cmp
 	`t14 var2`:`smaller`, //cmp
 	`t14 xyz`:`smaller`, //cmp
+	`t15 .test.10`:`greater`, //cmp
+	`t15 .test.11`:`greater`, //cmp
+	`t15 .test.12`:`greater`, //cmp
 	`t15 .test.13`:`greater`, //cmp
 	`t15 .test.14`:`greater`, //cmp
 	`t15 .test.15`:`greater`, //cmp
@@ -17842,6 +18070,9 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t15 var.zzz`:`smaller`, //cmp
 	`t15 var2`:`smaller`, //cmp
 	`t15 xyz`:`smaller`, //cmp
+	`t2 .test.10`:`greater`, //cmp
+	`t2 .test.11`:`greater`, //cmp
+	`t2 .test.12`:`greater`, //cmp
 	`t2 .test.13`:`greater`, //cmp
 	`t2 .test.14`:`greater`, //cmp
 	`t2 .test.15`:`greater`, //cmp
@@ -17874,6 +18105,9 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t2 var.zzz`:`smaller`, //cmp
 	`t2 var2`:`smaller`, //cmp
 	`t2 vars`:`smaller`, //cmp
+	`t3 .test.10`:`greater`, //cmp
+	`t3 .test.11`:`greater`, //cmp
+	`t3 .test.12`:`greater`, //cmp
 	`t3 .test.13`:`greater`, //cmp
 	`t3 .test.14`:`greater`, //cmp
 	`t3 .test.15`:`greater`, //cmp
@@ -17906,6 +18140,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t3 var.zzz`:`smaller`, //cmp
 	`t3 var2`:`smaller`, //cmp
 	`t3 vars`:`smaller`, //cmp
+	`t4 .test.10`:`greater`, //cmp
+	`t4 .test.11`:`greater`, //cmp
 	`t4 .test.12`:`greater`, //cmp
 	`t4 .test.13`:`greater`, //cmp
 	`t4 .test.14`:`greater`, //cmp
@@ -17940,6 +18176,8 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t4 var2`:`smaller`, //cmp
 	`t4 vars`:`smaller`, //cmp
 	`t4 xyz`:`smaller`, //cmp
+	`t5 .test.10`:`greater`, //cmp
+	`t5 .test.11`:`greater`, //cmp
 	`t5 .test.12`:`greater`, //cmp
 	`t5 .test.13`:`greater`, //cmp
 	`t5 .test.14`:`greater`, //cmp
@@ -17973,6 +18211,9 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t5 var2`:`smaller`, //cmp
 	`t5 vars`:`smaller`, //cmp
 	`t5 xyz`:`smaller`, //cmp
+	`t6 .test.10`:`greater`, //cmp
+	`t6 .test.11`:`greater`, //cmp
+	`t6 .test.12`:`greater`, //cmp
 	`t6 .test.13`:`greater`, //cmp
 	`t6 .test.14`:`greater`, //cmp
 	`t6 .test.15`:`greater`, //cmp
@@ -18004,6 +18245,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t6 var2`:`smaller`, //cmp
 	`t6 vars`:`smaller`, //cmp
 	`t6 xyz`:`smaller`, //cmp
+	`t7 .test.10`:`greater`, //cmp
+	`t7 .test.11`:`greater`, //cmp
+	`t7 .test.12`:`greater`, //cmp
+	`t7 .test.13`:`greater`, //cmp
 	`t7 .test.14`:`greater`, //cmp
 	`t7 .test.15`:`greater`, //cmp
 	`t7 .test.1`:`greater`, //cmp
@@ -18035,6 +18280,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t7 var2`:`smaller`, //cmp
 	`t7 vars`:`smaller`, //cmp
 	`t7 xyz`:`smaller`, //cmp
+	`t8 .test.10`:`greater`, //cmp
+	`t8 .test.11`:`greater`, //cmp
+	`t8 .test.12`:`greater`, //cmp
+	`t8 .test.13`:`greater`, //cmp
 	`t8 .test.14`:`greater`, //cmp
 	`t8 .test.15`:`greater`, //cmp
 	`t8 .test.1`:`greater`, //cmp
@@ -18066,6 +18315,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`t8 var2`:`smaller`, //cmp
 	`t8 vars`:`smaller`, //cmp
 	`t8 xyz`:`smaller`, //cmp
+	`t9 .test.10`:`greater`, //cmp
+	`t9 .test.11`:`greater`, //cmp
+	`t9 .test.12`:`greater`, //cmp
+	`t9 .test.13`:`greater`, //cmp
 	`t9 .test.14`:`greater`, //cmp
 	`t9 .test.15`:`greater`, //cmp
 	`t9 .test.1`:`greater`, //cmp
@@ -18114,6 +18367,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`va2 va1`:`greater`, //cmp
 	`va2 va3`:`smaller`, //cmp
 	`va3 va1`:`greater`, //cmp
+	`var.xxx .test.10`:`greater`, //cmp
+	`var.xxx .test.11`:`greater`, //cmp
+	`var.xxx .test.12`:`greater`, //cmp
+	`var.xxx .test.13`:`greater`, //cmp
 	`var.xxx .test.14`:`greater`, //cmp
 	`var.xxx .test.15`:`greater`, //cmp
 	`var.xxx .test.3`:`greater`, //cmp
@@ -18144,6 +18401,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var.xxx var2`:`smaller`, //cmp
 	`var.xxx vars`:`smaller`, //cmp
 	`var.xxx xyz`:`smaller`, //cmp
+	`var.yyy .test.10`:`greater`, //cmp
+	`var.yyy .test.11`:`greater`, //cmp
+	`var.yyy .test.12`:`greater`, //cmp
+	`var.yyy .test.13`:`greater`, //cmp
 	`var.yyy .test.14`:`greater`, //cmp
 	`var.yyy .test.15`:`greater`, //cmp
 	`var.yyy .test.3`:`greater`, //cmp
@@ -18174,6 +18435,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var.yyy var2`:`smaller`, //cmp
 	`var.yyy vars`:`smaller`, //cmp
 	`var.yyy xyz`:`smaller`, //cmp
+	`var.zzz .test.10`:`greater`, //cmp
+	`var.zzz .test.11`:`greater`, //cmp
+	`var.zzz .test.12`:`greater`, //cmp
+	`var.zzz .test.13`:`greater`, //cmp
 	`var.zzz .test.14`:`greater`, //cmp
 	`var.zzz .test.15`:`greater`, //cmp
 	`var.zzz .test.3`:`greater`, //cmp
@@ -18204,6 +18469,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var.zzz var2`:`smaller`, //cmp
 	`var.zzz vars`:`smaller`, //cmp
 	`var.zzz xyz`:`smaller`, //cmp
+	`var2 .test.10`:`greater`, //cmp
+	`var2 .test.11`:`greater`, //cmp
+	`var2 .test.12`:`greater`, //cmp
+	`var2 .test.13`:`greater`, //cmp
 	`var2 .test.14`:`greater`, //cmp
 	`var2 .test.15`:`greater`, //cmp
 	`var2 .test.3`:`greater`, //cmp
@@ -18234,6 +18503,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`var2 var.zzz`:`greater`, //cmp
 	`var2 vars`:`smaller`, //cmp
 	`var2 xyz`:`smaller`, //cmp
+	`vars .test.10`:`greater`, //cmp
+	`vars .test.11`:`greater`, //cmp
+	`vars .test.12`:`greater`, //cmp
+	`vars .test.13`:`greater`, //cmp
 	`vars .test.14`:`greater`, //cmp
 	`vars .test.15`:`greater`, //cmp
 	`vars .test.3`:`greater`, //cmp
@@ -18276,6 +18549,10 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`xv1y.h x*y.h`:`smaller`, //cmp
 	`xxx yyy`:`smaller`, //cmp
 	`xxx zzz`:`smaller`, //cmp
+	`xyz .test.10`:`greater`, //cmp
+	`xyz .test.11`:`greater`, //cmp
+	`xyz .test.12`:`greater`, //cmp
+	`xyz .test.13`:`greater`, //cmp
 	`xyz .test.14`:`greater`, //cmp
 	`xyz .test.15`:`greater`, //cmp
 	`xyz .test.1`:`greater`, //cmp
@@ -18424,12 +18701,6 @@ var checkpoints_cmp = fixCheckpoints1(map[string]any{
 	`{=self app} configure.*::=features builtins funcs files heads types symbs structs sizes aligns`:`smaller`, //cmp
 	`{=self app} configure.aligns=<nil>`:`smaller`, //cmp
 	`{=self app} configure.builtins=<nil>`:`smaller`, //cmp
-	`.test.11 t12`:`smaller`, //cmp
-	`.test.13 t12`:`smaller`, //cmp
-	`.self t12`:`smaller`, //cmp
-	`.test.10 t12`:`smaller`, //cmp
-	`.test.1 t12`:`smaller`, //cmp
-	`.test.12 t12`:`smaller`, //cmp
 	`{=self app} configure.features=<nil>`:`smaller`, //cmp
 	`{=self app} configure.files=<nil>`:`smaller`, //cmp
 	`{=self app} configure.funcs=$(configure.funcs.stdlib.h)`:`smaller`, //cmp
@@ -18490,8 +18761,10 @@ func check_cmp(ctx Context, l, r Value) func(*cmpres) {
 				_f("got: %v", t),
 				_f("!= : %v", v),
 				_f("cmp: %v, %v", l, r),
-				_f("l: %s → %v, %v", ts(l,ctx), __symbol(ctx,l), symbolize(l)),
-				_f("r: %s → %v, %v", ts(r,ctx), __symbol(ctx,l), symbolize(r)),
+				_f("l: %s", ts(l,ctx)),
+				_f("r: %s", ts(r,ctx)),
+				_f("l: %v", symbolize(l)),
+				_f("r: %v", symbolize(r)),
 				callstack{stop:"smart.runcase"}, trace{}) }
 		}
 	}
@@ -25379,7 +25652,7 @@ func tempdir_check(ctx Context, p *project, d *def, s string) {
 }
 
 func tempfile_check(ctx Context, p *project, name, d string, f *file) {
-	if f.dir != d {
+	if f.dir != intern(d) {
 		erro(ctx, "%v: %s != %s", p, f.dir, d)
 	}
 	switch p.name {
@@ -25391,7 +25664,7 @@ func tempfile_check(ctx Context, p *project, name, d string, f *file) {
 			erro(ctx, "%s: %v : %s != %s", p.name, d, t1, s)
 		} else if s, t2 := "/", __string(ctx, t); t2 == s {
 			erro(ctx, "%s: %v : %s", p.name, d, t2)
-		} else if t2 != f.dir {
+		} else if t2 != f.dir.String() {
 			erro(ctx, "%s: %v : %s != %s", p.name, d, t2, f.dir)
 		}
 		if t = p.resolveDef(ctx, intern("target.tmp")); t == nil { // target.tmp := &(target.out)/tmp

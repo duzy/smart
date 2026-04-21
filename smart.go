@@ -57,7 +57,6 @@ const (
     recursiveTraversalClosurePost = false
     recursiveTraversalClosure = true
     traverseDetectLoops = true // turn on/off traverse loop detection
-    enable_assertions   = true
     enable_grep_bench   = true
 	escapedChars = "\"\r\n"
 )
@@ -1345,47 +1344,23 @@ func __symbol(ctx Context, val Value) Symbol {
 	return intern(str)
 }
 
-// TODO: verification required!
-func symbolize_string(ctx Context, str string) (res []Symbol) {
-	// Protect the engine from crashing if the scanner hits dirty stdout data
-	// (e.g., unterminated quotes, bad escapes).
-	defer func() { recover() }() 
-
-	var s scanner
-	// Ensure you pass a dummy tokfile or valid pos to avoid nil pointers inside s.offsetPos
-	s.init(ctx, nil, []byte(str), 0)
-	
-	s.scan(ctx) // Prime the scanner
-	for s.tok != EOF {
-		if s.sym != symEmpty {
-			res = append(res, s.sym)
-		} else if s.lit != "" {
-			res = append(res, intern(s.lit))
-		} else {
-			// Fallback for punctuation tokens without lit/sym (e.g., '{', '}')
-			res = append(res, Symbol(s.tok)) // FIXME: currently token and Symbol are not identically convertable
-		}
-		s.scan(ctx)
-	}
-	return res // FIXED: Was returning nil
-}
-
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	switch t := v.(type) {
 	case *valbase, *null, *none, *undef: return
 	case *loc: return symbolize(t.Value)
 	case *xloc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
-	case *word: return readSymSeq(t.s)//[]Symbol{t.s}
+	case *word: return getSymSeq(t.s)
 	case *globmeta: return []Symbol{intern(t.token.String())}
 	case *punct: return []Symbol{intern(t.token.String())}
 	case *answer: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *boolean: return []Symbol{_if(t.bool,symTrue,symFalse)}
 	case *prediction: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *option: return []Symbol{_if(t.bool,symOn,symOff)}
-	case *def: return readSymSeq(t.name)
-	case *project: return readSymSeq(t.name)
-	case self: return readSymSeq(t.project.name)
+	case *file: return getSymSeq(t.name)
+	case *def: return getSymSeq(t.name)
+	case *project: return getSymSeq(t.name)
+	case self: return getSymSeq(t.project.name)
 
 	case *integer: // Base struct, in case the parser ever emits it directly
 		var s Symbol 
@@ -1446,6 +1421,10 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 		for _, elem := range t.(slicer).slice() {
 			res = append(res, symbolize(elem)...)
 		}
+	case *closure:
+		return symbolize_delegate(&t.delegate)
+	case *delegate:
+		return symbolize_delegate(t)
 	case *strlit:
         // Semantic Equality: 'foo' (strlit) == foo (word)
         return []Symbol{intern(t.s)}
@@ -1456,6 +1435,68 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
         return []Symbol{intern(t.String())} // TODO: symbolize_string(trivial_ctx{t.pos}, t.s)
 	}
     return
+}
+
+func symbolize_delegate(d *delegate) []Symbol {
+	var res []Symbol
+	
+	// 1. Sigil (e.g., '$' for DELEGATE or '&' for CLOSURE)
+	res = append(res, intern(tokens[d.l])) 
+	
+	// 2. Open Boundary
+	res = append(res, intern("(")) // or intern(tokens[LPAREN])
+	
+	// 3. Target (e.g., "touch")
+	res = append(res, symbolize(d.x)...)
+	
+	// 4. Options (e.g., "(-p -x -y)")
+	if len(d.o) > 0 {
+		res = append(res, intern("("))
+		for i, opt := range d.o {
+			if i > 0 { res = append(res, symSpace) } // ' ' between options
+			res = append(res, symbolize(opt)...)
+		}
+		res = append(res, intern(")"))
+	}
+	
+	// 5. Arguments (e.g., " a1,a2")
+	if len(d.a) > 0 {
+		res = append(res, symSpace) // ' ' separating target/options from args
+		for i, arg := range d.a {
+			if i > 0 { res = append(res, symComma) } // ',' between args
+			res = append(res, symbolize(arg)...)
+		}
+	}
+	
+	// 6. Close Boundary
+	res = append(res, intern(")")) // or intern(tokens[RPAREN])
+	
+	return res
+}
+
+// TODO: verification required!
+func symbolize_string(ctx Context, str string) (res []Symbol) {
+	// Protect the engine from crashing if the scanner hits dirty stdout data
+	// (e.g., unterminated quotes, bad escapes).
+	defer func() { recover() }() 
+
+	var s scanner
+	// Ensure you pass a dummy tokfile or valid pos to avoid nil pointers inside s.offsetPos
+	s.init(ctx, nil, []byte(str), 0)
+	
+	s.scan(ctx) // Prime the scanner
+	for s.tok != EOF {
+		if s.sym != symEmpty {
+			res = append(res, s.sym)
+		} else if s.lit != "" {
+			res = append(res, intern(s.lit))
+		} else {
+			// Fallback for punctuation tokens without lit/sym (e.g., '{', '}')
+			res = append(res, Symbol(s.tok)) // FIXME: currently token and Symbol are not identically convertable
+		}
+		s.scan(ctx)
+	}
+	return res // FIXED: Was returning nil
 }
 
 // cmp_symbol handles atomic comparisons and returns the strings for dynamic fragmentation.
@@ -3049,14 +3090,113 @@ func to_file(v Value) (x *file, y bool) {
     return
 }
 
-func splitFileName(ctx Context, val Value) (dir, name string) {
-    if f, _ := to_file(val); f != nil {
-        dir, name = filepath.Join(f.dir, f.sub.String()), ident(ctx, f)
-    } else {
-        name = __string(ctx, val)
-        dir = filepath.Dir(name)
-    }
-    return
+// Returns []Symbol, meaning ZERO string allocations and ZERO filepath parsing!
+func splitFileName(ctx Context, val Value) (dir, name Symbol) {
+	if f, _ := to_file(val); f != nil {
+		// Pure Symbol domain using the new __sym helpers
+		return __symPathJoin(f.dir, f.sub), f.name
+	}
+
+	// 2. Pure Symbol-Domain Splitting for raw sequences
+	seq := symbolize(val)
+	
+	// Scan backwards for the last symSlash
+	for i := len(seq) - 1; i >= 0; i-- {
+		if seq[i] == symSlash {
+			if i == 0 {
+				// Path is "/foo" -> dir is "/", name is "foo"
+				return internSeq(seq[:1]), internSeq(seq[1:])
+			}
+			// Path is "a/b/foo" -> dir is "a/b", name is "foo"
+			return internSeq(seq[:i]), internSeq(seq[i+1:]) // Zero allocation slice pointers!
+		}
+	}
+
+	// 3. No slash found. Path is "foo" -> dir is ".", name is "foo"
+	return symDot, internSeq(seq)
+}
+
+// __symDir returns the directory portion of a Symbol as a new Symbol.
+func __symDir(sym Symbol) Symbol {
+	seq := getSymSeq(sym)
+	
+	// Scan backwards for the last symSlash
+	for i := len(seq) - 1; i >= 0; i-- {
+		if seq[i] == symSlash {
+			if i == 0 {
+				return internSeq(seq[:1]) // Path is "/foo" -> dir is "/"
+			}
+			return internSeq(seq[:i])     // Path is "a/b/foo" -> dir is "a/b"
+		}
+	}
+	return symDot
+}
+
+// __symBase returns the file name portion of a Symbol as a new Symbol.
+func __symBase(sym Symbol) Symbol {
+	seq := getSymSeq(sym)
+	
+	for i := len(seq) - 1; i >= 0; i-- {
+		if seq[i] == symSlash {
+			return internSeq(seq[i+1:])
+		}
+	}
+	return sym // No slash found, the base is the whole symbol!
+}
+
+// __symPathJoin normalizes and joins symbols just like filepath.Join, 
+// but entirely within the zero-allocation Symbol domain!
+func __symPathJoin(syms ...Symbol) Symbol {
+	var stack []Symbol
+	var isAbs bool
+
+	// Determine if the joined path is absolute
+	for _, sym := range syms {
+		if sym != symEmpty {
+			firstSeq := getSymSeq(sym)
+			if len(firstSeq) > 0 && firstSeq[0] == symSlash {
+				isAbs = true
+			}
+			break
+		}
+	}
+
+	// Normalization Stack
+	for _, sym := range syms {
+		if sym == symEmpty { continue }
+		
+		for _, s := range getSymSeq(sym) {
+			if s == symSlash { continue } // Ignore raw slashes
+			if s == symDot   { continue } // Ignore current dir '.'
+			
+			if s == symDotDot { // Handle '..'
+				if len(stack) > 0 && stack[len(stack)-1] != symDotDot {
+					stack = stack[:len(stack)-1] // Pop the parent directory
+				} else if !isAbs {
+					stack = append(stack, symDotDot) // Only retain '..' if relative
+				}
+				continue
+			}
+			stack = append(stack, s)
+		}
+	}
+
+	if len(stack) == 0 {
+		if isAbs { return symSlash }
+		return symDot
+	}
+
+	// Rebuild with slashes
+	var seq []Symbol
+	if isAbs {
+		seq = append(seq, symSlash)
+	}
+	for i, s := range stack {
+		if i > 0 { seq = append(seq, symSlash) }
+		seq = append(seq, s)
+	}
+
+	return internSeq(seq)
 }
 
 type fullfile_ctx struct{ Context }
@@ -3089,21 +3229,21 @@ func (o fullname) String() string {
 	return o.Value.String()
 }
 
-type must_file_stamp struct{ *file }
-type must_files_stamp struct{ Context }
-func (c must_files_stamp) cast(t reflect.Type) Context { return icast(c,t) }
-func (c must_files_stamp) inner() Context { return c.Context }
-func (c must_files_stamp) do(ctx Context, op any) any {
+type must_stamp_file struct{ *file }
+type stamp_file_ctx struct{ Context }
+func (c stamp_file_ctx) cast(t reflect.Type) Context { return icast(c,t) }
+func (c stamp_file_ctx) inner() Context { return c.Context }
+func (c stamp_file_ctx) do(ctx Context, op any) any {
     switch op.(type) {
-    case must_file_stamp: return true
+    case must_stamp_file: return true
     }
     return c.Context.do(ctx, op)
 }
 
 type filestub struct {
-	dir     string    // KEEP AS STRING: Absolute/machine-specific path
-	sub     Symbol    // Portable: e.g., intern("src/core")
-	name    Symbol    // Portable: e.g., intern("main.c")
+	dir     Symbol    // CHANGED: Now a Symbol! Holographically shreds machine paths.
+	sub     Symbol    // Substitute, hidden. Portable: e.g., intern("src/core")
+	name    Symbol    // Name, representation. Portable: e.g., intern("main.c")
 	filemap *filemap
 	other   *filestub
 }
@@ -3145,7 +3285,7 @@ func (p *file) String() string {
 }
 
 func (p *file) fullname() string { 
-	return filepath.Join(p.dir, p.sub.String(), p.filestub.name.String())
+	return filepath.Join(p.dir.String(), p.sub.String(), p.filestub.name.String())
 }
 
 func (p *file) basename() (s string) {
@@ -3171,7 +3311,7 @@ func (p *file) stamp(ctx Context) (res []*file) {
 	var e error
 
 	if p.info, e = os.Stat(fn); e != nil {
-		if truly(ctx, must_file_stamp{p}) {
+		if truly(ctx, must_stamp_file{p}) {
 			ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
 			if _, y := e.(*fs.PathError); y {
 				erro(ctx, "no such file: %s", p.name)
@@ -3181,7 +3321,7 @@ func (p *file) stamp(ctx Context) (res []*file) {
 		}
 		return
 	} else if p.info == nil {
-		if truly(ctx, must_file_stamp{p}) {
+		if truly(ctx, must_stamp_file{p}) {
 			ctx = pc(pc(ctx, strings.TrimSuffix(fn, ".x")), fn+".log")
 			erro(ctx, "no such file: %s", p.name)
 		}
@@ -3234,28 +3374,31 @@ func (p *file) isSysFile() (res bool) {
 	return
 }
 
-func (p *file) change(dir, sub, name string) (okay bool) {
-	if fullname := filepath.Join(dir, sub, name); p.fullname() == fullname {
-		
-		// Only intern the portable segments!
-		subSym  := intern(sub)
-		nameSym := intern(name)
+func (p *file) change(dir, sub, name Symbol) (okay bool) {
+	// 1. Fast Path: If the O(1) symbols match exactly, we are already on the right stub!
+	if p.dir == dir && p.sub == sub && p.name == name {
+		return true 
+	}
 
+	// 2. OS-Boundary Check: Pure Symbol Equality! 
+	// We join the parts into a single Symbol ID and compare the integers.
+	if __symPathJoin(dir, sub, name) == __symPathJoin(p.dir, p.sub, p.name) {
 		var head = &p.filebase.stub
 		for stub := p.filestub; stub != nil; stub = stub.other {
-			// dir is a string comparison, sub and name are 1-cycle integer checks
-			if stub.dir == dir && stub.sub == subSym && stub.name == nameSym {
+			// Blazing fast 3-cycle integer check!
+			if stub.dir == dir && stub.sub == sub && stub.name == name {
 				p.filestub, okay = stub, true
 				return
 			}
 			if stub.other == head { break }
 		}
 		
-		p.filestub = &filestub{ dir, subSym, nameSym, nil, head.other }
+		p.filestub = &filestub{ dir, sub, name, nil, head.other }
 		head.other, okay = p.filestub, true
 	}
 	return
 }
+
 
 type stat_dir struct { string }
 type stat_sub struct { string }
@@ -3329,6 +3472,7 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	// Only intern the portable, logical components (sub and name).
 	// dir remains a string to prevent absolute paths from poisoning the pool.
 	// =====================================================================
+	dirSym  := intern(dir)
 	subSym  := intern(sub)
 	nameSym := intern(name)
 
@@ -3337,7 +3481,7 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	base, exists := u.statcache[cleanFullname]
 	if !exists {
 		// Initialize the shell of the filebase using our hybrid Symbol approach!
-		base = &filebase{filestub{dir, subSym, nameSym, nil, nil}, nil, false, nil, 0, 0, 0}
+		base = &filebase{filestub{dirSym, subSym, nameSym, nil, nil}, nil, false, nil, 0, 0, 0}
 		base.stub.other = &base.stub
 		u.statcache[cleanFullname] = base
 	}
@@ -3359,10 +3503,10 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	var stub *filestub
 
 	// Sanity assertions
-	if enable_assertions {
+	if checkpoints {
 		for stub = head; stub != nil; stub = stub.other {
 			// Extract strings from the cached Symbols for OS filepath joining
-			if s1, s2 := fullname, filepath.Join(stub.dir, stub.sub.String(), stub.name.String()); s1 != s2 {
+			if s1, s2 := fullname, filepath.Join(stub.dir.String(), stub.sub.String(), stub.name.String()); s1 != s2 {
 				debug(ctx,
 					_f("fullname '%s' conflicted", fullname),
 					_f("panic: (%s, %v, %v) %s", stub.dir, stub.sub, stub.name, s1),
@@ -3376,14 +3520,14 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	// Check for an existing stub that matches our current path parameters exactly.
 	// dir is a safe string comparison, sub and name are 1-cycle integer comparisons!
 	for stub = head; stub != nil; stub = stub.other {
-		if stub.dir == dir && stub.sub == subSym && stub.name == nameSym {
+		if stub.dir == dirSym && stub.sub == subSym && stub.name == nameSym {
 			return &file{valbase{_pos(ctx)}, base, stub}
 		}
 		if stub.other == head { break }
 	}
 
 	// If no matching stub was found, link a new one into the circular list
-	stub = &filestub{dir, subSym, nameSym, nil, head.other}; head.other = stub
+	stub = &filestub{dirSym, subSym, nameSym, nil, head.other}; head.other = stub
 	return &file{valbase{_pos(ctx)}, base, stub}
 }
 
@@ -6037,7 +6181,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ctx.sh = nil
 
         if !ctx.silent && !is_configurecontext(ctx) && ctx.target != nil {
-            var files = stampFile(must_files_stamp{ctx}, ctx.target)
+            var files = stampFile(stamp_file_ctx{ctx}, ctx.target)
             if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
         }
 
@@ -10092,11 +10236,14 @@ const (
 	symUnderscore   // "_"
 	symApostrophe   // '
 	symQuotation    // "
+	symColon        // :
 	symComma        // ,
 	symTilde        // ~
 	symDot          // .
 	symDotDot       // ..
 	symSlash        // /
+	symLparen       // (
+	symRparen       // )
 
 	symAt           // @
 	symAtD          // @D
@@ -10413,7 +10560,7 @@ const (
 // Do not mix them, or recursive shredding will shift the hardcoded IDs!
 var coreSymbols = []string{
 	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"&", "$", "-", "_", "'", `"`, ",", "~", ".", "..", "/",
+	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/", "(", ")",
 
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
@@ -10508,6 +10655,7 @@ var (
 	vocab     []SymMeta
 	numbers   []uint64   // Side-table for numbers!
 	sequences [][]Symbol // Side-table for shredded sequences!
+	seqToSym map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
 	symbols map[string]Symbol
 )
 
@@ -10519,6 +10667,7 @@ func init() {
 	vocab = make([]SymMeta, 0, size)
 	numbers = make([]uint64, 0, size/20)
 	sequences = make([][]Symbol, 0, size/20)
+	seqToSym = make(map[uint64][]Symbol)
 
 	// PASS 1: Reserve the EXACT integer IDs for core constants (0, 1, 2...)
 	// This ensures `symDot` is exactly where it belongs, even if later 
@@ -10558,6 +10707,11 @@ func internLocked(s string) Symbol {
 	// 3. Overwrite placeholder
 	vocab[sym] = meta
 
+	// 4. Register newly shredded strings into the fast-path map!
+	if meta.Kind() == SymSeq {
+		h := hashSeq(sequences[meta.Idx])
+		seqToSym[h] = append(seqToSym[h], sym)
+	}
 	return sym
 }
 
@@ -10686,18 +10840,96 @@ func internBytes(b []byte) Symbol {
 	return sym
 }
 
-func readSymSeq(sym Symbol) []Symbol {
+func getSymSeq(sym Symbol) (seq []Symbol) {
 	vocabM.RLock()
 	meta := vocab[sym]
-	vocabM.RUnlock()
-
-	var seq []Symbol
 	if meta.Kind() == SymSeq {
-		seq = sequences[meta.Idx] // FIXME: require any mutex lock?
+		seq = sequences[meta.Idx]
 	} else {
 		seq = []Symbol{sym}
 	}
-	return seq
+	vocabM.RUnlock()
+	return
+}
+
+// hashSeq uses the FNV-1a 64-bit algorithm. It is incredibly fast and 
+// has exceptional distribution for short integer arrays.
+func hashSeq(seq []Symbol) uint64 {
+	var h uint64 = 14695981039346656037
+	for _, s := range seq {
+		h ^= uint64(s)
+		h *= 1099511628211
+	}
+	return h
+}
+
+// isSeqEqual provides O(1) bounds-checked integer array comparison.
+func isSeqEqual(a, b []Symbol) bool {
+	if len(a) != len(b) { return false }
+	for i := range a {
+		if a[i] != b[i] { return false }
+	}
+	return true
+}
+
+// internSeq converts a slice of symbols into a unique Symbol ID with zero allocations on lookup.
+func internSeq(seq []Symbol) Symbol {
+	if len(seq) == 0 { return symEmpty }
+	if len(seq) == 1 { return seq[0] }
+
+	h := hashSeq(seq)
+
+	// 1. Zero-Allocation Fast Path: Hash Lookup (FIXED)
+	vocabM.RLock()
+	for _, sym := range seqToSym[h] {
+		meta := vocab[sym]
+		// MUST verify it is a SymSeq before accessing the sequences slice!
+		if meta.Kind() == SymSeq && isSeqEqual(sequences[meta.Idx], seq) {
+			vocabM.RUnlock()
+			return sym
+		}
+	}
+	vocabM.RUnlock()
+
+	// 2. Slow Path: Register New Sequence
+	vocabM.Lock()
+	defer vocabM.Unlock()
+
+	for _, sym := range seqToSym[h] {
+		meta := vocab[sym]
+		if meta.Kind() == SymSeq && isSeqEqual(sequences[meta.Idx], seq) {
+			return sym
+		}
+	}
+
+	var sb strings.Builder
+	for _, s := range seq {
+		sb.WriteString(vocab[s].Text)
+	}
+	str := sb.String()
+
+	// FIXED: Only register to the sequence map if the existing symbol is actually a sequence!
+	if sym, ok := symbols[str]; ok {
+		if vocab[sym].Kind() == SymSeq {
+			seqToSym[h] = append(seqToSym[h], sym)
+		}
+		return sym
+	}
+
+	sym := Symbol(len(vocab))
+	symbols[str] = sym
+	
+	permSeq := make([]Symbol, len(seq))
+	copy(permSeq, seq)
+	
+	meta := SymMeta{Text: str, Idx: int32(len(sequences))}
+	meta.Flags = SymSeq | (uint8(globRank(str)) << 2)
+	
+	sequences = append(sequences, permSeq)
+	vocab = append(vocab, meta)
+	seqToSym[h] = append(seqToSym[h], sym)
+	
+	return sym
 }
 
 // nodeEntry preserves order
@@ -23976,14 +24208,14 @@ func (g *greptouch) work(ctx Context, gc *grepctx) (err error) {
     }
     return
 }
-func (g *grepctx) isTargetFile(ctx Context, file *file) (res bool) {
-    if file == nil {
+func (g *grepctx) isTargetFile(ctx Context, _f *file) (res bool) {
+    if _f == nil {
         // ...
-    } else if g.target == file {
+    } else if g.target == _f {
         res = true
     } else if s, _ := as_fullname_string(ctx, g.target); s == g.targetFullName {
         res = true
-    } else if f, y := to_file(g.target); y && ident(ctx,f) == ident(ctx,file) {
+    } else if f, y := to_file(g.target); y && ident(ctx,f) == ident(ctx,_f) {
         res = true
     }
     return
@@ -24041,64 +24273,81 @@ func saveGrepCache(ctx Context) {
 }
 
 func searchGreppedName(ctx Context, gp Position, gc *grepctx, sys bool, name string) (res *file) {
-    var isAbs, isRel bool
-    if isAbs = filepath.IsAbs(name); isAbs {
-        res = _stat(ctx, name, stat_nonexist{true})
-    } else if isRel = isRelPath(name); isRel { // relative to targetDir
-        res = _stat(ctx, name, stat_dir{gc.targetDir}, stat_nonexist{true})
-    } else if res = findfile(ctx, name); res != nil && res.exists() {
-        return // found existed file
-    }
+	var isAbs, isRel bool
+	if isAbs = filepath.IsAbs(name); isAbs {
+		res = _stat(ctx, name, stat_nonexist{true})
+	} else if isRel = isRelPath(name); isRel { // relative to targetDir
+		res = _stat(ctx, name, stat_dir{gc.targetDir}, stat_nonexist{true})
+	} else if res = findfile(ctx, name); res != nil && res.exists() {
+		return // found existed file
+	}
 
-    // System files are not treated as missing nor collected
-    // for further updating, just discard them immediately.
-    if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
-        // system files defined by `files ((foo.xxx) ⇒ -)`
-        if f, ok := res.filemap.paths[0].(flag); ok {
-            sys = isNone(f.Value) || isNull(f.Value)
-        }
-    }
-    if !sys && gc.debug>0 {
-        debug(ctx, "%v: %v → %v (exists=%v, sys=%v, from %v)\n",
-            _entry(ctx), gc.target, name, res.exists(), sys, _project(ctx),
-			callstack{num:gc.debug})
-    }
-    if sys || res.exists() { return }
+	// System files are not treated as missing nor collected
+	// for further updating, just discard them immediately.
+	if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
+		// system files defined by `files ((foo.xxx) ⇒ -)`
+		if f, ok := res.filemap.paths[0].(flag); ok {
+			sys = isNone(f.Value) || isNull(f.Value)
+		}
+	}
+	if !sys && gc.debug>0 {
+		// Translated to the cleaner _f() pattern
+		debug(ctx, 
+			_f("%v: %v → %v (exists=%v, sys=%v, from %v)", _entry(ctx), gc.target, name, res.exists(), sys, _project(ctx)),
+			callstack{num:gc.debug},
+		)
+	}
+	if sys || (res != nil && res.exists()) { return }
 
-    // relative to target directory
-    var alt = _stat(ctx, name, stat_dir{gc.targetDir})
-    if alt != nil { res = alt; return }
+	// relative to target directory
+	var alt = _stat(ctx, name, stat_dir{gc.targetDir})
+	if alt != nil { res = alt; return }
 
-    // Check for bare non-system sub-paths:
-    //   foo/bar/name.xxx
-    // We search base name 'name.xxx' again:
-    var s = filepath.Dir(name) // e.g: foo/bar
+	// Check for bare non-system sub-paths:
+	//   foo/bar/name.xxx
+	// We search base name 'name.xxx' again:
+	var s = filepath.Dir(name) // e.g: foo/bar
 
-    // Search 'name.xxx' and check dir for
-    // 'foo/bar' suffix. We use it if found.
-    alt = findfile(ctx, filepath.Base(name))
-    if alt != nil && strings.HasSuffix(alt.dir, pathSep+s) {
-        dir := strings.TrimSuffix(alt.dir, pathSep+s)
-        ok1 := alt.change(dir, s, ident(ctx,alt)) // <dir>, foo/bar, name.xxx
-        ok2 := alt.change(dir, "", name) // <dir>, "", foo/bar/name.xxx
-        res  = alt
-        if enable_assertions {
-            assert(ok1, "unchanged: %s %s %s", dir, s, ident(ctx,alt))
-            assert(ok2, "unchanged: %s %s", dir, ident(ctx,alt))
-        }
-    } else if res == nil {
-        for _, inc := range gc.incs {
-            if res = _stat(ctx, name, stat_dir{__string(ctx, inc)}); res != nil {
-                if false { debug(ctx, "%v in %v", res, inc) }
-                return
-            }
-        }
-        if res == nil { res = _stat(ctx, name, stat_nonexist{true}) }
-        debug(ctx, _f("'%s' not found in %v", name, _project(ctx)),
-			_f("grepped '%s' has no target dir in %v", name, _project(ctx)),
-			_f("from project %v (for %v)", _project(ctx), name))
-    }
-    return
+	// Search 'name.xxx' and check dir for
+	// 'foo/bar' suffix. We use it if found.
+	alt = findfile(ctx, filepath.Base(name))
+	if alt != nil && strings.HasSuffix(alt.dir.String(), pathSep+s) {
+		dirStr := strings.TrimSuffix(alt.dir.String(), pathSep+s)
+		
+		// --- GATEWAY TO THE SYMBOL DOMAIN ---
+		dirSym  := intern(dirStr)
+		sSym    := intern(s)
+		nameSym := intern(name)
+		altSym  := __symbol(ctx, alt) // Replaces ident(ctx, alt)
+
+		ok1 := alt.change(dirSym, sSym, altSym)    // <dir>, foo/bar, name.xxx
+		ok2 := alt.change(dirSym, symEmpty, nameSym) // <dir>, "", foo/bar/name.xxx
+		res  = alt
+
+		if checkpoints {
+			if !ok1 {
+				debug(ctx, _f("unchanged: %s %s %s", dirStr, s, altSym.String()), trace{})
+			}
+			if !ok2 {
+				debug(ctx, _f("unchanged: %s %s", dirStr, altSym.String()), trace{})
+			}
+		}
+	} else if res == nil {
+		for _, inc := range gc.incs {
+			if res = _stat(ctx, name, stat_dir{__string(ctx, inc)}); res != nil {
+				if false { debug(ctx, _f("%v in %v", res, inc)) }
+				return
+			}
+		}
+		if res == nil { res = _stat(ctx, name, stat_nonexist{true}) }
+
+		p := _project(ctx)
+		debug(ctx,
+			_f("'%s' not found in %v", name, p),
+			_f("grepped '%s' has no target dir in %v", name, p),
+			_f("from project %v (for %v)", p, name))
+	}
+	return
 }
 
 func searchGrepped(ctx Context, gp Position, gc *grepctx, sys bool, name string) (file *file, err error) {
@@ -24906,7 +25155,7 @@ func (ctx *modifier_touch) x(args ...Value) (result any) {
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
             erro(ctx, "touch '%v' failed: %v", arg, err)
         } else {
-            files = append(files, stampFile(must_files_stamp{ctx}, arg)...)
+            files = append(files, stampFile(stamp_file_ctx{ctx}, arg)...)
         }
     }
 
@@ -25659,7 +25908,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
                 prompt(ctx, "%s: invalid file\n", filename)
                 erro(ctx, "%v: invalid file '%s'", _project(ctx), filename)
             } else {
-                var fs = t.stamp(must_files_stamp{ctx})
+                var fs = t.stamp(stamp_file_ctx{ctx})
                 if false && ctx.verbose { reportFileUpdates(ctx, fs) }
                 result = t // resulting the updated file
             }
@@ -25769,7 +26018,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
         erro(ctx, "stamp(%v) failed", target)
     }
 
-    var v = stampFile(must_files_stamp{ctx}, target)
+    var v = stampFile(stamp_file_ctx{ctx}, target)
     if v != nil { return /* Done! */ }
 
     prompt(ctx, "%v: %v\n", target, _project(ctx))
@@ -30377,122 +30626,146 @@ func (ctx *__symlink) cast(t reflect.Type) Context {
 }
 func (ctx *__symlink) x() (res any) {
 outer:
-    for i, na := 0, len(ctx.a); i < na; i += 1 {
-        var (
-            opts = *ctx // make a copy
-            srcNameVal, dstNameVal Value
-            srcName   , dstName    string
-            srcDir    , dstDir     string
-            aa []Value
-        )
-        switch t := ctx.a[i].(type) {
-        case *pair: // symlink srcName=dstName srcName=>dstName...
-            srcNameVal, dstNameVal = t.key, t.val
-        case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
-            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(ctx, "expects two values for group")
-                return
-            } else {
-                srcNameVal, dstNameVal = aa[0], aa[1]
-            }
-        case *list: // XXX: symlink old new, old new, ...
-            if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
-                erro(ctx, "expects two values for list")
-                return
-            } else {
-                srcNameVal, dstNameVal = aa[0], aa[1]
-            }
-        default:// Multiple pairs of names:
-            // symlink  new old, new old ...
-            // symlink  new old  new old ...
-            if i+1 < na {
-                srcNameVal = ctx.a[i+0]
-                dstNameVal = ctx.a[i+1]
-                i += 1
-            } else {
-                var a = auto_get(ctx,symAt)//"@"
-                var l = auto_get(ctx,symLAngle)//"<"
-                var r = auto_get(ctx,symRAngle)//">"
-                prompt(ctx, "symlink: args=%v → %v\n", ctx.a, t)
-                prompt(ctx, "symlink: %v, %v, %v\n", a, l, r)
-                erro(ctx, "expects pair of names (%T %v)", t, t)
-                return
-            }
-        }
+	for i, na := 0, len(ctx.a); i < na; i += 1 {
+		var (
+			opts = *ctx // make a copy
+			srcNameVal, dstNameVal Value
+			
+			// 1. Symbol Domain (Internal VM)
+			srcDirSym, srcNameSym  Symbol
+			dstDirSym, dstNameSym  Symbol
+			
+			// 2. OS String Domain (Physical Disk)
+			srcName   , dstName    string
+			srcDir    , dstDir     string
+			
+			aa []Value
+		)
+		switch t := ctx.a[i].(type) {
+		case *pair: // symlink srcName=dstName srcName=>dstName...
+			srcNameVal, dstNameVal = t.key, t.val
+		case *group: // symlink (-u srcName dstName) (-v srcName dstName)...
+			if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
+				erro(ctx, "expects two values for group")
+				return
+			} else {
+				srcNameVal, dstNameVal = aa[0], aa[1]
+			}
+		case *list: // XXX: symlink old new, old new, ...
+			if aa = parseOpts(ctx, &opts, t.elems...); len(aa) != 2 {
+				erro(ctx, "expects two values for list")
+				return
+			} else {
+				srcNameVal, dstNameVal = aa[0], aa[1]
+			}
+		default:// Multiple pairs of names:
+			// symlink  new old, new old ...
+			// symlink  new old  new old ...
+			if i+1 < na {
+				srcNameVal = ctx.a[i+0]
+				dstNameVal = ctx.a[i+1]
+				i += 1
+			} else {
+				var a = auto_get(ctx,symAt)//"@"
+				var l = auto_get(ctx,symLAngle)//"<"
+				var r = auto_get(ctx,symRAngle)//">"
+				erro(ctx, 
+					_f("expects pair of names (%T %v)", t, t),
+					_f("symlink: args=%v → %v", ctx.a, t),
+					_f("symlink: %v, %v, %v", a, l, r),
+				)
+				return
+			}
+		}
 
-        if srcDir, srcName = splitFileName(ctx, srcNameVal); srcName == "" {
-            prompt(ctx, "symlink: args=%v\n", ctx.a)
-            prompt(ctx, "symlink: src=%v\n", srcNameVal)
-            erro(ctx, "empty src filename (%T)", srcNameVal)
-            return
-        }
-        if dstDir, dstName = splitFileName(ctx, dstNameVal); dstName == "" {
-            prompt(ctx, "symlink: args=%v\n", ctx.a)
-            prompt(ctx, "symlink: dest=%v\n", dstNameVal)
-            erro(ctx, "empty dest filename (%T)", dstNameVal)
-            return
-        }
+		// Use the new allocation-free Symbol helpers
+		if srcDirSym, srcNameSym = splitFileName(ctx, srcNameVal); srcNameSym == symEmpty {
+			erro(ctx, 
+				_f("empty src filename (%T)", srcNameVal),
+				_f("symlink: src=%v", srcNameVal),
+				_f("symlink: args=%v", ctx.a),
+			)
+			return
+		}
+		if dstDirSym, dstNameSym = splitFileName(ctx, dstNameVal); dstNameSym == symEmpty {
+			erro(ctx, 
+				_f("empty dest filename (%T)", dstNameVal),
+				_f("symlink: dest=%v", dstNameVal),
+				_f("symlink: args=%v", ctx.a),
+			)
+			return
+		}
 
-        var src = srcName
-        var dst = dstName
-        if !filepath.IsAbs(src) { src = filepath.Join(srcDir, srcName) }
-        if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
-        if _, err := os.Stat(src); err != nil {
-            prompt(ctx, "symlink: %v: %v\n", srcName, err)
-            erro(ctx, "%v does not exist", srcName)
-            return
-        }
+		// --- GATEWAY TO THE OS DOMAIN ---
+		// Translate the Symbol holograms back into concrete OS strings for the hard drive
+		srcDir, srcName = srcDirSym.String(), srcNameSym.String()
+		dstDir, dstName = dstDirSym.String(), dstNameSym.String()
 
-        if !opts.relative {/* no rel required */} else
-        if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
-            prompt(ctx, "symlink: %s: rel(%s, %s)\n", dstName, dst, src)
-            erro(ctx, "%v", e)
-            return
-        } else {
-            if false {
-                debug(ctx,
+		var src = srcName
+		var dst = dstName
+		
+		// Everything from here down remains perfectly standard Go OS logic!
+		if !filepath.IsAbs(src) { src = filepath.Join(srcDir, srcName) }
+		if !filepath.IsAbs(dst) { dst = filepath.Join(dstDir, dstName) }
+		
+		if _, err := os.Stat(src); err != nil {
+			erro(ctx, 
+				_f("%v", err),
+			)
+			return
+		}
+
+		if !opts.relative {/* no rel required */} else
+		if s, e := filepath.Rel(filepath.Dir(dst), src); e != nil {
+			erro(ctx,
+				_f("%v", e),
+				_f("symlink: %s: rel(%s, %s)\n", dstName, dst, src))
+			return
+		} else {
+			if false {
+				debug(ctx,
 					_f("%v %v\t%s", srcDir, srcName, src),
 					_f("%v %v\t%s", dstDir, dstName, dst),
 					_f("%v", s))
-            }
-            src = s
-        }
+			}
+			src = s
+		}
 
-        if !opts.path {/* no mkdir */} else
-        if dstDir == "" || dstDir == "." || dstDir == pathSep {
-            // no need to mkdir: . or /
-        } else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
-            erro(ctx, "%v", err)
-            return
-        }
+		if !opts.path {/* no mkdir */} else
+		if dstDir == "" || dstDir == "." || dstDir == string(filepath.Separator) {
+			// no need to mkdir: . or /
+		} else if err := os.MkdirAll(dstDir, os.FileMode(0755)); err != nil {
+			erro(ctx, "%v", err)
+			return
+		}
 
-        var rm bool
-        if rm = opts.force; rm {
-            // overwrite...
-        } else if s, e := os.Readlink(dst); e != nil {
-            if false {
-                prompt(ctx, "%v: readlink failed (%T)\n", dstName, e)
-                erro(ctx, "%v", e)
-            }
-        } else if rm = s != src; !rm {
-            continue outer
-        }
+		var rm bool
+		if rm = opts.force; rm {
+			// overwrite...
+		} else if s, e := os.Readlink(dst); e != nil {
+			if false { erro(ctx, 
+				_f("%v: readlink failed (%T)", dstName, e),
+				_f("%v", e))}
+		} else if rm = s != src; !rm {
+			continue outer
+		}
 
-        if rm { if e := os.Remove(dst); e != nil {
-            prompt(ctx, "%v: remove old symlink failed (%T)\n", dstName, e)
-            erro(ctx, "%v", e)
-            return
-        }}
-        if err := os.Symlink(src, dst); err != nil {
-            if opts.verbose { prompt(ctx, "… %s\n", err) }
-            break
-        } else if opts.verbose {
-            var d = trimPromptString(dstName)
-            var s = filepath.Base(srcName)
-            prompt(ctx, "%s → %s …… ok\n", d, s)
-        }
-    }
-    return
+		if rm { if e := os.Remove(dst); e != nil {
+			erro(ctx, 
+				_f("%v: remove old symlink failed (%T)", dstName, e),
+				_f("%v", e))
+			return
+		}}
+		if err := os.Symlink(src, dst); err != nil {
+			if opts.verbose { prompt(ctx, "… %s\n", err) }
+			break
+		} else if opts.verbose {
+			var d = trimPromptString(dstName)
+			var s = filepath.Base(srcName)
+			prompt(ctx, "%s → %s …… ok\n", d, s)
+		}
+	}
+	return
 }
 
 type __stat struct { builtinbase
@@ -30954,9 +31227,10 @@ func (ctx *__wildcard) x() any {
 	if ctx.cache && cacheFile != "" && len(ctx.files) > 0 {
 		if err := os.MkdirAll(filepath.Dir(cacheFile), 0700); err == nil {
 			var sb strings.Builder
+			var ctxDirSym = intern(ctx.dir)
 			for _, f := range ctx.files {
 				// Write the relative sub-path if it exists, otherwise full name
-				if f.dir == ctx.dir {
+				if f.dir == ctxDirSym {
 					sb.WriteString(filepath.Join(f.sub.String(), f.name.String()))
 				} else {
 					sb.WriteString(f.fullname())
