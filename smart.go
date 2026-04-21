@@ -56,9 +56,9 @@ const (
     recursiveTraversalClosurePre  = false
     recursiveTraversalClosurePost = false
     recursiveTraversalClosure = true
-    traverseDetectLoops = true // turn on/off traverse loop detection
-    enable_grep_bench   = true
-	escapedChars = "\"\r\n"
+    detectTraverseLoops = true // turn on/off traverse loop detection
+	shredderChars = "./-#~_*?" // ' ' \t \n \r
+	escaperChars = "\"\r\n"
 )
 
 type cmpres int
@@ -1345,20 +1345,22 @@ func __symbol(ctx Context, val Value) Symbol {
 }
 
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
+	if checkpoints { defer check_symbolize(v)(&res) }
 	switch t := v.(type) {
 	case *valbase, *null, *none, *undef: return
 	case *loc: return symbolize(t.Value)
 	case *xloc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
-	case *word: return getSymSeq(t.s)
 	case *globmeta: return []Symbol{intern(t.token.String())}
 	case *punct: return []Symbol{intern(t.token.String())}
 	case *answer: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *boolean: return []Symbol{_if(t.bool,symTrue,symFalse)}
 	case *prediction: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *option: return []Symbol{_if(t.bool,symOn,symOff)}
-	case *file: return getSymSeq(t.name)
+	case *word: return getSymSeq(t.s)
 	case *def: return getSymSeq(t.name)
+	case *file: return getSymSeq(t.name)
+	case *uselist: return getSymSeq(t.name)
 	case *builtin: return getSymSeq(t.name)
 	case *project: return getSymSeq(t.name)
 	case self: return getSymSeq(t.project.name)
@@ -1411,7 +1413,68 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *path:
 		for i, elem := range t.elems {
 			if i > 0 { res = append(res, symSlash) }
+
+			// Intercept and ignore PROOT/PTAIL.
+			// Their presence is naturally translated into slashes by the `i > 0` logic!
+			if p, ok := elem.(*punct); ok && (p.token == PROOT || p.token == PTAIL) {
+				continue
+			}
+
 			res = append(res, symbolize(elem)...)
+		}
+	case *url:
+		// 1. Scheme (e.g., "https:")
+		if t.Scheme != nil {
+			res = append(res, symbolize(t.Scheme)...)
+			res = append(res, symColon)
+		}
+
+		// 2. Authority (User, Password, Host, Port)
+		// If there is a Host or User, we inject the standard "//" boundary
+		if t.Host != nil || t.Username != nil {
+			res = append(res, symSlash, symSlash) // "//"
+
+			var hasUser bool
+			if t.Username != nil {
+				res = append(res, symbolize(t.Username)...)
+				hasUser = true
+			}
+			if t.Password != nil {
+				res = append(res, symColon)
+				res = append(res, symbolize(t.Password)...)
+				hasUser = true
+			}
+			if hasUser {
+				res = append(res, symAt) // "@"
+			}
+
+			if t.Host != nil {
+				res = append(res, symbolize(t.Host)...)
+			}
+			if t.Port != nil {
+				res = append(res, symColon)
+				res = append(res, symbolize(t.Port)...)
+			}
+		}
+
+		// 3. Path
+		if t.Path != nil {
+			res = append(res, symbolize(t.Path)...)
+		}
+
+		// 4. Query (e.g., "?key=val&foo=bar")
+		if len(t.Query) > 0 {
+			res = append(res, symQues) // "?"
+			for i, q := range t.Query {
+				if i > 0 { res = append(res, symAmpersand) } // "&"
+				res = append(res, symbolize(q)...)
+			}
+		}
+
+		// 5. Fragment (e.g., "#section1")
+		if t.Fragment != nil {
+			res = append(res, symHash)
+			res = append(res, symbolize(t.Fragment)...)
 		}
 	case *list:
 		for i, elem := range t.elems {
@@ -1534,8 +1597,7 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	}
 
 	// 2. Numeric comparison
-	kL, kR := metaL.Kind(), metaR.Kind()
-	if kL > 0 && kR > 0 {
+	if kL, kR := metaL.Kind(), metaR.Kind(); kL > 0 && kR > 0 {
 		var iL, iR int64
 		var fL, fR float64
 
@@ -2107,11 +2169,12 @@ type Time struct{ datetime }
 func (p *Time) kind() Kind { return KindTime }
 func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
 
+
 // ie. https://en.wikipedia.org/wiki/URL
 // ▶▶─<scheme>─(:)┬──────────────────────────────────────┬<path>┬───────────┬┬──────────────┬─▶◀
 //                └(//)┬──────────────┬<host>┬──────────┬┘      └(?)─<query>┘└(#)─<fragment>┘
 //                     └<userinfo>─(@)┘      └(:)─<port>┘
-type url struct{
+type url struct{ // scheme://user:pass@host:port/path?query#fragment
     Scheme Value
     Username Value
     Password Value
@@ -3583,7 +3646,7 @@ func (p *strcomp) src() (s string) {
     } ()
 
     // Escape string chars
-    for i := strings.IndexAny(s, escapedChars); i != -1; {
+    for i := strings.IndexAny(s, escaperChars); i != -1; {
         if _, err = buf.WriteString(s[:i]); err != nil {
             panic(err) // erro(ctx, "%v", err)
             return
@@ -3601,7 +3664,7 @@ func (p *strcomp) src() (s string) {
         }
 
         s = s[i+1:]
-        i = strings.IndexAny(s, escapedChars)
+        i = strings.IndexAny(s, escaperChars)
     }
     if _, err = buf.WriteString(s); err != nil {
         panic(err)
@@ -10258,12 +10321,14 @@ const (
 	symDot          // .
 	symDotDot       // ..
 	symSlash        // /
+	symBackslash    // \
 	symLparen       // (
 	symRparen       // )
 	symLbrace       // {
 	symRbrace       // }
 	symLbrack       // [
 	symRbrack       // ]
+	symHash         // #
 
 	symEqualSign    //  =   ASSIGN
 	symUnshiSign    //  =+  ASSIGN_USH
@@ -10314,7 +10379,7 @@ const (
 	symCTD // Current Temp Directory, aliases `$,`
 	symARGS
 	symSMART      // aka os.Args[0]
-	symSMART_ARGS // aka os.Args[1:]
+	symSMART_ARGS // aka os.Args[1:], NOTE: "_" is a shredder, SMART_ARGS must be after ARGS and SMART
 
 	symTrue
 	symFalse
@@ -10584,8 +10649,10 @@ const (
 // Do not mix them, or recursive shredding will shift the hardcoded IDs!
 var coreSymbols = []string{
 	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/",
-	"(", ")", "{", "}", "[", "]", "=", "=+", "+=",
+
+	// --- *START* punctuations ---
+	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/", `\`,
+	"(", ")", "{", "}", "[", "]", "#", "=", "=+", "+=",
 
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
@@ -10597,7 +10664,9 @@ var coreSymbols = []string{
 	"?", "?D", "?F", "?'",
 	"+", "+D", "+F", "+'",
 	"*?", "**",
-	
+	// --- *END* punctuations ---
+
+	// --- *START* monolithic strings ---
 	"CWD", "CRD", "CTD", "ARGS", "SMART", "SMART_ARGS",
 
 	"true", "false", "yes", "no", "on", "off",
@@ -10633,6 +10702,7 @@ var coreSymbols = []string{
 	"read", "relative", "out", "decode", "base64", "left", "right", "prefix", 
 	"suffix", "copy", "write", "update", "input", "container",
 
+	// --- *END* monolithic strings ---
 	// --- *SEPARATOR* of Atomic and Composite Symbols (ID shifting occurs after this point) ---
 
 	"read-dir", "relative-dir", "not-equal", 
@@ -10654,8 +10724,6 @@ func (sym Symbol) String() string {
 	return "<invalid-symbol-id>"
 }
 
-const illegalSymChars = "./-" // ' ' \t \n \r
-
 const (
 	NumNaN uint8 = 0 // Raw string, Idx is ignored
 	NumInt uint8 = 1 // Idx points to `numbers`
@@ -10673,14 +10741,14 @@ type SymMeta struct {
 
 // Inline helper methods for clean access
 func (m SymMeta) Kind() uint8 { return m.Flags & 0x03 }
-func (m SymMeta) Rank() int  { return int((m.Flags >> 2) & 0x0F) }
+func (m SymMeta) Rank() int { return int((m.Flags >> 2) & 0x0F) }
 
 var (
 	vocabM sync.RWMutex
 	vocab     []SymMeta
 	numbers   []uint64   // Side-table for numbers!
 	sequences [][]Symbol // Side-table for shredded sequences!
-	seqToSym map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
+	seqsyms map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
 	symbols map[string]Symbol
 )
 
@@ -10692,7 +10760,7 @@ func init() {
 	vocab = make([]SymMeta, 0, size)
 	numbers = make([]uint64, 0, size/20)
 	sequences = make([][]Symbol, 0, size/20)
-	seqToSym = make(map[uint64][]Symbol)
+	seqsyms = make(map[uint64][]Symbol)
 
 	// PASS 1: Reserve the EXACT integer IDs for core constants (0, 1, 2...)
 	// This ensures `symDot` is exactly where it belongs, even if later 
@@ -10706,7 +10774,7 @@ func init() {
 	// If "copy-file" recursively calls internLocked("copy"), "copy" will 
 	// safely be appended to the END of the vocab slice!
 	for i, s := range coreSymbols {
-		vocab[i] = computeSymMetaLocked(s)
+		vocab[i] = makeSymMetaLocked(s, Symbol(i))
 	}
 
 	keywords = make(map[Symbol]token, OFF - PROJECT)
@@ -10727,7 +10795,7 @@ func internLocked(s string) Symbol {
 	vocab = append(vocab, SymMeta{Text: s, Idx: -1}) // Placeholder
 
 	// 2. Evaluate metadata safely
-	meta := computeSymMetaLocked(s)
+	meta := makeSymMetaLocked(s, sym)
 
 	// 3. Overwrite placeholder
 	vocab[sym] = meta
@@ -10735,24 +10803,31 @@ func internLocked(s string) Symbol {
 	// 4. Register newly shredded strings into the fast-path map!
 	if meta.Kind() == SymSeq {
 		h := hashSeq(sequences[meta.Idx])
-		seqToSym[h] = append(seqToSym[h], sym)
+		seqsyms[h] = append(seqsyms[h], sym)
 	}
 	return sym
 }
 
-// computeSymMetaLocked isolates the logic so it can be used by both 
+// INLINEABLE: Blazing fast ASCII comparison with zero function overhead, the explicit
+// OR-chain above is the fastest instruction sequence the Go compiler can generate
+func isShredderChar(ch byte) bool { return ch == '~' || ch == '.' || ch == '-' || ch == '/' || ch == '#' || ch == '_' || ch == '*' || ch == '?' }
+func isShredderChar0(ch byte) bool { return strings.IndexByte(shredderChars, ch) >= 0 }
+
+// makeSymMetaLocked isolates the logic so it can be used by both 
 // internLocked AND the init() Two-Pass bootstrap.
-func computeSymMetaLocked(s string) SymMeta {
+func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 	meta := SymMeta{ Text: s, Idx: -1 }
 	kind := NumNaN
 
-	// Explicit bypass for Scanner Tokens that contain punctuation but MUST remain atomic
-	if s == ".." {
+	// 0. The Ultimate O(1) Atomic Bypass!
+	// Explicit bypass for Scanner Tokens and Automatic Variables.
+	// Any symbol defined in the const block between & and CWD is strictly atomic.
+	if symAmpersand <= sym && sym < symCWD {
 		meta.Flags = kind | (uint8(globRank(s)) << 2)
 		return meta
 	}
 
-	// 1. Fast boundary check for numbers
+	// 1. Fast boundary check for pure numbers
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
 			kind = NumInt
@@ -10765,31 +10840,78 @@ func computeSymMetaLocked(s string) SymMeta {
 		}
 	}
 
-	// 2. Shredding (Sequences)
-	if kind == NumNaN && strings.ContainsAny(s, ".-/") {
-		kind = SymSeq
-		meta.Idx = int32(len(sequences))
-		
+	// 2. Shredding (Sequences & Natural Number Extraction)
+	if kind == NumNaN {
 		var start int
 		var seq []Symbol
+		var didShred bool
+
 		for i := 0; i < len(s); i++ {
 			ch := s[i]
-			if ch == '.' || ch == '-' || ch == '/' {
+			isPunct := isShredderChar(ch)
+			isDigit := '0' <= ch && ch <= '9'
+
+			split := false
+			if isPunct {
+				split = true
+			} else if i > start {
+				// Detect transition between letters and digits (Natural Sort boundary)
+				prev := s[i-1]
+				prevIsDigit := '0' <= prev && prev <= '9'
+				prevIsPunct := isShredderChar(prev)
+				
+				if !prevIsPunct && (isDigit != prevIsDigit) {
+					split = true
+				}
+			}
+
+			if split {
+				didShred = true
 				if i > start {
 					seq = append(seq, internLocked(s[start:i])) 
 				}
-				switch ch {
-				case '.': seq = append(seq, symDot)
-				case '-': seq = append(seq, symDash)
-				case '/': seq = append(seq, symSlash)
+				if isPunct {
+					// --- COMPOSITE PUNCTUATION/WILDCARD LOOKAHEAD ---
+					if ch == '*' && i+1 < len(s) {
+						if s[i+1] == '*' {
+							seq = append(seq, symAsteriskAst) // "**"
+							i++ // Skip the second '*'
+							start = i + 1
+							continue
+						} else if s[i+1] == '?' {
+							seq = append(seq, symAsteriskQues) // "*?"
+							i++ // Skip the '?'
+							start = i + 1
+							continue
+						}
+					}
+
+					// Standard Punctuation/Wildcards
+					switch ch {
+					case '~': seq = append(seq, symTilde)
+					case '.': seq = append(seq, symDot)
+					case '-': seq = append(seq, symDash)
+					case '/': seq = append(seq, symSlash)
+					case '#': seq = append(seq, symHash)
+					case '_': seq = append(seq, symUnderscore)
+					case '*': seq = append(seq, symAsterisk)
+					case '?': seq = append(seq, symQues)
+					}
+					start = i + 1 // Punctuation is consumed into a symbol
+				} else {
+					start = i // A new alpha or digit block starts right here
 				}
-				start = i + 1
 			}
 		}
-		if start < len(s) {
-			seq = append(seq, internLocked(s[start:]))
+
+		if didShred {
+			kind = SymSeq
+			meta.Idx = int32(len(sequences))
+			if start < len(s) {
+				seq = append(seq, internLocked(s[start:]))
+			}
+			sequences = append(sequences, seq)
 		}
-		sequences = append(sequences, seq)
 	}
 
 	meta.Flags = kind | (uint8(globRank(s)) << 2)
@@ -10807,8 +10929,8 @@ func intern(s string) Symbol {
 	case "*?": return symWildcardShort
 	}
 	if false && checkpoints {
-		if len(s)>1 && strings.ContainsAny(s, illegalSymChars) {
-			panic(`illegal symbol contains any of "`+illegalSymChars+`": `+s)
+		if len(s)>1 && strings.ContainsAny(s, shredderChars) {
+			panic(`illegal symbol contains any of "`+shredderChars+`": `+s)
 		}
 	}
 
@@ -10844,8 +10966,8 @@ func internBytes(b []byte) Symbol {
 		}
 	}
 	if false && checkpoints {
-		if bytes.ContainsAny(b, illegalSymChars) {
-			panic(`illegal symbol contains any of "`+illegalSymChars+`": `+string(b))
+		if bytes.ContainsAny(b, shredderChars) {
+			panic(`illegal symbol contains any of "`+shredderChars+`": `+string(b))
 		}
 	}
 
@@ -10906,7 +11028,7 @@ func internSeq(seq []Symbol) Symbol {
 
 	// 1. Zero-Allocation Fast Path: Hash Lookup (FIXED)
 	vocabM.RLock()
-	for _, sym := range seqToSym[h] {
+	for _, sym := range seqsyms[h] {
 		meta := vocab[sym]
 		// MUST verify it is a SymSeq before accessing the sequences slice!
 		if meta.Kind() == SymSeq && isSeqEqual(sequences[meta.Idx], seq) {
@@ -10920,7 +11042,7 @@ func internSeq(seq []Symbol) Symbol {
 	vocabM.Lock()
 	defer vocabM.Unlock()
 
-	for _, sym := range seqToSym[h] {
+	for _, sym := range seqsyms[h] {
 		meta := vocab[sym]
 		if meta.Kind() == SymSeq && isSeqEqual(sequences[meta.Idx], seq) {
 			return sym
@@ -10936,7 +11058,7 @@ func internSeq(seq []Symbol) Symbol {
 	// FIXED: Only register to the sequence map if the existing symbol is actually a sequence!
 	if sym, ok := symbols[str]; ok {
 		if vocab[sym].Kind() == SymSeq {
-			seqToSym[h] = append(seqToSym[h], sym)
+			seqsyms[h] = append(seqsyms[h], sym)
 		}
 		return sym
 	}
@@ -10951,8 +11073,8 @@ func internSeq(seq []Symbol) Symbol {
 	meta.Flags = SymSeq | (uint8(globRank(str)) << 2)
 	
 	sequences = append(sequences, permSeq)
+	seqsyms[h] = append(seqsyms[h], sym)
 	vocab = append(vocab, meta)
-	seqToSym[h] = append(seqToSym[h], sym)
 	
 	return sym
 }
@@ -12945,7 +13067,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 	}
 
 	// Recursion detection -- simply return to break it if looped.
-	if traverseDetectLoops {
+	if detectTraverseLoops {
 		if eq(ctx, targetValue, prereqValue) {
 			erro(ctx,
 				_f("%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue),
