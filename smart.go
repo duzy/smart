@@ -1401,7 +1401,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 		res = append(res, symbolize(t.Suffix)...)
 	case *pair:
 		res = append(res, symbolize(t.key)...)
-		res = append(res, symEqual) // =
+		res = append(res, symEqualSign) // =
 		res = append(res, symbolize(t.val)...)
 	case *qualword:
 		for i, elem := range t.elems {
@@ -10265,6 +10265,10 @@ const (
 	symLbrack       // [
 	symRbrack       // ]
 
+	symEqualSign    //  =   ASSIGN
+	symUnshiSign    //  =+  ASSIGN_USH
+	symAddeqSign    // +=   ASSIGN_ADD
+
 	symAt           // @
 	symAtD          // @D
 	symAtF          // @F
@@ -10277,14 +10281,14 @@ const (
 	symCaretD       // ^D
 	symCaretF       // ^F
 	symCaretA       // ^'
-	symLAngle       // <
-	symLAngleD      // <D
-	symLAngleF      // <F
-	symLAngleA      /// <'
-	symRAngle       // >
-	symRAngleD      // >D
-	symRAngleF      // >F
-	symRAngleA      // >'
+	symLangle       // <
+	symLangleD      // <D
+	symLangleF      // <F
+	symLangleA      /// <'
+	symRangle       // >
+	symRangleD      // >D
+	symRangleF      // >F
+	symRangleA      // >'
 	symPercent      // %
 	symPercentD     // %D
 	symPercentF     // %F
@@ -10581,7 +10585,7 @@ const (
 var coreSymbols = []string{
 	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/",
-	"(", ")", "{", "}", "[", "]",
+	"(", ")", "{", "}", "[", "]", "=", "=+", "+=",
 
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
@@ -12614,8 +12618,8 @@ func (p *execution) traversed(ctx Context, target Value) []Value {
         } else {
             p.targets = append(p.targets, target)
             auto_set(ctx, defVoid, symCaret, _list(p.targets...)) // ^
-            auto_set(ctx, defVoid, symLAngle, p.targets[0]) // <
-            auto_set(ctx, defVoid, symRAngle, p.targets[len(p.targets)-1]) // >
+            auto_set(ctx, defVoid, symLangle, p.targets[0]) // <
+            auto_set(ctx, defVoid, symRangle, p.targets[len(p.targets)-1]) // >
         }
     }
     return p.targets
@@ -12697,7 +12701,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     if false && truly(ctx, is_test_univ{}) {
         if x, y := target.(*file); y && strings.HasSuffix(x.name.String(), ".log") {
             defer func() {
-                var cc = pc(pc(ctx,auto_get(ctx,symRAngle)),x.fullname())
+                var cc = pc(pc(ctx,auto_get(ctx,symRangle)),x.fullname())
                 debug(cc, "%v %v %v", p.language, args, res)
             } ()
         }
@@ -13465,7 +13469,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
     if target = auto_get(ctx, symAt); isTrivial(target) {
         erro(ctx, "'@' is not defined")
     } else if f, filename, _ = as_fullname_file(ctx, target, closured...); f == nil {
-        if depend := auto_get(ctx,symRAngle); !isTrivial(depend) {
+        if depend := auto_get(ctx,symRangle); !isTrivial(depend) {
             panic(traveTargetNotDefinedFile)
         } else if true {
             erro(ctx,
@@ -13525,7 +13529,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 
     if data.Len() == 0 {
         erro(ctx, "empty configuration data",
-			_f("%v: %v %v\n", filename, auto_get(ctx,symAt), auto_get(ctx,symRAngle)))
+			_f("%v: %v %v\n", filename, auto_get(ctx,symAt), auto_get(ctx,symRangle)))
     } else if f := ctx.proj.configuration_sm(ctx); (f == nil || !f.exists()) && opts.debug>0 {
         // NOTE: TrimSpace to ease emacs *compilation* parse errors
         debug(ctx, "%v: %v\n%s\n", filename, auto_get(ctx,symAt), strings.TrimSpace(data.String()))
@@ -15700,8 +15704,8 @@ const (
 	// ⩵ ⩶
 	// _assign_beg
 	ASSIGN     //   =       define a new symbol (don't override, neither !=)
-	ASSIGN_SHI //   =+      shift (insert to the front)
-	ASSIGN_ADD //  +=       append
+	ASSIGN_USH //   =+      unshift (add to front, versus: 'shift': remove from front; 'pop': remove from end)
+	ASSIGN_ADD //  +=       append (add to end, 'push', versus: 'prepend', 'unshift': add to front)
 	ASSIGN_QUE //  ?=       set if absent (defined, including empty)
 	ASSIGN_EXC //  !=       execute a shell script and set a variable to its output (.SHELLSTATUS)
 	// TODO: more assigns like !?=  !:=  !+=
@@ -15709,9 +15713,9 @@ const (
 	ASSIGN_CO2 // ::= ⩴    all-expanded (POSIX standard)
 	ASSIGN_CO3 // ;:=       all and unexpanded-force
 	ASSIGN_SC1 //  ;=       unexpanded-force
-	ASSIGN_SUB //  -=       remove
-	ASSIGN_SAD // -+=       remove-append assign
-	ASSIGN_SSH //  -=+      remove-shift assign
+	ASSIGN_POP //  -=       pop (remove from end, versus: 'shift': remove from front)
+	ASSIGN_SAD // -+=       pop-append assign
+	ASSIGN_SUS //  -=+      pop-unshift assign
 	// _assign_end
 	// _operator_end
 
@@ -15844,7 +15848,7 @@ var tokens = [...]string{
 	DELEGATE:  "$",
 
 	ASSIGN:     "=",
-	ASSIGN_SHI: "=+",
+	ASSIGN_USH: "=+",
 	ASSIGN_ADD: "+=",
 	ASSIGN_QUE: "?=",
 	ASSIGN_EXC: "!=",
@@ -15853,9 +15857,9 @@ var tokens = [...]string{
 	ASSIGN_CO3: ";:=",
 
 	ASSIGN_SC1: ";=",
-	ASSIGN_SUB: "-=",
+	ASSIGN_POP: "-=",
 	ASSIGN_SAD: "-+=",
-	ASSIGN_SSH: "-=+",
+	ASSIGN_SUS: "-=+",
 
 	MINUS: "-", // DASH
 	PLUS:  "+",
@@ -15933,7 +15937,7 @@ func (tok token) is_constant() bool         { return UNDEF <= tok && tok <= OFF 
 func (tok token) is_closure() bool          { return CLOSURE == tok }
 func (tok token) is_closure_delegate() bool { return CLOSURE == tok || tok == DELEGATE }
 func (tok token) is_delegate() bool         { return DELEGATE == tok }
-func (tok token) is_assign() bool           { return ASSIGN <= tok && tok <= ASSIGN_SSH }
+func (tok token) is_assign() bool           { return ASSIGN <= tok && tok <= ASSIGN_SUS }
 func (tok token) is_rule_delim() bool       { return BAR <= tok && tok <= SOLON }
 func (tok token) is_list_delim() bool {
 	switch tok {
@@ -16965,10 +16969,10 @@ func (s *scanner) scan(ctx Context) {
 				s.tok = MINUS
 			}
 		} else if s.ch == '=' { // -=
-			s.tok = ASSIGN_SUB
+			s.tok = ASSIGN_POP
 			s.next(ctx)
 			if s.ch == '+' { // -=+
-				s.tok = ASSIGN_SSH
+				s.tok = ASSIGN_SUS
 				s.next(ctx)
 			}
 		} else if s.ch == '+' { // -+
@@ -17057,7 +17061,7 @@ func (s *scanner) scan(ctx Context) {
 			s.tok = SELECT_PROG1
 			s.next(ctx) 
 		} else if s.ch == '+' {
-			s.tok = ASSIGN_SHI
+			s.tok = ASSIGN_USH
 			s.next(ctx)
 		} else {
 			s.tok = ASSIGN
@@ -20248,7 +20252,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 				erro(ctx, "prev def '%s' is nil", sym)
 			} else if x != d && x.scope != d.scope && alt == nil {
 				switch tok {
-				case ASSIGN_ADD, ASSIGN_SHI:
+				case ASSIGN_ADD, ASSIGN_USH:
 					if d.o == defVoid && d.o != x.o { d.origin(ctx, x.o) }
 					if !isTrivial(x.value) { d.append(ctx, x.value) }
 				}
@@ -20300,7 +20304,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			default:
 				erro(ctx, "unknown: %v %v", _ctx.o, d.name)
 			}
-		case ASSIGN_SHI: // =+
+		case ASSIGN_USH: // =+
 			if d.o == defInvalid { d.o = defExpand0 }
 			switch _ctx.o = d.o|defAssign2; {
 			case d.o&defExpand0 != 0:
@@ -20310,7 +20314,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			default:
 				erro(ctx, "unknown: %v %v", _ctx.o, d.name)
 			}
-		case ASSIGN_SUB: // -=
+		case ASSIGN_POP: // -=
 			if d.o == defInvalid { d.o = defExpand0 }
 			if d.value != nil {
 				if dv := merge(d.value); len(dv) > 0 {
@@ -20333,7 +20337,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 					d.value = ease(ctx, _vals)
 				}
 			}
-		case ASSIGN_SAD, ASSIGN_SSH: // -+=, -=+
+		case ASSIGN_SAD, ASSIGN_SUS: // -+=, -=+
 			var vals, _vals []Value
 			if d.o == defInvalid { d.o = defExpand0 }
 			if tok == ASSIGN_SAD {
@@ -20362,7 +20366,7 @@ func (l ul) assign(ctx Context, idents []Value) (res []*def) {
 			}
 			switch tok {
 			case ASSIGN_SAD: _vals = append(_vals, vals...) // -+=
-			case ASSIGN_SSH: _vals = append(vals, _vals...) // -=+
+			case ASSIGN_SUS: _vals = append(vals, _vals...) // -=+
 			}
 			d.value = ease(ctx, _vals)
 		default:
@@ -20647,14 +20651,14 @@ var rule_autos = map[Symbol]struct{}{
 	symCaretD:    struct{}{}, // ^D
 	symCaretF:    struct{}{}, // ^F
 	symCaretA:    struct{}{}, // ^'
-	symLAngle:    struct{}{}, // <
-	symLAngleD:   struct{}{}, // <D
-	symLAngleF:   struct{}{}, // <F
-	symLAngleA:   struct{}{}, // <'
-	symRAngle:    struct{}{}, // >
-	symRAngleD:   struct{}{}, // >D
-	symRAngleF:   struct{}{}, // >F
-	symRAngleA:   struct{}{}, // >'
+	symLangle:    struct{}{}, // <
+	symLangleD:   struct{}{}, // <D
+	symLangleF:   struct{}{}, // <F
+	symLangleA:   struct{}{}, // <'
+	symRangle:    struct{}{}, // >
+	symRangleD:   struct{}{}, // >D
+	symRangleF:   struct{}{}, // >F
+	symRangleA:   struct{}{}, // >'
 	symPercent:   struct{}{}, // %
 	symPercentD:  struct{}{}, // %D
 	symPercentF:  struct{}{}, // %F
@@ -21649,8 +21653,8 @@ minusloop:
 			for {
 				switch l.p.tok { case SEMICOLON, LINEND, EOF: break depsloop }
 				deps = append(deps, l.expr(cc)) ; l.p.spaces(ctx)
-				exe.set(&exe, defVoid, symLAngle, deps[0])
-				exe.set(&exe, defVoid, symRAngle, deps[len(deps)-1])
+				exe.set(&exe, defVoid, symLangle, deps[0])
+				exe.set(&exe, defVoid, symRangle, deps[len(deps)-1])
 				exe.set(&exe, defVoid, symCaret, ease(ctx, deps))
 			}
 
@@ -25707,7 +25711,7 @@ func (ctx *modifier_readfile) x(args ...Value) (result any) {
     if isTrivial(target) {
         erro(ctx, "%v: target is trivial (%v)", target, args)
     } else if file, filename, _ = as_fullname_file(ctx, target); file == nil {
-        if val := auto_get(ctx, symRAngle); val != nil {
+        if val := auto_get(ctx, symRangle); val != nil {
             panic(traveTargetNotDefinedFile)
         } else if true {
             erro(ctx, _f("%v: not a file: %s", target, ts(target,ctx)))
@@ -30688,8 +30692,8 @@ outer:
 				i += 1
 			} else {
 				var a = auto_get(ctx,symAt)//"@"
-				var l = auto_get(ctx,symLAngle)//"<"
-				var r = auto_get(ctx,symRAngle)//">"
+				var l = auto_get(ctx,symLangle)//"<"
+				var r = auto_get(ctx,symRangle)//">"
 				erro(ctx, 
 					_f("expects pair of names (%T %v)", t, t),
 					_f("symlink: args=%v → %v", ctx.a, t),
