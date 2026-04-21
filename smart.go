@@ -10073,6 +10073,8 @@ type Symbol uint32
 
 const (
 	symEmpty Symbol = iota // ""
+	symSpace
+
 	sym_0
 	sym_1
 	sym_2
@@ -10084,72 +10086,62 @@ const (
 	sym_8
 	sym_9
 
-	symUnderscore   // "_"
-	symDash         // "-"
-	symDollarSign   // "$"
 	symAmpersand    // "&"
+	symDollarSign   // "$"
+	symDash         // "-"
+	symUnderscore   // "_"
 	symApostrophe   // '
 	symQuotation    // "
+	symComma        // ,
 	symTilde        // ~
-	symAsteriskAst  // **
-	symAsteriskQues // *?
+	symDot          // .
+	symDotDot       // ..
+	symSlash        // /
+
 	symAt           // @
 	symAtD          // @D
 	symAtF          // @F
-	symAtApost      // @'
+	symAtA          // @'
 	symBar          // |
 	symBarD         // |D
 	symBarF         // |F
-	symBarApost     // |'
+	symBarA         // |'
 	symCaret        // ^
 	symCaretD       // ^D
 	symCaretF       // ^F
-	symCaretApost   // ^'
+	symCaretA       // ^'
 	symLAngle       // <
 	symLAngleD      // <D
 	symLAngleF      // <F
-	symLAngleApost  // <'
+	symLAngleA      /// <'
 	symRAngle       // >
 	symRAngleD      // >D
 	symRAngleF      // >F
-	symRAngleApost  // >'
+	symRAngleA      // >'
 	symPercent      // %
 	symPercentD     // %D
 	symPercentF     // %F
-	symPercentApost // %'
+	symPercentA     // %'
 	symAsterisk     // *
 	symAsteriskD    // *D
 	symAsteriskF    // *F
-	symAsteriskApost// *'
+	symAsteriskA    // *'
 	symQues         // ?
 	symQuesD        // ?D
 	symQuesF        // ?F
-	symQuesApost    // ?'
+	symQuesA        // ?'
 	symPlus         // +
 	symPlusD        // +D
 	symPlusF        // +F
-	symPlusApost    // +'
+	symPlusA        // +'
 
-	symSpace        //
-	symSlash        // /
-	symComma        // ,
-	symDot          // .
-	symDotDot       // ..
-	symDotBase      // .base
-	symDotConfigure // .configure
-	symDotContainer // .container
-	symDotOS     // .os
-	symDotMode   // .mode
-	symDotGoals  // .goals
-	symDotSmart  // .smart
-	symOS        // os
-	symMode      // mode
-	symGoals     // goals
-	symSmart     // smart
-
+	symAsteriskQues // *?
+	symAsteriskAst  // **
+	
 	symCWD // Current Work Directory, aliases `$/`
 	symCRD // Current Relative Directory, aliases `$.`
 	symCTD // Current Temp Directory, aliases `$,`
+	symARGS
 	symSMART      // aka os.Args[0]
 	symSMART_ARGS // aka os.Args[1:]
 
@@ -10160,10 +10152,21 @@ const (
 	symOn
 	symOff
 
+	symOS        // os
+	symMode      // mode
+	symGoals     // goals
+	symSmart     // smart
+
+	symMailto
+	symFtp
+	symFtps
+	symHttp
+	symHttps
+
+	symDock
 	symShell
 	symPython
 	symPerl
-	symDock
 	symPlain
 	symPlainLine
 	symText
@@ -10183,7 +10186,6 @@ const (
 	symAnswer
 	symBool
 	symBoolean
-	symUnique
 	symDefer
 	symVar
 	symSet
@@ -10201,6 +10203,7 @@ const (
 	symFullname
 
 	symForeach
+	symUnique
 	symGrep
 	symAddprefix
 	symAddsuffix
@@ -10214,6 +10217,7 @@ const (
 	symPrompt
 	symPreserve
 	symExpand
+	symString
 	symStringify
 	symReveal
 	symDisclose
@@ -10237,18 +10241,6 @@ const (
 	symDirty
 	symBy
 
-	symCopyFile
-	symTouchFile
-	symWriteFile
-	symReadFile
-	symUpdateFile
-	symConfigureInput
-	symConfigureFile
-
-	symGitdir
-	symGitAhead
-	symGitModified
-
 	symTypeof
 	symOrigin
 	symDefined
@@ -10264,9 +10256,9 @@ const (
 	symAnd
 	symNot
 	symXor
-	symEqual // =
+	symEqual // 'equal', not '='
+	symEq
 	symNe
-	symNotEqual
 	symMatch
 	symGreater
 	symLess
@@ -10280,20 +10272,17 @@ const (
 	symCall
 	symList
 	symWhich
-	symMinus
 
-	symMultiply
-	symMul
 	symDivide
 	symDiv
-	symSplit
-	symSplitQuote
-	symSplitQuoteJoin
-	symSplitJoinQuote
+	symMultiply
+	symMul
+	symMinus // 'minus', not '-'
 
 	symElement
 	symField
 	symFields
+	symSplit
 	symUses
 	symBare
 	symPath
@@ -10301,11 +10290,7 @@ const (
 	symResolve
 	symStrip
 	symTrim
-	symTrimLeft
-	symTrimRight
-	symTrimPrefix
-	symTrimSuffix
-	symTrimExt
+	symExt
 
 	symTitle
 	symIndent
@@ -10316,10 +10301,6 @@ const (
 	symSubstring
 	symPatsubst
 	symContains
-	symFilterOut
-	symDecodeBase64
-	symEncodeBase64
-	symExt
 	symBase
 	symBase2
 	symBase3
@@ -10352,13 +10333,13 @@ const (
 	symUndir9
 	symUndirs
 	symReldir
-	symRelativeDir
 	symFile
 	symStat
 	symWildcard
-	symReadDir
 	symPrintf
 	symClean
+	symGit
+	symGitdir
 
 	symChdir
 	symRename
@@ -10367,13 +10348,57 @@ const (
 	symSymlink
 	symTruncate
 	symReturn
+
+	symRead
+	symRelative
+	symOut
+	symDecode
+	symBase64
+	symLeft
+	symRight
+	symPrefix
+	symSuffix
+	symCopy
+	symWrite
+	symUpdate
+	symInput
+	symContainer
+
+	symReadDir
+	symRelativeDir
+	symNotEqual
+	symFilterOut
+	symDecodeBase64
+	symEncodeBase64
+
+	symTrimLeft
+	symTrimRight
+	symTrimPrefix
+	symTrimSuffix
+	symTrimExt
+	
+	symSplitQuote
+	symSplitQuoteJoin
+	symSplitJoinQuote
+	symCopyFile
+	symTouchFile
+	symWriteFile
+	symReadFile
+	symUpdateFile
+	symConfigureInput
+	symConfigureFile
+
+	symGitAhead
+	symGitModified
 	symServeHttp
 
-	symHttp
-	symHttps
-	symFtp
-	symFtps
-	symMailto
+	symDotBase      // .base
+	symDotConfigure // .configure
+	symDotContainer // .container
+	symDotOS        // .os
+	symDotMode      // .mode
+	symDotGoals     // .goals
+	symDotSmart     // .smart
 	
 	symUnderline     = symUnderscore
 	symWildcardOne   = symAsterisk // *
@@ -10382,10 +10407,14 @@ const (
 	symWildcardShort = symAsteriskQues // *?
 )
 
-// coreSymbols are symbols don't need to be serialized on compilation.
+// WARNING: The order of this slice is strictly mapped to the integer consts above.
+// ALL atomic primitives (punctuation, keywords) MUST be placed at the top.
+// ALL composite words (like "copy-file") MUST be placed at the bottom. 
+// Do not mix them, or recursive shredding will shift the hardcoded IDs!
 var coreSymbols = []string{
-	"", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"_", "-", "$", "&", "'", `"`, "~", "**", "*?",
+	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	"&", "$", "-", "_", "'", `"`, ",", "~", ".", "..", "/",
+
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
 	"^", "^D", "^F", "^'",
@@ -10395,42 +10424,53 @@ var coreSymbols = []string{
 	"*", "*D", "*F", "*'",
 	"?", "?D", "?F", "?'",
 	"+", "+D", "+F", "+'",
+	"*?", "**",
 	
-	" ", "/", ",", ".", "..", dot_base, dot_configure, dot_container,
-	".os", ".mode", ".goals", ".smart", "os", "mode", "goals", "smart",
-
-	"CWD", "CRD", "CTD", "SMART", "SMART_ARGS",
+	"CWD", "CRD", "CTD", "ARGS", "SMART", "SMART_ARGS",
 
 	"true", "false", "yes", "no", "on", "off",
 
-	"shell", "python", "perl", "dock", "plain", "plainline", "text", "json", "xml", "yaml",
+	"os", "mode", "goals", "smart",
+
+	"mailto", "ftp", "ftps", "http", "https",
+
+	"dock", "shell", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
 	"assert", "append", "eval", "value", "configure", "configuration",
 
-	"auto", "autoload", "answer", "bool", "boolean", "unique", "defer", "var", "set", "dep", "env",
+	"auto", "autoload", "answer", "bool", "boolean", "defer", "var", "set", "dep", "env",
 	"str", "self", "here", "word", "quote", "defs", "glob", "regex", "fullname",
 
-	"foreach", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
-	"print", "prompt", "preserve", "expand", "stringify", "reveal", "disclose", "closure",
+	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
+	"print", "prompt", "preserve", "expand", "string", "stringify", "reveal", "disclose", "closure",
 	"cd", "mkdir", "sudo", "fork", "wait", "stamp", "touch", "deps",
 	"check", "case", "cond", "if", "where", "once", "dirty", "by",
-	"copy-file", "touch-file", "write-file", "read-file", "update-file", "configure-input", "configure-file",
-	"gitdir", "git-ahead", "git-modified",
 
 	"typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace", "defor",
-	"or", "and", "not", "xor", "equal", "ne", "not-equal", "match", "greater", "less",
-	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which", "minus",
-	"multiply", "mul", "divide", "div", "split", "split-quote", "split-quote-join", "split-join-quote",
-	"element", "field", "fields", "uses", "bare", "path", "finalize", "resolve", "strip",
-	"trim", "trim-left", "trim-right", "trim-prefix", "trim-suffix", "trim-ext",
+	"or", "and", "not", "xor", "equal", "eq", "ne", "match", "greater", "less",
+	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which",
+	"divide", "div", "multiply", "mul", "minus",
+	"element", "field", "fields", "split", "uses", "bare", "path", "finalize", "resolve", "strip",
+	"trim", "ext",
 	"title", "indent", "uppercase", "lowercase", "subst", "substitute", "substring", "patsubst", "contains",
-	"filter-out", "decode-base64", "encode-base64", "ext",
 	"base", "base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "bases", "chopdir",
 	"dir", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9", "dirs",  
 	"undir", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9", "undirs",
-	"reldir", "relative-dir", "file", "stat", "wildcard", "read-dir", "printf", "clean",
-	"chdir", "rename", "remove", "link", "symlink", "truncate", "return", "serve-http",
+	"reldir", "file", "stat", "wildcard", "printf", "clean", "git", "gitdir", 
+	"chdir", "rename", "remove", "link", "symlink", "truncate", "return",
 
-	"http", "https", "ftp", "ftps", "mailto",
+	"read", "relative", "out", "decode", "base64", "left", "right", "prefix", 
+	"suffix", "copy", "write", "update", "input", "container",
+
+	// --- *SEPARATOR* of Atomic and Composite Symbols (ID shifting occurs after this point) ---
+
+	"read-dir", "relative-dir", "not-equal", 
+	"filter-out", "decode-base64", "encode-base64",
+	"trim-left", "trim-right", "trim-prefix", "trim-suffix", "trim-ext",
+	"split-quote", "split-quote-join", "split-join-quote",
+	"copy-file", "touch-file", "write-file", "read-file", "update-file", "configure-input", "configure-file",
+	"git-ahead", "git-modified", "serve-http",
+
+	".base", ".configure", ".container", ".os", ".mode", ".goals", ".smart",
 }
 
 func (sym Symbol) String() string {
@@ -10441,6 +10481,8 @@ func (sym Symbol) String() string {
 	}
 	return "<invalid-symbol-id>"
 }
+
+const illegalSymChars = "./-" // ' ' \t \n \r
 
 const (
 	NumNaN uint8 = 0 // Raw string, Idx is ignored
@@ -10476,19 +10518,21 @@ func init() {
 	symbols = make(map[string]Symbol, size) 
 	vocab = make([]SymMeta, 0, size)
 	numbers = make([]uint64, 0, size/20)
+	sequences = make([][]Symbol, 0, size/20)
 
-	// PASS 1: Reserve the exact IDs for core constants
-	// This prevents recursive shreds from stealing early IDs.
+	// PASS 1: Reserve the EXACT integer IDs for core constants (0, 1, 2...)
+	// This ensures `symDot` is exactly where it belongs, even if later 
+	// symbols trigger recursive shredding.
 	for i, s := range coreSymbols {
 		symbols[s] = Symbol(i)
-		vocab = append(vocab, SymMeta{}) // Append an empty placeholder
+		vocab = append(vocab, SymMeta{Text: s, Idx: -1}) // Placeholder
 	}
 
-	// PASS 2: Safely calculate the metadata and shreds
-	// Now if makeSymMeta recursively calls internLocked, the new 
-	// shreds will safely be appended AFTER the core symbols.
+	// PASS 2: Safely calculate metadata and shred sequences.
+	// If "copy-file" recursively calls internLocked("copy"), "copy" will 
+	// safely be appended to the END of the vocab slice!
 	for i, s := range coreSymbols {
-		vocab[i] = makeSymMeta(s)
+		vocab[i] = computeSymMetaLocked(s)
 	}
 
 	keywords = make(map[Symbol]token, OFF - PROJECT)
@@ -10497,12 +10541,40 @@ func init() {
 	}
 }
 
-func makeSymMeta(s string) SymMeta { // Return by VALUE
-	meta, kind := SymMeta{ Text: s, Idx: -1 }, NumNaN
+// internLocked assumes vocabM.Lock() is already held by the caller!
+func internLocked(s string) Symbol {
+	if sym, ok := symbols[s]; ok {
+		return sym
+	}
 
-	// 1. Fast boundary check for numbers: starts with digit, '-', or '.'
+	// 1. Claim ID and reserve slot immediately
+	sym := Symbol(len(vocab))
+	symbols[s] = sym
+	vocab = append(vocab, SymMeta{Text: s, Idx: -1}) // Placeholder
+
+	// 2. Evaluate metadata safely
+	meta := computeSymMetaLocked(s)
+
+	// 3. Overwrite placeholder
+	vocab[sym] = meta
+
+	return sym
+}
+
+// computeSymMetaLocked isolates the logic so it can be used by both 
+// internLocked AND the init() Two-Pass bootstrap.
+func computeSymMetaLocked(s string) SymMeta {
+	meta := SymMeta{ Text: s, Idx: -1 }
+	kind := NumNaN
+
+	// Explicit bypass for Scanner Tokens that contain punctuation but MUST remain atomic
+	if s == ".." {
+		meta.Flags = kind | (uint8(globRank(s)) << 2)
+		return meta
+	}
+
+	// 1. Fast boundary check for numbers
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
-		// TODO: A better int64/float64 parser is required!
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
 			kind = NumInt
 			meta.Idx = int32(len(numbers))
@@ -10514,9 +10586,10 @@ func makeSymMeta(s string) SymMeta { // Return by VALUE
 		}
 	}
 
-	// 2. If NOT a number, check for Shredding (Sequences)
+	// 2. Shredding (Sequences)
 	if kind == NumNaN && strings.ContainsAny(s, ".-/") {
-		kind, meta.Idx = SymSeq, int32(len(sequences))
+		kind = SymSeq
+		meta.Idx = int32(len(sequences))
 		
 		var start int
 		var seq []Symbol
@@ -10524,7 +10597,6 @@ func makeSymMeta(s string) SymMeta { // Return by VALUE
 			ch := s[i]
 			if ch == '.' || ch == '-' || ch == '/' {
 				if i > start {
-					// Safe recursive call without deadlocking!
 					seq = append(seq, internLocked(s[start:i])) 
 				}
 				switch ch {
@@ -10541,12 +10613,9 @@ func makeSymMeta(s string) SymMeta { // Return by VALUE
 		sequences = append(sequences, seq)
 	}
 
-	meta.Flags = kind | (uint8(globRank(s))<<2)
-
+	meta.Flags = kind | (uint8(globRank(s)) << 2)
 	return meta
 }
-
-const illegalSymChars = "./-" // ' ' \t \n \r
 
 // intern takes a string, registers it if new, and returns its unique Symbol ID.
 func intern(s string) Symbol {
@@ -10617,32 +10686,6 @@ func internBytes(b []byte) Symbol {
 	return sym
 }
 
-// internLocked assumes vocabM.Lock() is already held by the caller!
-func internLocked(s string) Symbol {
-	if sym, ok := symbols[s]; ok {
-		return sym
-	}
-
-	// Slice Mutation during append Evaluation:
-	//   This `vocab = append(vocab, makeSymMeta(s))` silently corrupts and overwrites
-	//   the memory of `vocab`, because `makeSymMeta` is calling this `internLocked` too.
-	//
-	// FIXME: break cycling invocation: makeSymMeta->internLocked->makeSymMeta!
-
-	// 1. Claim the ID and reserve the slot IMMEDIATELY
-	sym := Symbol(len(vocab))
-	symbols[s] = sym
-	vocab = append(vocab, SymMeta{/* Text: s, Idx: -1 */}) // Placeholder
-
-	// 2. Evaluate the metadata (This is now safe to recurse!)
-	meta := makeSymMeta(s)
-
-	// 3. Overwrite the placeholder with the actual data
-	vocab[sym] = meta
-
-	return sym
-}
-
 func readSymSeq(sym Symbol) []Symbol {
 	vocabM.RLock()
 	meta := vocab[sym]
@@ -10650,7 +10693,7 @@ func readSymSeq(sym Symbol) []Symbol {
 
 	var seq []Symbol
 	if meta.Kind() == SymSeq {
-		seq = sequences[meta.Idx]
+		seq = sequences[meta.Idx] // FIXME: require any mutex lock?
 	} else {
 		seq = []Symbol{sym}
 	}
@@ -20339,44 +20382,44 @@ func (l ul) modification(ctx Context) *modification {
 // Similar to makefile automatic variables, see
 //   * https://www.gnu.org/software/make/manual/html_node/Automatic-Variables.html#Automatic-Variables
 var rule_autos = map[Symbol]struct{}{
-	symAt           : struct{}{}, // @
-	symAtD          : struct{}{}, // @D
-	symAtF          : struct{}{}, // @F
-	symAtApost      : struct{}{}, // @'
-	symBar          : struct{}{}, // |
-	symBarD         : struct{}{}, // |D
-	symBarF         : struct{}{}, // |F
-	symBarApost     : struct{}{}, // |'
-	symCaret        : struct{}{}, // ^
-	symCaretD       : struct{}{}, // ^D
-	symCaretF       : struct{}{}, // ^F
-	symCaretApost   : struct{}{}, // ^'
-	symLAngle       : struct{}{}, // <
-	symLAngleD      : struct{}{}, // <D
-	symLAngleF      : struct{}{}, // <F
-	symLAngleApost  : struct{}{}, // <'
-	symRAngle       : struct{}{}, // >
-	symRAngleD      : struct{}{}, // >D
-	symRAngleF      : struct{}{}, // >F
-	symRAngleApost  : struct{}{}, // >'
-	symPercent      : struct{}{}, // %
-	symPercentD     : struct{}{}, // %D
-	symPercentF     : struct{}{}, // %F
-	symPercentApost : struct{}{}, // %'
-	symAsterisk     : struct{}{}, // *
-	symAsteriskD    : struct{}{}, // *D
-	symAsteriskF    : struct{}{}, // *F
-	symAsteriskApost: struct{}{}, // *'
-	symQues         : struct{}{}, // ?
-	symQuesD        : struct{}{}, // ?D
-	symQuesF        : struct{}{}, // ?F
-	symQuesApost    : struct{}{}, // ?'
-	symPlus         : struct{}{}, // +
-	symPlusD        : struct{}{}, // +D
-	symPlusF        : struct{}{}, // +F
-	symPlusApost    : struct{}{}, // +'
-	symDash         : struct{}{}, // -
-	symTilde        : struct{}{}, // ~
+	symAt:        struct{}{}, // @
+	symAtD:       struct{}{}, // @D
+	symAtF:       struct{}{}, // @F
+	symAtA:       struct{}{}, // @'
+	symBar:       struct{}{}, // |
+	symBarD:      struct{}{}, // |D
+	symBarF:      struct{}{}, // |F
+	symBarA:      struct{}{}, // |'
+	symCaret:     struct{}{}, // ^
+	symCaretD:    struct{}{}, // ^D
+	symCaretF:    struct{}{}, // ^F
+	symCaretA:    struct{}{}, // ^'
+	symLAngle:    struct{}{}, // <
+	symLAngleD:   struct{}{}, // <D
+	symLAngleF:   struct{}{}, // <F
+	symLAngleA:   struct{}{}, // <'
+	symRAngle:    struct{}{}, // >
+	symRAngleD:   struct{}{}, // >D
+	symRAngleF:   struct{}{}, // >F
+	symRAngleA:   struct{}{}, // >'
+	symPercent:   struct{}{}, // %
+	symPercentD:  struct{}{}, // %D
+	symPercentF:  struct{}{}, // %F
+	symPercentA:  struct{}{}, // %'
+	symAsterisk:  struct{}{}, // *
+	symAsteriskD: struct{}{}, // *D
+	symAsteriskF: struct{}{}, // *F
+	symAsteriskA: struct{}{}, // *'
+	symQues:      struct{}{}, // ?
+	symQuesD:     struct{}{}, // ?D
+	symQuesF:     struct{}{}, // ?F
+	symQuesA:     struct{}{}, // ?'
+	symPlus:      struct{}{}, // +
+	symPlusD:     struct{}{}, // +D
+	symPlusF:     struct{}{}, // +F
+	symPlusA:     struct{}{}, // +'
+	symDash:      struct{}{}, // -
+	symTilde:     struct{}{}, // ~
 }
 
 func (l ul) rule(ctx Context, targets []Value) (result Value) {
