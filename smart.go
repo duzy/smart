@@ -1359,6 +1359,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *option: return []Symbol{_if(t.bool,symOn,symOff)}
 	case *file: return getSymSeq(t.name)
 	case *def: return getSymSeq(t.name)
+	case *builtin: return getSymSeq(t.name)
 	case *project: return getSymSeq(t.name)
 	case self: return getSymSeq(t.project.name)
 
@@ -1422,41 +1423,56 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 			res = append(res, symbolize(elem)...)
 		}
 	case *closure:
-		return symbolize_delegate(&t.delegate)
+		return symbolize_delegate(symAmpersand, &t.delegate)
 	case *delegate:
-		return symbolize_delegate(t)
+		return symbolize_delegate(symDollarSign, t)
 	case *strlit:
         // Semantic Equality: 'foo' (strlit) == foo (word)
-        return []Symbol{intern(t.s)}
+		// getSymSeq unpacks the hologram into a flat []Symbol slice
+		return getSymSeq(intern(t.s))
 	case *raw:
 		// FIXME: a raw value may store strings from p.Stdout.Buf.String()!
         // Semantic Equality: "foo" (raw) == foo (word)
-        // We use v.String() to ensure escapes and spans are resolved
-        return []Symbol{intern(t.String())} // TODO: symbolize_string(trivial_ctx{t.pos}, t.s)
+		// TODO: symbolize_string(trivial_ctx{t.pos}, t.s)
+		return getSymSeq(intern(t.String()))
 	}
     return
 }
 
-func symbolize_delegate(d *delegate) []Symbol {
+// example $(touch(-p -x -y) a1, a2)
+func symbolize_delegate(sigil Symbol, d *delegate) []Symbol {
 	var res []Symbol
-	
+
+	// Determine the boundaries based on the lexical token
+	var open, close Symbol
+	switch d.l {
+	case STRCOMP: open, close = symQuotation, symQuotation // `"`
+	case STRING : open, close = symApostrophe, symApostrophe // `'`
+	case LPAREN : open, close = symLparen, symRparen
+	case LBRACE : open, close = symLbrace, symRbrace
+	case ILLEGAL: open, close = symLbrack, symRbrack
+	// INTEGER and default have no enclosing boundaries
+	}
+
 	// 1. Sigil (e.g., '$' for DELEGATE or '&' for CLOSURE)
-	res = append(res, intern(tokens[d.l])) 
+	res = append(res, sigil) 
 	
 	// 2. Open Boundary
-	res = append(res, intern("(")) // or intern(tokens[LPAREN])
+	if open != symEmpty { res = append(res, open) }
 	
 	// 3. Target (e.g., "touch")
-	res = append(res, symbolize(d.x)...)
+	if d.x != nil {
+		res = append(res, symbolize(d.x)...)
+	}
 	
 	// 4. Options (e.g., "(-p -x -y)")
 	if len(d.o) > 0 {
-		res = append(res, intern("("))
+		res = append(res, symLparen)
 		for i, opt := range d.o {
 			if i > 0 { res = append(res, symSpace) } // ' ' between options
 			res = append(res, symbolize(opt)...)
 		}
-		res = append(res, intern(")"))
+		res = append(res, symRparen)
 	}
 	
 	// 5. Arguments (e.g., " a1,a2")
@@ -1469,7 +1485,7 @@ func symbolize_delegate(d *delegate) []Symbol {
 	}
 	
 	// 6. Close Boundary
-	res = append(res, intern(")")) // or intern(tokens[RPAREN])
+	if close != symEmpty { res = append(res, close) }
 	
 	return res
 }
@@ -3709,7 +3725,7 @@ func (c *delegate_x) do(ctx Context, op any) any {
 
 type delegate struct{
     valbase
-    l   token
+    l   token // left paren
     x   Value
     o []Value
     a []Value
@@ -10244,6 +10260,10 @@ const (
 	symSlash        // /
 	symLparen       // (
 	symRparen       // )
+	symLbrace       // {
+	symRbrace       // }
+	symLbrack       // [
+	symRbrack       // ]
 
 	symAt           // @
 	symAtD          // @D
@@ -10560,7 +10580,8 @@ const (
 // Do not mix them, or recursive shredding will shift the hardcoded IDs!
 var coreSymbols = []string{
 	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/", "(", ")",
+	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/",
+	"(", ")", "{", "}", "[", "]",
 
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
