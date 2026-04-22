@@ -9940,9 +9940,9 @@ func fixCheckpoint(s string) string {
 					if i == 0 && s == "" { // Handle root slash
 						fmt.Fprintf(&b, sufArg, "punct", "PROOT", s)
 					} else {
-						vocabM.RLock()
-						_, ok := symbols[s]
-						vocabM.RUnlock()
+						vocab.RLock()
+						_, ok := vocab.symbols[s]
+						vocab.RUnlock()
 
 						if i > 0 { b.WriteString(" ") }
 						fmt.Fprintf(&b, sufArg, _if(ok,"word","raw"), s, s)
@@ -12438,9 +12438,10 @@ var checkpoints_vs = fixCheckpoints(map[string]map[string]any{
 		`&(configure.cc)`:`/usr/bin/clang`,
 		`&(--target)`:`%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
 		`$(if &(cross.build),$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_))`:`{}`,
+		`$(addprefix -std=,&(-std.$_) &(std.$_))`:`-std=c2x`,
 		`$(foreach(-unique) &(--target),--target=$_ -Xclang -triple=$_)`:`--target=%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi] -Xclang -triple=%[target.arch]{}-%[target.vendor]-%[uname.os]%[target.release]-%[target.abi]`,
 		`$(foreach(-unique) $1 $2,&(-v.$_))`:`{}`,
-		`$(addprefix -std=,&(-std.$_) &(std.$_))`:`-std=c2x`,
+		`$(foreach(-unique) $1 $2,$(addprefix -std=,&(-std.$_) &(std.$_)))`:`-std=c2x`,
 		`&(-v.$_)`:`{}`,
 		`&(-std.$_)`:`{}`,
 	},
@@ -13830,9 +13831,9 @@ var has_new_cmp_symbol int
 var checked_cmp_symbol = make(map[string]struct{}, len(checkpoints_cmp_symbols))
 func check_cmp_symbol(ctx Context, l, r Symbol) func(*cmpres) { // monolithic symbol
 	for _, sym := range []Symbol{l, r} {
-		vocabM.RLock()
-		meta := vocab[sym]
-		vocabM.RUnlock()
+		vocab.RLock()
+		meta := vocab.symetas[sym]
+		vocab.RUnlock()
 		s := sym.String()
 		if false && len(s) == 1 && meta.Kind() == SymSeq {
 			debug(ctx,
@@ -17356,9 +17357,9 @@ var has_new_cmp_symbols int
 var checked_cmp_symbols = make(map[string]struct{}, len(checkpoints_cmp_symbols))
 func check_cmp_symbols(ctx Context, l, r []Symbol) func(*cmpres) {
 	for _, sym := range append(append([]Symbol{}, l...), r...) {
-		vocabM.RLock()
-		meta := vocab[sym]
-		vocabM.RUnlock()
+		vocab.RLock()
+		meta := vocab.symetas[sym]
+		vocab.RUnlock()
 		var s = sym.String()
 		if true || meta.Kind() != SymSeq {
 			if sym != symWildcardAny && sym != symWildcardShort &&

@@ -1582,10 +1582,10 @@ func symbolize_string(ctx Context, str string) (res []Symbol) {
 func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	if checkpoints { defer check_cmp_symbol(ctx, x, y) (&result) }
 
-	vocabM.RLock()
-	metaL := vocab[x]
-	metaR := vocab[y]
-	vocabM.RUnlock()
+	vocab.RLock()
+	metaL := vocab.symetas[x]
+	metaR := vocab.symetas[y]
+	vocab.RUnlock()
 
 	sx, sy = metaL.Text, metaR.Text
 
@@ -1601,8 +1601,8 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 		var iL, iR int64
 		var fL, fR float64
 
-		if kL == NumInt { iL = int64(numbers[metaL.Idx]) } else { fL = math.Float64frombits(numbers[metaL.Idx]) }
-		if kR == NumInt { iR = int64(numbers[metaR.Idx]) } else { fR = math.Float64frombits(numbers[metaR.Idx]) }
+		if kL == NumInt { iL = int64(vocab.numbers[metaL.Idx]) } else { fL = math.Float64frombits(vocab.numbers[metaL.Idx]) }
+		if kR == NumInt { iR = int64(vocab.numbers[metaR.Idx]) } else { fR = math.Float64frombits(vocab.numbers[metaR.Idx]) }
 
 		if kL == NumInt && kR == NumInt {
 			if iL < iR { return cmpSmaller, sx, sy }
@@ -3477,7 +3477,6 @@ func (p *file) change(dir, sub, name Symbol) (okay bool) {
 	}
 	return
 }
-
 
 type stat_dir struct { string }
 type stat_sub struct { string }
@@ -8928,9 +8927,9 @@ func _raw(pos Pos, s string) Value { if s == "" { return &valbase{pos} } else { 
 func _rw(pos Pos, s string) Value {
 	if s == "" { return &valbase{pos} }
 	if len(s) < 64 {
-		vocabM.RLock()
-		sym, ok := symbols[s]
-		vocabM.RUnlock()
+		vocab.RLock()
+		sym, ok := vocab.symbols[s]
+		vocab.RUnlock()
 		if ok { return &word{valbase{pos},sym} }
 	}
 	return &raw{valbase{pos},s}
@@ -10716,10 +10715,10 @@ var coreSymbols = []string{
 }
 
 func (sym Symbol) String() string {
-	vocabM.RLock()
-	defer vocabM.RUnlock()
-	if int(sym) < len(vocab) {
-		return vocab[sym].Text
+	vocab.RLock()
+	defer vocab.RUnlock()
+	if int(sym) < len(vocab.symetas) {
+		return vocab.symetas[sym].Text
 	}
 	return "<invalid-symbol-id>"
 }
@@ -10743,38 +10742,40 @@ type SymMeta struct {
 func (m SymMeta) Kind() uint8 { return m.Flags & 0x03 }
 func (m SymMeta) Rank() int { return int((m.Flags >> 2) & 0x0F) }
 
-var (
-	vocabM sync.RWMutex
-	vocab     []SymMeta
+type vocabulary struct{
+	sync.RWMutex
+	symetas   []SymMeta
 	numbers   []uint64   // Side-table for numbers!
 	sequences [][]Symbol // Side-table for shredded sequences!
 	seqsyms map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
 	symbols map[string]Symbol
-)
+}
+
+var vocab vocabulary
 
 func init() {
 	size := len(coreSymbols) + mapThreshold
 	
 	// 1. Initialize globals immediately
-	symbols = make(map[string]Symbol, size) 
-	vocab = make([]SymMeta, 0, size)
-	numbers = make([]uint64, 0, size/20)
-	sequences = make([][]Symbol, 0, size/20)
-	seqsyms = make(map[uint64][]Symbol)
+	vocab.symbols = make(map[string]Symbol, size) 
+	vocab.symetas = make([]SymMeta, 0, size)
+	vocab.numbers = make([]uint64, 0, size/20)
+	vocab.sequences = make([][]Symbol, 0, size/20)
+	vocab.seqsyms = make(map[uint64][]Symbol)
 
 	// PASS 1: Reserve the EXACT integer IDs for core constants (0, 1, 2...)
 	// This ensures `symDot` is exactly where it belongs, even if later 
 	// symbols trigger recursive shredding.
 	for i, s := range coreSymbols {
-		symbols[s] = Symbol(i)
-		vocab = append(vocab, SymMeta{Text: s, Idx: -1}) // Placeholder
+		vocab.symbols[s] = Symbol(i)
+		vocab.symetas = append(vocab.symetas, SymMeta{Text: s, Idx: -1}) // Placeholder
 	}
 
 	// PASS 2: Safely calculate metadata and shred sequences.
 	// If "copy-file" recursively calls internLocked("copy"), "copy" will 
 	// safely be appended to the END of the vocab slice!
 	for i, s := range coreSymbols {
-		vocab[i] = makeSymMetaLocked(s, Symbol(i))
+		vocab.symetas[i] = makeSymMetaLocked(s, Symbol(i))
 	}
 
 	keywords = make(map[Symbol]token, OFF - PROJECT)
@@ -10785,25 +10786,25 @@ func init() {
 
 // internLocked assumes vocabM.Lock() is already held by the caller!
 func internLocked(s string) Symbol {
-	if sym, ok := symbols[s]; ok {
+	if sym, ok := vocab.symbols[s]; ok {
 		return sym
 	}
 
 	// 1. Claim ID and reserve slot immediately
-	sym := Symbol(len(vocab))
-	symbols[s] = sym
-	vocab = append(vocab, SymMeta{Text: s, Idx: -1}) // Placeholder
+	sym := Symbol(len(vocab.symetas))
+	vocab.symbols[s] = sym
+	vocab.symetas = append(vocab.symetas, SymMeta{Text: s, Idx: -1}) // Placeholder
 
 	// 2. Evaluate metadata safely
 	meta := makeSymMetaLocked(s, sym)
 
 	// 3. Overwrite placeholder
-	vocab[sym] = meta
+	vocab.symetas[sym] = meta
 
 	// 4. Register newly shredded strings into the fast-path map!
 	if meta.Kind() == SymSeq {
-		h := hashSeq(sequences[meta.Idx])
-		seqsyms[h] = append(seqsyms[h], sym)
+		h := hashSeq(vocab.sequences[meta.Idx])
+		vocab.seqsyms[h] = append(vocab.seqsyms[h], sym)
 	}
 	return sym
 }
@@ -10831,12 +10832,12 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
 			kind = NumInt
-			meta.Idx = int32(len(numbers))
-			numbers = append(numbers, uint64(val))
+			meta.Idx = int32(len(vocab.numbers))
+			vocab.numbers = append(vocab.numbers, uint64(val))
 		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
 			kind = NumFlt
-			meta.Idx = int32(len(numbers))
-			numbers = append(numbers, math.Float64bits(val))
+			meta.Idx = int32(len(vocab.numbers))
+			vocab.numbers = append(vocab.numbers, math.Float64bits(val))
 		}
 	}
 
@@ -10906,11 +10907,11 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 
 		if didShred {
 			kind = SymSeq
-			meta.Idx = int32(len(sequences))
+			meta.Idx = int32(len(vocab.sequences))
 			if start < len(s) {
 				seq = append(seq, internLocked(s[start:]))
 			}
-			sequences = append(sequences, seq)
+			vocab.sequences = append(vocab.sequences, seq)
 		}
 	}
 
@@ -10935,17 +10936,17 @@ func intern(s string) Symbol {
 	}
 
 	// Zero-allocation fast-path lookup
-	vocabM.RLock()
-	if sym, ok := symbols[s]; ok {
-		vocabM.RUnlock()
+	vocab.RLock()
+	if sym, ok := vocab.symbols[s]; ok {
+		vocab.RUnlock()
 		return sym
 	}
-	vocabM.RUnlock()
+	vocab.RUnlock()
 
 	// Slow-path registration
-	vocabM.Lock()
+	vocab.Lock()
 	sym := internLocked(s)
-	vocabM.Unlock()
+	vocab.Unlock()
 	return sym
 }
 
@@ -10974,28 +10975,28 @@ func internBytes(b []byte) Symbol {
 	s := string(b)
 
 	// Zero-allocation map lookup
-	vocabM.RLock()
-	if sym, ok := symbols[s]; ok {
-		vocabM.RUnlock()
+	vocab.RLock()
+	if sym, ok := vocab.symbols[s]; ok {
+		vocab.RUnlock()
 		return sym
 	}
-	vocabM.RUnlock()
+	vocab.RUnlock()
 
-	vocabM.Lock()
+	vocab.Lock()
 	sym := internLocked(s)
-	vocabM.Unlock()
+	vocab.Unlock()
 	return sym
 }
 
 func getSymSeq(sym Symbol) (seq []Symbol) {
-	vocabM.RLock()
-	meta := vocab[sym]
+	vocab.RLock()
+	meta := vocab.symetas[sym]
 	if meta.Kind() == SymSeq {
-		seq = sequences[meta.Idx]
+		seq = vocab.sequences[meta.Idx]
 	} else {
 		seq = []Symbol{sym}
 	}
-	vocabM.RUnlock()
+	vocab.RUnlock()
 	return
 }
 
@@ -11027,54 +11028,54 @@ func internSeq(seq []Symbol) Symbol {
 	h := hashSeq(seq)
 
 	// 1. Zero-Allocation Fast Path: Hash Lookup (FIXED)
-	vocabM.RLock()
-	for _, sym := range seqsyms[h] {
-		meta := vocab[sym]
+	vocab.RLock()
+	for _, sym := range vocab.seqsyms[h] {
+		meta := vocab.symetas[sym]
 		// MUST verify it is a SymSeq before accessing the sequences slice!
-		if meta.Kind() == SymSeq && isSeqEqual(sequences[meta.Idx], seq) {
-			vocabM.RUnlock()
+		if meta.Kind() == SymSeq && isSeqEqual(vocab.sequences[meta.Idx], seq) {
+			vocab.RUnlock()
 			return sym
 		}
 	}
-	vocabM.RUnlock()
+	vocab.RUnlock()
 
 	// 2. Slow Path: Register New Sequence
-	vocabM.Lock()
-	defer vocabM.Unlock()
+	vocab.Lock()
+	defer vocab.Unlock()
 
-	for _, sym := range seqsyms[h] {
-		meta := vocab[sym]
-		if meta.Kind() == SymSeq && isSeqEqual(sequences[meta.Idx], seq) {
+	for _, sym := range vocab.seqsyms[h] {
+		meta := vocab.symetas[sym]
+		if meta.Kind() == SymSeq && isSeqEqual(vocab.sequences[meta.Idx], seq) {
 			return sym
 		}
 	}
 
 	var sb strings.Builder
 	for _, s := range seq {
-		sb.WriteString(vocab[s].Text)
+		sb.WriteString(vocab.symetas[s].Text)
 	}
 	str := sb.String()
 
 	// FIXED: Only register to the sequence map if the existing symbol is actually a sequence!
-	if sym, ok := symbols[str]; ok {
-		if vocab[sym].Kind() == SymSeq {
-			seqsyms[h] = append(seqsyms[h], sym)
+	if sym, ok := vocab.symbols[str]; ok {
+		if vocab.symetas[sym].Kind() == SymSeq {
+			vocab.seqsyms[h] = append(vocab.seqsyms[h], sym)
 		}
 		return sym
 	}
 
-	sym := Symbol(len(vocab))
-	symbols[str] = sym
+	sym := Symbol(len(vocab.symetas))
+	vocab.symbols[str] = sym
 	
 	permSeq := make([]Symbol, len(seq))
 	copy(permSeq, seq)
 	
-	meta := SymMeta{Text: str, Idx: int32(len(sequences))}
+	meta := SymMeta{Text: str, Idx: int32(len(vocab.sequences))}
 	meta.Flags = SymSeq | (uint8(globRank(str)) << 2)
 	
-	sequences = append(sequences, permSeq)
-	seqsyms[h] = append(seqsyms[h], sym)
-	vocab = append(vocab, meta)
+	vocab.sequences = append(vocab.sequences, permSeq)
+	vocab.seqsyms[h] = append(vocab.seqsyms[h], sym)
+	vocab.symetas = append(vocab.symetas, meta)
 	
 	return sym
 }
