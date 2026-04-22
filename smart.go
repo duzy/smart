@@ -3226,56 +3226,115 @@ func __symBase(sym Symbol) Symbol {
 // __symPathJoin normalizes and joins symbols just like filepath.Join, 
 // but entirely within the zero-allocation Symbol domain!
 func __symPathJoin(syms ...Symbol) Symbol {
-	var stack []Symbol
+	// First pass: Calculate max capacity to avoid reallocations
+	var cap int
 	var isAbs bool
-
-	// Determine if the joined path is absolute
+	
 	for _, sym := range syms {
 		if sym != symEmpty {
-			firstSeq := getSymSeq(sym)
-			if len(firstSeq) > 0 && firstSeq[0] == symSlash {
+			seq := getSymSeq(sym)
+			cap += len(seq) + 1 // +1 for potential slashes
+			if !isAbs && len(seq) > 0 && seq[0] == symSlash {
 				isAbs = true
 			}
-			break
 		}
 	}
-
-	// Normalization Stack
+	if cap == 0 { return symDot }
+	
+	out := make([]Symbol, 0, cap)
+	if isAbs { out = append(out, symSlash) }
+	
 	for _, sym := range syms {
 		if sym == symEmpty { continue }
+		seq := getSymSeq(sym)
 		
-		for _, s := range getSymSeq(sym) {
-			if s == symSlash { continue } // Ignore raw slashes
-			if s == symDot   { continue } // Ignore current dir '.'
-			
-			if s == symDotDot { // Handle '..'
-				if len(stack) > 0 && stack[len(stack)-1] != symDotDot {
-					stack = stack[:len(stack)-1] // Pop the parent directory
-				} else if !isAbs {
-					stack = append(stack, symDotDot) // Only retain '..' if relative
+		var segStart = 0
+		for i := 0; i <= len(seq); i++ {
+			// A segment boundary is either a symSlash or the end of the sequence
+			if i == len(seq) || seq[i] == symSlash {
+				if i > segStart {
+					seg := seq[segStart:i]
+					
+					// Evaluate the exact segment
+					isDot := len(seg) == 1 && seg[0] == symDot
+					isDotDot := (len(seg) == 1 && seg[0] == symDotDot) || 
+					            (len(seg) == 2 && seg[0] == symDot && seg[1] == symDot)
+					            
+					if isDot {
+						// Segment is "./" -> do nothing
+					} else if isDotDot {
+						// Segment is "../" -> Try to pop the parent directory
+						lastSlash := -1
+						for j := len(out) - 1; j >= 0; j-- {
+							if out[j] == symSlash {
+								lastSlash = j
+								break
+							}
+						}
+						
+						var lastSeg []Symbol
+						if lastSlash == -1 {
+							lastSeg = out
+						} else {
+							lastSeg = out[lastSlash+1:]
+						}
+						
+						lastIsDotDot := (len(lastSeg) == 1 && lastSeg[0] == symDotDot) || 
+						                (len(lastSeg) == 2 && lastSeg[0] == symDot && lastSeg[1] == symDot)
+						                
+						if !lastIsDotDot && len(lastSeg) > 0 {
+							// Pop the parent!
+							if lastSlash == -1 {
+								out = out[:0]
+							} else {
+								if lastSlash == 0 && isAbs {
+									out = out[:1] // Keep the root slash
+								} else {
+									out = out[:lastSlash]
+								}
+							}
+						} else if !isAbs {
+							// Can't pop, so append ".."
+							if len(out) > 0 && out[len(out)-1] != symSlash {
+								out = append(out, symSlash)
+							}
+							out = append(out, symDot, symDot) // Store as [., .] for consistency
+						}
+					} else {
+						// Normal segment (e.g. "foo.txt", "*.h", "inc")
+						if len(out) > 0 && out[len(out)-1] != symSlash {
+							out = append(out, symSlash)
+						}
+						out = append(out, seg...)
+					}
 				}
-				continue
+				segStart = i + 1
 			}
-			stack = append(stack, s)
 		}
 	}
-
-	if len(stack) == 0 {
+	
+	if len(out) == 0 {
 		if isAbs { return symSlash }
 		return symDot
 	}
+	
+	return internSeq(out)
+}
 
-	// Rebuild with slashes
-	var seq []Symbol
-	if isAbs {
-		seq = append(seq, symSlash)
+// isSeqPrefix performs an O(1) bounds-checked integer prefix comparison.
+func isSeqPrefix(sSeq, pSeq []Symbol) bool {
+	if len(pSeq) > len(sSeq) { return false }
+	for i := range pSeq {
+		if sSeq[i] != pSeq[i] { return false }
 	}
-	for i, s := range stack {
-		if i > 0 { seq = append(seq, symSlash) }
-		seq = append(seq, s)
-	}
+	return true
+}
 
-	return internSeq(seq)
+// __symHasPrefix checks if one Symbol conceptually starts with another Symbol's sequence.
+func __symHasPrefix(sym, prefix Symbol) bool {
+	if sym == prefix { return true }
+	if prefix == symEmpty { return true }
+	return isSeqPrefix(getSymSeq(sym), getSymSeq(prefix))
 }
 
 type fullfile_ctx struct{ Context }
@@ -3484,16 +3543,22 @@ type stat_nonexist struct { bool }
 type stat_fileinfo struct{ os.FileInfo }
 
 func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
-	var name = __string(ctx, a0)
-	var sub, dir string
+	var sub, dir, name Symbol
 	var fileInfo os.FileInfo
 	var nonexist bool
 
+	// 1. Immediately enter the Symbol Domain!
+	if v, ok := a0.(Value); ok {
+		name = __symbol(ctx, v)
+	} else {
+		name = intern(__string(ctx, a0))
+	}
+
 	for _, a := range aa {
 		switch t := a.(type) {
-		case *project: dir = t.absPath // p.absPath is correctly a string
-		case stat_dir: dir = t.string
-		case stat_sub: sub = t.string
+		case *project: dir = intern(t.absPath)
+		case stat_dir: dir = intern(t.string)
+		case stat_sub: sub = intern(t.string)
 		case stat_fileinfo: fileInfo = t.FileInfo
 		case stat_nonexist: nonexist = t.bool
 		default: erro(ctx, "invalid stat arg: %v", ts(a,ctx))
@@ -3501,111 +3566,114 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	}
 
 	var u = _universe(ctx)
-	var fullname string
+	var fullname Symbol
 
-	// 1. Trim slashes and clean paths (String Domain)
-	if dir != "" { dir = filepath.Clean(dir) }
-	if sub != "" { sub = filepath.Clean(sub) }
-
-	// 2. Cleaned Path Resolution Logic (String Domain)
-	if filepath.IsAbs(name) {
+	// 2. Cleaned Path Resolution Logic (Pure Sequence Domain)
+	// We read .String() ONLY to pass to the OS (IsAbs, Stat), no string allocations occur!
+	if filepath.IsAbs(name.String()) {
 		fullname = name
-		if dir != "" && strings.HasPrefix(fullname, dir+pathSep) {
-			if tail := fullname[len(dir)+1:]; sub == "" {
-				name = tail
-			} else if strings.HasPrefix(fullname, sub+pathSep) {
-				name = tail[len(sub)+1:]
+
+		fullSeq := getSymSeq(fullname)
+		dirSeq  := getSymSeq(dir)
+
+		// Replaces: strings.HasPrefix and os.IsPathSeparator
+		if dir != symEmpty && isSeqPrefix(fullSeq, dirSeq) && len(fullSeq) > len(dirSeq) && fullSeq[len(dirSeq)] == symSlash {
+			tailSeq := fullSeq[len(dirSeq)+1:]
+			if sub == symEmpty {
+				name = internSeq(tailSeq)
+			} else {
+				subSeq := getSymSeq(sub)
+				// Replaces: strings.HasPrefix(tailStr, subStr)
+				if isSeqPrefix(tailSeq, subSeq) && len(tailSeq) > len(subSeq) && tailSeq[len(subSeq)] == symSlash {
+					name = internSeq(tailSeq[len(subSeq)+1:])
+				}
 			}
 		} else {
-			dir = "" // Conflict resolution: Absolute name overrides directory
+			dir = symEmpty // Conflict resolution: Absolute name overrides directory
 		}
-	} else if filepath.IsAbs(sub) {
-		if fullname = filepath.Join(sub, name); dir == "" {
+	} else if filepath.IsAbs(sub.String()) {
+		fullname = __symPathJoin(sub, name)
+		if dir == symEmpty {
 			dir = sub
-			sub = ""
+			sub = symEmpty
 		} else if sub == dir {
-			sub = ""
-		} else if strings.HasPrefix(sub, dir) {
-			sub = strings.TrimPrefix(sub, dir)
-			sub = strings.TrimPrefix(sub, pathSep)
-			sub = filepath.Clean(sub)
+			sub = symEmpty
 		} else {
-			debug(ctx,
-				_f("conflicted sub/dir: %s", fullname),
-				_f("sub=%s", sub),
-				_f("dir=%s", dir),
-				callstack{num:16}, trace{})
+			if __symHasPrefix(sub, dir) {
+				dirSeq := getSymSeq(dir)
+				subSeq := getSymSeq(sub)
+
+				// Sequence-based TrimPrefix
+				if len(subSeq) > len(dirSeq) && subSeq[len(dirSeq)] == symSlash {
+					sub = internSeq(subSeq[len(dirSeq)+1:])
+				} else {
+					sub = internSeq(subSeq[len(dirSeq):]) 
+				}
+			} else {
+				debug(ctx,
+					_f("conflicted sub/dir: %s", fullname.String()),
+					_f("sub=%s", sub.String()),
+					_f("dir=%s", dir.String()),
+					callstack{num:16}, trace{})
+			}
 		}
-	} else if filepath.IsAbs(dir) {
-		fullname = filepath.Join(dir, sub, name)
+	} else if filepath.IsAbs(dir.String()) {
+		fullname = __symPathJoin(dir, sub, name)
 	} else {
-		dir = filepath.Join(_workdir(ctx), dir)
-		fullname = filepath.Join(dir, sub, name)
+		dir = __symPathJoin(intern(_workdir(ctx)), dir)
+		fullname = __symPathJoin(dir, sub, name)
 	}
 
-	cleanFullname := filepath.Clean(fullname)
-	
-	// =====================================================================
-	// The OS / Logical Boundary!
-	// Only intern the portable, logical components (sub and name).
-	// dir remains a string to prevent absolute paths from poisoning the pool.
-	// =====================================================================
-	dirSym  := intern(dir)
-	subSym  := intern(sub)
-	nameSym := intern(name)
+	// Since __symPathJoin normalizes internally, cleanFullnameStr is perfectly safe
+	cleanFullnameStr := fullname.String()
 
 	// 3. First Pass: Fast lock to retrieve or initialize the cache entry shell
 	u.statmutex.Lock()
-	base, exists := u.statcache[cleanFullname]
+	base, exists := u.statcache[cleanFullnameStr]
 	if !exists {
-		// Initialize the shell of the filebase using our hybrid Symbol approach!
-		base = &filebase{filestub{dirSym, subSym, nameSym, nil, nil}, nil, false, nil, 0, 0, 0}
+		base = &filebase{filestub{dir, sub, name, nil, nil}, nil, false, nil, 0, 0, 0}
 		base.stub.other = &base.stub
-		u.statcache[cleanFullname] = base
+		u.statcache[cleanFullnameStr] = base
 	}
-	u.statmutex.Unlock() // DROP THE GLOBAL LOCK BEFORE HITTING THE DISK!
+	u.statmutex.Unlock() // DROP GLOBAL LOCK BEFORE HITTING THE DISK
 
-	// 4. Heavy I/O: os.Stat executes concurrently without blocking the universe
-	if base.info == nil && fileInfo == nil { fileInfo, _ = os.Stat(fullname) }
+	// 4. Heavy I/O: os.Stat executes concurrently
+	if base.info == nil && fileInfo == nil { fileInfo, _ = os.Stat(cleanFullnameStr) }
 
 	// 5. Second Pass: Re-acquire lock to safely update the shared base and stubs
 	u.statmutex.Lock(); defer u.statmutex.Unlock()
 
-	// Update the file metadata if we just fetched it
 	if fileInfo != nil && base.info == nil { base.info = fileInfo }
-
-	// Bail out if the file doesn't exist and we aren't explicitly allowing non-existent files
 	if base.info == nil && !nonexist { return nil }
 
 	var head = &base.stub
 	var stub *filestub
 
-	// Sanity assertions
 	if checkpoints {
 		for stub = head; stub != nil; stub = stub.other {
-			// Extract strings from the cached Symbols for OS filepath joining
-			if s1, s2 := fullname, filepath.Join(stub.dir.String(), stub.sub.String(), stub.name.String()); s1 != s2 {
+			s1 := cleanFullnameStr
+			s2 := __symPathJoin(stub.dir, stub.sub, stub.name).String()
+			if s1 != s2 {
 				debug(ctx,
-					_f("fullname '%s' conflicted", fullname),
-					_f("panic: (%s, %v, %v) %s", stub.dir, stub.sub, stub.name, s1),
-					_f("panic: (%s, %s, %s) %s", dir, sub, name, s2),
+					_f("fullname '%s' conflicted", cleanFullnameStr),
+					_f("panic: (%s, %v, %v) %s", stub.dir.String(), stub.sub.String(), stub.name.String(), s1),
+					_f("panic: (%s, %s, %s) %s", dir.String(), sub.String(), name.String(), s2),
 					callstack{num:16}, trace{})
 			}
 			if stub.other == head { break }
 		}
 	}
 
-	// Check for an existing stub that matches our current path parameters exactly.
-	// dir is a safe string comparison, sub and name are 1-cycle integer comparisons!
+	// 6. The Ultimate Cache Retrieval: Blazing fast O(1) Integer Math!
 	for stub = head; stub != nil; stub = stub.other {
-		if stub.dir == dirSym && stub.sub == subSym && stub.name == nameSym {
+		if stub.dir == dir && stub.sub == sub && stub.name == name {
 			return &file{valbase{_pos(ctx)}, base, stub}
 		}
 		if stub.other == head { break }
 	}
 
-	// If no matching stub was found, link a new one into the circular list
-	stub = &filestub{dirSym, subSym, nameSym, nil, head.other}; head.other = stub
+	// If no matching stub was found, link a new one
+	stub = &filestub{dir, sub, name, nil, head.other}; head.other = stub
 	return &file{valbase{_pos(ctx)}, base, stub}
 }
 
