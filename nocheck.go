@@ -45,7 +45,8 @@ func (*modifier_updatefile) x_check(_ Value, _, _ string, _ []Value, _ any) {}
 func (*__trimprefix) check(_, _, _ Value) {}
 func (*__grep) check(_ *regexp.Regexp, _ string, _, _ Value) {}
 
-func (ul) configure_val_check(_ *execution, _ Symbol, _ Value, _ []Value, _, _ *diagpoint) {}
+func (p *compiler) check_ident(_ Context, _ string, _ Symbol) {}
+func (p *compiler) configure_val_check(_ *execution, _ Symbol, _ Value, _ []Value, _, _ *diagpoint) {}
 
 func tempdir_check(ctx Context, p *project, d *def, s string) {}
 func tempfile_check(ctx Context, p *project, name, d string, f *file) {}
