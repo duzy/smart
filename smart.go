@@ -15393,7 +15393,7 @@ func (p *delegate) resolve(ctx Context) (res []Value) {
 	for _, x := range xmerge(ctx, p.x) {
 		if x != nil && x.kind()&(kindResolvedObj|KindDef) == 0 {
 			switch x.(type) {
-			case matched_rule, *stemmed_rule:
+			case matched_rule, *stemmed_rule, *rule:
 				erro(ctx, "impossible flow: %v", ts(x), trace{})
 			}
 			switch p.l {
@@ -15412,7 +15412,7 @@ func (p *closure) resolve(ctx Context) (res []Value) {
 	for _, x := range xmerge(ctx, p.x) {
 		if x != nil && x.kind()&(kindResolvedObj/*|KindDef*/) == 0 {
 			switch x.(type) {
-			case matched_rule, *stemmed_rule:
+			case matched_rule, *stemmed_rule, *rule:
 				erro(ctx, "impossible flow: %v", ts(x), trace{})
 			}
 			switch p.l {
@@ -15632,54 +15632,33 @@ func expand(ctx Context, v Value) (res Value) {
 
 	case *delegate:
 		var dx = delegate_ctx{collapse_ctx{Context: ctx, good_to_collapse: true}}
-		var x = t.resolve(&dx)
+		
+		// THE DOD FIX: Evaluate arguments BEFORE t.resolve mutates the AST!
 		var o = expands(&dx, t.o...)
 		var a = dx.args(&dx, t.a)
+		var x = t.resolve(&dx)
 		var vals []Value
 
 		if dx.force_collapse || dx.good_to_collapse {
-			// Fast path: fully resolved, try to execute!
 			for _, xv := range x {
 				var cc = evoke_ctx{ctx, false}
 				var rv = evoke(&cc, xv, o, a)
 				if cc.noop {
-					// Only rebuild if the resolved target actually exists!
 					if !isNull(xv) && truly(ctx, keep_autos{}) {
 						dv := &delegate{t.valbase, t.l, xv, o, a}
 						vals = append(vals, dv)
 						do(ctx, dv)
 					} else {
-						vals = append(vals, _null(t.pos)) // Target is dead, return null.
+						vals = append(vals, _null(t.pos))
 					}
 				} else if rv == nil {
-					// Target executed successfully but produced NO output.
 					vals = append(vals, _null(t.pos))
 				} else {
-					if false && t.String() == `$(.test.v3 a,b)` {
-						v0, noop0 := expand(ctx, rv), cc.noop
-						v1, noop1 := evoke(&cc, rv, o, a), cc.noop
-						debug(pc(ctx,xv),
-							_f("x: %v → %s", xv, ts(xv)),
-							_f("r: %v → %s", rv, ts(rv)),
-
-							_f("expand(%v): (noop=%v)", rv, noop0),
-							_f(" ⇒ %v → %s", v0, ts(v0)),
-
-							_f("evoke(%v, %v, %v): (noop=%v)", rv, o, a, noop1),
-							_f(" ⇒ %v → %s", v1, ts(v1)),
-
-							callstack{num:5})
-					}
-					// PRISTINE FIX: NEVER double-expand the output of evoke! 
-					// Return the exact AST node or string that evoke produced.
 					vals = append(vals, _loc(rv, t.pos))
 				}
 			}
 		} else {
-			// Deferred path (due to unbound arguments)
 			if !dx.good_to_collapse { do(ctx, act_defer_macro{}) }
-
-			// Protect deferred path from ghost delegates
 			for _, xv := range x {
 				if isNull(xv) {
 					vals = append(vals, _null(t.pos))
@@ -15696,9 +15675,11 @@ func expand(ctx Context, v Value) (res Value) {
 
 	case *closure:
 		var cx = closure_ctx{collapse_ctx{Context: ctx, good_to_collapse: true}}
-		var x = t.resolve(&cx)
+		
+		// THE DOD FIX: Evaluate arguments BEFORE t.resolve mutates the AST!
 		var o = expands(&cx, t.o...)
 		var a = cx.args(&cx, t.a)
+		var x = t.resolve(&cx)
 		var vals []Value
 
 		if cx.force_collapse || (cx.good_to_collapse && truly(ctx, ex_closure{})) {
@@ -15706,24 +15687,19 @@ func expand(ctx Context, v Value) (res Value) {
 				var cc = evoke_ctx{ctx, false}
 				var rv = evoke(&cc, xv, o, a)
 				if cc.noop || rv == nil {
-					// Only rebuild if the resolved target actually exists!
 					if !isNull(xv) && truly(ctx, keep_autos{}) {
 						cv := &closure{delegate{t.valbase, t.l, xv, o, a}}
 						vals = append(vals, cv)
 						do(ctx, cv)
 					} else {
-						vals = append(vals, _null(t.pos)) // Target is dead, return null.
+						vals = append(vals, _null(t.pos))
 					}
 				} else {
-					// PRISTINE FIX: NEVER double-expand the output of evoke! 
-					// Return the exact AST node or string that evoke produced.
 					vals = append(vals, _loc(rv, t.pos))
 				}
 			}
 		} else {
 			if !cx.good_to_collapse { do(ctx, act_defer_macro{}) }
-
-			// Protect deferred path from ghost closures
 			for _, xv := range x {
 				if isNull(xv) {
 					vals = append(vals, _null(t.pos))
@@ -15961,44 +15937,21 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	case *project, self: return x
 	case *loc: return evoke(ctx, t.Value, o, a)
 	case *xloc: return evoke(ctx, t.Value, o, a)
+	case matched_rule: return evoke(ctx, t.rule, o, a)
+	case *stemmed_rule: return evoke(&stemmed_ctx{ctx, t}, &rule{t.target, t.arged, t.program}, o, a)
+
 	case *auto:
 		if d := auto_find(ctx, t.name); d == nil {
-			return _null(x.Pos())
+			return _null(t.pos)
 		} else {
 			// THE DOD FIX: Preserve positional tracking for auto evocations!
-			return _loc(evoke(ctx, d, o, a), x.Pos())
+			return _loc(evoke(ctx, d, o, a), t.pos)
 		}
-
-	// case *delegate:
-	// 	var dx = delegate_ctx{collapse_ctx{Context: ctx, good_to_collapse: true}}
-	// 	for _, xv := range t.resolve(&dx) {
-	// 		var opts, args = o, a
-	// 		if t.o != nil { opts = expands(&dx, t.o...) }
-	// 		if t.a != nil { args = dx.args(&dx, t.a) }
-    //
-	// 		var cc = evoke_ctx{ctx, false}
-	// 		if rv := evoke(&cc, xv, opts, args); !cc.noop && rv != nil { return rv }
-	// 	}
-	// 	do(ctx, evoke_noop{})
-	// 	return nil
-
-	// case *closure:
-	// 	var cx = closure_ctx{collapse_ctx{Context: ctx, good_to_collapse: true}}
-	// 	for _, xv := range t.resolve(&cx) {
-	// 		var opts, args = o, a
-	// 		if t.o != nil { opts = expands(&cx, t.o...) }
-	// 		if t.a != nil { args = cx.args(&cx, t.a) }
-    //
-	// 		var cc = evoke_ctx{ctx, false}
-	// 		if rv := evoke(&cc, xv, opts, args); !cc.noop && rv != nil { return rv }
-	// 	}
-	// 	do(ctx, evoke_noop{})
-	// 	return nil
 
 	case *def:
 		if truly(ctx, evoke_detect_loop{x}) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
-			return _null(x.Pos())
+			return _null(x.pos)
 		}
 
 		de := &evoke_def_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}, x, o, a}}
@@ -16006,60 +15959,100 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 
 		res = expand(de, t.value)
 
-		// THE DOD FIX: Explicit AST Unwrapping with Argument Forwarding!
-		for !isTrivial(res) {
+		// THE DOD FIX: AST Unwrapping with Eager Collapse!
+		if false { for !isTrivial(res) {
 			switch rt := res.(type) {
 			case *delegate:
 				var dx = delegate_ctx{collapse_ctx{Context: de, good_to_collapse: true}}
 				if tx := rt.resolve(&dx); len(tx) == 1 && !isNull(tx[0]) {
-					var opts, args = o, a
-					// Unconditionally evaluate the wrapper's arguments to preserve AST positions!
-					if rt.o != nil { opts = expands(&dx, rt.o...) }
-					if rt.a != nil { args = dx.args(&dx, rt.a) }
-
 					var cc = evoke_ctx{de, false}
-					if rv := evoke(&cc, tx[0], opts, args); !cc.noop && rv != nil {
+					// FAST PATH: Forward the CALLER'S arguments (o, a) straight to the target!
+					if rv := evoke(&cc, tx[0], o, a); !cc.noop && rv != nil {
 						res = rv
 						continue
 					}
+					// EAGER COLLAPSE: If the target isn't callable (NOOP), 
+					// delegates MUST collapse to their resolved literal value!
+					res = tx[0]
+					continue
 				}
 			case *closure: if !truly(ctx, ex_closure{}) { break }
 				var cx = closure_ctx{collapse_ctx{Context: de, good_to_collapse: true}}
 				if tx := rt.resolve(&cx); len(tx) == 1 && !isNull(tx[0]) {
-					var opts, args = o, a
-					// Unconditionally evaluate the wrapper's arguments to preserve AST positions!
-					if rt.o != nil { opts = expands(&cx, rt.o...) }
-					if rt.a != nil { args = cx.args(&cx, rt.a) }
-
 					var cc = evoke_ctx{de, false}
-					if rv := evoke(&cc, tx[0], opts, args); !cc.noop && rv != nil {
+					// FAST PATH: Forward the CALLER'S arguments (o, a) straight to the target!
+					if rv := evoke(&cc, tx[0], o, a); !cc.noop && rv != nil {
 						res = rv
 						continue
 					}
+					// LAZY PRESERVATION: Closures preserve their wrappers if NOOP.
 				}
 			}
 			break // Safe Break: Res is fully evaluated!
-		}
+		}}
 
+		// PRISTINE FIX: Expand the body and return it.
+		// Do NOT forcefully iterate and execute delegates/closures here!
+		// This preserves lazy evaluation for ${...} macros.
 		if t.iso(defExecute) && !isEmpty(res) { res = t.xexe(de, res) }
 		return
 
-	case  matched_rule: return evoke(ctx, t.rule, o, a)
-	case *stemmed_rule:
-		r := *t.rule
-		r.target = t.target
-		return evoke(&stemmed_ctx{ctx, t}, &r, o, a)
-    case *rule:
-		if truly(ctx, evoke_detect_loop{x}) {
-			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
-			return _null(x.Pos())
+	case *delegate: panic(t)// FIXME: this case is actually a NOOP
+		var ectx Context = ctx
+		if len(a) > 0 || len(o) > 0 {
+			ev := &evocation{automatic{Context: ctx, defs: make(def_map)}, x, o, a}
+			if ev.a != nil { ev.args(ev, ev.a) }
+			ectx = ev
 		}
-		return ease(ctx, t.execute(ctx, a...))
 
-    case *builtin:
+		var dx = delegate_ctx{collapse_ctx{Context: ectx, good_to_collapse: true}}
+
+		// THE DOD FIX: Evaluate arguments BEFORE t.resolve mutates the AST!
+		var opts, args = o, a
+		if t.o != nil { opts = expands(&dx, t.o...) }
+		if t.a != nil { args = dx.args(&dx, t.a) }
+
+		for _, xv := range t.resolve(&dx) {
+			var cc = evoke_ctx{ctx, false}
+			if rv := evoke(&cc, xv, opts, args); !cc.noop && rv != nil { return rv }
+		}
+		do(ctx, evoke_noop{})
+		return nil
+
+	case *closure: panic(t)// FIXME: this case is actually a NOOP
+		var ectx Context = ctx
+		if len(a) > 0 || len(o) > 0 {
+			ev := &evocation{automatic{Context: ctx, defs: make(def_map)}, x, o, a}
+			if ev.a != nil { ev.args(ev, ev.a) }
+			ectx = ev
+		}
+
+		var cx = closure_ctx{collapse_ctx{Context: ectx, good_to_collapse: true}}
+		
+		// THE DOD FIX: Evaluate arguments BEFORE t.resolve mutates the AST!
+		var opts, args = o, a
+		if t.o != nil { opts = expands(&cx, t.o...) }
+		if t.a != nil { args = cx.args(&cx, t.a) }
+
+		for _, xv := range t.resolve(&cx) {
+			var cc = evoke_ctx{ctx, false}
+			if rv := evoke(&cc, xv, opts, args); !cc.noop && rv != nil { return rv }
+		}
+		do(ctx, evoke_noop{})
+		return nil
+
+	case *rule:
 		if truly(ctx, evoke_detect_loop{x}) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
-			return _null(x.Pos())
+			return _null(x.pos)
+		} else {
+			return ease(ctx, t.execute(ctx, a...))
+		}
+
+	case *builtin:
+		if truly(ctx, evoke_detect_loop{x}) {
+			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
+			return _null(x.pos)
 		}
 
 		ctx := &evocation{automatic{Context:ctx, defs:make(def_map)}, x, nil, a}
@@ -16085,7 +16078,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		if o != nil { ctx.o = _opts(ctx, _v, o) }
 
 		if x, y := _v.Interface().(builtin_x); y {
-			res = ease(ctx, x.x())
+			return ease(ctx, x.x())
 		} else {
 			erro(pc(ctx,x), "no method: %v", t.t.Name())
 		}
@@ -16097,42 +16090,32 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 
 		var targets []Value
 		var visited = make(map[*project]struct{})
-		var collect func(ul *uselist) // Local closure to traverse the dependency DAG safely
+		var collect func(ul *uselist)
 		collect = func(ul *uselist) {
 			for _, usee := range ul.list {
-				// Break circular dependencies (A -> B -> A)
 				if _, ok := visited[usee.project]; ok { continue } else {
 					visited[usee.project] = struct{}{}
 				}
-
 				if entry := usee.project.main; entry != nil {
 					targets = append(targets, entry)
 				}
-
-				// Optional: If you need to deeply resolve nested uselists instantly
-				// if sub, ok := usee.project.Lookup("uselist").(*uselist); ok {
-				// 	collect(sub)
-				// }
 			}
 		}
 
-		// Start the traversal
 		collect(t)
-
-		// Execute all collected entry points
 		if len(targets) == 0 { return nil }
 		return ease(ctx, targets)
 
-	case *closure, *delegate, *word, *raw, *strlit, *compound, *qualword, *globpat, *arrow, flag:
+	case *word, *raw, *strlit, *compound, *qualword, *globpat, *arrow, flag:
 		do(ctx, evoke_noop{})
 
-    default:
+	default:
 		if x != nil && !isTrivial(x) {
 			erro(pc(ctx,x),
 				_f("%s", ts(x,ctx)),
 				callstack{num:10})
 		}
-    }
+	}
 	return
 }
 
