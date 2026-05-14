@@ -55,7 +55,7 @@ import (
 type hashbytes [sha256.Size]byte
 
 const (
-	project_resolve_cache = false
+	project_resolve_cache = true
 	
     recursiveTraversalClosurePre  = false
     recursiveTraversalClosurePost = false
@@ -22506,7 +22506,6 @@ type is_project_resolving struct{ p *project }
 type project_resolve_ctx struct {
 	Context
 	proj    *project
-	tainted *bool // MUST be a pointer to track the state across the stack!
 }
 
 func (p *project_resolve_ctx) do(ctx Context, op any) any {
@@ -22516,20 +22515,8 @@ func (p *project_resolve_ctx) do(ctx Context, op any) any {
 	case is_project_resolving: 
 		// 1. If it matches us, we caught the loop!
 		if t.p == p.proj || (p.proj != nil && t.p == p.proj.configure) {
-			*p.tainted = true // Mutate the shared pointer
 			return true       // MUST return true so truly() breaks the loop!
 		}
-		
-		// 2. Fallthrough to check the parent contexts...
-		res := p.Context.do(ctx, op)
-		
-		// 3. The Taint Bubble
-		// If an ancestor caught the loop and returned true, we MUST taint 
-		// ourselves too so we don't cache the aborted search!
-		if res == true {
-			*p.tainted = true
-		}
-		return res
 	}
 	
 	// Variable lookups (Symbols) fall safely down here!
@@ -22545,21 +22532,17 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 		p.resolveMu.RLock()
 		val, ok := p.resolveMemo[name]
 		p.resolveMu.RUnlock()
-		if ok { return val } 
+		if ok { return val } // If val is nil, we return nil.
 	}
 
 	// 3. The Re-entrancy Shield
 	if truly(ctx, is_project_resolving{p}) {
-		// Cycle caught! The Context wrapper has already marked *tainted = true.
-		// Just return nil to break the loop safely.
+		// Silent Cycle Break!
 		return nil
 	}
 	
-	// 4. Set up the Taint Tracker
-	tainted := false
-	prc := project_resolve_ctx{ctx, p, &tainted} // Pass by POINTER!
-
-	// 5. DAG Walk
+	// 4. DAG Walk
+	prc := project_resolve_ctx{ctx, p}
 	for _, base := range p.bases {
 		if o := base.resolve(&prc, name); o != nil { 
 			// Positive Cache is always safe!
@@ -22570,6 +22553,7 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 
 	if p.configure != nil {
 		if o := p.configure.resolve(&prc, name); o != nil {
+			// POSITIVE CACHING ONLY
 			p.cacheResolution(name, o)
 			return o
 		}
@@ -22581,17 +22565,14 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 		}
 	}
 
-	// 6. The Tainted Cache Shield
-	// Only cache the MISS if the search was completely clean (no loops hit)
-	if !tainted {
-		p.cacheResolution(name, nil) 
-	}
-	
+	// We missed. DO NOT CACHE NIL! 
+	// Caching nil poisons Lexical Closures and Re-entrancy shields!
 	return nil
 }
 
 func (p *project) cacheResolution(name Symbol, obj object) {
-	if project_resolve_cache {
+	// ONLY cache if the object is NOT nil!
+	if project_resolve_cache && obj != nil {
 		p.resolveMu.Lock() 
 		defer p.resolveMu.Unlock()
 		if p.resolveMemo == nil {
