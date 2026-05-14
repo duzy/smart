@@ -55,7 +55,7 @@ import (
 type hashbytes [sha256.Size]byte
 
 const (
-	project_resolve_cache = true
+	project_resolve_cache = false
 	
     recursiveTraversalClosurePre  = false
     recursiveTraversalClosurePost = false
@@ -22502,124 +22502,75 @@ func (p *project) resolveDef(ctx Context, name Symbol) *def {
 }
 
 type is_project_resolving struct{ p *project }
-type project_resolve_ctx struct{ Context ; proj *project }
+
+type project_resolve_ctx struct {
+	Context
+	proj    *project
+	tainted *bool // MUST be a pointer to track the state across the stack!
+}
+
 func (p *project_resolve_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case is_project_resolving: 
-		// If it matches us (or our configure metaclass), catch the loop!
+		// 1. If it matches us, we caught the loop!
 		if t.p == p.proj || (p.proj != nil && t.p == p.proj.configure) {
-			return true
+			*p.tainted = true // Mutate the shared pointer
+			return true       // MUST return true so truly() breaks the loop!
 		}
-		// Fallthrough! Let the parent context check its project!
+		
+		// 2. Fallthrough to check the parent contexts...
+		res := p.Context.do(ctx, op)
+		
+		// 3. The Taint Bubble
+		// If an ancestor caught the loop and returned true, we MUST taint 
+		// ourselves too so we don't cache the aborted search!
+		if res == true {
+			*p.tainted = true
+		}
+		return res
 	}
+	
+	// Variable lookups (Symbols) fall safely down here!
 	return p.Context.do(ctx, op)
 }
 
-func (p *project) resolve0(ctx Context, name Symbol) object {
-	// 1. Check the Unified Cache (O(1) fast path)
-	p.resolveMu.RLock()
-	if val, ok := p.resolveMemo[name]; ok {
-		p.resolveMu.RUnlock()
-		// If val is nil, it's a cached miss. If it's an object, it's a cached hit.
-		return val 
-	}
-	p.resolveMu.RUnlock()
-
-	// 2. Local Scope Check
-	if o := p.scope.resolve(name); o != nil {
-		p.cacheResolution(name, o)
-		return o
-	}
-
-	// 3. The Re-entrancy Shield (Only hit if cache is cold)
-	if truly(ctx, is_project_resolving{p}) {
-		// NOTE: The closure-context chain is correct. The metaclass `configure`
-		// isn't infinitely looping; it is just acting as the entry point for a deeply
-		// nested evaluation, and the shield is successfully blocking the variables
-		// from causing circular resolution deadlocks.
-		if false { debug(pc(ctx,p.pos),
-			_f("%v: project resolve recursion loop: %v", p.name, name),
-			_f("%v", ts(ctx)), callstack{num:10}, trace_ctx{5}) }
-
-		// We are in a loop. We DO NOT cache this as a permanent miss, 
-		// because the loop might be broken by a global fallback later.
-		return nil
-	}
-	
-	prc := project_resolve_ctx{ctx, p}
-
-	// 4. Base Walk
-	for _, base := range p.bases {
-		if o := base.resolve(&prc, name); o != nil {
-			p.cacheResolution(name, o)
-			return o
-		}
-	}
-
-	// 5. Metaclass Walk
-	if p.configure != nil {
-		if o := p.configure.resolve(&prc, name); o != nil {
-			p.cacheResolution(name, o)
-			return o
-		}
-	}
-
-	// 6. External Plugin Walk
-	if p.ext.Plugin != nil {
-		if sym, e := p.ext.Lookup(name.String()); e == nil && sym != nil {
-			erro(ctx, "TODO: convert ext symbol: %v: %s", name, sym)
-		}
-	}
-
-	// 7. IT IS A TRUE MISS. Cache it!
-	p.cacheResolution(name, nil)
-	return nil
-}
-
 func (p *project) resolve(ctx Context, name Symbol) (res object) {
-	// 1. ALWAYS check local scope first (O(1) and volatile)
+	// 1. Local Scope Check
 	if o := p.scope.resolve(name); o != nil { return o }
 
-	// 2. Positive Cache Check (O(1) fast path for heavy DAG results)
+	// 2. Cache Check (Fast Path)
 	if project_resolve_cache {
 		p.resolveMu.RLock()
-		if val, ok := p.resolveMemo[name]; ok {
-			p.resolveMu.RUnlock()
-			return val 
-		}
+		val, ok := p.resolveMemo[name]
 		p.resolveMu.RUnlock()
+		if ok { return val } 
 	}
 
 	// 3. The Re-entrancy Shield
 	if truly(ctx, is_project_resolving{p}) {
-		// NOTE: The closure-context chain is correct. The metaclass `configure`
-		// isn't infinitely looping; it is just acting as the entry point for a deeply
-		// nested evaluation, and the shield is successfully blocking the variables
-		// from causing circular resolution deadlocks.
-		if false { debug(pc(ctx,p.pos),
-			_f("%v: project resolve recursion loop: %v", p.name, name),
-			_f("%v", ts(ctx)), callstack{num:10}, trace_ctx{5}) }
-
-		// Silent Cycle Break. Returning `nil` here is safe now 
-		// because our cache function ignores `nil`!
+		// Cycle caught! The Context wrapper has already marked *tainted = true.
+		// Just return nil to break the loop safely.
 		return nil
 	}
 	
-	prc := project_resolve_ctx{ctx, p}
+	// 4. Set up the Taint Tracker
+	tainted := false
+	prc := project_resolve_ctx{ctx, p, &tainted} // Pass by POINTER!
 
-	// 4. DAG Walk
+	// 5. DAG Walk
 	for _, base := range p.bases {
 		if o := base.resolve(&prc, name); o != nil { 
-			p.cacheResolution(name, o) // Positive cache!
+			// Positive Cache is always safe!
+			p.cacheResolution(name, o)
 			return o 
 		}
 	}
 
 	if p.configure != nil {
 		if o := p.configure.resolve(&prc, name); o != nil {
-			p.cacheResolution(name, o) // Positive cache!
+			p.cacheResolution(name, o)
 			return o
 		}
 	}
@@ -22629,18 +22580,20 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 			erro(ctx, "TODO: convert ext symbol: %v: %s", name, sym)
 		}
 	}
+
+	// 6. The Tainted Cache Shield
+	// Only cache the MISS if the search was completely clean (no loops hit)
+	if !tainted {
+		p.cacheResolution(name, nil) 
+	}
 	
-	// We missed. Do NOT cache nil!
 	return nil
 }
 
-// Helper to write to the cache
 func (p *project) cacheResolution(name Symbol, obj object) {
-	// THE DOD FIX: Positive Caching Only!
-	// We MUST NOT cache `nil`. Caching `nil` poisons the engine by turning 
-	// temporary cycle-breaks and unparsed forward-references into permanent lies!
-	if project_resolve_cache && obj != nil { // Fix Cache Poisoning in a Volatile DAG.
-		p.resolveMu.Lock() ; defer p.resolveMu.Unlock()
+	if project_resolve_cache {
+		p.resolveMu.Lock() 
+		defer p.resolveMu.Unlock()
 		if p.resolveMemo == nil {
 			p.resolveMemo = make(map[Symbol]object)
 		}
