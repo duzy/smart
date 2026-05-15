@@ -55,22 +55,16 @@ import (
 type hashbytes [sha256.Size]byte
 
 const (
-	project_resolve_cache = true
-	
-    recursiveTraversalClosurePre  = false
-    recursiveTraversalClosurePost = false
-    recursiveTraversalClosure = true
-
-    detectTraverseLoops = true // turn on/off traverse loop detection
+	project_resolve_cache = false
+    detect_traverse_loops = true // turn on/off traverse loop detection
 
     vertag = "dev" // dev, alpha, beta, final
 
 	windowsOS = runtime.GOOS == "windows"
 
+	hexChars = "0123456789abcdef"
 	shredderChars = `:./\-+#~_*?` // ' ' \t \n \r
 	escaperChars = "\"\r\n"
-
-	hexChars = "0123456789abcdef"
 
     mainFileName = "do.smart"
     altrFileName = "work.smart"
@@ -87,7 +81,6 @@ var (
 	// Zero-Allocation Hasher Pool
 	// Reusing hashers prevents constant heap escapes during massive build graphs.
 	sha256Pool = sync.Pool{ New: func() any { return sha256.New() } }
-
     udots = []byte("…")
 )
 
@@ -108,12 +101,12 @@ const (
 //  * Bits 3-6 (4 bits): Rank (Supports up to 16 ranks: 0-15)
 //  * Bit 7 (1 bit): Unused/Reserved for future flags.
 type SymMeta struct {
-	Idx   int32  // 4 bytes (Index into side-tables based on Kind)
-	Flags uint8  // 1 byte  (Bits 0-2 for Kind, Bits 3-6 for Rank)
+	Idx   int32 // 4 bytes (Index into side-tables based on Kind)
+	Flags uint8 // 1 byte  (Bits 0-2 for Kind, Bits 3-6 for Rank)
 	// 3 bytes implicit compiler padding
 }
-func (m SymMeta) Kind() uint8 { return m.Flags & 0x07 } // 3 bits
-func (m SymMeta) Rank() int { return int((m.Flags >> 3) & 0x0F) }
+func (m  SymMeta) Kind() uint8 { return m.Flags & 0x07 } // 3 bits
+func (m  SymMeta) Rank() int { return int((m.Flags >> 3) & 0x0F) }
 func (m *SymMeta) flags(k uint8, s string) { m.Flags = k | (uint8(globRank(s)) << 3) }
 
 type Symbol uint32
@@ -203,7 +196,7 @@ const (
 	symSlash        // /
 	symSlashSlash   // //
 	symBackslash    // \
-	symBackslash2   // \
+	symBackslash2   // \\
 	symLparen       // (
 	symRparen       // )
 	symLbrace       // {
@@ -276,14 +269,15 @@ const (
 	symMode      // mode
 	symGoals     // goals
 	symGo        // go
-	symSmart     // smart
 	symSm        // sm
+	symSmart     // smart
 
 	symMailto
 	symFtp
 	symFtps
 	symHttp
 	symHttps
+	symExtbit
 
 	symDock
 	symSh
@@ -380,14 +374,14 @@ const (
 	symWarning
 	symSure
 	symTrace
-	symDefor
 
+	symDefor
 	symOr
 	symAnd
 	symNot
 	symXor
-	symEqual // 'equal', not '='
 	symEq
+	symEqual // 'equal', not '='
 	symNe
 	symMatch
 	symGreater
@@ -402,12 +396,12 @@ const (
 	symCall
 	symList
 	symWhich
-
 	symBare
-	symDivide
+
 	symDiv
-	symMultiply
+	symDivide
 	symMul
+	symMultiply
 	symMinus // 'minus', not '-'
 
 	symElement
@@ -439,18 +433,46 @@ const (
 
 	symBase
 	symBases
+	symBase2
+	symBase3
+	symBase4
+	symBase5
+	symBase6
+	symBase7
+	symBase8
+	symBase9
+	symBase64
 	symDir
 	symDirs
+	symDir2
+	symDir3
+	symDir4
+	symDir5
+	symDir6
+	symDir7
+	symDir8
+	symDir9
 	symUndir
 	symUndirs
+	symUndir2
+	symUndir3
+	symUndir4
+	symUndir5
+	symUndir6
+	symUndir7
+	symUndir8
+	symUndir9
+
+	symRel
+	symRelative
 	symReldir
 	symFile
 	symStat
 	symWildcard
 	symPrintf
 	symClean
-
 	symChdir
+
 	symGit
 	symGitdir
 	symRename
@@ -461,18 +483,17 @@ const (
 	symTruncate
 	symReturn
 
-	symRead
-	symRelative
-	symRel
+	symCopy
 	symOut
 	symOuttmp
+	symOutinc
 	symDecode
 	symLeft
 	symRight
 	symPrefix
 	symSuffix
 
-	symCopy
+	symRead
 	symWrite
 	symUpdate
 	symInput
@@ -481,6 +502,7 @@ const (
 	symModules
 	symUniverse
 	symGlobe
+
 	symPlugin
 	symPlugins
 	symRemnant
@@ -492,13 +514,18 @@ const (
 	symTmp
 	symTs
 
+	symAhead
 	symShared
 	symStatic
 	symInlines
 	symHidden
+	symWork
+	symWorkspace
+	symModified
 
 	symSrc
 	symBin
+	symBit
 	symLog
 	symExe
 	symDyn
@@ -519,32 +546,6 @@ const (
 	symFcxx
 	symFmodules
 	symFvisibility
-
-	symBase2
-	symBase3
-	symBase4
-	symBase5
-	symBase6
-	symBase7
-	symBase8
-	symBase9
-	symBase64
-	symDir2
-	symDir3
-	symDir4
-	symDir5
-	symDir6
-	symDir7
-	symDir8
-	symDir9
-	symUndir2
-	symUndir3
-	symUndir4
-	symUndir5
-	symUndir6
-	symUndir7
-	symUndir8
-	symUndir9
 
 	symReadDir
 	symRelativeDir
@@ -590,12 +591,12 @@ const (
 	symDotSelf      // .self
 	symDotUsee      // .usee
 	symDotMode      // .mode
-	symDotOS        // .os
 	symDotGoals     // .goals
 	symDotGo        // .go
 	symDotSearch    // .search
 	symDotSmart     // .smart
 	symDotSm        // .sm
+	symDotOS        // .os
 	symDotTmp       // .tmp   - common file suffix
 	symDotSrc       // .src   - common file suffix
 	symDotBin       // .bin   - common file suffix
@@ -670,9 +671,9 @@ var coreSymbols = []string{
 
 	"true", "false", "yes", "no", "on", "off",
 
-	"os", "mode", "goals", "go", "smart", "sm",
+	"os", "mode", "goals", "go", "sm", "smart",
 
-	"mailto", "ftp", "ftps", "http", "https",
+	"mailto", "ftp", "ftps", "http", "https", "extbit",
 
 	"dock", "sh", "shell", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
 	"assert", "append", "eval", "value", "config", "configure", "configuration",
@@ -686,30 +687,31 @@ var coreSymbols = []string{
 	"case", "cond", "if", "where", "once", "dirty", "by",
 
 	"type", "types", "typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace",
-	"defor", "or", "and", "not", "xor", "equal", "eq", "ne", "match", "greater", "less",
+	"defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "greater", "less",
 	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which", "bare",
-	"divide", "div", "multiply", "mul", "minus", "element", "field", "fields", "split", "search",
+	"div", "divide", "mul", "multiply", "minus", "element", "field", "fields", "split", "search",
 	"usee", "user", "uses", "path", "finalize", "resolve", "strip", "trim", "ext", "chop", "chopdir",
 	"title", "indent", "uppercase", "lowercase", "subst", "substitute", "substring", "patsubst", "contains",
-	"base", "bases", "dir", "dirs", "undir", "undirs", "reldir", "file", "stat", "wildcard", "printf", "clean",
-	"chdir", "git", "gitdir", "rename", "remove", "link", "readlink", "symlink", "truncate", "return",
 
-	"read", "relative", "rel", "out", "outtmp", "decode", "left", "right", "prefix", "suffix",
-	"copy", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
+	"base", "bases", "base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "base64",
+	"dir", "dirs", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9",
+	"undir", "undirs", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9",
+
+	"rel", "relative", "reldir", "file", "stat", "wildcard", "printf", "clean", "chdir",
+	"git", "gitdir", "rename", "remove", "link", "readlink", "symlink", "truncate", "return",
+
+	"copy", "out", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
+	"read", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
 	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
 
-	"shared", "static", "inlines", "hidden",
+	"ahead", "shared", "static", "inlines", "hidden", "work", "workspace", "modified",
 
-	"src", "bin", "log", "exe", "dyn", "so", "cc", "c", "o", "O", "Os",
+	"src", "bin", "bit", "log", "exe", "dyn", "so", "cc", "c", "o", "O", "Os",
 	"M", "MM", "MG", "MD", "MV", "MP", "fPIC", "fcxx", "fmodules", "fvisibility",
 
 	// --- *END* monolithic strings ---
 	// --- *SEPARATOR* of Atomic and Composite Symbols (ID shifting occurs after this point) ---
 
-	"base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "base64",
-	"dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9",
-	"undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9",
-	
 	"read-dir", "relative-dir", "not-equal", "filter-out", "decode-base64", "encode-base64",
 	"trim-left", "trim-right", "trim-prefix", "trim-suffix", "trim-ext",
 	"split-quote", "split-quote-join", "split-join-quote",
@@ -718,8 +720,8 @@ var coreSymbols = []string{
 
 	"target.tmp", "target.out", "target.triple", "rel.remnant", "rel.chop", "variant.tag", "configuration.sm",
 
-	".base", ".configure", ".container", ".self", ".usee", ".mode", ".os", ".goals", ".go", ".search",
-	".smart", ".sm",
+	".base", ".configure", ".container", ".self", ".usee", ".mode", ".goals", ".go", ".search",
+	".smart", ".sm", ".os",
 
 	// --- common file suffixes ---
 	".tmp", ".src", ".bin", ".log", ".exe", ".dyn", ".so", ".cc", ".c", ".o",
@@ -2977,16 +2979,16 @@ const (
 	LBRACE    // {    left curly
 	LBRACK    // [
 	LPAREN    // (
-	Lchevron    // ⟨ ⟪⟫ ｟｠ 〝〞
-	Ltop_corner // ⌜
-	Lbot_corner // ⌞
-	Lsing_guil  // ‹
-	Lguillemet  // «
-	Rguillemet  // »
-	Rsing_guil  // ›
-	Rbot_corner // ⌟
-	Rtop_corner // ⌝
-	Rchevron    // ⟩
+	LCHEVRON    // ⟨ ⟪⟫ ｟｠ 〝〞
+	LTOP_CORNER // ⌜
+	LBOT_CORNER // ⌞
+	LSING_GUIL  // ‹
+	LGUILLEMET  // «
+	RGUILLEMET  // »
+	RSING_GUIL  // ›
+	RBOT_CORNER // ⌟
+	RTOP_CORNER // ⌝
+	RCHEVRON    // ⟩
 	RPAREN    // )
 	RBRACK    // ]
 	RBRACE    // }    right curly
@@ -3130,16 +3132,16 @@ var tokens = [...]string{
 	LBRACE: "{",
 	LBRACK: "[",
 	LPAREN: "(",
-	Lchevron: "⟨",
-	Ltop_corner: "⌜",
-	Lbot_corner: "⌞",
-	Lsing_guil: "‹",
-	Lguillemet: "«",
-	Rguillemet: "»",
-	Rsing_guil: "›",
-	Rbot_corner: "⌟",
-	Rtop_corner: "⌝",
-	Rchevron: "⟩",
+	LCHEVRON: "⟨",
+	LTOP_CORNER: "⌜",
+	LBOT_CORNER: "⌞",
+	LSING_GUIL: "‹",
+	LGUILLEMET: "«",
+	RGUILLEMET: "»",
+	RSING_GUIL: "›",
+	RBOT_CORNER: "⌟",
+	RTOP_CORNER: "⌝",
+	RCHEVRON: "⟩",
 	RPAREN: ")",
 	RBRACK: "]",
 	RBRACE: "}",
@@ -3267,7 +3269,7 @@ func (tok token) is_assign() bool           { return ASSIGN <= tok && tok <= ASS
 func (tok token) is_rule_delim() bool       { return BAR <= tok && tok <= SOLON }
 func (tok token) is_list_delim() bool {
 	switch tok {
-	case RPAREN, RBRACK, RBRACE, Rbot_corner, Rtop_corner, Rsing_guil, Rguillemet, Rchevron, SEMICOLON, COMMA, LINEND, EOF:
+	case RPAREN, RBRACK, RBRACE, RBOT_CORNER, RTOP_CORNER, RSING_GUIL, RGUILLEMET, RCHEVRON, SEMICOLON, COMMA, LINEND, EOF:
 		return true
 	}
 	return tok.is_rule_delim()
@@ -4442,10 +4444,10 @@ func (s *scanner) scan(ctx Context) {
 			s.tok = SELECT_PROG1
 			s.next(ctx)
 		} else if s.ch == '+' {
-			s.tok = ASSIGN_USH
+			s.tok, s.sym = ASSIGN_USH, symUnshiSign
 			s.next(ctx)
 		} else {
-			s.tok = ASSIGN
+			s.tok, s.sym = ASSIGN, symEqualSign
 		}
 	case ' ', '\t':
 		if ch == '\t' && s.canRecipe() {
@@ -4462,8 +4464,8 @@ func (s *scanner) scan(ctx Context) {
 			s.tok = TILDE
 		}
 	case '.':
-		if s.tok = DOT; s.ch == '.' { s.next(ctx)
-			s.tok = DOTDOT
+		if s.tok, s.sym = DOT, symDot; s.ch == '.' { s.next(ctx)
+			s.tok, s.sym = DOTDOT, symDotDot
 		} else if IsDigit(s.ch) {
 			if n := s.offset-2; n > -1 && unicode.IsSpace(rune(s.src[n])) {
 				s.tok = s.scanNumber(ctx, true)
@@ -4487,16 +4489,6 @@ func (s *scanner) scan(ctx Context) {
 		case '?': s.next(ctx); s.tok = ASTQ
 		default: s.tok = SAST
 		}
-	case '%': s.tok = PERC
-	case '@': s.tok = AT
-	case '|': s.tok = BAR
-	case '/': s.tok = PCON
-	case ',': s.tok = COMMA
-	case '→': s.tok = SELECT_PROP
-	case '⇒': s.tok = SELECT_PROG1
-	case '⇢': s.tok = SELECT_PROG2
-	case '≔': s.tok = ASSIGN_CO1
-	case '⩴': s.tok = ASSIGN_CO2
 	case ';':
 		if s.ch == '=' { s.tok = ASSIGN_SC1 ; s.next(ctx) } else
 		if s.ch == ':' { s.tok = SOLON      ; s.next(ctx)
@@ -4504,21 +4496,31 @@ func (s *scanner) scan(ctx Context) {
 		} else {
 			s.tok = SEMICOLON
 		}
-	case '^': s.tok = CARET
-	case '[': s.tok = LBRACK
-	case ']': s.tok = RBRACK
-	case '<': s.tok = LANGLE
-	case '>': s.tok = RANGLE
-	case '⟨': s.tok = Lchevron
-	case '⟩': s.tok = Rchevron
-	case '⌜': s.tok = Ltop_corner
-	case '⌟': s.tok = Rbot_corner
-	case '⌝': s.tok = Rtop_corner
-	case '⌞': s.tok = Lbot_corner
-	case '‹': s.tok = Lsing_guil
-	case '›': s.tok = Rsing_guil
-	case '«': s.tok = Lguillemet
-	case '»': s.tok = Rguillemet
+	case '%': s.tok, s.sym = PERC, symPercent
+	case '@': s.tok, s.sym = AT, symAt
+	case '|': s.tok, s.sym = BAR, symBar
+	case '/': s.tok, s.sym = PCON, symSlash
+	case ',': s.tok, s.sym = COMMA, symComma
+	case '→': s.tok = SELECT_PROP
+	case '⇒': s.tok = SELECT_PROG1
+	case '⇢': s.tok = SELECT_PROG2
+	case '≔': s.tok = ASSIGN_CO1
+	case '⩴': s.tok = ASSIGN_CO2
+	case '^': s.tok, s.sym = CARET, symCaret
+	case '[': s.tok, s.sym = LBRACK, symLbrack
+	case ']': s.tok, s.sym = RBRACK, symRbrack
+	case '<': s.tok, s.sym = LANGLE, symLangle
+	case '>': s.tok, s.sym = RANGLE, symRangle
+	case '⟨': s.tok = LCHEVRON
+	case '⟩': s.tok = RCHEVRON
+	case '⌜': s.tok = LTOP_CORNER
+	case '⌟': s.tok = RBOT_CORNER
+	case '⌝': s.tok = RTOP_CORNER
+	case '⌞': s.tok = LBOT_CORNER
+	case '‹': s.tok = LSING_GUIL
+	case '›': s.tok = RSING_GUIL
+	case '«': s.tok = LGUILLEMET
+	case '»': s.tok = RGUILLEMET
 	case '\n':
 		s.tok = LINEND
 		if s.pop(isStrcompLine); s.ch != '\t' { s.bits &^= isRecipes }
@@ -5825,7 +5827,7 @@ func (p *compiler) corner_list(ctx Context) *list { // ⌜a b c⌟
 
 	var elems []Value
 	switch p.tok {
-	case Lbot_corner, Ltop_corner: p.step(ctx)
+	case LBOT_CORNER, LTOP_CORNER: p.step(ctx)
 	default: erro(pc(ctx,p), "unexpect %v", p.tok)
 	}
 
@@ -5840,11 +5842,11 @@ corner_loop:
 		// the expression list to treat the line-end comment like a LINEND.
 		if p.lineComment != nil { break }
 
-		switch p.tok { case Rbot_corner, Rtop_corner, LINEND: break corner_loop }
+		switch p.tok { case RBOT_CORNER, RTOP_CORNER, LINEND: break corner_loop }
 	}
 
 	switch p.tok {
-	case Rbot_corner, Rtop_corner: p.step(ctx)
+	case RBOT_CORNER, RTOP_CORNER: p.step(ctx)
 	default: erro(pc(ctx,p), "unexpect %v", p.tok)
 	}
 
@@ -6942,7 +6944,7 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 	erro(pc(pc(ctx,name),p),
 		_f("undefined %v", sym),
 		_f("→ %v, name=%s tok=%v", obj, ts(name,ctx), tok),
-		_f("%v: bases=%v", p.project, p.project.bases),
+		_f("project %v, bases=%v", p.project.name, p.project.bases),
 		trace_ctx{2}, callstack{num:32})
 
 	return
@@ -7230,7 +7232,7 @@ func (p *compiler) unary(ctx Context) (x Value) {
 	case LBRACE: // {
 		return p.braced(ctx)
 
-	case Lbot_corner, Ltop_corner: // ⌜a b c⌟  ⌞a b c⌝
+	case LBOT_CORNER, LTOP_CORNER: // ⌜a b c⌟  ⌞a b c⌝
 		return p.corner_list(ctx)
 
 	case LANGLE, RANGLE: // < >
@@ -7347,7 +7349,7 @@ func (p *compiler) expr(ctx Context) (x Value) {
 
 composeloop: // parses right-fixes
 	switch p.tok {
-	case COLON, COMPOSED, RPAREN, RBRACK, RBRACE, Rbot_corner, Rtop_corner, Rchevron, RAW, SPACE, SEMICOLON, LINEND, EOF:
+	case COLON, COMPOSED, RPAREN, RBRACK, RBRACE, RBOT_CORNER, RTOP_CORNER, RCHEVRON, RAW, SPACE, SEMICOLON, LINEND, EOF:
 		return
 
 	case COMMA:
@@ -8695,12 +8697,10 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			}
 			return
 		}
-
-		var scope = p.project.scope
-		if p, _ := scope.lookup(loaded.name).(*project); p == nil {
-			if _, alt := scope.projectName(ctx, loaded.name, loaded); alt != nil {
+		if p, _ := p.project.lookup(loaded.name).(*project); p == nil {
+			if _, alt := p.project.projectName(ctx, loaded.name, loaded); alt != nil {
 				if p, y := alt.(*project); !y || p == nil {
-					erro(ctx, "%s: name already taken : %s", loaded.name.String(), ts(alt))
+					erro(ctx, "%s: name already taken : %s", loaded.name.String(), ts(alt,ctx))
 				}
 			}
 		}
@@ -8749,15 +8749,18 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		}
 
 		if loaded, _ = u.globe.loaded[absPath]; loaded == nil {
-			erro(ctx, "%s not loaded (%s)", spec, absPath)
+			erro(ctx, "%s not loaded (%s)", spec, absPath, _fMapKeys("%v", u.globe.loaded))
+			return nil // THE DOD FIX: Stop execution! Do not pass nil to useProj!
 		}
 		if loaded == p.project {
 			erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir)
+			return nil // THE DOD FIX: Protect against self-overwrite corruption!
 		}
 	}
 
 	if checkpoints && prev != p.project {
 		erro(ctx, "active project changed: %v → %v, use %v", prev, p.project, loaded)
+		return nil
 	}
 
 	// Check against the current load list before appending loaded.
@@ -8801,6 +8804,11 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 }
 
 func (p *compiler) useProj(ctx Context, opts useopts, proj *project, params ...Value) (err error) {
+	// THE DOD FIX: Safety Guard
+	if proj == nil || p.project == nil {
+		return
+	}
+
 	u := _universe(ctx)
     if u.verboseUsing {
         defer func(t time.Time) {
@@ -9331,10 +9339,11 @@ func (p parent) do(ctx Context, op any) any {
 
 		p.bases = append(p.bases, t.project)
 
-		// THE DOD FIX: Swallow the event. 
-		// The event dies here. Grandparents are protected, and the 
-		// universe is already fed!
-		return nil
+		// THE DOD FIX: Direct Universe Feed!
+		// We swallow the event from the Context chain (return nil below) 
+		// so grandparents are protected. BUT we explicitly hand the event 
+		// to the universe so it successfully populates `u.globe.loaded`!
+		return _universe(ctx).do(ctx, op)
 	}
 	return p.Context.do(ctx, op)
 }
@@ -9398,13 +9407,25 @@ func (p *compiler) parse(ctx Context) bool {
 			absName = p.project.absPath
 		}
 	} else {
-		switch s := intern(p.filename()); __symBase(s) {
-		case symDotBase, symDotConfigure, symConfigure:
+		s := intern(p.filename())
+		f := _stat(ctx, s)
+
+		if f != nil && f._isDir {
+			// If the compiler was directly handed a directory
 			absName = s
-		case intern(mainFileName), intern(deprFileName):
-			absName = __symDir(s); isMainFile = true
-		default:
-			absName = __symDir(s)
+		} else {
+			switch baseSym := __symBase(s); baseSym {
+			case intern(mainFileName), intern(deprFileName):
+				// Manifest files (do.smart) represent the directory project.
+				// We chop the filename to get the true project root.
+				absName = __symDir(s)
+				isMainFile = true
+			default:
+				// THE DOD FIX: Flat-File Class Preservation!
+				// Standalone file classes (symDotBase, symConfigure, "bootstrap", etc.)
+				// serve as their own absolute project path. We DO NOT chop them!
+				absName = s
+			}
 		}
 	}
 
@@ -9443,8 +9464,6 @@ func (p *compiler) parse(ctx Context) bool {
 
 			// =================================================================
 			// 3. IMMEDIATE EVALUATION (-set)
-			// Binds `-set` natively to the pre-project file scope (`p.scope`) 
-			// so `&(variant)` perfectly bubbles up the Lexical Tree!
 			// =================================================================
 			p.pre_project_set(ctx, merge(opts.set...)...)
 
@@ -9454,7 +9473,17 @@ func (p *compiler) parse(ctx Context) bool {
 			var implicitBase Symbol
 			var nameSym Symbol
 			var namePos = p.pos
-			var dirSym = __symDir(absName)
+			
+			// THE DOD FIX: Correct Directory Targeting!
+			// If it's a `do.smart` file, `absName` is already the project directory. 
+			// We MUST use it directly. Calling `__symDir` again pushes us into the 
+			// parent directory, completely breaking local Metaclass discovery!
+			var dirSym Symbol
+			if isMainFile {
+				dirSym = absName
+			} else {
+				dirSym = __symDir(absName)
+			}
 			var baseSym = __symBase(absName)
 
 			if p.tok == LPAREN || p.is_end_of_line() { 
@@ -9473,7 +9502,7 @@ func (p *compiler) parse(ctx Context) bool {
 					erro(ctx, "invalid file: %v", absName)
 					return false
 				}
-			} else if p.tok == TILDE { // ~ is a placeholder
+			} else if p.tok == TILDE {
 				if __symExt(baseSym) != symDotSmart {
 					erro(ctx, "`%v` not a smart file", baseSym)
 					return false
@@ -9511,30 +9540,28 @@ func (p *compiler) parse(ctx Context) bool {
 			}
 
 			if nameSym == symDash || nameSym == symUnderscore {
-				erro(ctx, "package name '%s' is preserved", nameSym)
+				erro(pc(ctx,p), "package name '%s' is preserved", nameSym)
 				return false
 			}
 
-			if pProj := p.project; !isMainFile && pProj != nil && pProj.name != nameSym && pProj.absPath == absName {
-				erro(ctx,
-					_f("%v: multiple projects in the directory: %v", pProj, nameSym),
-					_f("%v: %v %v", pProj.project, baseSym, nameSym),
+			if proj := p.project; !isMainFile && proj != nil && proj.name != nameSym && proj.absPath == absName {
+				erro(pc(ctx,p),
+					_f("%v: multiple projects in the directory: %v", proj, nameSym),
+					_f("%v: %v %v", proj.project, baseSym, nameSym),
 					_f("%v", absName),
-					_f("%v", pProj.absPath),
+					_f("%v", proj.absPath),
 					_f("%v", dirSym),
 					callstack{num:10})
 			}
 
 			// =================================================================
-			// 5. METACLASS LOADING (-configure) BEFORE HOST DECLARATION!
+			// 5. METACLASS LOADING (-configure)
 			// =================================================================
 			var implicitConfigure *project
 
 			if nameSym != symDotConfigure && nameSym != symConfigure {
 				var cc = configure_project_ctx{Context: ctx}
-				var confAbsPath Symbol
-				var confIsDir bool
-				var confLocal bool
+				var isLocalConfigure bool 
 
 				if v := opts.configure; v != nil {
 					if x, y := v.(*boolean); y {
@@ -9544,14 +9571,14 @@ func (p *compiler) parse(ctx Context) bool {
 						if cc.configure == symEmpty {
 							erro(ctx, "empty configure spec: %v", ts(v))
 						} else if cc.configure == symDot {
-							cc.configure, confLocal = symConfigure, true
+							cc.configure, isLocalConfigure = symConfigure, true
 						}
 					}
-				// The strict `f._isDir` check protects your `.configure` autoload files!
-				} else if f := _stat(ctx, symConfigure, stat_dir{dirSym}); f != nil && f._isDir {
-					cc.configure, confLocal = symConfigure, true
-				} else if f := _stat(ctx, symDotConfigure, stat_dir{dirSym}); f != nil && f._isDir {
-					cc.configure, confLocal = symDotConfigure, true
+				// THE DOD FIX: Clean f.exists() utilizing the nil-safe receiver!
+				} else if f := _stat(ctx, symConfigure, stat_dir{dirSym}); f.exists() {
+					cc.configure, isLocalConfigure = symConfigure, true
+				} else if f := _stat(ctx, symDotConfigure, stat_dir{dirSym}); f.exists() {
+					cc.configure, isLocalConfigure = symDotConfigure, true
 				}
 
 				if cc.configure != symEmpty {
@@ -9562,18 +9589,16 @@ func (p *compiler) parse(ctx Context) bool {
 						f = _stat(ctx, cc.configure, stat_dir{dirSym})
 					}
 
-					if f != nil && f.exists() {
-						confAbsPath, confIsDir = f.fullname(), f._isDir
+					if f.exists() {
+						cc.absPath, cc.isDir = f.fullname(), f._isDir
 					}
 
-					if confAbsPath == symEmpty && opts.configure != nil {
-						if !confLocal { confAbsPath, confIsDir = p.search(ctx, cc.configure) }
-						if confAbsPath == symEmpty {
+					if cc.absPath == symEmpty && opts.configure != nil {
+						if !isLocalConfigure { cc.absPath, cc.isDir = p.search(ctx, cc.configure) }
+						if cc.absPath == symEmpty {
 							erro(ctx, "no such project: %s", cc.configure)
 						}
 					}
-					cc.absPath = confAbsPath
-					cc.isDir = confIsDir
 				}
 
 				if cc.absPath != symEmpty {
@@ -9581,16 +9606,11 @@ func (p *compiler) parse(ctx Context) bool {
 						do(&cc, declared_project{prev})
 					} else {
 						func (host *project, hostScope *scope) {
-							// Inherits caller's Lexical Tree securely for closures.
-							cc.Context = closure_with(cc.Context, hostScope)
-
-							// Defends Walled Garden teardown so panics don't corrupt the host!
 							defer func() { p.project, p.scope = host, hostScope } ()
 
-							p.project = nil 
-							// Lexical Tree preserved: p.scope deliberately left as hostScope
+							if true { p.project = nil } 
 
-							if cc.isDir {
+							if cc.Context = closure_with(cc.Context, hostScope); cc.isDir {
 								p.directory(&cc, cc.configure, cc.absPath)
 							} else {
 								p.file(&cc, filespec(symBaseWorkDir, cc.absPath), cc.absPath)
@@ -9643,6 +9663,9 @@ func (p *compiler) parse(ctx Context) bool {
 						erro(ctx, "%s already specified", symDotConfigure)
 					} else {
 						p.project.configure = activeConfigure
+						if g := _universe(ctx).globe; g.main == activeConfigure {
+							g.main = p.project
+						}
 					}
 				}
 			}
@@ -9680,9 +9703,16 @@ func (p *compiler) parse(ctx Context) bool {
 			}
 
 		} else {
-			erro(pc(ctx, p.pos),
-				_f("expect keyword 'project', not %v (lit=%s)", p.tok, p.lit),
-				callstack{num:16,stop:"smart.run"}, unwind{})
+			switch __symBase(absName) {
+			case symConfigure, symDotConfigure:
+				erro(pc(pc(ctx, p.pos), absName),
+					_f(`expect keyword "project" for metaclass "configure", not %v (lit=%s)`, p.tok, p.lit),
+					callstack{num:16, stop:"smart.run"}, trace_ctx{3}, unwind{})
+			default:
+				erro(pc(ctx, p.pos),
+					_f("expect keyword 'project', not %v (lit=%s)", p.tok, p.lit),
+					callstack{num:16, stop:"smart.run"}, unwind{})
+			}
 		}
 	}
 
@@ -10207,7 +10237,9 @@ func (p *compiler) saveConfiguration(ctx Context) {
 
 	if checkpoints {
 		if c := p.project.configuration; c != nil && c.fullname() != fnSym {
-			erro(pc(pc(ctx, fnSym), c.fullname()), "%s: configuration already loaded", p.project.name.String())
+			erro(pc(pc(ctx, fnSym), c.fullname()),
+				_f("%s: configuration already loaded", p.project.name.String()),
+				trace_ctx{5})
 		}
 	}
 
@@ -10372,18 +10404,18 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 	// Helper: Checks the target and its optional extensions purely via the VFS Cache!
 	// _stat avoids physical disk I/O if the file was previously seen.
 	checkTarget := func(target Symbol) (Symbol, bool) {
-		if f := _stat(ctx, target); f != nil && f.exists() {
+		if f := _stat(ctx, target); f.exists() {
 			return target, f._isDir
 		}
 		
 		// Zero-allocation extension appending using our dumb-concatenator!
 		tSmart := __symJoinBy(symEmpty, target, symDotSmart)
-		if f := _stat(ctx, tSmart); f != nil && f.exists() {
+		if f := _stat(ctx, tSmart); f.exists() {
 			return tSmart, f._isDir
 		}
 		
 		tSm := __symJoinBy(symEmpty, target, symDotSm)
-		if f := _stat(ctx, tSm); f != nil && f.exists() {
+		if f := _stat(ctx, tSm); f.exists() {
 			return tSm, f._isDir
 		}
 		return symEmpty, false
@@ -10406,7 +10438,7 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 		
 		if baseSym != symEmpty {
 			// Hit the VFS instead of os.Stat!
-			if f := _stat(ctx, baseSym); f != nil && f.exists() {
+			if f := _stat(ctx, baseSym); f.exists() {
 				if !f._isDir {
 					// Pop the filename to get the directory (equivalent to filepath.Dir)
 					baseSym = __symPathJoin(baseSym, symDotDot)
@@ -11301,6 +11333,11 @@ func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
 }
 
 func (p *compiler) usevars(ctx Context, user, usee *project) {
+	// THE DOD FIX: Absolute Safety Guard against the panic you saw
+	if user == nil || usee == nil {
+		return
+	}
+	
 	for _, targetSym := range usee.exports {
 		targetName := targetSym.String()
 		lookupSym := intern("use." + targetName)
@@ -11590,20 +11627,20 @@ func (p *compiler) dot_container(ctx Context, nameSym Symbol, f *file) {
 	u := _universe(ctx)
 	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.dot_container")) }
 
-	sSym := f.fullname() // Retain the Walled Garden ID
+	sym := f.fullname() // Retain the Walled Garden ID
 
 	if f._mtime == 0 {
-		erro(ctx, "%v: file not exists: %v", nameSym, sSym)
+		erro(ctx, "%v: file not exists: %v", nameSym, sym)
 	} else if cc := pc(ctx, p.project); f._isDir {
 		// THE DOD FIX: Replaced `ident` with `p.project` to anchor the positional 
 		// context safely without needing the artificial AST word node.
-		p.directory(cc, symDotContainer, sSym)
+		p.directory(cc, symDotContainer, sym)
 	} else {
-		p.file(cc, filespec(symBaseWorkDir, sSym), sSym)
+		p.file(cc, filespec(symBaseWorkDir, sym), sym)
 	}
 
 	// O(1) Integer Map Lookup (u.globe.loaded perfectly uses Symbol keys)
-	if x, y := u.globe.loaded[sSym]; y && x != nil {
+	if x, y := u.globe.loaded[sym]; y && x != nil {
 		
 		// THE DOD FIX: Unified Lookup!
 		// Mirroring the robust lookup implementation we used in `configuration`,
@@ -11625,12 +11662,12 @@ func (p *compiler) dot_container(ctx Context, nameSym Symbol, f *file) {
 func (p *compiler) container(ctx Context, nameSym Symbol) {
 	if p.project.name != symDotContainer {
 		// 1. Zero-Allocation VFS Check replaces os.Stat
-		if f := _stat(ctx, intern(".dock"), p.project); f != nil && f.exists() {
+		if f := _stat(ctx, intern(".dock"), p.project); f.exists() {
 			erro(ctx, "must rename .dock into .container !")
 		}
 
 		// Looking for project specific .container module
-		if f := _stat(ctx, symDotContainer, p.project); f != nil && f.exists() {
+		if f := _stat(ctx, symDotContainer, p.project); f.exists() {
 			p.dot_container(ctx, nameSym, f)
 			return
 		}
@@ -11641,7 +11678,7 @@ func (p *compiler) container(ctx Context, nameSym Symbol) {
 			d := stat_dir{__symPathJoin(s, symDotSmart)}
 			f := _stat(ctx, symDotContainer, d)
 			
-			if f != nil && f.exists() {
+			if f.exists() {
 				p.dot_container(ctx, nameSym, f)
 			}
 			return false // Original behavior: keep walking
@@ -13631,7 +13668,10 @@ func (p *recipe) kind() Kind { return KindRecipe|p.strcomp.kind() }
 func (p *recipe) String() string { return p.src() }
 
 type is_plain_only struct{}
+type is_plainline struct{}
 type plain_ctx struct { Context ; only bool }
+type plainline_ctx struct { Context }
+
 func (p plain_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
 	case inner_cast: return p.Context
@@ -13641,19 +13681,6 @@ func (p plain_ctx) do(ctx Context, op any) (_ any) {
     return p.Context.do(ctx, op)
 }
 
-// Value returned by (plain) modifier.
-type plain struct { elements ; name Symbol }
-func (_ *plain) kind() Kind { return KindPlain }
-func (p *plain) String() (s string) {
-    s = "{plain"
-    if t := p.name.String(); t != "" { s += "("+t+")" }
-    for _, v := range p.elems { s += " " + v.String() }
-    s += "}"
-    return
-}
-
-type is_plainline struct {}
-type plainline_ctx struct { Context }
 func (p plainline_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
 	case inner_cast: return p.Context
@@ -13663,7 +13690,18 @@ func (p plainline_ctx) do(ctx Context, op any) (_ any) {
     return p.Context.do(ctx, op)
 }
 
-type plainline struct { elements }
+// Value returned by (plain) modifier.
+type plain struct{ elements ; name Symbol }
+func (_ *plain) kind() Kind { return KindPlain }
+func (p *plain) String() (s string) {
+    s = "{plain"
+    if t := p.name.String(); t != "" { s += "("+t+")" }
+    for _, v := range p.elems { s += " " + v.String() }
+    s += "}"
+    return
+}
+
+type plainline struct{ elements }
 func (_ *plainline) kind() Kind { return KindPlainLine }
 func (p *plainline) String() (s string) {
     s = "{plainline"
@@ -14308,8 +14346,6 @@ type filebase struct {
 	_isDir       bool        // Mode().IsDir()
 }
 
-func (p *filebase) exists() bool { return p != nil && p._mtime != 0 }
-
 type file struct{
 	valbase
 	*filebase
@@ -14319,11 +14355,12 @@ type file struct{
 func (p *file) String() string { return "{file "+p.name.String()+"}" }
 func (p *file) basename() Symbol { return __symBase(p.name) }
 func (p *file) fullname() Symbol { return __symPathJoin(p.dir, p.sub, p.name) }
+func (p *file) exists() bool { return p != nil && p._mtime != 0 }
 
 func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
 	if p.filemap != nil {
 		var f = p.filemap.stat(ctx, p.name.String())
-		if f != nil && f.exists() {
+		if f.exists() {
 			// Sync the primitive data directly
 			p._mtime, p._size, p._isDir = f._mtime, f._size, f._isDir
 			res = true
@@ -15275,13 +15312,13 @@ func __string(ctx Context, v any) (res string) {
 	case negative: return "!"+__string(ctx, t.Value)
 	case flag: return "-"+__string(ctx, t.Value)
 	case *disjunction: return __string(ctx, t.val)
-    case *undetermined: return __string(ctx, t.value)
+	case *undetermined: return __string(ctx, t.value)
 	case *xloc: return __string(ctx, t.Value)
 	case *loc: return __string(ctx, t.Value)
-	case *def: return __string(ctx, t.value)
 	case *defcaps: return __string(ctx, t.Value)
-	case *auto: return __string(ctx, t.def(ctx))
-	case *rule: return __string(ctx, t.target)
+	case *def: if t == nil { return "" } else { return __string(ctx, t.value) }
+	case *auto: if t == nil { return "" } else { return __string(ctx, t.def(ctx)) }
+	case *rule: if t == nil { return "" } else { return __string(ctx, t.target) }
 	case matched_rule: return __string(ctx, t.target)
 	case *quote: return strconv.Quote(__string(ctx, &t.list))
 	case *globrange: return "[" + __string(ctx, t.Value) + "]"
@@ -22496,16 +22533,11 @@ func (p *project) configuration_sm(ctx Context) (f *file) {
 func project_entry(c Context, s any, a ...bool) entry { return _project(c).entry(c, s, a...) }
 func project_resolve(c Context, s Symbol) object { return _project(c).resolve(c, s) }
 
-func (p *project) resolveDef(ctx Context, name Symbol) *def {
-	if d, ok := p.resolve(ctx, name).(*def); ok && d != nil { return d }
-	return nil
-}
-
 type is_project_resolving struct{ p *project }
 
 type project_resolve_ctx struct {
 	Context
-	proj    *project
+	proj *project
 }
 
 func (p *project_resolve_ctx) do(ctx Context, op any) any {
@@ -22515,7 +22547,7 @@ func (p *project_resolve_ctx) do(ctx Context, op any) any {
 	case is_project_resolving: 
 		// 1. If it matches us, we caught the loop!
 		if t.p == p.proj || (p.proj != nil && t.p == p.proj.configure) {
-			return true       // MUST return true so truly() breaks the loop!
+			return true // MUST return true so truly() breaks the loop!
 		}
 	}
 	
@@ -22532,7 +22564,7 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 		p.resolveMu.RLock()
 		val, ok := p.resolveMemo[name]
 		p.resolveMu.RUnlock()
-		if ok { return val } // If val is nil, we return nil.
+		if ok { return val } 
 	}
 
 	// 3. The Re-entrancy Shield
@@ -22541,19 +22573,24 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 		return nil
 	}
 	
-	// 4. DAG Walk
+	// 4. DAG Walk (Bases get the Shield!)
 	prc := project_resolve_ctx{ctx, p}
 	for _, base := range p.bases {
 		if o := base.resolve(&prc, name); o != nil { 
-			// Positive Cache is always safe!
+			// POSITIVE CACHE ONLY
 			p.cacheResolution(name, o)
 			return o 
 		}
 	}
 
+	// 5. Metaclass Walk
 	if p.configure != nil {
-		if o := p.configure.resolve(&prc, name); o != nil {
-			// POSITIVE CACHING ONLY
+		// THE DOD FIX: Metaclasses use `ctx`, NOT `&prc`!
+		// The Metaclass is an independent sandbox with its own DAG. 
+		// Passing `&prc` artificially triggers the Host's loop shield 
+		// during safe, independent Metaclass lookups. 
+		if o := p.configure.resolve(ctx, name); o != nil {
+			// POSITIVE CACHE ONLY
 			p.cacheResolution(name, o)
 			return o
 		}
@@ -22565,8 +22602,12 @@ func (p *project) resolve(ctx Context, name Symbol) (res object) {
 		}
 	}
 
-	// We missed. DO NOT CACHE NIL! 
-	// Caching nil poisons Lexical Closures and Re-entrancy shields!
+	// We missed. DO NOT CACHE NIL!
+	return nil
+}
+
+func (p *project) resolveDef(ctx Context, name Symbol) *def {
+	if d, ok := p.resolve(ctx, name).(*def); ok && d != nil { return d }
 	return nil
 }
 
@@ -23362,7 +23403,7 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 	}
 
 	// Recursion detection -- simply return to break it if looped.
-	if detectTraverseLoops {
+	if detect_traverse_loops {
 		if eq(ctx, targetValue, prereqValue) {
 			erro(ctx,
 				_f("%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue),
@@ -24177,7 +24218,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 			// This completely avoids extracting __symDir and __symBase strings.
 			var f = _stat(ctx, s)
 			
-			if f == nil || !f.exists() {
+			if !f.exists() {
 				erro(ctx, " extract-configuration: `%s` file not found", s.String())
 				return
 			} else if f._isDir { // Ultra-fast boolean check
@@ -24757,7 +24798,7 @@ func walkSmartBaseDirs(ctx Context, cwd Symbol, vis func(Symbol) bool) Symbol {
 	for s := cwd; s != symEmpty && s != symDot && s != symPathSep; {
 		// Use pure Symbol ID for VFS lookup!
 		f := _stat(ctx, symDotSmart, stat_dir{s})
-		if f != nil && f.exists() && f._isDir && !vis(s) { 
+		if f.exists() && f._isDir && !vis(s) { 
 			return s 
 		}
 		
@@ -25146,6 +25187,8 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			return
 		}
 
+		// RULE 1: ALL projects must be cached!
+		// If we don't cache them, `use1` will think they failed to load.
 		if p, ok := u.globe.loaded[t.absPath]; !ok {
 			if false { debug(ctx, "%v %v", t.absPath, t.project) }
 			u.globe.loaded[t.absPath] = t.project
@@ -25153,15 +25196,18 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			erro(ctx, "re-declared project: %v → %v", p.name, t.name, callstack{num:10})
 		}
 
-		if u.globe.main == nil {
-			var tn = t.name
+		// RULE 2: ONLY the entry-point gets to be 'main'!
+		// The Host project ruthlessley claims the crown because its absPath == workdir.
+		if t.absPath == u.workdir {
+			var properName = t.name
 			for s := t.scope; s != nil && s != u.globe.scope && s.project != nil; s = s.outer {
-				if s.project.name == symAt { tn = symEmpty; break }
+				if s.project.name == symAt { properName = symEmpty; break }
 			}
-			switch tn {
-			case symEmpty, symAt, symTilde: // a special project can't be the "main"
+			switch properName {
+			case symEmpty, symAt, symTilde, symConfigure, symDotConfigure:
+				// Special projects can't be the "main"!
 			default:
-				u.globe.main = t.project
+				u.globe.main = t.project // The Main Project is the Working Directory
 
 				// The "globe.pairs" defines arguments from `compiler.parseArgs`;
 				// we define them in the main scope `p.scope` (vs. `p.project.scope`) if not "~".
@@ -25202,7 +25248,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 				
 				// 3. Hit the VFS Cache instead of the physical disk!
 				// _stat handles the cache lookup, and only hits the disk if unseen.
-				if f := _stat(ctx, joinedSym); f != nil && f.exists() {
+				if f := _stat(ctx, joinedSym); f.exists() {
 					// We stay entirely in the Walled Garden!
 					return searched_path{sym: joinedSym, isDir: f._isDir}
 				}
@@ -26906,7 +26952,7 @@ func loadSavedGrepFile(ctx Context, gc *grep_ctx) (okay bool, err error) {
 	if !ok {
 		if f = _stat(ctx, gc.fullname); f != nil { gc.target = f }
 	}
-	if f != nil && f.exists() {
+	if f.exists() {
 		// Pure integer comparison replaces t.After()
 		if gc.savedGrepFile.exists() && f._mtime > gc.savedGrepFile._mtime {
 			return
@@ -27892,8 +27938,8 @@ argsloop:
 			
 			// UPGRADED: 0-allocation primitive bounds checking!
 			switch key {
-			case "file": res = f != nil && f.exists() && !f._isDir 
-			case "dir":  res = f != nil && f.exists() && f._isDir
+			case "file": res = f.exists() && !f._isDir 
+			case "dir":  res = f.exists() && f._isDir
 			default: unreachable()
 			}
 			
@@ -33749,7 +33795,7 @@ func (ctx *__stat) x() (res any) {
 
 	var vals []Value
 	var check = func(f *file) {
-		if f != nil && f.exists() {
+		if f.exists() {
 			// Fast Path: O(1) checks directly against the primitive cache
 			if (ctx.dir  && f._isDir) || 
 				(ctx.file && !f._isDir) || 
