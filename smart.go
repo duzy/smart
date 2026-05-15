@@ -8673,8 +8673,13 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		
 		if spec == symEmpty {
 			erro(pc(ctx, specVal), "empty spec: %v", ts(specVal,ctx))
+			return nil // Abort
 		} else if absPath, isDir = p.search(ctx, spec); absPath == symEmpty {
 			erro(pc(ctx, specVal), "missing `%s` (in %v)", spec.String(), u.paths)
+
+			// THE DOD FIX: Stop the cascade! 
+			// If search fails, absPath is empty. We CANNOT pass this to p.file!
+			return nil
 		} else {
 			// (Note: If globe.loaded is now map[Symbol]*project, remove the .String())
 			loaded, _ = u.globe.loaded[absPath]
@@ -10055,8 +10060,8 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 
 	if filename == symEmpty {
 		erro(pc(ctx, p),
-			_f("%v: %v: empty filename", p.project, spec),
-			callstack{num:5})
+			_f("%v: empty filename for `%v`", p.project, spec),
+			callstack{num:10,stop:"smart.Main"})
 		return
 	}
 
@@ -24967,26 +24972,27 @@ func Main() {
 	// =================================================================
 	// 1. WORKSPACE & PATH RESOLUTION
 	// =================================================================
-	var w string
-	for _, s := range []string{`/Volumes`, `/media`, `/`, os.Getenv("HOME")} {
-		s = filepath.Join(s, "workspace")
-		if x, y := os.Stat(s); y == nil && x.IsDir() { w = s }
+	var modules = filepath.FromSlash(`.smart/modules`)
+	
+	// 1a. Search underneath Standard Roots & Workspace
+	for _, root := range []string{`/Volumes`, `/media`, `/`, os.Getenv("HOME")} {
+		if root == "" { continue }
+		for _, base := range []string{root, filepath.Join(root, "workspace")} {
+			sym := intern(filepath.Join(base, modules))
+			if f := _stat(ctx, sym); f != nil && f._isDir {
+				ctx.paths = append(ctx.paths, sym)
+			}
+		}
 	}
 
-	var modules = filepath.FromSlash(`extbit.io/smart/modules`)
-	
-	// Inject directly into the universe's searchlist, interning the strings to Symbols
-	if w != "" {
-		ctx.paths = append(ctx.paths,
-			intern(filepath.Join(w, "smart")),
-			intern(filepath.Join(w, "go", modules)),
-		)
-	}
-	
-	for _, s := range filepath.SplitList(os.Getenv("GOPATH")) {
-		s = filepath.Join(s, `src`, modules)
-		if x, y := os.Stat(s); x != nil && y == nil { 
-			ctx.paths = append(ctx.paths, intern(s)) 
+	// 1b. Search within GOPATH splits
+	for _, root := range filepath.SplitList(os.Getenv("GOPATH")) {
+		if root == "" { continue }
+		for _, base := range []string{root, filepath.Join(root, "src")} {
+			sym := intern(filepath.Join(base, modules))
+			if f := _stat(ctx, sym); f != nil && f._isDir {
+				ctx.paths = append(ctx.paths, sym)
+			}
 		}
 	}
 
