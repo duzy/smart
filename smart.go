@@ -24961,35 +24961,66 @@ func (m main_ctx) do(c Context, op any) any {
 func Main() {
 	if checkpoints { panic("Smart in testmode!") }
 
-    ctx := new_universe()
-    ctx.load(main_ctx{ctx})
+	// Boot the universe first so we can populate its state natively
+	ctx := new_universe()
 
-    if ctx.flush(ctx) > 0 {
-        prompt(ctx, "loading work got %d errors\n", ctx.erros)
-    } else if ctx.help {
-        do_helpscreen(ctx)
-    } else if ctx.printFlags {
-        print_flag_trace(ctx)
-    } else if ctx.printConfig {
-        print_configuration(ctx)
-    } else if numUpdatedPlugins > 0 { // see buildPlugin
-        prompt(ctx, "plugins updated, please relaunch.\n")
-    } else if result := ctx.run(); ctx.flush(ctx) > 0 {
-        prompt(ctx, "run work got %d errors\n", ctx.erros)
-    } else if result != nil {
-        for i, v := range result {
-            if s := ""; v == nil {
-                s = "<nil>"
-            } else if s = strings.TrimSpace(__string(ctx, v)); s == "" {
-                continue
-            } else if i == 0 {
-                fmt.Fprintf(stderr, "%s", s)
-            } else {
-                fmt.Fprintf(stderr, ", %s", s)
-            }
-        }
-        fmt.Fprintf(stderr, "\n")
-    }
+	// =================================================================
+	// 1. WORKSPACE & PATH RESOLUTION
+	// =================================================================
+	var w string
+	for _, s := range []string{`/Volumes`, `/media`, `/`, os.Getenv("HOME")} {
+		s = filepath.Join(s, "workspace")
+		if x, y := os.Stat(s); y == nil && x.IsDir() { w = s }
+	}
+
+	var modules = filepath.FromSlash(`extbit.io/smart/modules`)
+	
+	// Inject directly into the universe's searchlist, interning the strings to Symbols
+	if w != "" {
+		ctx.paths = append(ctx.paths,
+			intern(filepath.Join(w, "smart")),
+			intern(filepath.Join(w, "go", modules)),
+		)
+	}
+	
+	for _, s := range filepath.SplitList(os.Getenv("GOPATH")) {
+		s = filepath.Join(s, `src`, modules)
+		if x, y := os.Stat(s); x != nil && y == nil { 
+			ctx.paths = append(ctx.paths, intern(s)) 
+		}
+	}
+
+	// =================================================================
+	// 2. UNIVERSE LOADING & EXECUTION
+	// =================================================================
+	ctx.load(main_ctx{ctx})
+
+	if ctx.flush(ctx) > 0 {
+		prompt(ctx, "loading work got %d errors\n", ctx.erros)
+	} else if ctx.help {
+		do_helpscreen(ctx)
+	} else if ctx.printFlags {
+		print_flag_trace(ctx)
+	} else if ctx.printConfig {
+		print_configuration(ctx)
+	} else if numUpdatedPlugins > 0 { // see buildPlugin
+		prompt(ctx, "plugins updated, please relaunch.\n")
+	} else if result := ctx.run(); ctx.flush(ctx) > 0 {
+		prompt(ctx, "run work got %d errors\n", ctx.erros)
+	} else if result != nil {
+		for i, v := range result {
+			if s := ""; v == nil {
+				s = "<nil>"
+			} else if s = strings.TrimSpace(__string(ctx, v)); s == "" {
+				continue
+			} else if i == 0 {
+				fmt.Fprintf(stderr, "%s", s)
+			} else {
+				fmt.Fprintf(stderr, ", %s", s)
+			}
+		}
+		fmt.Fprintf(stderr, "\n")
+	}
 }
 
 type searched_path struct{ sym Symbol ; isDir bool }
