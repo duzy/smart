@@ -8616,12 +8616,18 @@ func (p *compiler) clear_locals() {
 	p.locals = nil
 }
 
-type use_project_ctx struct { Context ; loaded *project }
+// Upgraded with a double-pointer to survive interface boxing!
+type use_project_ctx struct {
+	Context
+	loaded **project
+}
+
 func (c use_project_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case declared_project:
-		c.loaded = t.project // THE DOD FIX: Capture the project!
-		return _universe(ctx).do(ctx, op) // Safely populate global cache and Swallow event
+		*c.loaded = t.project      // THE DOD FIX: Safely mutate the underlying memory!
+		_universe(ctx).do(ctx, op) // Forward to the global cache
+		return nil                 // Swallow to protect parent.do!
 	}
 	return c.Context.do(ctx, op)
 }
@@ -8756,18 +8762,14 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	var prev = p.project
 
 	if loaded == nil {
-		// Pass as POINTER so the context can mutate cc.loaded!
-		cc := &use_project_ctx{Context: pc(ctx, specVal)}
+		// Pass the memory address of `loaded` into the firewall to capture it
+		cc := use_project_ctx{Context: pc(ctx, specVal), loaded: &loaded}
 
 		if isDir {
 			p.directory(cc, spec, absPath)
 		} else {
 			p.file(cc, spec, absPath)
 		}
-
-		// THE DOD FIX: Direct Retrieval!
-		// Bypass the unresolved `absPath` map lookup entirely.
-		loaded = cc.loaded 
 
 		// Fallback just in case syntax errors prevented the event from firing
 		if loaded == nil {
@@ -8779,11 +8781,11 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 				_f("%s not loaded (%s)", spec, absPath),
 				_fMapKeys(". %v", u.globe.loaded),
 				callstack{stop:"smart.Main"})
-			return nil // THE DOD FIX: Stop execution! Do not pass nil to useProj!
+			return nil 
 		}
 		if loaded == p.project {
 			erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir)
-			return nil // THE DOD FIX: Protect against self-overwrite corruption!
+			return nil 
 		}
 	}
 
@@ -25255,7 +25257,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 		if p, ok := u.globe.loaded[t.absPath]; !ok {
 			if false { debug(ctx, "%v %v", t.absPath, t.project) }
 			u.globe.loaded[t.absPath] = t.project
-		} else if false && p != t.project { // Properly cycled "use"
+		} else if p != t.project { // Properly cycled "use"
 			erro(ctx, "re-declared project: %v → %v", p.name, t.name,
 				trace_ctx{100}, callstack{stop:"smart.Main"})
 		}
