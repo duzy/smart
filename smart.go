@@ -8629,15 +8629,8 @@ func (c *use_project_ctx) do(ctx Context, op any) any {
 		// THE DOD FIX: Target-Aware Capture!
 		// Nested dependencies (like `llvm/c` or `configure`) fire their own events.
 		// If we don't filter by target, the deepest dependency overwrites the capture!
-		if t.absPath == c.target {
-			*c.loaded = t.project 
-		}
-		
-		u := _universe(ctx)
-		if prev, ok := u.globe.loaded[t.absPath]; !ok || prev == t.project {
-			u.do(ctx, op)
-		}
-		return nil // Swallow to protect parent.do
+		if t.absPath == c.target { *c.loaded = t.project }
+		return _universe(ctx).do(ctx, op) // Swallow to protect parent.do
 	}
 	return c.Context.do(ctx, op)
 }
@@ -8722,18 +8715,20 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	}
 
 	defer func() {
-		if loaded == nil {
-			if false {
-				erro(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir)
-			}
-			return
-		}
+		if loaded == nil { return }
 		if p, _ := p.project.lookup(loaded.name).(*project); p == nil {
 			if _, alt := p.project.projectName(ctx, loaded.name, loaded); alt != nil {
 				if p, y := alt.(*project); !y || p == nil {
 					erro(ctx, "%s: name already taken : %s", loaded.name, ts(alt,ctx))
 				}
 			}
+		} else {
+			// THE DOD FIX: AST Qualword Masking Prevention!
+			// `useProj` binds the flat symbol "llvm.Config". But the AST parses 
+			// `$(llvm.Config->...)` as a qualword: {llvm} {Config}. It hits the 
+			// base project `llvm` and fails to find `Config`. We MUST call 
+			// projectName here to wire up the local nested hierarchy!
+			p.project.projectName(ctx, loaded.name, loaded)
 		}
 	} ()
 
@@ -10220,7 +10215,7 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 
 	// Push the scope! This now safely copies p.term to the heap,
 	// points to it, and updates p.term in-place without memory cycles.
-	defer p.closescope(ctx, p.openscope(ctx, filename)) // Executes FIRST
+	defer p.closescope(ctx, p.openscope(ctx, spec)) // Executes FIRST
 
 	// Reset but retain some fields. Do not blindly wipe the whole state!
 	// Retaining project: _state.project is structurally necessary so projectStart
@@ -25277,7 +25272,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 					trace_ctx{100}, callstack{stop:"smart.Main"})
 			} else {
 				info(ctx, "re-declared project: %v → %v", p.name, t.name,
-					trace_ctx{100})
+					trace_ctx{100}, callstack{num:3})
 			}
 		}
 
