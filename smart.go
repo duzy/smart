@@ -8616,26 +8616,28 @@ func (p *compiler) clear_locals() {
 	p.locals = nil
 }
 
-// Upgraded with a double-pointer to survive interface boxing!
+// MUST use a pointer receiver (*use_project_ctx) to survive interface boxing!
 type use_project_ctx struct {
 	Context
+	target Symbol   // The target absPath we are trying to capture
 	loaded **project
 }
 
-func (c use_project_ctx) do(ctx Context, op any) any {
+func (c *use_project_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case declared_project:
-		*c.loaded = t.project      // THE DOD FIX: Safely mutate the underlying memory!
-		if u := _universe(ctx); false {	u.do(ctx, op) } else // Forward to the global cache
-		// THE DOD FIX: Intelligent Universe Feeding
-		// We only feed the universe if the absPath is empty or matches.
-		// This mathematically silences the fake symlink template collisions,
-		// preventing the "too many errors" cascade, while keeping your real
-		// cycle detection (check_compile_cycle) perfectly intact!
+		// THE DOD FIX: Target-Aware Capture!
+		// Nested dependencies (like `llvm/c` or `configure`) fire their own events.
+		// If we don't filter by target, the deepest dependency overwrites the capture!
+		if t.absPath == c.target {
+			*c.loaded = t.project 
+		}
+		
+		u := _universe(ctx)
 		if prev, ok := u.globe.loaded[t.absPath]; !ok || prev == t.project {
 			u.do(ctx, op)
 		}
-		return nil                 // Swallow to protect parent.do!
+		return nil // Swallow to protect parent.do
 	}
 	return c.Context.do(ctx, op)
 }
@@ -8770,8 +8772,12 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	var prev = p.project
 
 	if loaded == nil {
-		// Pass the memory address of `loaded` into the firewall to capture it
-		cc := &use_project_ctx{Context: pc(ctx, specVal), loaded: &loaded}
+		// Pass the target absPath so the firewall knows exactly what to capture!
+		cc := &use_project_ctx{
+			Context: pc(ctx, specVal), 
+			target:  absPath, 
+			loaded:  &loaded,
+		}
 
 		if isDir {
 			p.directory(cc, spec, absPath)
@@ -8788,7 +8794,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			erro(ctx,
 				_f("%s not loaded (%s)", spec, absPath),
 				_fMapKeys(". %v", u.globe.loaded),
-				callstack{stop:"smart.Main"})
+				trace_ctx{100}, callstack{stop:"smart.Main"})
 			return nil 
 		}
 		if loaded == p.project {
