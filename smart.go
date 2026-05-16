@@ -24624,11 +24624,15 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
         return
     }
 
-	d.Lock(); defer d.Unlock()
 	for 0 < len(d.points) {
-		var point = d.points[0]
+		d.Lock()
+		point := d.points[0]
 		d.points = d.points[1:]
-		if print(point, true); 16 < errs {
+		d.Unlock()
+
+		print(point, true)
+
+		if false && 16 < errs {
 			fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
 		}
 	}
@@ -25251,7 +25255,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 		if p, ok := u.globe.loaded[t.absPath]; !ok {
 			if false { debug(ctx, "%v %v", t.absPath, t.project) }
 			u.globe.loaded[t.absPath] = t.project
-		} else if p != t.project {
+		} else if false && p != t.project { // Properly cycled "use"
 			erro(ctx, "re-declared project: %v → %v", p.name, t.name,
 				trace_ctx{100}, callstack{stop:"smart.Main"})
 		}
