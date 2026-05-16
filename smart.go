@@ -8616,6 +8616,19 @@ func (p *compiler) clear_locals() {
 	p.locals = nil
 }
 
+type use_project_ctx struct { Context }
+func (c use_project_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case declared_project:
+		// THE DOD FIX: The Context Firewall!
+		// Route the dependency directly to the universe to populate the global cache,
+		// then return nil to SWALLOW the event. This guarantees it will never bubble
+		// up and be mistakenly captured by an active `parent.do` listener!
+		return _universe(ctx).do(ctx, t)
+	}
+	return c.Context.do(ctx, op)
+}
+
 func (p *compiler) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 	if p.imports = append(p.imports, &use_spec{g.spec}); g.skip {
 		// TODO: maybe give some information
@@ -8675,7 +8688,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			erro(pc(ctx, specVal), "empty spec: %v", ts(specVal,ctx))
 			return nil // Abort
 		} else if absPath, isDir = p.search(ctx, spec); absPath == symEmpty {
-			erro(pc(ctx, specVal), "missing `%s` (in %v)", spec.String(), u.paths)
+			erro(pc(ctx, specVal), "missing `%s` (in %v)", spec, u.paths)
 
 			// THE DOD FIX: Stop the cascade! 
 			// If search fails, absPath is empty. We CANNOT pass this to p.file!
@@ -8698,14 +8711,14 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	defer func() {
 		if loaded == nil {
 			if false {
-				erro(ctx, "%v not loaded (%v,dir=%v)", spec.String(), absPath.String(), isDir)
+				erro(ctx, "%v not loaded (%v,dir=%v)", spec, absPath, isDir)
 			}
 			return
 		}
 		if p, _ := p.project.lookup(loaded.name).(*project); p == nil {
 			if _, alt := p.project.projectName(ctx, loaded.name, loaded); alt != nil {
 				if p, y := alt.(*project); !y || p == nil {
-					erro(ctx, "%s: name already taken : %s", loaded.name.String(), ts(alt,ctx))
+					erro(ctx, "%s: name already taken : %s", loaded.name, ts(alt,ctx))
 				}
 			}
 		}
@@ -8717,37 +8730,41 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			p.verpre += "│"
 		}
 		if opts.reuse {
-			prompt(ctx, "%s├┬→\"%s\" (reuse, %s)\n", p.verpre, spec.String(), absPath.String())
+			prompt(ctx, "%s├┬→\"%s\" (reuse, %s)\n", p.verpre, spec, absPath)
 		} else {
-			prompt(ctx, "%s├┬→\"%s\" (%s)\n", p.verpre, spec.String(), absPath.String())
+			prompt(ctx, "%s├┬→\"%s\" (%s)\n", p.verpre, spec, absPath)
 		}
 		defer func(t time.Time) {
-			var name string
+			var name Symbol
 			var d = time.Since(t)
 			var ds = fmt.Sprintf("(%s)", d)
 			if d >= 1*time.Second { ds = fmt.Sprintf("▶%s◀", ds) }
-			if loaded != nil { name = loaded.name.String() }
-			prompt(ctx, "%s├┴─\"%s\" ⇢ %s %s\n", p.verpre, spec.String(), name, ds)
+			if loaded != nil { name = loaded.name }
+			prompt(ctx, "%s├┴─\"%s\" ⇢ %s %s\n", p.verpre, spec, name, ds)
 		} (time.Now())
 	}
 
 	if loaded != nil && !(/*opts.noVars || */opts.reuse) {
 		if proj, res, isb := p.project.has_loaded(ctx, loaded, traveUseLoop) ; isb {
 			erro(ctx,
-				_f("%v: %v is already a base\n", p.project, spec.String()),
-				_f("`%s` is already a base (proj=%s)", spec.String(), proj))
+				_f("%v: %v is already a base\n", p.project, spec),
+				_f("`%v` is already a base (proj=%s)", spec, proj))
 		} else if res {
 			erro(ctx,
-				_f("%v: %v already imported by %v\n", p.project, spec.String(), proj),
-				_f("'%s' already imported by '%s'", spec.String(), proj))
+				_f("%v: %v already imported by %v\n", p.project, spec, proj),
+				_f("'%v' already imported by '%s'", spec, proj))
 		}
 	}
 
 	var prev = p.project
 
 	if loaded == nil {
-		if cc := pc(ctx, specVal); isDir {
-			// (Note: If p.directory/file were upgraded to take Symbols, remove .String())
+		// THE DOD FIX: Activate the Firewall!
+		// Wrap the positional context so that any parsing triggered here
+		// is completely shielded from greedy `parent.do` interceptors above us.
+		cc := use_project_ctx{pc(ctx, specVal)}
+		
+		if isDir {
 			p.directory(cc, spec, absPath)
 		} else {
 			p.file(cc, spec, absPath)
@@ -8761,6 +8778,11 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir)
 			return nil // THE DOD FIX: Protect against self-overwrite corruption!
 		}
+	} else {
+		// THE DOD FIX: Cached Base Inheritance Restoration!
+		// If the module was already cached, we MUST manually fire the 
+		// declared_project event so `parent.do` can catch it and attach it as a base!
+		ctx.do(ctx, declared_project{loaded})
 	}
 
 	if checkpoints && prev != p.project {
@@ -8773,7 +8795,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		var up = use.project
 		if loaded == up {
 			if !opts.noVars && !opts.files {
-				erro(ctx, "%v: using `%s` multiple times: %v", p.project, spec.String(), p.project.use.list)
+				erro(ctx, "%v: using `%s` multiple times: %v", p.project, spec, p.project.use.list)
 			}
 			return
 		}
@@ -8782,7 +8804,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		var res, isb bool
 		if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
 			if !p.project.has_base(up) {
-				erro(ctx, "`%s` is already a base", spec.String())
+				erro(ctx, "`%s` is already a base", spec)
 			}
 		} else if res && !use.opts.reuse && !up.opt.multiUseAllowed && !loaded.opt.multiUseAllowed {
 			warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, up, proj)
@@ -8800,7 +8822,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 
 	if u.verboseImport {
 		defer func(t time.Time) {
-			prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", p.verpre, p.project, spec.String(), time.Since(t))
+			prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", p.verpre, p.project, spec, time.Since(t))
 		} (time.Now())
 	}
 
@@ -9540,7 +9562,8 @@ func (p *compiler) parse(ctx Context) bool {
 				default:
 					nameSym = __symbol(ctx, qw)
 				}
-				
+
+				// Implicit base, e.g. "llvm.tools.ar" automatically has the base "llvm/tools".
 				if base.len() > 0 { implicitBase = __symbol(ctx, base) }
 			}
 
@@ -9659,9 +9682,7 @@ func (p *compiler) parse(ctx Context) bool {
 					activeConfigure = x 
 				}
 
-				if activeConfigure == nil {
-					activeConfigure = implicitConfigure
-				}
+				if activeConfigure == nil { activeConfigure = implicitConfigure }
 
 				if c := p.project.configure; c != activeConfigure {
 					if c != nil && c != p.project {
@@ -10167,7 +10188,9 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	sources := p.sources(ctx, filename)
 
 	if len(sources) == 0 {
-		erro(pc(ctx,filename), "%s: no smart source files found", spec, callstack{num:32}, unwind{})
+		erro(pc(ctx,filename),
+			_f("%s: No Smart source files found!", spec),
+			callstack{num:32}, trace_ctx{3}, unwind{})
 		return
 	}
 	
@@ -10326,7 +10349,7 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 	// This inherently prevents the nil fd.Close() panic!
 	entries, err := os.ReadDir(pathStr)
 	if err != nil {
-		erro(ctx, "readdir: %v", err)
+		erro(ctx, "%v", err)
 		return 
 	}
 
@@ -24966,11 +24989,11 @@ func (m main_ctx) do(c Context, op any) any {
 func Main() {
 	if checkpoints { panic("Smart in testmode!") }
 
-	// Boot the universe first so we can populate its state natively
+	// Boot the universe first. It will now yield a perfectly scrubbed paths array!
 	ctx := new_universe()
 
 	// =================================================================
-	// 1. WORKSPACE & PATH RESOLUTION
+	// 1. MODULE SEARCH PATH RESOLUTION (using statcache & deduplication)
 	// =================================================================
 	var modules = filepath.FromSlash(`.smart/modules`)
 	
@@ -24980,18 +25003,21 @@ func Main() {
 		for _, base := range []string{root, filepath.Join(root, "workspace")} {
 			sym := intern(filepath.Join(base, modules))
 			if f := _stat(ctx, sym); f != nil && f._isDir {
-				ctx.paths = append(ctx.paths, sym)
+				// Prevent double-adding if new_universe already found it
+				if !ctx.paths.has(sym) { ctx.paths = append(ctx.paths, sym) }
 			}
 		}
 	}
 
 	// 1b. Search within GOPATH splits
-	for _, root := range filepath.SplitList(os.Getenv("GOPATH")) {
-		if root == "" { continue }
-		for _, base := range []string{root, filepath.Join(root, "src")} {
-			sym := intern(filepath.Join(base, modules))
-			if f := _stat(ctx, sym); f != nil && f._isDir {
-				ctx.paths = append(ctx.paths, sym)
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		for _, root := range filepath.SplitList(gopath) {
+			if root == "" { continue }
+			for _, base := range []string{root, filepath.Join(root, "src")} {
+				sym := intern(filepath.Join(base, modules))
+				if f := _stat(ctx, sym); f != nil && f._isDir {
+					if !ctx.paths.has(sym) { ctx.paths = append(ctx.paths, sym) }
+				}
 			}
 		}
 	}
@@ -25040,8 +25066,8 @@ func (sl *searchlist) String() string {
 	}	
 	return sb.String()
 }
-func (sl *searchlist) has(s string) bool {
-	for _, t := range *sl { if s == t.String() { return true } }
+func (sl *searchlist) has(s Symbol) bool {
+	for _, t := range *sl { if s == t { return true } }
 	return false
 }
 // func (sl *searchlist) set(s string) { *sl = append(*sl, __symSplit(s, symComma)...) }
@@ -25389,9 +25415,9 @@ func new_universe(ii ...any) (ctx *universe) {
 	ctx = &universe{
 		launchTime: time.Now(),
 		statcache:  make(map[Symbol]*filebase), // Upgraded to Symbol keys for O(1) integer hashing
-		workdir:    symBaseWorkDir,
 		scope:      new_scope(nil, nil, symUniverse),
 		fset:       new_fileset(),
+		workdir:    symBaseWorkDir,
 	}
 
 	cl := true
@@ -25460,6 +25486,22 @@ func new_universe(ii ...any) (ctx *universe) {
 	for _, s := range paths {
 		if t := loadSearchPaths(ctx, s); len(t) > 0 { ctx.paths = t }
 	}
+
+	// =================================================================
+	// THE DOD FIX: Absolute Workspace Masking Eradication!
+	// If `_commandline()` or `loadSearchPaths()` implicitly injected `/Volumes/workspace`
+	// into `ctx.paths`, we mathematically eradicate it here. We only allow
+	// paths that explicitly end in the target modules directory.
+	// =================================================================
+	var hermeticPaths searchlist
+	for _, p := range ctx.paths {
+		strPath := p.String()
+		if strings.HasSuffix(strPath, filepath.Join(".smart", "modules")) || strings.HasSuffix(strPath, filepath.Join("smart", "modules")) {
+			hermeticPaths = append(hermeticPaths, p)
+		}
+	}
+	ctx.paths = hermeticPaths
+
 	return ctx
 }
 
@@ -31300,7 +31342,6 @@ func (ctx *__word) x() (res any) {
 
 type __resolve struct { builtinbase
     closure bool `closure`
-    // expand bool `expand`
 }
 func (ctx *__resolve) do(c Context, op any) any {
 	switch t := op.(type) {
