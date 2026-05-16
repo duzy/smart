@@ -8473,15 +8473,15 @@ func (p *compiler) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) 
 }
 
 func (p *compiler) assert(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	if !g.skip { call(ctx, symAssert, g.remainder, g.spec...) }
+	if !g.skip { call(closure_with(project_ctx{ctx,p.project},p.scope), symAssert, g.remainder, g.spec...) }
 }
 
 func (p *compiler) append(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	if !g.skip { call(ctx, symAppend, g.remainder, g.spec...) }
+	if !g.skip { call(closure_with(project_ctx{ctx,p.project},p.scope), symAppend, g.remainder, g.spec...) }
 }
 
 func (p *compiler) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	if g.skip { return }
+	if g.skip { return } else { ctx = closure_with(project_ctx{ctx,p.project},p.scope) }
 	if g.spec == nil {
 		var opts struct{
 			optimize Value `opt,optimize`
@@ -30718,24 +30718,28 @@ func (ctx *__append) x() (_ any) {
     }
 
     var vals []Value
-    for _, a := range names {
-        var s = __symbol(ctx, a)
+    for _, name := range names {
+        var s = __symbol(ctx, name)
         var d *def
         if s == symEmpty {
-            erro(ctx, "'%v' is empty for name", a)
+            erro(ctx, "'%v' is empty for name", name)
         } else if ctx.auto {
             d = auto_find(ctx, s)
         } else if ctx.closure {
-            debug(ctx, "closure: %v", a) // d = closure_finddef(ctx, s)
-        } else if o := project_resolve(ctx, s); o != nil {
-            d, _ = o.(*def)
-        }
+			if o := closure_resolve(ctx, s); o != nil { d, _ = o.(*def) }
+        } else {
+			if o := project_resolve(ctx, s); o != nil { d, _ = o.(*def) }
+		}
         if d == nil {
-            erro(ctx, "%v → %s is undefined", a, s)
+			var p = _project(ctx)
+            erro(ctx, "%v → %s: nil def", ts(name,ctx), s,
+				_f("%v, bases=%v", p, p.bases),
+				_f("%v", ts(ctx)),
+				callstack{num:20})
         } else {
             if vals == nil {
                 if vals = merge(ctx.a[1:]...); len(vals) == 0 {
-                    debug(ctx, "append no values: %v", ctx.a[1:])
+                    erro(ctx, "append no values: %v", ctx.a[1:])
                     return
                 }
             }
