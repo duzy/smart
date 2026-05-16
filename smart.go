@@ -24606,7 +24606,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
 			if pend && !strings.HasSuffix(msg, "\n") { return true }
 		case diagError:
-			if errs += 1 ; p.stack == nil {
+			if errs += 1 ; true || p.stack == nil {
 				fmt.Fprintf(stderr, "%v:error: %s\n", pos, msg)
 			} else {
 				fmt.Fprintf(stderr, "%v: %s\n", pos, msg)
