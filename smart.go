@@ -8616,15 +8616,12 @@ func (p *compiler) clear_locals() {
 	p.locals = nil
 }
 
-type use_project_ctx struct { Context }
+type use_project_ctx struct { Context ; loaded *project }
 func (c use_project_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case declared_project:
-		// THE DOD FIX: The Context Firewall!
-		// Route the dependency directly to the universe to populate the global cache,
-		// then return nil to SWALLOW the event. This guarantees it will never bubble
-		// up and be mistakenly captured by an active `parent.do` listener!
-		return _universe(ctx).do(ctx, t)
+		c.loaded = t.project // THE DOD FIX: Capture the project!
+		return _universe(ctx).do(ctx, op) // Safely populate global cache and Swallow event
 	}
 	return c.Context.do(ctx, op)
 }
@@ -8759,30 +8756,35 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	var prev = p.project
 
 	if loaded == nil {
-		// THE DOD FIX: Activate the Firewall!
-		// Wrap the positional context so that any parsing triggered here
-		// is completely shielded from greedy `parent.do` interceptors above us.
-		cc := use_project_ctx{pc(ctx, specVal)}
-		
+		// Pass as POINTER so the context can mutate cc.loaded!
+		cc := &use_project_ctx{Context: pc(ctx, specVal)}
+
 		if isDir {
 			p.directory(cc, spec, absPath)
 		} else {
 			p.file(cc, spec, absPath)
 		}
 
-		if loaded, _ = u.globe.loaded[absPath]; loaded == nil {
-			erro(ctx, "%s not loaded (%s)", spec, absPath, _fMapKeys("%v", u.globe.loaded))
+		// THE DOD FIX: Direct Retrieval!
+		// Bypass the unresolved `absPath` map lookup entirely.
+		loaded = cc.loaded 
+
+		// Fallback just in case syntax errors prevented the event from firing
+		if loaded == nil {
+			loaded, _ = u.globe.loaded[absPath]
+		}
+
+		if loaded == nil {
+			erro(ctx,
+				_f("%s not loaded (%s)", spec, absPath),
+				_fMapKeys(". %v", u.globe.loaded),
+				callstack{stop:"smart.Main"})
 			return nil // THE DOD FIX: Stop execution! Do not pass nil to useProj!
 		}
 		if loaded == p.project {
 			erro(ctx, "%v : overwrote by %v (dir=%v)", prev, loaded, isDir)
 			return nil // THE DOD FIX: Protect against self-overwrite corruption!
 		}
-	} else {
-		// THE DOD FIX: Cached Base Inheritance Restoration!
-		// If the module was already cached, we MUST manually fire the 
-		// declared_project event so `parent.do` can catch it and attach it as a base!
-		ctx.do(ctx, declared_project{loaded})
 	}
 
 	if checkpoints && prev != p.project {
@@ -9210,22 +9212,22 @@ func (p implicit_load_ctx) do(ctx Context, op any) any {
 }
 
 type absolute_path struct{}
-type abs_ctx struct{ Context ; abs Symbol }
-func (p *abs_ctx) ts(string) string { return "{"+posstr(p.abs.String())+" "+ts(p.Context)+"}" }
-func (p *abs_ctx) do(ctx Context, op any) (_ any) {
+type absolute_ctx struct{ Context ; abs Symbol }
+func (p *absolute_ctx) ts(string) string { return "{"+posstr(p.abs.String())+" "+ts(p.Context)+"}" }
+func (p *absolute_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
     case absolute_path: return p.abs
-    case get_pos:
+    case get_fatpos:
         var pos, _ = p.Context.do(ctx, op).(Position)
         if !pos.valid() { pos.Filename, pos.Line = p.abs, 1 }
         return pos
     }
     return p.Context.do(ctx, op)
 }
-func absolute_ctx(ctx Context, abs Symbol) Context {
-    if do(ctx, absolute_path{}) == abs { return ctx } else { return &abs_ctx{ctx, abs} }
+func _absolute_ctx(ctx Context, abs Symbol) Context {
+    if do(ctx, absolute_path{}) == abs { return ctx } else { return &absolute_ctx{ctx, abs} }
 }
 
 func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
@@ -9315,7 +9317,7 @@ paramsloop:
             }
         }
 
-        if cc := absolute_ctx(ctx, abs); isDir {
+        if cc := _absolute_ctx(ctx, abs); isDir {
             p.directory(cc, spec, abs)
         } else {
             p.file(cc, spec, abs)
@@ -9350,11 +9352,11 @@ func (p parent) do(ctx Context, op any) any {
 	case get_project: // TODO: return p.project
 	case declared_project:
 		if t.has_base(p.project) {
-			debug(ctx,
+			erro(ctx,
 				_f("%s", p.absPath),
 				_f("%s : %s", p.project, t.loop_base_path(ctx, p.project, "")),
 				_f("recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project)),
-			)
+				trace_ctx{50})
 			return nil
 		}
 
@@ -12130,20 +12132,9 @@ func (p *pos_ctx) ts(string) string {
 
 	// Dynamically resolve Pos -> Position for tracing
 	switch t := p.pos.(type) {
-	case Position:
-		pos = t
-	case Pos:
-		if t.valid() {
-			if u := _universe(p.Context); u != nil && u.fset != nil {
-				pos = u.fset.Position(t)
-			}
-		}
-	case Poser:
-		if x := t.Pos(); x.valid() {
-			if u := _universe(p.Context); u != nil && u.fset != nil {
-				pos = u.fset.Position(x)
-			}
-		}
+	case Position: pos = t
+	case Pos: pos, _ = do(p.Context, get_fatpos{t}).(Position)
+	case Poser: pos, _ = do(p.Context, get_fatpos{t.Pos()}).(Position)
 	}
 
 	if pos.valid() {
@@ -12154,16 +12145,21 @@ func (p *pos_ctx) ts(string) string {
 	return fmt.Sprintf("{%v %s}", p.pos, ts(p.Context))
 }
 
-func (p *pos_ctx) do(ctx Context, op any) (_ any) {
+func (p *pos_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case get_pos:
 		if p.pos != nil {
 			switch t := p.pos.(type) {
-			case Pos:        if t.valid() { return t }
-			case Position:   if t.valid() { return t }
+			case Pos  : if t.valid() { return t }
 			case Poser: if x := t.Pos(); x.valid() { return x }
+			}
+		}
+	case get_fatpos:
+		if p.pos != nil {
+			switch t := p.pos.(type) {
+			case Position: if t.valid() { return t }
 			}
 		}
 	}
@@ -20313,19 +20309,19 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
         }
 
     case get_pos:
+        var pos Pos
+        if p.x != nil { pos = p.x.Pos() }
+        if !pos.valid() && p.a != nil && p.a[0] != nil { pos = p.a[0].Pos() }
+        if !pos.valid() && p.o != nil && p.o[0] != nil { pos = p.o[0].Pos() }
+        if  pos.valid()  {  return pos  }
+
+    case get_fatpos:
 		// Try extracting a fat Position first via our escape hatch (*xloc)
         if p.x != nil {
             if ep, ok := p.x.(interface{ Position() Position }); ok {
                 if pos := ep.Position(); pos.valid() { return pos }
             }
         }
-
-        // Fallback to compact Pos
-        var pos Pos
-        if p.x != nil { pos = p.x.Pos() }
-        if !pos.valid() && p.a != nil && p.a[0] != nil { pos = p.a[0].Pos() }
-        if !pos.valid() && p.o != nil && p.o[0] != nil { pos = p.o[0].Pos() }
-        if  pos.valid()  {  return pos  }
     }
     return p.automatic.do(ctx, op)
 }
@@ -25233,7 +25229,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
 	case inner_cast: return &u.diagnostic
 	case dynamic_cast: return t.ctx(ctx, &u.diagnostic)
-    case get_pos: return Position{ Filename: symBaseWorkDir }
+    case get_pos: return NoPos //Position{ Filename: symBaseWorkDir }
 	case get_fatpos:
 		var p Position
 		if u.fset != nil && t.p.valid() { p = u.fset.Position(t.p) } // FIX: Use the receiver 'ctx'
@@ -25246,7 +25242,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 
 	case declared_project:
 		if t.project == nil {
-			erro(ctx, "declared nil project", callstack{num:10})
+			erro(ctx, "declared nil project", callstack{stop:"smart.Main"})
 			return
 		}
 
@@ -25256,7 +25252,8 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			if false { debug(ctx, "%v %v", t.absPath, t.project) }
 			u.globe.loaded[t.absPath] = t.project
 		} else if p != t.project {
-			erro(ctx, "re-declared project: %v → %v", p.name, t.name, callstack{num:10})
+			erro(ctx, "re-declared project: %v → %v", p.name, t.name,
+				trace_ctx{100}, callstack{stop:"smart.Main"})
 		}
 
 		// RULE 2: ONLY the entry-point gets to be 'main'!
@@ -25279,8 +25276,8 @@ func (u *universe) do(ctx Context, op any) (res any) {
 					case *word, *compound, flag:
 						t.scope.def(ctx, defDecl, __symbol(ctx, k), p.val)
 					default:
-						debug(ctx, "%v: unknown target: %v : %v", t.name, p, ts(p,ctx),
-							callstack{num:16})
+						erro(ctx, "%v: unknown target: %v : %v", t.name, p, ts(p,ctx),
+							callstack{stop:"smart.Main"})
 					}
 				}
 			}
