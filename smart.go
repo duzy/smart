@@ -63,7 +63,7 @@ const (
 	windowsOS = runtime.GOOS == "windows"
 
 	hexChars = "0123456789abcdef"
-	shredderChars = `:./\-+#~_*?` // ' ' \t \n \r
+	shredderChars = `:./\-+#~_*?⌜⌟⌞⌝` // ' ' \t \n \r
 	escaperChars = "\"\r\n"
 
     mainFileName = "do.smart"
@@ -1378,12 +1378,13 @@ func isSymKind(s Symbol, ns ...uint8) bool {
 }
 
 func isShredderChar0(ch byte) bool { return strings.IndexByte(shredderChars, ch) >= 0 }
+
 // INLINEABLE: Blazing fast ASCII comparison with zero function overhead, the explicit
 // OR-chain above is the fastest instruction sequence the Go compiler can generate.
 // Using switch can be faster than "strings.IndexByte".
 func isShredderChar(ch byte) bool {
 	switch ch {
-	case ':', '~', '.', '-', '+', '/', '\\', '#', '_', '*', '?':
+	case ':', '~', '.', '-', '+', '/', '\\', '#', '_', '*', '?'/* , '⌜', '⌝', '⌞', '⌟' */:
 		return true
 	}
 	return false
@@ -9223,22 +9224,52 @@ func (p implicit_load_ctx) do(ctx Context, op any) any {
 }
 
 type absolute_path struct{}
-type absolute_ctx struct{ Context ; abs Symbol }
-func (p *absolute_ctx) ts(string) string { return "{"+posstr(p.abs.String())+" "+ts(p.Context)+"}" }
+type absolute_ctx struct{ Context ; absPath Symbol }
 func (p *absolute_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
-    case absolute_path: return p.abs
+    case absolute_path: return p.absPath
     case get_fatpos:
-        var pos, _ = p.Context.do(ctx, op).(Position)
-        if !pos.valid() { pos.Filename, pos.Line = p.abs, 1 }
-        return pos
+		// if t.p == NoPos {
+		// 	var pos, _ = p.Context.do(ctx, op).(Position)
+		// 	if !pos.valid() { pos.Filename, pos.Line = p.absPath, 1 }
+		// 	return pos
+		// }
+
+		var pos Position
+
+		// 1. Safely query the parent context
+		if p.Context != nil {
+			pos, _ = p.Context.do(ctx, op).(Position)
+		}
+
+		// 2. THE DOD FIX: Universal Filename Injection!
+		// If the position (valid or invalid) lacks a filename, this context
+		// is the absolute anchor. We MUST inject it here so `rel_pos_str` 
+		// can mathematically compute the identical `.../` prefix!
+		if pos.Filename == symEmpty {
+			pos.Filename = p.absPath
+		}
+
+		// 3. Fallback for completely empty NoPos queries
+		if t.p == NoPos && !pos.valid() {
+			pos.Line = 1
+		}
+
+		return pos
     }
+
+	// CRITICAL FIX: Prevent nil pointer dereference on fallthrough!
+	if p.Context == nil { return nil }
     return p.Context.do(ctx, op)
 }
 func _absolute_ctx(ctx Context, abs Symbol) Context {
-    if do(ctx, absolute_path{}) == abs { return ctx } else { return &absolute_ctx{ctx, abs} }
+    if do(ctx, absolute_path{}) == abs {
+		return ctx
+	} else {
+		return &absolute_ctx{ctx, abs}
+	}
 }
 
 func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
@@ -9807,8 +9838,8 @@ func (p *source_ctx) do(ctx Context, op any) any {
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case source_piped: return t.filename == p.filename
     case source: return fmt.Sprintf("%s:%d", p.callerFile, p.callerLine) // __symBase(p.callerFile)
+	case get_fatpos: if false && t.p == NoPos { return Position{ Filename: p.callerFile, Line: p.callerLine } }
     case get_pos: return nil
-	// case get_fatpos: return Position{ Filename: p.callerFile, Line: p.callerLine }
     }
     return p.Context.do(ctx, op)
 }
@@ -10599,6 +10630,8 @@ func forids(ctx Context, idents Value, f func(Value, []Value)) {
         f(t, nil)
     }
 }
+
+var name_prefix = regexp.MustCompile(`^((android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~)(.+)$`)
 
 type keep_autos    struct{}
 type origin_def    struct{}
@@ -12129,49 +12162,31 @@ func joinraws(sep string, vals ...*raw) string {
     return strings.Join(strs, sep)
 }
 
-func posstr(s string) string {
-    s = bases(3, s, true)
-    for _, x := range []string{"/testdata/","/smart/"} {
-        if i := strings.Index(s, x); i > 0 { s = "…/"+s[i+len(x):]; break }
-    }
-    return s
-}
-
 type pos_ctx struct{ Context ; pos any }
-func (p *pos_ctx) ts(string) string {
-	var pos Position
-
-	// Dynamically resolve Pos -> Position for tracing
-	switch t := p.pos.(type) {
-	case Position: pos = t
-	case Pos: pos, _ = do(p.Context, get_fatpos{t}).(Position)
-	case Poser: pos, _ = do(p.Context, get_fatpos{t.Pos()}).(Position)
-	}
-
-	if pos.valid() {
-		var s = posstr(pos.Filename.String())
-		if pos.Column == 0 { return fmt.Sprintf("{%s:%d %s}", s, pos.Line, ts(p.Context)) }
-		return fmt.Sprintf("{%s:%d:%d %s}", s, pos.Line, pos.Column, ts(p.Context))
-	}
-	return fmt.Sprintf("{%v %s}", p.pos, ts(p.Context))
-}
-
 func (p *pos_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case get_pos:
 		if p.pos != nil {
-			switch t := p.pos.(type) {
-			case Pos  : if t.valid() { return t }
-			case Poser: if x := t.Pos(); x.valid() { return x }
+			var pos Pos
+			switch x := p.pos.(type) {
+			// THE DOD FIX: get_pos must strictly return Pos. If we return a Position
+			// struct, downstream type assertions (like in `_pos()`) will fail!
+			case Pos: pos = x
+			case Poser: pos = x.Pos()
 			}
+			if pos != NoPos { return pos }
 		}
 	case get_fatpos:
-		if p.pos != nil {
-			switch t := p.pos.(type) {
-			case Position: if t.valid() { return t }
+		if t.p == NoPos && p.pos != nil {
+			var pos Pos
+			switch x := p.pos.(type) {
+			case Position: if x.valid() { return t }
+			case Pos: pos = x
+			case Poser: pos = x.Pos()
 			}
+			if pos != NoPos { return p.Context.do(ctx, get_fatpos{pos}) }
 		}
 	}
 	if p.Context == nil { return nil } // CRITICAL FIX: Prevent nil pointer dereference
@@ -12447,36 +12462,28 @@ func optional(v Value) (_ bool) {
 
 type Poser interface{ Pos() Pos }
 
-func _fatpos(ctx Context, pos Pos) Position {
-	if pos == NoPos { pos = _pos(ctx) }
-	x, _ := do(ctx, get_fatpos{pos}).(Position)
-	return x
-}
-
 func _pos(ctx Context) Pos {
-	// 1. Context/Evaluation Path: Extract a compact Pos from the runtime context stack!
-	// This allows pos_ctx and evocation to inject specific AST node positions.
+	var pos Pos
 	switch x := do(ctx, get_pos{}).(type) {
-	case Poser: return x.Pos()
-	case Pos: return x
+	case Pos: pos = x
+	case Poser: pos = x.Pos()
 	}
-	return NoPos
+	return pos
 }
 
-func _position(ctx Context) (_ Position) {
-	switch x := do(ctx, get_pos{}).(type) {
-	case Position: return x // Fast path: Context natively provided a fat Position (e.g., from the universe or *xloc)
-	case Pos:
-		if x.valid() {
-			// Resolution path: Context provided a compact AST Pos.
-			// We dynamically resolve it into a fat Position using our bridge!
-			if fat, ok := do(ctx, get_fatpos{x}).(Position); ok {
-				return fat
-			}
+func _fatpos(ctx Context, pos Pos) Position {
+	if pos == NoPos {
+		switch x := do(ctx, get_pos{}).(type) {
+		case Position: return x
+		case Pos: pos = x
+		case Poser: pos = x.Pos()
 		}
 	}
-	return
+	fat, _ := do(ctx, get_fatpos{pos}).(Position)
+	return fat
 }
+
+func _position(ctx Context) Position { return _fatpos(ctx, NoPos) }
 
 type Value interface{
     Poser // The position where the value appears (or NoPos).
@@ -13059,7 +13066,7 @@ func (l *loc) String() string {
 // xloc is a synthetic wrapper for values generated from external runtime
 // files (like grep) that do not exist in the compiler's FileSet.
 type xloc struct { Value ; pos Position }
-func (p *xloc) Pos() Pos { return 0 }
+func (p *xloc) Pos() Pos { return NoPos }
 func (p *xloc) Position() Position { return p.pos }
 func (l *xloc) String() string {
 	if l == nil || l.Value == nil {
@@ -14687,8 +14694,12 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 type flag struct{ Value }
 func (p flag) kind() Kind { return KindFlag }
 func (p flag) Pos() (pos Pos) {
-    if p.Value != nil { pos = p.Value.Pos() /* - 1 */ }
-    return
+	if p.Value != nil { 
+		// THE DOD FIX: Only subtract if the position is mathematically valid!
+		// This prevents NoPos (0) from underflowing into a fatal -1.
+		if pos = p.Value.Pos(); pos != NoPos { pos -= 1 }
+	}
+	return
 }
 func (p flag) String() (s string) {
     if s = "-"; p.Value != nil { s += p.Value.String() }
@@ -14832,6 +14843,11 @@ type delegate struct{
     // TODO: patsubst Value, aka lhs%=rhs% like in $(var:lhs%=rhs%)
 }
 type closure struct{ delegate } // polymorphic
+
+func (p *delegate) _Pos() (pos Pos) {
+	if p.x != nil { if pos = p.x.Pos(); pos != NoPos { pos -= 2 } }
+	return
+}
 
 func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
 func (p *delegate) kind() Kind { return p.valbase.kind()|KindDelegate }
@@ -19862,226 +19878,500 @@ func ulist(v Value) (l *list) {
     return
 }
 
-// loc-prefix
-func lp(ctx Context, ap any, t string, a ...any) (s string) {
-	var p Position
-	var rawPos Pos // Keep track of the raw integer for fallback
+func rel_pos_str(ctx Context, f Symbol) string {
+	if f == symEmpty { return "" }
 
-	// 1. Dynamically resolve the incoming position type!
+	target := filepath.ToSlash(f.String())
+	if ctx == nil { return "" }
+
+	currPos := _fatpos(ctx, NoPos)
+	if currPos.Filename == symEmpty { return "" }
+
+	curr := filepath.ToSlash(currPos.Filename.String())
+	if curr == target { return "" } 
+
+	baseDir := filepath.Dir(curr)
+	if rel, err := filepath.Rel(baseDir, target); err == nil {
+		if rel = filepath.ToSlash(rel); rel == "." {
+			return "./"
+		} else if !strings.HasPrefix(rel, "..") {
+			return "./" + rel
+		} else if strings.Count(rel, "..") <= 2 {
+			return rel
+		}
+	}
+
+	cParts := strings.Split(curr, "/")
+	tParts := strings.Split(target, "/")
+	
+	i := 0
+	for i < len(cParts)-1 && i < len(tParts)-1 && cParts[i] == tParts[i] { i++ }
+	if i > 0 { return "…/" + strings.Join(tParts[i:], "/") }
+
+	return target
+}
+
+type pos_prefix struct{
+	pos any
+	tag string
+}
+
+// ts_ctx natively pushes the AST stack depth during tracing.
+type ts_ctx struct{
+	Context
+	p Position // The resolved Position of the parent node
+}
+
+func (c *ts_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case inner_cast: return c.Context
+	case dynamic_cast: return t.ctx(c, c.Context)
+	case pos_prefix:
+		var p Position
+		var rawPos Pos
+		switch x := t.pos.(type) {
+		case Position: p = x
+		case Pos: rawPos = x
+		case Poser: if x != nil { rawPos = x.Pos() }
+		}
+
+		if !p.valid() && rawPos.valid() && c.Context != nil {
+			if fat, _ := do(c.Context, get_fatpos{rawPos}).(Position); fat.valid() {
+				p = fat
+			}
+		}
+
+		var s string
+		if c.Context != nil && p.Filename != symEmpty && p.Filename != c.p.Filename {
+			if str := rel_pos_str(c.Context, p.Filename); str != "" { s = str + ":" }
+		}
+
+		// THE DOD FIX: Restore redundancy suppression perfectly!
+		if p.Line > 0 {
+			// If it perfectly matches the parent ts_ctx, suppress it!
+			if p.Filename != c.p.Filename || p.Line != c.p.Line || p.Column != c.p.Column {
+				s += fmt.Sprintf("%d:%d", p.Line, p.Column)
+			}
+		} else if rawPos.valid() {
+			if c.Context == nil || rawPos != _pos(c.Context) {
+				s += fmt.Sprintf("@%d", rawPos)
+			}
+		}
+
+		if t.tag != "" {
+			if s != "" && !strings.HasSuffix(s, ":") { s += ":" }
+			s += t.tag
+		} else if strings.HasSuffix(s, ":") {
+			s = s[:len(s)-1]
+		}
+		
+		return s
+	}
+	
+	if c.Context == nil { return nil }
+	return c.Context.do(ctx, op)
+}
+
+func tspre(ctx Context, ap any, tag string) string {
+	if ctx == nil { return tag }
+
+	// 1. Nested AST Traversal: `ts_ctx` handles redundancy suppression natively!
+	if s, ok := do(ctx, pos_prefix{ap, tag}).(string); ok { return s }
+
+	// 2. ROOT FALLBACK: The absolute beginning of the trace string.
+	var p Position
+	var rawPos Pos 
 	switch x := ap.(type) {
 	case Position: p = x
-	case Pos:
-		if rawPos = x; x.valid() && ctx != nil {
-			p, _ = do(ctx, get_fatpos{x}).(Position)
-		}
-	case Poser:
-		if t := x.Pos(); t.valid() { if rawPos = t; ctx != nil {
-			p, _ = do(ctx, get_fatpos{t}).(Position)
-		}}
+	case Pos: rawPos = x
+	case Poser: if x != nil { rawPos = x.Pos() }
 	}
 
-	// 2. Format the output
-	if ctx != nil {
-		if f, f2 := p.Filename, _position(ctx).Filename; f != symEmpty && f != f2 {
-			s = __symJoin(f, symColon).String()
-		}
+	if !p.valid() && rawPos.valid() { 
+		if fat, _ := do(ctx, get_fatpos{rawPos}).(Position); fat.valid() { p = fat }
 	}
 
-	// 3. Smart Positional Printing (The Fix)
+	var s string
+	var currPos = _position(ctx)
+	if p.Filename != symEmpty && p.Filename != currPos.Filename {
+		if str := rel_pos_str(ctx, p.Filename); str != "" { s = str + ":" }
+	}
+
+	// THE DOD FIX: Removed Redundancy Suppression!
+	// Because this is the root node evaluating against the raw execution context,
+	// it MUST proudly anchor the trace with its position, even if it matches the test harness!
 	if p.Line > 0 {
 		s += fmt.Sprintf("%d:%d", p.Line, p.Column)
 	} else if rawPos.valid() {
-		// Fallback: If we have a valid Pos integer but no Context to resolve it, print the offset!
 		s += fmt.Sprintf("@%d", rawPos)
-	} else {
-		// If the node ACTUALLY has no position data whatsoever
-		s += ""//"="//"0:0"
 	}
 
-	if s == ""/*"="*/ { s += t } else if t != "" { s += ":" + t }
+	if tag != "" {
+		if s != "" && !strings.HasSuffix(s, ":") { s += ":" }
+		s += tag
+	} else if strings.HasSuffix(s, ":") {
+		s = s[:len(s)-1]
+	}
+	return s
+}
 
-	// CRITICAL FIX: Push the local position into the context for variadic children!
-	var local = ctx
-	if ctx != nil && ap != nil { local = pc(ctx, ap) }
-
-	// Safely range over the additional arguments using the new local context
-	for _, val := range a { if val != nil { s += " " + ts(val, local) } }
-
+func tspos(i any) (p any) {
+	switch x := i.(type) {
+	case *xloc: p = x.pos // Safely extracts the fat Position!
+	case Position: p = x
+	case Pos: p = x
+	case Poser: if x != nil { p = x.Pos() }
+	}
 	return
+}
+
+// Interceptor operations
+type ts_no_evaporation struct {}
+type ts_pre struct { p any; pre string }
+type ts_tail struct { interceptor Context }
+
+// ts_barrier acts as an impenetrable shield for substantive AST nodes (like delegate).
+// It blocks parent Slicers from stealing prefixes from the node's internal children!
+type ts_barrier struct { Context }
+
+func (b ts_barrier) do(ctx Context, op any) any {
+	switch op.(type) {
+	case ts_pre, ts_tail:
+		return false // Block interception signals from passing through!
+	}
+	if b.Context != nil { return b.Context.do(ctx, op) }
+	return nil
+}
+
+type ts_slice_ctx struct {
+	Context
+	discovering bool
+	common      []any
+	current     []any
+	pre         string
+	tail        string
+	first       bool
+	layer       int
+	opened      int // THE DOD FIX: Tracks exactly how many spatial strings we added
+}
+
+func (p *ts_slice_ctx) do(ctx Context, op any) any {
+	switch x := op.(type) {
+	case ts_pre:
+		if p.discovering {
+			p.current = append(p.current, x.p)
+			return false // Do not intercept during dry-run!
+		}
+		
+		// Live Execution Interception
+		if p.layer < len(p.common) && p.common[p.layer] == x.p {
+			if p.first && x.pre != "" {
+				if p.pre != "" {
+					p.pre += " {" + x.pre
+					p.opened++ // THE DOD FIX: ONLY increment if we actually added an internal " {"
+				} else {
+					p.pre = x.pre
+					// Do NOT increment! The outermost "{" and "}" belong to the Slicer's final assembly!
+				}
+			}
+			p.layer++
+			return p // Claim ownership
+		}
+		return false
+		
+	case ts_tail:
+		if p.discovering { return false }
+		if x.interceptor == p { 
+			if p.first && p.opened > 0 {
+				p.tail += "}"
+				p.opened-- // Safely balance the internal brace
+			}
+			return true
+		}
+		if p.Context != nil { return p.Context.do(ctx, op) }
+		return false
+	}
+	
+	if p.Context != nil { return p.Context.do(ctx, op) }
+	return nil
+}
+
+func ts_slice(cc Context, items []Value) *ts_slice_ctx {
+	w := &ts_slice_ctx{Context: cc, discovering: true}
+	if len(items) == 0 { return w }
+
+	// 1. Template Map via native recursion
+	ts(items[0], w) 
+	w.common = w.current
+
+	// 2. Intersect against remaining items to lock unanimity
+	for _, item := range items[1:] {
+		w.current = nil
+		ts(item, w)
+		
+		min := len(w.common)
+		if len(w.current) < min { min = len(w.current) }
+		for i := 0; i < min; i++ {
+			if w.common[i] != w.current[i] {
+				w.common = w.common[:i]
+				break
+			}
+		}
+		if len(w.common) > min {
+			w.common = w.common[:min]
+		}
+		if len(w.common) == 0 { break }
+	}
+	
+	// Switch to Live Execution Mode!
+	w.discovering = false 
+	return w
 }
 
 func ts(i any, o ...any) (s string) {
 	if i == nil { return "{}" }
 
 	var c Context
+	var evaporation = true
 	for _, o := range o {
 		switch t := o.(type) {
+		case ts_no_evaporation: evaporation = false
 		case Context: c = t
 		case nil: c = nil
 		default: panic(o)
 		}
 	}
 
-	// CRITICAL FIX: Establish a local context to strip redundant filenames from children!
-	var cc = c
-	if c != nil {
-		if pos, ok := i.(Poser); ok && pos != nil {
-			cc = pc(c, pos.Pos())
-		}
-	}
-
+	// 1. Value tag/type
 	var t string
-	switch i.(type) {
+	switch x := i.(type) {
+	case Symbol: t = "sym" // Push Symbol into the standard pipeline
 	case *globpat: t = "glob"
 	case *globmeta: t = "meta"
 	case *globrange: t = "range"
 	case *regexpat: t = "regex"
-	default:
-		if t = typeof(i); strings.HasPrefix(t, "[]") {
+	case *boolean: t = _if(x.bool, "true", "false")
+	case *answer : t = _if(x.bool, "yes", "no")
+	case *option : t = _if(x.bool, "on", "off")
+	case *loc, *xloc, *valbase: t = "" // Empty tag!
+	default: t = typeof(i)
+		if strings.HasPrefix(t, "[]") {
 			v := reflect.ValueOf(i)
 			s  = "["
 			for i := 0; i < v.Len(); i += 1 {
 				if 0 < i { s += " " }
-				// Slices don't have positions, so we just pass cc directly
-				s += ts(v.Index(i).Interface(), cc)
+				s += ts(v.Index(i).Interface(), c)
 			}
 			s += "]"
 			return
 		}
 	}
 
+	// 2. Unify Position Extraction
+	var p = tspos(i)
+
+	// 3. Build the AST context stack
+	var cc = c
+	if c != nil {
+		var fat Position
+		switch x := p.(type) {
+		case Position: fat = x
+		case Pos:      fat = _fatpos(c, x)
+		default:       fat = _fatpos(c, NoPos) // Instantly heals nil/unmatched types!
+		}
+		cc = &ts_ctx{Context: c, p: fat}
+	}
+
+	// 4. Evaluate Inner Content
+	// THE DOD FIX: Safely tie node evaporation to the feature flag!
+	var evaporate bool 
+	switch i.(type) {
+	case *valbase, *loc, *xloc, slicer:
+		evaporate = evaporation // Only evaporate if the feature is enabled!
+	}
+
+	var interceptor Context
+	if evaporation && cc != nil {
+		var pre_spatial = tspre(c, p, "") // spatial prefix 
+		if target, ok := cc.do(cc, ts_pre{p, pre_spatial}).(Context); ok {
+			interceptor = target // Lock onto the exact context that claimed it!
+		}
+	}
+
+	var barrier = ts_barrier{cc}
+	var content string
 	switch x := i.(type) {
-	case       Symbol: return "{symbol "+x.String()+" "+strconv.Itoa(int(x))+"}"
-	case      filemap: return "{"+t+" "+x.String()+"}"
-	case          opt: return "{"+t+" "+ts(x.Value,cc)+"}"
-	case      skipped: return "{"+t+" "+ts(x.Value,cc)+"}"
-	case     negative: return "{"+t+" "+ts(x.Value,cc)+"}"
-	case     fullname: return "{"+t+" "+ts(x.Value,cc)+"}"
-	case         flag: return "{"+t+" "+ts(x.Value,cc)+"}"
-	case        *rule: return "{"+t+" "+ts(x.target,cc)+"}"
-	case     *percpat: return "{"+t+" "+ts(x.Prefix,cc)+" "+ts(x.Suffix,cc)+"}"
-	case        *pair: return "{"+t+" "+ts(x.key,cc)+" "+ts(x.val,cc)+"}"
-	case        *file: return "{"+t+" "+x.filestub.name.String()+"}"
-	case     fullfile: return "{"+t+" "+x.filestub.name.String()+"}"
-	case     *valbase: return "{"+lp(c, x.pos, "")+"}"
-	case         *loc: return "{"+lp(c, x.pos, "", x.Value)+"}"
-	case        *xloc: return "{"+lp(c, x.pos, "", x.Value)+"}"
-	case        *auto: return "{"+lp(c, x.pos, t)+" "+x.name.String()+"}"
-	case         *def: return "{"+lp(c, x.pos, t)+" "+x.name.String()+"}"
-	case     *project: return "{"+lp(c, x.pos, t)+" "+x.name.String()+"}"
-	case         self: return "{"+lp(c, x.pos, t)+" "+x.name.String()+"}"
-	case    *regexpat: return "{"+lp(c, x.pos, t)+" "+x.Regexp.String()+"}"
-	case    *globmeta: return "{"+lp(c, x.pos, t)+" "+x.token.String()+"}"
-	case   *globrange: return "{"+lp(c, x.Pos(), t)+" "+x.Value.String()+"}"
-	case matched_rule: return "{"+lp(c, x.Pos(), t)+" "+ts(x.target,cc)+"}"
-	case      *answer: return "{"+lp(c, x.pos, _if(x.bool, "yes", "no"))+"}"
-	case     *boolean: return "{"+lp(c, x.pos, _if(x.bool, "true", "false"))+"}"
-	case      *option: return "{"+lp(c, x.pos, _if(x.bool, "on", "off"))+"}"
-	case *none, *null: return "{"+lp(c, x.(Value).Pos(), t)+"}"
-	case *arrow: return "{"+t+" "+ts(x.o,cc)+x.t.String()+ts(x.s,cc)+"}"
-	case *argumented: return "{"+t+" "+ts(x.Value,cc)+ts(x.args,cc)+"}"
+	case         *none:
+	case         *null:
+	case       *answer:
+	case       *option:
+	case      *boolean:
+	case      *valbase:
+	case          *loc: content = ts(x.Value, cc)
+	case         *xloc: content = ts(x.Value, cc)
+	case       skipped: content = ts(x.Value, cc)
+	case      negative: content = ts(x.Value, cc)
+	case      fullname: content = ts(x.Value, cc)
+	case           opt: content = ts(x.Value, cc)
+	case          flag: content = ts(x.Value, cc)
+	case  matched_rule: content = ts(x.target, cc)
+	case         *rule: content = ts(x.target, cc)
+	case  *disjunction: content = ts(x.val, cc)
+	case      *percpat: content = ts(x.Prefix, cc) + " " + ts(x.Suffix, cc)
+	case         *pair: content = ts(x.key, cc) + " " + ts(x.val, cc)
+	case        *arrow: content = ts(x.o, cc) + x.t.String() + ts(x.s, cc)
+	case   *argumented: content = ts(x.Value, cc) + ts(x.args, cc)
+	case      fullfile: content = x.filestub.name.String()
+	case         *file: content = x.filestub.name.String()
+	case         *auto: content = x.name.String()
+	case          *def: content = x.name.String()
+	case      *project: content = x.name.String()
+	case          self: content = x.name.String()
+	case     *regexpat: content = x.Regexp.String()
+	case     *globmeta: content = x.token.String()
+	case    *globrange: content = x.Value.String()
+	case  *include_ctx: content = x.spec.String() + " " + ts(x.Context)
+	case      original: content = x.o.String() + " " + ts(x.Context)
+	case     *original: content = x.o.String() + " " + ts(x.Context)
+	case        Symbol: content = x.String() + " " + strconv.Itoa(int(x))
+	case       filemap: content = x.String()
+	case  *conjunction: return fmt.Sprintf("{%s %s %s}", t, ts(&x.list, cc), ts(x.sep, cc))
 	case *argumented_ctx:
-		for i, a := range x.args { if i > 0 { s += "," }; s += a.String() }
-		return "{"+t+" "+x.val.String()+"("+s+") "+ts(x.Context,cc)+"}"
-	case original:
-		return "{"+t+" "+x.o.String()+" "+ts(x.Context)+"}"
-	case *original:
-		return "{"+t+" "+x.o.String()+" "+ts(x.Context)+"}"
-	case *include_ctx:
-		return "{"+t+" "+x.spec.String()+" "+ts(x.Context)+"}"
-	case *term:
-		if x.scope == nil { return ts(x.Context) }
-		return "{term "+x.mark.String()+" "+ts(x.Context)+"}"
-	case *defcaps:
-		var s string
-		for _, cap := range x.caps { s += " {"+cap.name.String()+":"+ts(cap.value,cc)+"}" }
-		return "{"+t+" "+ts(x.Value,cc)+s+"}"
-	case *evocation:
-		var s = x.defs.String() ; if s != "" { s += " " }
-		return "{"+t+" "+x.x.String()+" | "+s+ts(x.Context,cc)+"}"
-	case *delegate:
-		var s = "{" + lp(c, x.pos, t, x.x)
-		if cc = pc(c, x.pos); x.o != nil { s += " " + ts(x.o, cc) }
-		for _, a := range x.a { s += " " + ts(a, cc) }
-		s += "}"
-		return s
-	case *closure:
-		var s = "{" + lp(c, x.pos, t, x.x)
-		if cc = pc(c, x.pos); x.o != nil { s += " " + ts(x.o, cc) }
-		for _, a := range x.a { s += " " + ts(a, cc) }
-		s += "}"
-		return s
-	case *url:
-		return "{"+lp(c,x.Pos(),t, x.Scheme,x.Username,x.Password,x.Host,x.Port,x.Path,x.Query,x.Fragment)+"}"
-	case *strval:
-		for _, v := range x.v { s += " "+ts(v,cc) }
-		return "{"+lp(c, x.pos, t)+s+"}"
-	case *punct:
-		switch x.token {
-		case PROOT: s = "PROOT"
-		case PTAIL: s = "PTAIL"
-		default: s = x.token.String()
+		var args []string
+		for _, a := range x.args { args = append(args, a.String()) }
+		content = x.val.String() + "(" + strings.Join(args, ",") + ") " + ts(x.Context)
+	case         *term:
+		if x.scope == nil {
+			return ts(x.Context)
+		} else {
+			content = x.mark.String() + " " + ts(x.Context)
 		}
-		return "{"+lp(c, x.pos, t)+" "+s+"}"
-	case token:
-		switch x {
-		case PROOT: s = "PROOT"
-		case PTAIL: s = "PTAIL"
-		default: s = x.String()
+	case    *evocation:
+		defs := x.defs.String()
+		if defs != "" { defs += " " }
+		content = x.x.String() + " | " + defs + ts(x.Context)
+	case     *delegate:
+		content = ts(x.x, barrier)
+		if x.o != nil { content += " " + ts(x.o, barrier) }
+		for _, a := range x.a { content += " " + ts(a, barrier) }
+	case      *closure:
+		content = ts(x.x, barrier)
+		if x.o != nil { content += " " + ts(x.o, barrier) }
+		for _, a := range x.a { content += " " + ts(a, barrier) }
+	case      *defcaps:
+		content = ts(x.Value, cc)
+		for _, cap := range x.caps {
+			content += " {" + cap.name.String() + ":" + ts(cap.value, cc) + "}"
 		}
-		return "{token "+s+"}"
-	case *disjunction:
-		return "{"+lp(c, x.pos, t, x.val)+"}"
-	case *conjunction:
-		return fmt.Sprintf("{%s %s %s}", t, ts(&x.list, cc), ts(x.sep, cc))
-
-	case slicer:
-		// Safely extract the compact Pos
-		var pos Pos
-		if p, ok := x.(Poser); ok { pos = p.Pos() }
-
-		var prefix = ""//"="
-		if c != nil && pos.valid() {
-			if fat, ok := do(c, get_fatpos{pos}).(Position); ok && fat.Filename != symEmpty {
-				// Change prefix to the absolute filename if it differs from the current trace context!
-				if f1 := _position(c).Filename; f1 != fat.Filename {
-					prefix = __symJoin(fat.Filename, symColon).String()
-				}
+	case          *url:
+		for _, val := range []any{x.Scheme, x.Username, x.Password, x.Host, x.Port, x.Path, x.Query, x.Fragment} {
+			if val != nil {
+				if content != "" { content += " " }
+				content += ts(val, barrier)
 			}
 		}
+	case       *strval:
+		for _, v := range x.v {
+			if content != "" { content += " " }
+			content += ts(v, barrier)
+		}
+	case        *punct:
+		switch x.token {
+		case PROOT: content = "PROOT"
+		case PTAIL: content = "PTAIL"
+		default: content = x.token.String()
+		}
+	case         token:
+		switch x {
+		case PROOT: s = "{token PROOT}"
+		case PTAIL: s = "{token PTAIL}"
+		default: s = "{token " + x.String() + "}"
+		}
+		return
+	case        slicer:
+		items := x.slice()
 
-		if p, ok := x.(*plain); ok && p.name != symEmpty {
-			s += "(" + p.name.String() + ")"
+		// Uniformly apply plain modifiers to the logical tag
+		if pl, ok := x.(*plain); ok && pl.name != symEmpty {
+			t += "(" + pl.name.String() + ")"
 		}
 
-		var cc = pc(c, pos)
-		for _, a := range x.slice() {
-			s += " " + ts(a, cc)
+		// THE DOD FIX: Raw fallback loop for ts_no_evaporation!
+		if !evaporation {
+			for _, item := range items {
+				if content != "" { content += " " }
+				content += ts(item, cc)
+			}
+			break
 		}
 
-		return "{" + prefix + t + s + "}"
+		w := ts_slice(cc, items)
 
-	case Value:
-		if t := x.String(); t != "" { s += " " + strings.ReplaceAll(t, "\n", `\n`) }
-		return "{"+lp(c, x.Pos(), t)+s+"}"
-	case Context:
-		if i := inner(x); i == nil {
-			return "{"+t+"}"
+		var inner string
+		for idx, a := range items {
+			if inner != "" { inner += " " }
+			w.first = (idx == 0) 
+			w.layer = 0          
+			inner += ts(a, w)    
+		}
+
+		if t != "" {
+			if w.pre != "" {
+				w.pre += " {" + t
+				w.tail += "}"
+			} else {
+				w.pre = t
+			}
+			t = "" 
+		}
+
+		if w.pre != "" {
+			if inner != "" {
+				content = "{" + w.pre + " " + inner + w.tail + "}"
+			} else {
+				content = "{" + w.pre + w.tail + "}"
+			}
 		} else {
-			return "{"+t+" "+ts(i,cc)+"}"
+			content = inner
 		}
-	default:
-		if t := fmt.Sprintf("%v", x); t != "" { s += " " + strings.ReplaceAll(t, "\n", `\n`) }
-		return "{"+t+s+"}"
-	}
-}
 
-func (p *valcache) km() (ss map[string]struct{}) {
-	ss = make(map[string]struct{})
-	for _, v := range reflect.ValueOf(p.v).MapKeys() {
-		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
+	case         Value:
+		if str := x.String(); str != "" { content = strings.ReplaceAll(str, "\n", `\n`) }
+	case       Context:
+		if in := inner(x); in != nil { content = ts(in, cc) }
+	default:
+		if str := fmt.Sprintf("%v", x); str != "" { content = strings.ReplaceAll(str, "\n", `\n`) }
 	}
-	return
+
+	// 5. Assemble Output
+
+	if evaporation && interceptor != nil {
+		if cc != nil { cc.do(cc, ts_tail{interceptor}) } 
+
+		// Slicers wiped their 't', so they safely skip this.
+		// But native nodes (like 'list' or 'word') MUST wrap themselves here 
+		// because their spatial position was absorbed by the parent!
+		if t != "" {
+			if content == "" { return "{" + t + "}" }
+			return "{" + t + " " + content + "}"
+		}
+		return content 
+	}
+
+	// If NOT intercepted, calculate the FULL prefix including the logical tag!
+	pre := tspre(c, p, t)
+
+	if pre == "" {
+		if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. *valbase)
+		if evaporate { return content }  // Strip wrapper braces for empty anonymous container nodes
+		return "{" + content + "}"
+	}
+
+	if content == "" {
+		return "{" + pre + "}"
+	} else {
+		return "{" + pre + " " + content + "}"
+	}
 }
 
 func _arrow(pos Pos, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
@@ -20327,10 +20617,9 @@ func (p *evocation) do(ctx Context, op any) (_ any) {
         if  pos.valid()  {  return pos  }
 
     case get_fatpos:
-		// Try extracting a fat Position first via our escape hatch (*xloc)
-        if p.x != nil {
-            if ep, ok := p.x.(interface{ Position() Position }); ok {
-                if pos := ep.Position(); pos.valid() { return pos }
+        if t.p == NoPos && p.x != nil {
+            if x, ok := p.x.(interface{ Position() Position }); ok {
+                if pos := x.Position(); pos.valid() { return pos }
             }
         }
     }
@@ -20344,8 +20633,6 @@ func call(ctx Context, name Symbol, o []Value, a ...Value) (res Value) {
 	if v := _universe(ctx).lookup(name); v != nil { res = evoke(ctx, v, o, a) }
 	return
 }
-
-var name_prefix = regexp.MustCompile(`^((android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~)(.+)$`)
 
 type object interface{
 	Value
@@ -21222,6 +21509,14 @@ func (p *valcache) String() (s string) { // NOTE: for debug
 	}
 	if s != "" { s = s[:len(s)-1] } // aka. TrimSuffix(s, ",")
 	return "{"+s+"}"
+}
+
+func (p *valcache) km() (ss map[string]struct{}) {
+	ss = make(map[string]struct{})
+	for _, v := range reflect.ValueOf(p.v).MapKeys() {
+		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
+	}
+	return
 }
 
 // =============================================================================
@@ -22210,7 +22505,7 @@ func (c project_ctx) do(ctx Context, op any) any {
 		
 	// 3. DO NOT intercept `get_scope`! 
 	// Leaving this out preserves dynamic variables like `&(variant)`.
-	// case get_scope: return c.p.scope
+	case get_scope: return c.p.scope
 	}
 	return c.Context.do(ctx, op)
 }
@@ -24332,7 +24627,7 @@ type (
     act_traverse   struct{ v Value }
     init_args      struct{ *automatic }
 	get_fatpos     struct{ p Pos }
-    get_pos   struct{}
+    get_pos        struct{}
     get_project    struct{}
     get_scope      struct{}
     get_closure_scopes struct{}
@@ -25245,11 +25540,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 	case inner_cast: return &u.diagnostic
 	case dynamic_cast: return t.ctx(ctx, &u.diagnostic)
     case get_pos: return NoPos //Position{ Filename: symBaseWorkDir }
-	case get_fatpos:
-		var p Position
-		if u.fset != nil && t.p.valid() { p = u.fset.Position(t.p) } // FIX: Use the receiver 'ctx'
-		return p
-
+	case get_fatpos: if t.p != NoPos && u.fset != nil { return u.fset.Position(t.p) }
     case get_scope: if u.scope != nil { return u.scope }
     case get_project: if u.globe != nil { return u.globe.main }
     case exec_noop: if u.noExec { return u.noExec }
