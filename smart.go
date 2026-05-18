@@ -9857,8 +9857,11 @@ func (p *compiler) source(ctx Context, filename Symbol, text []byte) Value {
 		return ease(ctx, p.values(ctx))
 	}
 
-	if pc, file, line, ok := runtime.Caller(0); ok {
-		ctx = &source_ctx{ctx, filename, intern(file), line, runtime.FuncForPC(pc)}
+	if false {
+		if pc, file, line, ok := runtime.Caller(0); ok {
+			var sym = intern(file)
+			ctx = &source_ctx{ctx, filename, sym, line, runtime.FuncForPC(pc)}
+		}
 	}
 	
 	var prevProject = p.project // nil if initial source.
@@ -20165,6 +20168,7 @@ func ts(i any, o ...any) (s string) {
 			s += "]"
 			return
 		}
+		if s := "_ctx"; strings.HasSuffix(t,s) { t = strings.TrimSuffix(t,s) }
 	}
 
 	// 2. Unify Position Extraction
@@ -20240,6 +20244,8 @@ func ts(i any, o ...any) (s string) {
 		var args []string
 		for _, a := range x.args { args = append(args, a.String()) }
 		content = x.val.String() + "(" + strings.Join(args, ",") + ") " + ts(x.Context)
+	case        parent:
+		content = x.project.name.String() + " " + ts(x.Context)
 	case         *term:
 		if x.scope == nil {
 			return ts(x.Context)
@@ -25558,12 +25564,11 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			if false { debug(ctx, "%v %v", t.absPath, t.project) }
 			u.globe.loaded[t.absPath] = t.project
 		} else if p != t.project { // Properly cycled "use"
+			dp := _f("re-declared project: %v → %v", p.name, t.name)
 			if false {
-				erro(ctx, "re-declared project: %v → %v", p.name, t.name,
-					trace_ctx{100}, callstack{stop:"smart.Main"})
+				erro(pc(ctx,p.pos), dp, trace_ctx{100}, callstack{stop:"smart.Main"})
 			} else {
-				info(ctx, "re-declared project: %v → %v", p.name, t.name,
-					trace_ctx{100}, callstack{num:3})
+				info(pc(ctx,p.pos), dp, trace_ctx{100}, callstack{num:5})
 			}
 		}
 
