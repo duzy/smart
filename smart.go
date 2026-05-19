@@ -2109,9 +2109,8 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 		return makePath()
 	}
 
-	seq := getSymSeq(sym)
 	var segs []Value
-	start := 0
+	seq, start := getSymSeq(sym), 0
 
 	for i := 0; i <= len(seq); i++ {
 		if i == len(seq) || seq[i] == symSlash {
@@ -2591,7 +2590,25 @@ func mapKeys(a any) []any {
 
 func _fMapKeys(f string, a any) []*diag_point {
 	var dps []*diag_point
+
 	for _, k := range mapKeys(a) { dps = append(dps, _f(f, k)) }
+	return dps
+}
+
+func _fVals(f string, a any) []*diag_point {
+	var dps []*diag_point
+	var v = reflect.ValueOf(a)
+	for i := 0; i < v.Len(); i++ {
+		dps = append(dps, _f(f, v.Index(i).Interface()))
+	}
+	return dps
+}
+
+func _fLoadedProjs(u *universe, f string) []*diag_point {
+	var dps []*diag_point
+	for _, p := range u.globe.loadedProjs {
+		dps = append(dps, _f(f, p.name, p.spec, p.absPath))
+	}
 	return dps
 }
 
@@ -2751,15 +2768,6 @@ func (s *scope) string() string {
 		fmt.Fprintf(&buf, "%s", s.mark)
 	}
 	return buf.String()
-}
-
-func (s *scope) projectName(ctx Context, name Symbol, project *project) (p *project, a object) {
-	s.Lock() ; defer s.Unlock()
-	if a = s.elems[name] ; a == nil {
-		p = project
-		s.replaceLocked(ctx, name, p)
-	}
-	return
 }
 
 func (s *scope) builtin(ctx Context, name Symbol, f reflect.Type) (res *builtin, a object) {
@@ -5299,40 +5307,19 @@ func (p *compiler) call(ctx Context, name Symbol, args []Value) (result bool) {
 func (p *compiler) arrow(ctx Context, lhs Value, isClosure bool) (res Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "arrow")) }
 
-	pos, tok := lhs.Pos(), p.tok // the arrow '->' or '=>'
+	pos, tok := lhs.Pos(), p.tok // the arrow '->', '=>', etc.
 	ctx = pc(ctx, pos)
-	p.step(ctx) // skip '->' or '=>'
+	p.step(ctx) // consume '->'
 
-	switch t := lhs.(type) {
-	case *arrow:
-		return _arrow(pos, tok, t, p.composite(ctx))
-	case *word:
-		if o := p.resolve(ctx, t.pos, t.s, isClosure); !isNull(o) {
-			return _arrow(pos, tok, o, p.composite(ctx))
-		} else if tok == SELECT_PROG2 {
-			return _null(pos) // ignore
-		} else {
-			debug(ctx,
-				_f("%v: '%v' is undefined (name=%v, obj=%v)", p.project, lhs, t, o),
-				_f("%v: parser is here (name=%s, tok=%s)", p.project, lhs, tok),
-				_f("%v: parser to go here (tok=%s, lit=%s)", p.project, p.tok, p.lit),
-				unwind{})
-		}
-	case *compound:
-		// Fast-path extraction
-		if o := p.resolve(ctx, t.Pos(), intern(__string(ctx, lhs)), isClosure); !isNull(o) {
-			return _arrow(pos, tok, o, p.composite(ctx))
-		} else if tok == SELECT_PROG2 {
-			return _null(pos) // ignore
-		} else {
-			debug(ctx,
-				_f("%v: '%v' is undefined (name=%v, obj=%v)", p.project, lhs, t, o),
-				_f("%v: parser is here (name=%s, tok=%s)", p.project, lhs, tok),
-				_f("%v: parser to go here (tok=%s, lit=%s)", p.project, p.tok, p.lit),
-				unwind{})
-		}
-	}
-	return _arrow(pos, tok, lhs, p.composite(ctx))
+	// THE DOD FIX: Pure AST Construction!
+	// Do NOT call p.resolve here. We must wait for runtime to evaluate LHS, 
+	// especially for dynamic variables like `$_`!
+	
+	rhs := p.composite(ctx)
+	
+	// If lhs is already an arrow, this builds a left-associative tree:
+	// A -> B -> C  becomes  arrow(arrow(A, B), C)
+	return _arrow(pos, tok, lhs, rhs)
 }
 
 func (p *compiler) word(ctx Context) *word {
@@ -5438,11 +5425,12 @@ func (p *compiler) braced(ctx Context) (x Value) {
 	case OR:      return p.braced_or(ctx)
 	case FOR:     return p.braced_for(ctx)
 	case FOREACH: return p.braced_foreach(ctx)
+
+	case DOT: // {.base}, {.self}, {.configure}, {.xxx}
+		return p.braced_dot(ctx)
+		
 	case PROJECT: // {project ...}
-		p.next(ctx, true)
-		x = p.braced_project(ctx)
-		p.expect(ctx, RBRACE)
-		return x
+		return p.braced_project(ctx)
 
 	case RAW: // {raw ...}
 		p.next(ctx, true)
@@ -5568,11 +5556,8 @@ func (p *compiler) braced(ctx Context) (x Value) {
 			p.expect(ctx, RBRACE)
 			return x
 
-		case symSelf:
-			p.next(ctx, true)
-			x = self{p.braced_project(ctx)}
-			p.expect(ctx, RBRACE)
-			return x
+		case symSelf: // {self ...}
+			// TODO: return loc{self{ p.braced_project(ctx).(project) }}
 
 		case symStr: // {str ...}, see $(string ...)
 			return p.braced_str(ctx)
@@ -6470,9 +6455,36 @@ func (p *compiler) promptCachedConfigs(ctx Context) bool { return p.check(ctx, "
 func (p *compiler) promptConfigurationLoads(ctx Context) bool { return p.check(ctx, "prompt-configuration-loads") }
 
 func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (result Value) {
-	if sym == symEmpty {
-		erro(ctx, "resolve empty name")
+	switch sym {
+	case symEmpty:
+		erro(ctx, "resolving empty name")
 		return
+	case symDotSelf:
+		var self *project
+		if isClosure {
+			if t := cast[*term](ctx); t != nil { self = t.project }
+		} else {
+			self = p.project
+		}
+		return self
+	case symDotBase:
+		var base *project
+		if isClosure {
+			if t := cast[*term](ctx); t != nil && t.project.bases != nil {
+				base = t.project.bases[0]
+			}
+		} else if p.project != nil && p.project.bases != nil {
+			base = p.project.bases[0]
+		}
+		return base
+	case symDotConfigure:
+		var configure *project
+		if isClosure {
+			if t := cast[*term](ctx); t != nil { configure = t.project.configure }
+		} else {
+			configure = p.project.configure
+		}
+		return configure
 	}
 
 	if d := auto_find(ctx, sym); d != nil {
@@ -6946,7 +6958,7 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 		_f("undefined %v", sym),
 		_f("→ %v, name=%s tok=%v", obj, ts(name,ctx), tok),
 		_f("project %v, bases=%v", p.project.name, p.project.bases),
-		trace_ctx{2}, callstack{num:32})
+		trace_ctx{5}, callstack{num:32})
 
 	return
 }
@@ -7915,24 +7927,87 @@ func (p *compiler) braced_path(ctx Context) (x Value) {
 	return
 }
 
-func (p *compiler) braced_project(ctx Context) (_ *project) {
+func (p *compiler) braced_project(ctx Context) Value {
+	pos := p.pos
+	p.next(ctx, true) // consumes "project"
+	p.spaces(ctx)
 	name := p.expr(ctx)
-	sym := intern(__string(ctx, name))
-	if sym == symEmpty {
-		erro(ctx, "empty name : %s : %s", ts(name,ctx), sym)
+	p.spaces(ctx)
+	p.expect(ctx, RBRACE)
+
+	// Safely expand and extract the pure symbol (e.g., foo.bar.aaa.base)
+	var specVal = expand(final{ctx}, name)
+	if specVal == nil { specVal = name }
+	targetSym := __symbol(ctx, specVal)
+
+	if targetSym == symEmpty {
+		erro(pc(ctx, pos), "empty project name")
+		return &null{valbase{pos}}
 	}
 
-	if p.project.name == sym {
-		return p.project
-	} else if o := p.resolve(ctx, name.Pos(), sym, false); o == nil {
-		erro(pc(ctx,p), "%s : undefined %s : %v", p.project, sym, ts(name,ctx))
-		return
-	} else if x, y := o.(*project); !y && x != nil {
-		erro(pc(ctx,p), "%s : %v is not a project", p.project, ts(o,ctx))
-		return
-	} else {
-		return x
+	// 1. Contextual Local Lookup
+	// Check if it's explicitly registered in the current project's scope.
+	if p.project != nil && p.project.projs != nil {
+		if proj, ok := p.project.projs[targetSym]; ok && proj != nil {
+			return &loc{proj, pos}
+		}
 	}
+
+	// 2. Global Universe Lookup
+	// If not found locally, resolve its absolute path and fetch it from the global cache!
+	abs, _ := p.search(ctx, targetSym)
+	if proj, ok := _universe(ctx).globe.loaded[abs]; ok && proj != nil {
+		return &loc{proj, pos}
+	}
+
+	erro(pc(ctx, pos), "project '%s' not found or loaded", targetSym)
+	return &null{valbase{pos}}
+}
+
+func (p *compiler) braced_dot(ctx Context) Value {
+	pos := p.pos
+	p.next(ctx, true) // consumes "."
+	p.spaces(ctx)
+	name := p.expr(ctx)
+	p.spaces(ctx)
+	p.expect(ctx, RBRACE)
+
+	var specVal = expand(final{ctx}, name)
+	if specVal == nil { specVal = name }
+	targetSym := __symbol(ctx, specVal)
+
+	if targetSym == symEmpty {
+		erro(pc(ctx, pos), "empty project alias after '.'")
+		return &null{valbase{pos}}
+	}
+
+	// 1. Built-in Structural Aliases
+	if targetSym == symSelf || targetSym == intern("self") {
+		if p.project != nil { return self{p.project, pos} }
+		return &null{valbase{pos}}
+	} else if targetSym == symConfigure || targetSym == intern("configure") {
+		if p.project != nil && p.project.configure != nil {
+			return &loc{p.project.configure, pos}
+		}
+		return &null{valbase{pos}}
+	}
+
+	// 2. Dynamic Structural Aliases (.base, .variant, .target, etc.)
+	if p.project != nil && p.project.projs != nil {
+		// Try exact match with the reconstructed dot (e.g., ".base")
+		lookupKey := __symJoin(symDot, targetSym)
+		if proj, ok := p.project.projs[lookupKey]; ok && proj != nil {
+			return &loc{proj, pos}
+		}
+		
+		// Fallback: Try match without the dot (e.g., "base")
+		if proj, ok := p.project.projs[targetSym]; ok && proj != nil {
+			return &loc{proj, pos}
+		}
+	}
+
+	erro(pc(ctx, pos), "project alias '.%s' not found", targetSym)
+	return &null{valbase{pos}}
 }
 
 // Parsing (var a=xxx,b=yyy) or (var a) definitions
@@ -8689,9 +8764,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	if x, y := specVal.(*project); y {
 		loaded = x
 	} else {
-		spec = __symbol(ctx, specVal)
-		
-		if spec == symEmpty {
+		if spec = __symbol(ctx, specVal); spec == symEmpty {
 			erro(pc(ctx, specVal), "empty spec: %v", ts(specVal,ctx))
 			return nil // Abort
 		} else if absPath, isDir = p.search(ctx, spec); absPath == symEmpty {
@@ -8716,20 +8789,10 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	}
 
 	defer func() {
-		if loaded == nil { return }
-		if p, _ := p.project.lookup(loaded.name).(*project); p == nil {
-			if _, alt := p.project.projectName(ctx, loaded.name, loaded); alt != nil {
-				if p, y := alt.(*project); !y || p == nil {
-					erro(ctx, "%s: name already taken : %s", loaded.name, ts(alt,ctx))
-				}
+		if loaded != nil {
+			if prev := p.project.proj(loaded); prev != nil && prev != loaded {
+				erro(ctx, "%s already taken", loaded)
 			}
-		} else {
-			// THE DOD FIX: AST Qualword Masking Prevention!
-			// `useProj` binds the flat symbol "llvm.Config". But the AST parses 
-			// `$(llvm.Config->...)` as a qualword: {llvm} {Config}. It hits the 
-			// base project `llvm` and fails to find `Config`. We MUST call 
-			// projectName here to wire up the local nested hierarchy!
-			p.project.projectName(ctx, loaded.name, loaded)
 		}
 	} ()
 
@@ -8789,7 +8852,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		if loaded == nil {
 			erro(ctx,
 				_f("%s not loaded (%s)", spec, absPath),
-				_fMapKeys(". %v", u.globe.loaded),
+				_fLoadedProjs(u, ". %[3]s"), //_fMapKeys(". %v", u.globe.loaded),
 				trace_ctx{100}, callstack{stop:"smart.Main"})
 			return nil 
 		}
@@ -9164,7 +9227,6 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 
 	// name is safely passed as the scope name
 	dec.scope = new_scope(p.scope, dec.project, name)
-	dec.scope.elems[symDotSelf] = self{dec.project} // $(.self)
 	dec.scope.elems[symDotUsee] = dec.use // $(.usee)
 	dec.use.owner_ = dec.project
 	dec.use.scope = dec.scope
@@ -9175,17 +9237,14 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 	do(ctx, declared_project{dec.project})
 	
 	if p.project != nil && p.project != dec.project {
-		if _, a := p.project.projectName(ctx, name, dec.project); a != nil { 
-			if x, y := a.(*project); !y || x != dec.project {
-				erro(pc(ctx,p),
-					_f("=== COLLISION DIAGNOSTIC ==="),
-					_f("Existing mapped project: %p (Name: %v)", x, x.name),
-					_f("Newly minted project: %p (Name: %v)", dec.project, dec.project.name),
-					_f("Is this a configuration.sm reload?: %v", do(ctx, is_config_mode{})),
-					_f("name '%v' already taken: %v", name, dec.project.name),
-					_f("%v: %v", name, ts(a,ctx)),
-					callstack{num:30}, unwind{})
-			}
+		if prev := p.project.proj(dec.project); prev != nil && prev != dec.project { 
+			erro(pc(ctx,p),
+				_f("=== COLLISION DIAGNOSTIC ==="),
+				_f("Existing mapped project: %p (Name: %v)", prev, prev.name),
+				_f("Newly minted project: %p (Name: %v)", dec.project, dec.project.name),
+				_f("Is this a configuration.sm reload?: %v", do(ctx, is_config_mode{})),
+				_f("name '%v' already taken: %v", name, dec.project.name),
+				callstack{num:30}, unwind{})
 		}
 	}
 
@@ -9274,99 +9333,148 @@ func _absolute_ctx(ctx Context, abs Symbol) Context {
 
 func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 	var implicitBases []Value
+	var implicitIndex = -1
 
-	// THE DOD FIX: Check f._mtime != 0 to filter out VFS negative caches!
-    if f := _stat(ctx, symDotBase, p.project); f != nil && f._mtime != 0 {
-        if !f._isDir && p.project.spec == symDotBase {
-            // skip the regular file .base to avoid self loading recursively
-        } else {
-            implicitBases = append(implicitBases, f)
-        }
-    }
-
-    if ss := __symSplit(p.project.name, symDot); len(ss) > 2 && ss[len(ss)-1] == symBase {
-        var numBaseParams int
-        for _, elem := range params {
+	// =================================================================
+	// 1. DOTTED IMPLICIT BASE (From Project Name)
+	// =================================================================
+	if ss := __symSplit(p.project.name, symDot); len(ss) >= 2 && ss[len(ss)-1] == symBase {
+		var numBaseParams int
+		for _, elem := range params {
 			elem = unloc(elem)
-            if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
-            if x, y := elem.(*argumented); y { elem = x.Value }
-            if _, y := elem.(*pair); y { continue }
-            numBaseParams += 1
-        }
-        if numBaseParams == 0 {
-            t := &path{}
-            for _, s := range ss[:len(ss)-2] { t.elems = append(t.elems, _word(_pos(ctx), s)) }
-            implicitBases = append(implicitBases, t)
-            implicitBase = symEmpty // discard the implicit base
-        }
-    }
-
-    var implicitIndex = len(implicitBases)
-	if  implicitBase != symEmpty  {
-		implicitBases = append(implicitBases, __symMakePath(ctx, implicitBase))
+			if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
+			if x, y := elem.(*argumented); y { elem = x.Value }
+			if _, y := elem.(*pair); y { continue }
+			numBaseParams += 1
+		}
+		if numBaseParams == 0 {
+			if len(ss) > 2 {
+				baseName := __symJoinBy(symDot, ss[:len(ss)-2]...)
+				implicitIndex = len(implicitBases)
+				implicitBases = append(implicitBases, _word(p.project.pos, baseName))
+			}
+			implicitBase = symEmpty 
+		}
 	}
 
+	if implicitBase != symEmpty {
+		implicitIndex = len(implicitBases)
+		implicitBases = append(implicitBases, _word(_pos(ctx), implicitBase))
+	}
+
+	// =================================================================
+	// 2. LOCAL `.base` FILE
+	// =================================================================
+	if f := _stat(ctx, symDotBase, p.project); f != nil && f._mtime != 0 {
+		if !f._isDir && f.fullname() == p.project.absPath {
+			// skip self-loading
+		} else {
+			implicitBases = append(implicitBases, f)
+		}
+	}
+
+	var numImplicit = len(implicitBases)
+
+	// =================================================================
+	// 3. EXPLICIT BASES & RESOLUTION LOOP
+	// =================================================================
 paramsloop:
-    for i, elem := range append(implicitBases, params...) {
-        if x, y := elem.(*list); y && len(x.elems) == 1 {
-            elem = x.elems[0]
-        }
-        if x, y := elem.(*argumented); y {
-            elem, ctx = x.Value, x.ctx(ctx)
-        }
-        if x, y := elem.(*pair); y {
-            erro(pc(ctx,x), "use -set(%v) instead", x)
-        }
+	for i, elem := range append(implicitBases, params...) {
+		isImplicit := (i < numImplicit)
 
-        var spec Symbol
-        var specVal = expand(final{ctx}, elem)
-        if specVal == nil { specVal = elem }
-        if spec = __symbol(ctx, specVal); spec == symEmpty {
-            erro(ctx,
-				_f("%v", ts(elem,ctx)),
-				_f("%v", ts(specVal,ctx)),
-				_f("'%s'(%v) %v %v", implicitBase, implicitBase==symEmpty, implicitBases, params),
-				_f("%v: empty base", p.project),
-				callstack{num:16})
-        } else if __symContains(spec, symSlashSlash) {
-            erro(ctx,
-				_f("%v", elem),
-				_f("%v", spec),
-				_f("'%s'(%v) %v %v", implicitBase, implicitBase==symEmpty, implicitBases, params),
-				_f("'%s' %v %v", implicitBase, implicitBases, params),
-				callstack{num:16})
-        } else if implicitBase != symEmpty && spec == implicitBase {
-            if i == implicitIndex {
-                ctx = implicit_load_ctx{ctx}
-            } else {
-                erro(ctx, "%v: implicit base '%v' already loaded", p.project, elem)
-            }
-        }
+		// THE DOD FIX: Loop-Local Context Isolation!
+		// Prevents `implicit_load_ctx` from leaking into explicit bases.
+		ec := ctx
 
-        var abs Symbol
-        var isDir bool
+		if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
+		if x, y := elem.(*argumented); y { elem, ec = x.Value, x.ctx(ec) }
+		if x, y := elem.(*pair); y { erro(pc(ec,x), "use -set(%v) instead", x) }
 
-        if x, y := to_file(elem); y && x._mtime != 0 {
-            abs, isDir = x.fullname(), x._isDir
-        } else {
-            abs, isDir = p.search(ctx, spec)
-        }
+		var spec Symbol
+		if v := expand(final{ec}, elem); v == nil {
+			erro(ec, "nil value: %v", elem, callstack{num:16})
+		} else if spec = __symbol(ec, v); spec == symEmpty {
+			erro(ec, "empty base", callstack{num:16})
+		} else if __symContains(spec, symSlashSlash) {
+			erro(ec, "invalid base", callstack{num:16})
+		} else if i == implicitIndex {
+			ec = implicit_load_ctx{ec}
+		} else if implicitBase != symEmpty && spec == implicitBase {
+			erro(ec, "%v: implicit base '%v' already loaded", p.project, elem)
+		}
 
-        for _, base := range p.project.bases {
-            if base.absPath == abs {
-                erro(ctx, "duplicated base: %v : %v → %v (in %v)", base, elem, spec)
-                continue paramsloop
-            }
-        }
+		var abs Symbol
+		var isDir bool
 
-        if cc := _absolute_ctx(ctx, abs); isDir {
-            p.directory(cc, spec, abs)
-        } else {
-            p.file(cc, spec, abs)
-        }
-    }
+		if x, y := to_file(elem); y && x._mtime != 0 {
+			abs, isDir = x.fullname(), x._isDir
+		} else if isImplicit {
+			curr := p.project.absPath
+			path := __symPathJoin(__symSplit(spec, symDot)...)//Replace(spec, ".", "/")
+			for curr != symEmpty && curr != symDot && curr != symSlash {
+				// 1. Direct Ancestor Match (__symJoinBy(symSlash, path))
+				if curr == path || __symHasSuffix(curr, __symPathJoin(symEmpty, path)) {//HasSuffix(curr, "/"+specStr)
+					if f := _stat(ec, curr); f.exists() {
+						abs, isDir = f.fullname(), f._isDir
+						break
+					}
+				}
 
-	// Apply the project's own exports to itself.
+				// 2. Sibling Match from Common Root (Crucial for `foo.baz`)
+				if f := _stat(ec, __symPathJoin(curr, path)); f.exists() {
+					abs, isDir = f.fullname(), f._isDir
+					break
+				}
+
+				curr = __symDir(curr) 
+			}
+			if abs == symEmpty { abs, isDir = p.search(ec, spec) }
+		} else {
+			abs, isDir = p.search(ec, spec)
+		}
+
+		if abs == symEmpty {
+			if isImplicit { continue paramsloop }
+			erro(ec, "%v: no such base; %v → %v", p.project, elem, spec)
+		}
+
+		// 1. Prevent physical duplicates BEFORE cache injection!
+		for _, base := range p.project.bases {
+			if base.absPath == abs {
+				erro(ec, "duplicated base: %v : %v → %v (in %v)", base, elem, spec)
+				continue paramsloop
+			}
+		}
+
+		// 2. THE DOD FIX: Cache Bypassing!
+		if prev, ok := _universe(ec).globe.loaded[abs]; ok && prev != nil {
+			ec.do(ec, declared_project{prev})
+			continue paramsloop
+		}
+
+		if cc := _absolute_ctx(ec, abs); isDir {
+			p.directory(cc, spec, abs)
+		} else {
+			p.file(cc, spec, abs)
+		}
+	}
+
+	// =================================================================
+	// 4. DIAMOND INHERITANCE DEDUPLICATION
+	// =================================================================
+	var finalBases []*project
+	for i, base := range p.project.bases {
+		var isRedundant bool
+		for j, other := range p.project.bases {
+			if i != j && other.has_base(base) { isRedundant = true; break }
+		}
+		if !isRedundant { finalBases = append(finalBases, base) }
+	}
+	p.project.bases = finalBases
+
+	// =================================================================
+	// 5. EXPORT APPLICATION
+	// =================================================================
 	for _, targetSym := range p.project.exports {
 		targetName := targetSym.String()
 		lookupSym := intern("use." + targetName)
@@ -9394,26 +9502,35 @@ func (p parent) do(ctx Context, op any) any {
 	case get_project: // TODO: return p.project
 	case declared_project:
 		if t.has_base(p.project) {
-			erro(ctx,
-				_f("%s", p.absPath),
-				_f("%s : %s", p.project, t.loop_base_path(ctx, p.project, "")),
-				_f("recursive derivation: %v ⇔ %v", ts(p.project), ts(t.project)),
-				trace_ctx{50})
+			warn(ctx, // _f("%s", t.loop_base_path(ctx, p.project, "")),
+				_f("%v has base %v,", t.project, p.project),
+				_fVals("├─→ %v", t.bases),
+				_f("%v is suppose to have base %v", p.project, t.project),
+				_fVals("├─→ %v", p.bases),
+				trace_ctx{100}, callstack{num:10})
 			return nil
 		}
 
-		if len(p.bases) == 0 {
-			p.projectName(ctx, symDotBase, t.project)
-		} else if p.has_base(t.project) {
-			erro(ctx, "duplication derivation: %v ⇔ %v", ts(p.project), ts(t.project))
+		if tp := t.project; false && p.has_base(tp) { erro(ctx, "%v has base %v", p.project, tp) }
+
+		for _, base := range p.bases {
+			if base == t.project {
+				erro(ctx,
+					_f("%v already has base %v", p.project, t.project),
+					_fVals("├─→ %v", p.bases),
+					_f("%v", t.project),
+					_fVals("├─→ %v", t.bases),
+					trace_ctx{100}, callstack{num:10})
+				return nil
+			}
 		}
 
 		p.bases = append(p.bases, t.project)
 
 		// THE DOD FIX: Direct Universe Feed!
-		// We swallow the event from the Context chain (return nil below) 
-		// so grandparents are protected. BUT we explicitly hand the event 
-		// to the universe so it successfully populates `u.globe.loaded`!
+		// Swallow the event from the Context chain so grandparents are
+		// protected. BUT we explicitly hand the event to the universe so
+		// it successfully populates `u.globe.loaded`!
 		return _universe(ctx).do(ctx, op)
 	}
 	return p.Context.do(ctx, op)
@@ -9555,6 +9672,7 @@ func (p *compiler) parse(ctx Context) bool {
 			} else {
 				dirSym = __symDir(absName)
 			}
+
 			var baseSym = __symBase(absName)
 
 			if p.tok == LPAREN || p.is_end_of_line() { 
@@ -9714,16 +9832,10 @@ func (p *compiler) parse(ctx Context) bool {
 			// =================================================================
 			if implicitConfigure != nil {
 				var activeConfigure *project
-				if x, y := p.project.lookup(symDotConfigure).(*project); !y || x == nil {
-					if _, alt := p.project.projectName(ctx, symDotConfigure, implicitConfigure); alt != nil {
-						if proj, y := alt.(*project); !y || proj == nil {
-							erro(ctx, "name `%s' already taken: %s", implicitConfigure.name, typeof(alt))
-						} else {
-							activeConfigure = proj 
-						}
-					}
+				if prev := p.project.proj(implicitConfigure); prev != nil && prev != implicitConfigure {
+					erro(ctx, "%v already taken", implicitConfigure)
 				} else {
-					activeConfigure = x 
+					activeConfigure = implicitConfigure
 				}
 
 				if activeConfigure == nil { activeConfigure = implicitConfigure }
@@ -9750,20 +9862,26 @@ func (p *compiler) parse(ctx Context) bool {
 				}(prevProj, prevScope, isMainFile)
 			}
 
+			// =================================================================
 			// 9. PARSE BASES
-			if cc := (parent{ctx, p.project}); p.tok != LPAREN {
-				p.bases(closure_with(cc, p.scope), implicitBase)
-			} else {
-				cc0 := closure_with(cc, p.scope)
+			// =================================================================
+			var explicitBases []Value
+
+			cc0 := closure_with(parent{ctx, p.project}, p.scope)
+			if p.tok == LPAREN {
 				cc1 := group_ctx{aware_ctx{cc0, COMMA}}
 				for p.tok != EOF {
 					for p.next(ctx, true); !p.is_list_term(ctx); p.spaces(ctx) {
-						p.bases(cc0, symEmpty, merge(p.expr(cc1))...)
+						explicitBases = append(explicitBases, merge(p.expr(cc1))...)
 					}
 					if p.tok != COMMA { break }
 				}
 				p.expect(ctx, RPAREN)
 			}
+
+			// THE DOD FIX: ONE single call guarantees the 1-2-3 load sequence
+			// and completely prevents multiple evaluations of implicitBase!
+			p.bases(cc0, implicitBase, explicitBases...)
 
 			if p.spaces(ctx) ; p.tok != EOF { p.linend(ctx) }
 
@@ -10129,7 +10247,7 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 	if filename == symEmpty {
 		erro(pc(ctx, p),
 			_f("%v: empty filename for `%v`", p.project, spec),
-			callstack{num:10,stop:"smart.Main"})
+			callstack{num:10, stop:"smart.Main"})
 		return
 	}
 
@@ -10141,12 +10259,8 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 	}
 
 	if prev, ok := u.globe.loaded[filename]; ok {
-		if _, a := p.scope.projectName(ctx, prev.name, prev); a != nil {
-			if x, y := a.(*project); !y || x == nil {
-				erro(ctx,
-					_f("name already taken: %v (%s).", prev, typeof(a)),
-					callstack{num:5})
-			}
+		if _p := p.project.proj(prev); _p != nil && _p != prev {
+			erro(ctx, "%s already taken", prev)
 		}
 		do(ctx, declared_project{prev})
 		return
@@ -10204,29 +10318,12 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 			if d := loader.resolveDef(ctx, loaded.name); d != nil {
 				erro(pc(ctx, d.pos), _f("%v: %v: %v", loader, loaded, d))
 			}
-			if proj, _ := loader.lookup(loaded.name).(*project); proj == nil {
-				if _, alt := loader.projectName(ctx, loaded.name, loaded); alt != nil {
-					if x, y := alt.(*project); !y || x == nil {
-						erro(ctx, "`%s' already taken: %s", loaded.name, alt)
-					}
-				}
+			if prev := loader.proj(loaded); prev != nil && prev != loaded {
+				erro(ctx, "%s already taken", loaded)
 			}
 		}
 	} (time.Now(), p.project)
 
-	if false {
-		if strings.HasSuffix(filename.String(),"/configure/.base") {
-			var dps []*diag_point
-			var l, _ = u.globe.loaded[filename]
-			for k, v := range u.globe.loaded { dps = append(dps, _f("%v %v", k, v)) }
-			debug(ctx,
-				_f("%v %v %v %v", p.project, spec, filename, l), dps,
-				callstack{stop:"smart.run"})
-		} else if false {
-			debug(ctx, "%v %v", spec, filename)
-		}
-	}
-	
 	if loaded, ok = u.globe.loaded[filename]; ok {
 		do(ctx, declared_project{loaded})
 		return
@@ -11331,11 +11428,11 @@ type (
 )
 
 func promptEnteringDirectory(ctx Context, s string) *diagpoint {
-	return prompt(ctx, "smake: Entering directory '%s'\n", s)
+	return prompt(ctx, "smart: Entering directory '%s'\n", s)
 }
 
 func promptLeavingDirectory(ctx Context, s string) *diagpoint {
-	return prompt(ctx, "smake: Leaving directory '%s'\n", s)
+	return prompt(ctx, "smart: Leaving directory '%s'\n", s)
 }
 
 var rxConfigRuleHeaders  = regexp.MustCompile(`^\-headers\-`)
@@ -15819,98 +15916,142 @@ func (p *closure) resolve(ctx Context) (res []Value) {
 	return
 }
 
-func selprop(ctx Context, v Value) (res string, okay bool) {
-	switch t := v.(type) {
-	case  *loc: return selprop(ctx, t.Value)
-	case *xloc: return selprop(ctx, t.Value)
-	case *globbrace: return selprop(ctx, &t.globpat)
-	case *globpat:
-		if l := t.len()-1; 0 < l {
-			if m, y := t.elems[l].(*globmeta); y && m.token == QUE {
-				for _, e := range t.elems[:l] { res += __string(ctx, e) }
-				return res, true
-			}
-		}
-		return __string(ctx, t), false
-	default:
-		return __string(ctx, t), false
-	}
-	return
-}
-
-func selobjs(ctx Context, tok token, v Value) (res []Value) {// selobjs
+func selobjs(ctx Context, tok token, v Value) (res []Value) {
 	switch t := v.(type) {
 	case  *loc: return selobjs(ctx, tok, t.Value)
 	case *xloc: return selobjs(ctx, tok, t.Value)
-	case *def, *project, self, *use, *uselist: return []Value{t}
+	case *def, *project, self, *use, *uselist, *auto: return []Value{t} // Added *auto here!
 	case *list: for _, e := range t.elems { res = append(res, selobjs(ctx, tok, e)...) }
 	default:
-		var str, ok = selprop(ctx, t)
-		if tok == SELECT_PROP && !ok { str = ident(ctx, t) }
-		switch {
-		case truly(ctx, closure_t{}):
-			switch tok {
-			case SELECT_PROG1, SELECT_PROG2:
-				if v := closure_entry(ctx, t); v != nil { t = v }
-			case SELECT_PROP:
-				if v := closure_resolve(ctx, intern(str)); v != nil { t = v }
-			default:
-				erro(pc(ctx,t), "%v %v", t, tok)
+		var sym, ok = selprop(ctx, t)
+		if tok == SELECT_PROP && !ok { sym = __symbol(ctx, t) }
+
+		// =================================================================
+		// THE DOD FIX: Runtime Project Namespace Lookup!
+		// Check the current execution context's project mapping FIRST.
+		// This instantly resolves aliased projects (like .base or exact-names).
+		// =================================================================
+		var resolvedProj bool
+		if proj := _project(ctx); proj != nil && proj.projs != nil {
+			if pr, exists := proj.projs[sym]; exists && pr != nil {
+				t = pr
+				resolvedProj = true
 			}
-		case truly(ctx, delegate_t{}):
-			switch tok {
-			case SELECT_PROG1, SELECT_PROG2:
-				if v := project_entry(ctx, t); v != nil { t = v }
-			case SELECT_PROP:
-				if v := project_resolve(ctx, intern(str)); v != nil { t = v }
-			default:
-				erro(pc(ctx,t), "%v %v", t, tok)
-			}
-		default:
-			erro(pc(ctx,t), "%v %v", t, tok, unwind{})
 		}
+
+		// =================================================================
+		// Runtime Variable Resolution (Fallback)
+		// If it wasn't a mapped project, execute standard variable lookup.
+		// This is where `$_` is perfectly resolved because the loop is running!
+		// =================================================================
+		if !resolvedProj {
+			switch {
+			case truly(ctx, closure_t{}):
+				switch tok {
+				case SELECT_PROG1, SELECT_PROG2:
+					if v := closure_entry(ctx, t); v != nil { t = v }
+				case SELECT_PROP:
+					if v := closure_resolve(ctx, sym); v != nil { t = v }
+				default:
+					erro(pc(ctx,t), "%v %v", t, tok)
+				}
+			case truly(ctx, delegate_t{}):
+				switch tok {
+				case SELECT_PROG1, SELECT_PROG2:
+					if v := project_entry(ctx, t); v != nil { t = v }
+				case SELECT_PROP:
+					if v := project_resolve(ctx, sym); v != nil { t = v }
+				default:
+					erro(pc(ctx,t), "%v %v", t, tok)
+				}
+			default:
+				erro(pc(ctx,t), "%v %v", t, tok, unwind{})
+			}
+		}
+		
 		res = append(res, t)
 	}
 	return
 }
 
-func sel(ctx Context, v any, s string) (res Value) {
+func selprop(ctx Context, v Value) (res Symbol, okay bool) {
+	switch t := v.(type) {
+	case  *loc: return selprop(ctx, t.Value)
+	case *xloc: return selprop(ctx, t.Value)
+	case *globbrace: return selprop(ctx, &t.globpat)
+	case *globpat:
+		if l := t.len() - 1; 0 < l {
+			if m, y := t.elems[l].(*globmeta); y && m.token == QUE {
+				// FAST PATH: Single element before the '?'
+				if l == 1 { return __symbol(ctx, t.elems[0]), true }
+
+				// Composite elements (e.g. string concatenation before ?)
+				var syms []Symbol
+				for _, e := range t.elems[:l] { syms = append(syms, __symbol(ctx, e)) }
+				return __symJoin(syms...), true
+			}
+		}
+		return __symbol(ctx, t), false
+	default:
+		// Base case for all other AST nodes (e.g. pure words)
+		return __symbol(ctx, t), false
+	}
+}
+
+func sel(ctx Context, v any, s Symbol) (res Value) {
 	var g *globpat
 	switch t := v.(type) {
+	case nil, *auto, *null, *valbase: return nil // absorb logical nil
+	case *globbrace: g = &t.globpat
+	case *globpat  : g = t
 	case *word: return
 	case  *loc: return sel(ctx, t.Value, s)
 	case *xloc: return sel(ctx, t.Value, s)
-	case  *def: return sel(ctx, t.value, s)
 	case *list: return sel(ctx, t.elems, s)
-	case  self: return sel(ctx, t.project, s)
-	case *project: return t.resolve(ctx, intern(s))
-	case *globbrace: g = &t.globpat
-	case *globpat: g = t
-	case []Value:
-		var vals []Value
-		for _, t := range t { vals = append(vals, sel(ctx, t, s)) }
-		return ease(ctx, vals)
+	case *project: return t.resolve(ctx, s)
+	case self: 
+		if o := t.resolve(ctx, s); o != nil { return &loc{o, t.pos} }
+		return nil // Gracefully pass nil back to the safe-navigation logic!
+	case *def:
+		if t.value == nil { return nil }
+		return sel(ctx, t.value, s)
 	case *uselist:
-		var vals []Value
-		if m, x := name_prefix.FindStringSubmatch(s), "use."; m != nil {
-			s = m[1]+x+m[3] // prefix, name = m[1], m[3]
+		// =================================================================
+		// PURE SYMBOL DOMAIN: Inject "use" namespace without string allocations!
+		// =================================================================
+		var symUse Symbol
+		if ss := __symSplit(s, symDot); len(ss) > 1 {
+			// e.g. "lib.name" -> "lib.use.name"
+			var parts = append([]Symbol{}, ss[:len(ss)-1]...)
+			parts = append(parts, intern("use"), ss[len(ss)-1])
+			symUse = __symJoinBy(symDot, parts...)
 		} else {
-			s = x+s
+			// e.g. "name" -> "use.name"
+			symUse = __symJoin(intern("use."), s)
 		}
-		var sym = intern(s)
+
+		var vals []Value
 		for _, u := range t.list {
 			if !u.opts.noVars {
-				if o := u.project.lookup(sym); o != nil {
+				// 1. Check strict exported namespace
+				if o := u.project.lookup(symUse); o != nil {
+					vals = append(vals, o)
+				// 2. Check local fallback namespace
+				} else if o := u.project.lookup(s); o != nil {
 					vals = append(vals, o)
 				}
 			}
 		}
 		return ease(ctx, vals)
+	case []Value:
+		var vals []Value
+		for _, t := range t { vals = append(vals, sel(ctx, t, s)) }
+		return ease(ctx, vals)
 	default:
 		erro(pc(ctx,v), "cannot sel: %v %v", ts(t,ctx), s)
 	}
-	if false && g != nil { debug(pc(ctx,v), "%s: %v→%s", typeof(v), v, s) }
-    return
+	if false && g != nil { debug(pc(ctx,v), "%s: %v→%v", typeof(v), v, s) }
+	return
 }
 
 // Bubble: Sent by an unbound *auto to request deferral
@@ -16105,35 +16246,42 @@ func expand(ctx Context, v Value) (res Value) {
 	case *arrow:
 		var vals []Value
 		var p0 = t.Pos()
+		var _, lhs_is_opt = selprop(ctx, t.o) // THE DOD FIX: Capture LHS optionality BEFORE expansion overwrites it!
 		var os = selobjs(ctx, t.t, expand(ctx, t.o))
 		var ss = merge(expand(ctx, t.s))
 		for _, o := range os {
 			for _, s := range ss {
 				var p = s.Pos()
-				var prop_str, is_opt = selprop(ctx, s)
-				var prop = sel(ctx, o, prop_str)
+				var prop_sym, is_opt = selprop(ctx, s)
+				var prop = sel(ctx, o, prop_sym)
 				switch res := prop.(type) {
 				case nil:
 					// If the property is missing but marked as optional,
 					// preserve the AST node and safely bubble the deferral!
-					if is_opt || optional(s) || optional(o) {
-						if truly(ctx, keep_autos{}) { do(ctx, act_defer_macro{}) }
+					if is_opt || lhs_is_opt || optional(s) || optional(o) {
+						if truly(ctx, keep_autos{}) { 
+							do(ctx, act_defer_macro{}) 
 
-						// Unwrap 'o' ONLY for AST reconstruction to prevent leaking `*def`
-						// assignment metadata into the frozen arrow syntax.
-						var actual_o = o
-						for {
-							if l, ok := actual_o.(*loc); ok { actual_o = l.Value; continue }
-							if d, ok := actual_o.(*def); ok {
-								if d.value != nil { actual_o = d.value } else { actual_o = _null(d.Pos()) }
-								continue
+							// Unwrap 'o' ONLY for AST reconstruction to prevent leaking `*def`
+							var actual_o = o
+							for {
+								if l, ok := actual_o.(*loc); ok { actual_o = l.Value; continue }
+								if d, ok := actual_o.(*def); ok {
+									if d.value != nil { actual_o = d.value; continue }
+									// THE DOD FIX: Preserve unbound *def so the next pass can resolve it!
+								}
+								break
 							}
-							break
+							// Preserve the perfectly frozen arrow AST
+							vals = append(vals, &arrow{t.valbase, t.t, actual_o, s})
+						} else {
+							// Normal execution: Silently yield null! (No AST leakage)
+							vals = append(vals, _loc(_null(p), p0))
 						}
-
-						// Return the perfectly preserved arrow (e.g. {self foo} -> xxxx?)
-						vals = append(vals, &arrow{t.valbase, t.t, actual_o, s})
 					} else {
+						// STRICT MODE: No '?' present. It is a hard error!
+						erro(ctx, "property '%s' not found", prop_sym, callstack{num:16})
+
 						vals = append(vals, _loc(_null(p), p0))
 					}
 				default:
@@ -20982,7 +21130,7 @@ func (d *def) set(ctx Context, value Value, app ...Value) {
 		if d.name == symName && d.value == nil && value != nil && value.String() != "{self foo}" {
 			if p := d.owner(); p != nil && p.name == intern("foo") {
 				if strings.HasSuffix(p.absPath.String(), "/testdata/value/optional/foo") {
-					debug(pc(pc(ctx,value),d.pos), "%v %v", d.name, value,
+					debug(pc(pc(ctx,d.pos),value), "%v %v", d.name, ts(value,ctx),
 						callstack{num:20}, trace_ctx{3}, unwind{})
 				}
 			}
@@ -22457,6 +22605,7 @@ type project struct { // A project is a Logical DAG.
 	pos Pos
 
 	bases []*project
+	projs map[Symbol]*project
 
 	use *uselist
 
@@ -22516,8 +22665,9 @@ func (c project_ctx) do(ctx Context, op any) any {
 	return c.Context.do(ctx, op)
 }
 
-type self struct { *project }
+type self struct { *project ; pos Pos }
 func (p self) kind() Kind { return p.project.kind()|KindSelf }
+func (p self) Pos() Pos { return p.pos }
 func (p self) String() string {
 	if p.project == nil { return "{self <nil>}" }
 	return "{self "+p.name.String()+"}"
@@ -22528,6 +22678,14 @@ func (p *project) Pos() Pos { return p.pos }
 func (p *project) owner() *project { return p.scope.project }
 func (p *project) String() string { return "{project "+p.name.String()+"}" }
 func (p *project) stencil(_ Context, stems []string) (Value, []string) { return p, stems }
+
+func (p *project) proj(proj *project) (previous *project) {
+	if p.projs == nil { p.projs = make(map[Symbol]*project) } else {
+		previous, _ = p.projs[proj.name]
+	}
+	p.projs[proj.name] = proj
+	return
+}
 
 // Helper to deduplicate exports during parsing
 func (p *project) addExport(sym Symbol) {
@@ -25562,18 +25720,24 @@ func (u *universe) do(ctx Context, op any) (res any) {
 		// If we don't cache them, `use1` will think they failed to load.
 		if p, ok := u.globe.loaded[t.absPath]; !ok {
 			if false { debug(ctx, "%v %v", t.absPath, t.project) }
+
+			// Cache in the map for fast lookups
 			u.globe.loaded[t.absPath] = t.project
+
+			// Append to the list to lock in the strict load order
+			u.globe.loadedProjs = append(u.globe.loadedProjs, t.project)
+
 		} else if p != t.project { // Properly cycled "use"
-			dp := _f("re-declared project: %v → %v", p.name, t.name)
+			dps := []*diag_point{_f("re-declared project: %v → %v", p.name, t.name)}
+			dps = append(dps, _fLoadedProjs(u, ". %[3]s")...)
 			if false {
-				erro(pc(ctx,p.pos), dp, trace_ctx{100}, callstack{stop:"smart.Main"})
+				erro(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{stop:"smart.Main"})
 			} else {
-				info(pc(ctx,p.pos), dp, trace_ctx{100}, callstack{num:5})
+				info(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{num:5})
 			}
 		}
 
 		// RULE 2: ONLY the entry-point gets to be 'main'!
-		// The Host project ruthlessley claims the crown because its absPath == workdir.
 		if t.absPath == u.workdir {
 			var properName = t.name
 			for s := t.scope; s != nil && s != u.globe.scope && s.project != nil; s = s.outer {
@@ -26094,7 +26258,10 @@ type globe struct {
     *scope
 
     main *project
-    loaded map[Symbol]*project // full pathname -> project
+
+	// The Dual-Structure Pattern for Determinism
+	loaded map[Symbol]*project // Fast O(1) lookup: full pathname -> project
+	loadedProjs []*project // Strict presentation order for deterministic iteration
 
     args map[Value][]Value
     flagEntries map[Symbol][]entry
@@ -31582,7 +31749,7 @@ func (ctx *__usee) x() (res any) {
 
     var vals []Value
     for _, a := range ctx.a {
-        v := sel(ctx, proj.use, __string(ctx, a))
+        v := sel(ctx, proj.use, __symbol(ctx, a))
         if v != nil { vals = append(vals, v.(Value)) }
     }
     if vals == nil { res = vals }
