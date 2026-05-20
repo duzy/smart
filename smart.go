@@ -1287,8 +1287,26 @@ const (
 	fnvPrime  = 1099511628211
 )
 
-// mix64 breaks a uint64 into bytes and perfectly folds it into the FNV-1a avalanche
-func mix64(h uint64, v uint64) uint64 {
+// mixBytes continuous FNV-1a fold
+func mixBytes(h uint64, b []byte) uint64 {
+	for _, v := range b {
+		h ^= uint64(v)
+		h *= fnvPrime
+	}
+	return h
+}
+
+// mixString continuous FNV-1a fold (Bypasses UTF-8 decode overhead!)
+func mixString(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h ^= uint64(s[i])
+		h *= fnvPrime
+	}
+	return h
+}
+
+// mixUint64 folds a 64-bit integer strictly byte-by-byte
+func mixUint64(h uint64, v uint64) uint64 {
 	h = (h ^ (v & 0xFF)) * fnvPrime
 	h = (h ^ ((v >> 8) & 0xFF)) * fnvPrime
 	h = (h ^ ((v >> 16) & 0xFF)) * fnvPrime
@@ -1300,73 +1318,54 @@ func mix64(h uint64, v uint64) uint64 {
 	return h
 }
 
-// mixStr folds a string directly into the FNV-1a avalanche without []byte casting
-func mixStr(h uint64, s string) uint64 {
-	for i := 0; i < len(s); i++ {
-		h = (h ^ uint64(s[i])) * fnvPrime
-	}
-	return h
-}
-
-// mixAny delegates the type extraction for the hash stream
-func mixAny(ctx Context, h uint64, v any) uint64 {
-	switch t := v.(type) {
-	case Kind:     return mix64(h, uint64(t))
-	case token:    return mix64(h, uint64(t))
-	case int64:    return mix64(h, uint64(t))
-	case uint64:   return mix64(h, t)
-	case string:   return mixStr(h, t)
-	case []string:
-		for _, s := range t { h = mixStr(h, s) }
-		return h
-	case *list:
-		// THE DOD FIX: Fold the child hashes directly into the running stream!
-		// No early return. `hashVal` safely routes the AST node correctly.
-		for _, elem := range t.elems {
-			h = mix64(h, hashVal(ctx, elem)) 
-		}
-		return h
-	case Value:
-		if t != nil {
-			if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
-				return mix64(h, uint64(__int(ctx, t)))
-			}
-			return mixStr(h, __string(ctx, t))
-		}
-		return h
-	case []Value:
-		for _, val := range t {
-			if val.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
-				h = mix64(h, uint64(__int(ctx, val)))
-			} else {
-				h = mixStr(h, __string(ctx, val))
-			}
-		}
-		return h
-	default:
-		erro(ctx, "fnv1: unsupported type : %s", ts(v))
-		return h
-	}
-}
-
 func fnv1(ctx Context, t any, a ...any) uint64 {
 	h := uint64(fnvOffset)
 
-	// 1. Hash the primary type/identity
+	// 1. Hash the primary identity
 	if t != nil {
 		switch x := t.(type) {
 		case interface{ kind() Kind }:
-			h = mix64(h, uint64(x.kind()))
+			h = mixUint64(h, uint64(x.kind()))
 		case Kind:
-			h = mix64(h, uint64(x))
+			h = mixUint64(h, uint64(x))
 		default:
-			h = mixStr(h, typeof(x))
+			h = mixString(h, typeof(x))
 		}
 	}
 
 	// 2. Stream variadic components into the hash
 	for _, v := range a {
-		h = mixAny(ctx, h, v)
+		switch tv := v.(type) {
+		case Kind:     h = mixUint64(h, uint64(tv))
+		case token:    h = mixUint64(h, uint64(tv))
+		case int64:    h = mixUint64(h, uint64(tv))
+		case uint64:   h = mixUint64(h, tv)
+		case string:   h = mixString(h, tv)
+		case []string:
+			for _, s := range tv { h = mixString(h, s) }
+		case *list:
+			for _, elem := range tv.elems {
+				h = mixUint64(h, hashVal(ctx, elem))
+			}
+		case []Value: // Catch raw unpack() arrays perfectly
+			for _, val := range tv {
+				if val.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
+					h = mixUint64(h, uint64(__int(ctx, val)))
+				} else {
+					h = mixString(h, __string(ctx, val))
+				}
+			}
+		case Value:
+			if tv != nil {
+				if tv.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
+					h = mixUint64(h, uint64(__int(ctx, tv)))
+				} else {
+					h = mixString(h, __string(ctx, tv))
+				}
+			}
+		default:
+			erro(ctx, "fnv1: unsupported type : %s", ts(v))
+		}
 	}
 	
 	return h
@@ -1375,9 +1374,9 @@ func fnv1(ctx Context, t any, a ...any) uint64 {
 // hashSeq uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
 func hashSeq(seq []Symbol) uint64 {
-	var h uint64 = fnvOffset
+	h := uint64(fnvOffset)
 	for _, s := range seq {
-		h ^= uint64(s)
+		h ^= uint64(s) // Fast-block XOR for your specific Symbol type
 		h *= fnvPrime
 	}
 	return h
@@ -1385,25 +1384,11 @@ func hashSeq(seq []Symbol) uint64 {
 
 // hashStr uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
-func hashStr(str string) uint64 {
-	var h uint64 = fnvOffset
-	for _, s := range str {
-		h ^= uint64(s)
-		h *= fnvPrime
-	}
-	return h
-}
+func hashStr(str string) uint64 { return mixString(fnvOffset, str) }
 
 // hashBytes uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
-func hashBytes(bts []byte) uint64 {
-	var h uint64 = fnvOffset
-	for _, s := range bts {
-		h ^= uint64(s)
-		h *= fnvPrime
-	}
-	return h
-}
+func hashBytes(bts []byte) uint64 { return mixBytes(fnvOffset, bts) }
 
 // symEqualsStringLocked resolves hash collisions perfectly with zero allocations for strings.
 func symEqualsStringLocked(sym Symbol, s string) bool {
