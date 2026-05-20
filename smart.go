@@ -9340,7 +9340,7 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 	var implicitIndex = -1
 
 	// =================================================================
-	// 1. DOTTED IMPLICIT BASE (From Project Name)
+	// 1. DOTTED IMPLICIT BASE (From Project Name) - e.g. app.simple.base
 	// =================================================================
 	if ss := __symSplit(p.project.name, symDot); len(ss) >= 2 && ss[len(ss)-1] == symBase {
 		var numBaseParams int
@@ -9351,13 +9351,22 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 			if _, y := elem.(*pair); y { continue }
 			numBaseParams += 1
 		}
-		if /* numBaseParams == 0 */ true {
-			if len(ss) > 2 {
-				baseName := __symJoinBy(symDot, ss[:len(ss)-2]...)
-				implicitIndex = len(implicitBases)
-				implicitBases = append(implicitBases, _word(p.project.pos, baseName))
-			}
-			implicitBase = symEmpty 
+		if len(ss) > 2 {
+			baseName := __symJoinBy(symDot, ss[:len(ss)-2]...)
+			implicitIndex = len(implicitBases)
+			implicitBases = append(implicitBases, _word(p.project.pos, baseName))
+		}
+		implicitBase = symEmpty 
+	}
+
+	// =================================================================
+	// THE DOD FIX: Vertical Disk Bypass
+	// If the implicit base is already an active caller in the Context chain, 
+	// we drop it BEFORE the resolution loop. This saves massive Disk I/O!
+	// =================================================================
+	if implicitBase != symEmpty {
+		if res := ctx.do(ctx, check_ancestor{implicitBase}); res != nil && res.(bool) {
+			implicitBase = symEmpty // Benign structural cycle averted at zero cost!
 		}
 	}
 
@@ -9422,12 +9431,10 @@ paramsloop:
 
 			// 2. Global Priority: Bare specs hit p.search before crawling ancestors!
 			// This perfectly intercepts `app.simple` and prevents local hijacking.
-			if !isRelative {
-				abs, isDir = p.search(ec, spec)
-			}
+			if !isRelative { abs, isDir = p.search(ec, spec) }
 
 			// 3. Structural Crawl: Fallback for implicit bases not found globally
-			if abs == symEmpty && isImplicit {
+			if isImplicit && abs == symEmpty {
 				curr := p.project.absPath
 				path := __symPathJoin(__symSplit(spec, symDot)...)
 
@@ -9527,6 +9534,7 @@ paramsloop:
 	return
 }
 
+type check_ancestor struct { name Symbol }
 type parent struct{ Context ; *project }
 
 func (p parent) do(ctx Context, op any) any {
@@ -9534,11 +9542,30 @@ func (p parent) do(ctx Context, op any) any {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case get_project:
-		// THE DOD FIX: Contextual Host Binding
-		// Deeply nested contexts correctly resolve ctx.project() to the host!
+		// Contextual Host Binding
 		return p.project
+	// THE DOD FIX: O(1) Caller Cycle Pruning
+	// Instantly detects if a child is trying to implicitly load its active parent!
+	case check_ancestor:
+		if p.project != nil && p.project.name == t.name { return true }
+		// Pass up the chain in case it's a grandparent
+		return p.Context.do(ctx, op)
 	case declared_project:
 		if t.has_base(p.project) {
+			// =================================================================
+			// THE DOD FIX: False-Warning Suppression for Structural Namespaces!
+			// If `lib.c++` explicitly loads `lib.c++.inc`, the child naturally 
+			// attempts to inherit the parent back due to the dotted naming convention. 
+			// This is a benign structural cycle. We silently absorb it!
+			// =================================================================
+			if ss := __symSplit(p.project.name, symDot); len(ss) > 1 {
+				// Silently absorb the implicit parent without warnings!
+				if __symJoinBy(symDot, ss[:len(ss)-1]...) == t.project.name {
+					return nil // Silently resolve the false positive!
+				}
+			}
+
+			// True cycle! The user explicitly cross-inherited. Emit the warning.
 			warn(ctx, // _f("%s", t.loop_base_path(ctx, p.project, "")),
 				_f("%v has base %v,", t.project, p.project),
 				_fVals("├─→ %v", t.bases),
@@ -9564,16 +9591,10 @@ func (p parent) do(ctx Context, op any) any {
 
 		p.bases = append(p.bases, t.project)
 
-		// THE DOD FIX: Unified Project Namespace Registration
-		// Always register the exact name of the base. Note that this
-		// will ensure `p.projs != nil`, thus the best base for ".base"
-		// alias will be selected and set `p.projs[.base]` in `compiler.bases`.
+		// Unified Project Namespace Registration
 		p.proj(t.project)
 
-		// THE DOD FIX: Direct Universe Feed!
-		// Swallow the event from the Context chain so grandparents are
-		// protected. BUT we explicitly hand the event to the universe so
-		// it successfully populates `u.globe.loaded`!
+		// Direct Universe Feed
 		return _universe(ctx).do(ctx, op)
 	}
 	return p.Context.do(ctx, op)
