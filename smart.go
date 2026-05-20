@@ -23,12 +23,14 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	// "hash/fnv" // "hash/maphash"
+	// "hash/maphash"
+	// "hash/fnv"
     "hash/crc64"
     hashpkg "hash"
 	"io/fs"
 	"math"
 	neturl "net/url"
+	"net/http"
 	"path/filepath"
     "plugin"
 	"reflect"
@@ -49,7 +51,6 @@ import (
 	"os"
 	"io"
 	"io/ioutil"
-	"net/http"
 )
 
 type hashbytes [sha256.Size]byte
@@ -72,6 +73,9 @@ const (
 
 	pathSepByte = filepath.Separator // os.PathSeparator
 	pathSep = string(pathSepByte)
+
+	fnvOffset = 14695981039346656037
+	fnvPrime  = 1099511628211
 
 	// Threshold for preferring for-loop-array then using a map-lookup.
 	mapThreshold = 16
@@ -1282,11 +1286,6 @@ func getSymSeq(sym Symbol) (seq []Symbol) {
 	return
 }
 
-const (
-	fnvOffset = 14695981039346656037
-	fnvPrime  = 1099511628211
-)
-
 // mixBytes continuous FNV-1a fold
 func mixBytes(h uint64, b []byte) uint64 {
 	for _, v := range b {
@@ -1317,6 +1316,26 @@ func mixUint64(h uint64, v uint64) uint64 {
 	h = (h ^ ((v >> 56) & 0xFF)) * fnvPrime
 	return h
 }
+
+
+// hashSeq uses the FNV-1a 64-bit algorithm. It is incredibly fast and
+// has exceptional distribution for short integer arrays.
+func hashSeq(seq []Symbol) uint64 {
+	h := uint64(fnvOffset)
+	for _, s := range seq {
+		h ^= uint64(s) // Fast-block XOR for your specific Symbol type
+		h *= fnvPrime
+	}
+	return h
+}
+
+// hashStr uses the FNV-1a 64-bit algorithm. It is incredibly fast and
+// has exceptional distribution for short integer arrays.
+func hashStr(str string) uint64 { return mixString(fnvOffset, str) }
+
+// hashBytes uses the FNV-1a 64-bit algorithm. It is incredibly fast and
+// has exceptional distribution for short integer arrays.
+func hashBytes(bts []byte) uint64 { return mixBytes(fnvOffset, bts) }
 
 func fnv1(ctx Context, t any, a ...any) uint64 {
 	h := uint64(fnvOffset)
@@ -1370,25 +1389,6 @@ func fnv1(ctx Context, t any, a ...any) uint64 {
 	
 	return h
 }
-
-// hashSeq uses the FNV-1a 64-bit algorithm. It is incredibly fast and
-// has exceptional distribution for short integer arrays.
-func hashSeq(seq []Symbol) uint64 {
-	h := uint64(fnvOffset)
-	for _, s := range seq {
-		h ^= uint64(s) // Fast-block XOR for your specific Symbol type
-		h *= fnvPrime
-	}
-	return h
-}
-
-// hashStr uses the FNV-1a 64-bit algorithm. It is incredibly fast and
-// has exceptional distribution for short integer arrays.
-func hashStr(str string) uint64 { return mixString(fnvOffset, str) }
-
-// hashBytes uses the FNV-1a 64-bit algorithm. It is incredibly fast and
-// has exceptional distribution for short integer arrays.
-func hashBytes(bts []byte) uint64 { return mixBytes(fnvOffset, bts) }
 
 // symEqualsStringLocked resolves hash collisions perfectly with zero allocations for strings.
 func symEqualsStringLocked(sym Symbol, s string) bool {
@@ -2682,10 +2682,10 @@ func _fVals(f string, a any) []*diag_point {
 	return dps
 }
 
-func _fLoadedProjs(u *universe, f string) []*diag_point {
+func _fLoadedProjs(u *universe, t diagtype, f string) []*diag_point {
 	var dps []*diag_point
 	for _, p := range u.globe.loadedProjs {
-		dps = append(dps, _f(f, p.name, p.spec, p.absPath))
+		dps = append(dps, _ft(t, f, p.name, p.spec, p.absPath))
 	}
 	return dps
 }
@@ -4770,7 +4770,8 @@ func (p *compiler) do(ctx Context, op any) any {
 		var s, _ = p.term.do(ctx, op).([]*scope)
 		return append(s, p.project.scope)
 	case check_compile_cycle:
-		// THE DOD FIX: Intercept the cycle query!
+		// THE DOD FIX: Intercept the cycle ping!
+		// If a `use` chain loops back into this host project, catch it!
 		if p.project != nil && p.project.absPath == t.absPath {
 			return true 
 		}
@@ -6987,6 +6988,13 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 	case object:
 		return x, __symbol(ctx, x), opts
 
+	case *arrow:
+		// THE DOD FIX: Fully Retain Runtime AST Nodes!
+		// Since `*arrow` was moved to runtime evaluation, `p.resolve` naturally fails 
+		// because it's an expression, not a static symbol. We must return it as the `obj`
+		// so `calling` wraps it in a delegate for later expansion at runtime!
+		return x, symEmpty, opts
+
 	case *argumented:
 		obj, sym, opts = p.identity(ctx, tok, x.Value, isClosure)
 		opts = append(opts, merge(x.args...)...)
@@ -7035,6 +7043,7 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 		_f("undefined %v", sym),
 		_f("→ %v, name=%s tok=%v", obj, ts(name,ctx), tok),
 		_f("project %v, bases=%v", p.project.name, p.project.bases),
+		_fMapKeys(". %v", p.project.projs),
 		trace_ctx{100}, callstack{num:10})
 
 	return
@@ -8783,8 +8792,21 @@ func (c *use_project_ctx) do(ctx Context, op any) any {
 		// THE DOD FIX: Target-Aware Capture!
 		// Nested dependencies (like `llvm/c` or `configure`) fire their own events.
 		// If we don't filter by target, the deepest dependency overwrites the capture!
-		if t.absPath == c.target { *c.loaded = t.project }
+		if t.project != nil && t.absPath == c.target { *c.loaded = t.project }
+		if false { debug(ctx, "%v", t.project.name, trace_ctx{100}, callstack{num:100}) }
 		return _universe(ctx).do(ctx, op) // Swallow to protect parent.do
+		
+	case absolute_path:
+		// THE DOD FIX: Prevent Path Stealing!
+		// Intercept the query so the dependency gets its true absolute path
+		// instead of bubbling up and stealing the host's path!
+		return c.target
+		
+	case check_compile_cycle:
+		// THE DOD FIX: Cycle Awareness
+		// If a deeper `use` chain loops back to this exact target, catch it!
+		if c.target == t.absPath { return true }
+		// Otherwise, let it bubble up to check older nodes in the chain
 	}
 	return c.Context.do(ctx, op)
 }
@@ -8915,7 +8937,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		if loaded == nil {
 			erro(ctx,
 				_f("%s not loaded (%s)", spec, absPath),
-				_fLoadedProjs(u, ". %[3]s"), //_fMapKeys(". %v", u.globe.loaded),
+				_fLoadedProjs(u, diagPrompt, "loaded-project: %[3]s → %[1]s"),
 				trace_ctx{100}, callstack{num:10,/* stop:"smart.Main" */})
 			return nil 
 		}
@@ -9123,7 +9145,7 @@ func (p *compiler) clause(ctx Context) {
 	case       FOR: p.for_done(ctx)    ; return
 	case   FOREACH: p.foreach_done(ctx); return
 	case USE, TEMPLATE:
-		erro(ctx, "unexpected %v", t, unwind{})
+		erro(pc(ctx,p), "unexpected %v", t, unwind{})
 	}
 
 	var vals []Value
@@ -9609,9 +9631,15 @@ func (p parent) do(ctx Context, op any) any {
 	case get_project:
 		// Contextual Host Binding
 		return p.project
-	// THE DOD FIX: O(1) Caller Cycle Pruning
-	// Instantly detects if a child is trying to implicitly load its active parent!
+	case check_compile_cycle:
+		// THE DOD FIX: Intercept the cycle ping!
+		// If a `use` chain loops back into this host project, catch it!
+		if p.project != nil && p.absPath == t.absPath { return true }
+		// Bubble up if it's not us
+		return p.Context.do(ctx, op)
 	case is_ancestor:
+		// THE DOD FIX: O(1) Caller Cycle Pruning
+		// Instantly detects if a child is trying to implicitly load its active parent!
 		if p.project != nil && p.project.name == t.name { return true }
 		// Pass up the chain in case it's a grandparent
 		return p.Context.do(ctx, op)
@@ -9683,6 +9711,10 @@ func (cc *configure_project_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return cc.Context
 	case dynamic_cast: return t.ctx(cc, cc.Context)
+	case check_compile_cycle:
+		// THE DOD FIX: Shield metaclasses from cycles!
+		if cc.absPath == t.absPath { return true }
+		return cc.Context.do(ctx, op)
 	case absolute_path:
 		// Hermetic Path Barrier
 		if cc.declared == nil { return cc.absPath }
@@ -16324,7 +16356,8 @@ func expand(ctx Context, v Value) (res Value) {
 						}
 					} else {
 						// STRICT MODE: No '?' present. It is a hard error!
-						erro(ctx, "property '%s' not found", prop_sym, callstack{num:16})
+						erro(pc(ctx,p), "%v: no such property '%s'", o, prop_sym,
+							trace_ctx{100}, callstack{num:12})
 
 						vals = append(vals, _loc(_null(p), p0))
 					}
@@ -19863,11 +19896,12 @@ func traverse(ctx Context, val Value) {
 		// NOTE: Make a clone of the underlying rule for traversing the real target;
 		//       the underlying rule target is readonly, it must not be changed, for
 		//       next traversal be done correctly.
-		var t = *p.rule // TODO: consider not copying the rule, use pointer instead
+		// TODO: Consider not cloning the rule, use pointer instead!
+		var t = *p.rule
 		t.target = p.target
 		traverse(&stemmed_ctx{ctx, p}, &t)
 	case *rule:
-		// CRITICAL FIX: Use the native symAt constant instead of symAt!
+		// Use the native symAt constant instead of symAt!
 		var target = auto_get(ctx, symAt)
 
 		if target == nil {
@@ -25012,6 +25046,7 @@ func (t too_many_erros) Error() string { return fmt.Sprintf("too many errors (%d
 func (t trace_evoke_loop_err) Error() string { return "evoke loop: " + ts(t.Value) }
 func (t trace_errors) Error() string { return fmt.Sprintf("trace, %d errors, %v", t.int, ts(t.Context)) }
 
+const diagnostic_count_bytes = false // counting bytes versus lines
 const diagnostic_limit = 256
 var   diagnostic_limit_erros = 520
 var   diagnostic_limit_bytes = 10_000
@@ -25088,25 +25123,21 @@ func (d *diagnostic) add(ctx Context, p *diagpoint) *diagpoint {
 }
 
 func (d *diagnostic) flush(ctx Context) (errs int) {
-    const count_bytes = false
-
 	// defer func() { if d.erros += errs ; errs > 0 { do(ctx, on_errors{errs}) }} ()
 
 	print := func(p *diagpoint, pend bool) (_ bool) {
-		defer func() {
-			if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
-				if false { d.erros = 0 } // reset to avoid causing next panics
-				panic(too_many_erros{y})
-			}
-			if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y && false {
-				if false { d.flushed = 0 } // reset to avoid causing next panics
-				panic(too_many_diags{y})
-			}
-		} ()
+		if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
+			if false { d.erros = 0 } // reset to avoid causing next panics
+			panic(too_many_erros{y})
+		}
+		if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y && false {
+			if false { d.flushed = 0 } // reset to avoid causing next panics
+			panic(too_many_diags{y})
+		}
 
         pos, msg := p.position.String(), p.message
 
-        if count_bytes {
+        if diagnostic_count_bytes {
             d.flushed += len(pos) + len(msg)
         } else {
             d.flushed += 1
@@ -25130,7 +25161,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
         if p.stack != nil {
             fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
-            if count_bytes {
+            if diagnostic_count_bytes {
                 d.flushed += len(p.stack)
             } else {
                 d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
@@ -25168,7 +25199,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 	var cs_i, cs_j int = 5, 0
 	var cs callstack
 	var dt diagtype
-	var dias []*diag_point
+	var dps []*diag_point
 	var args []any
 
 	for _, a := range a {
@@ -25186,26 +25217,22 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			if 0 != t.frames { cs.frames = t.frames }
 			if "" != t.stop  { cs.stop = t.stop }
 		case []*diag_point:
-			dias = append(dias, t...)
+			dps = append(dps, t...)
 		case *diag_point:
-			dias = append(dias, t)
+			dps = append(dps, t)
 		default:
 			args = append(args, t)
 		}
 	}
 
 	var p *diagpoint
-	var s string
+	var ps string // position prefix
 
 	// CRITICAL FIX: The engine's internal logger automatically prepends the position
 	// for Info, Warn, and Error. We must leave 's' empty to avoid double prefixes!
 	// We only auto-prepend for direct calls to debug() where no 'dt' is specified.
-	if dt == 0 && !noCS {
-		s = _position(ctx).String() + ": "
-	}
-	if dt == 0 {
-		dt = diagPrompt
-	}
+	if dt == 0 && !noCS { ps = _position(ctx).String() + ": " }
+	if dt == 0 { dt = diagPrompt }
 
 	// 1. Process the primary format message
 	switch t := f.(type) {
@@ -25213,34 +25240,34 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		if t.f != "" {
 			nl := "\n"
 			if noCS { nl = "" } // Bypass newline for bare prompts
-			p, _ = do(ctx, diag_point{dt, s+t.f+nl, t.a}).(*diagpoint)
+			p, _ = do(ctx, diag_point{dt, ps+t.f+nl, t.a}).(*diagpoint)
 		}
 	case []*diag_point:
 		for _, t := range t {
 			nl := "\n"
 			if noCS { nl = "" } // Bypass newline for bare prompts
-			p, _ = do(ctx, diag_point{dt, s+t.f+nl, t.a}).(*diagpoint)
+			p, _ = do(ctx, diag_point{dt, ps+t.f+nl, t.a}).(*diagpoint)
 		}
 	case string:
 		if noCS {
-			// CRITICAL FIX: Pass the raw string exactly as-is for bare prompts
-			p, _ = do(ctx, diag_point{dt, s+t, args}).(*diagpoint)
+			// Pass the raw string exactly as-is for bare prompts
+			p, _ = do(ctx, diag_point{dt, ps+t, args}).(*diagpoint)
 		} else {
 			for _, t := range strings.Split(t, "\n") {
 				if t == "" { continue }
-				p, _ = do(ctx, diag_point{dt, s+t+"\n", args}).(*diagpoint)
+				p, _ = do(ctx, diag_point{dt, ps+t+"\n", args}).(*diagpoint)
 			}
 		}
 	default:
 		nl := "\n"
 		if noCS { nl = "" } // Bypass newline for bare prompts
-		p, _ = do(ctx, diag_point{dt, s+typeof(t)+": %v"+nl, args}).(*diagpoint)
+		p, _ = do(ctx, diag_point{dt, ps+typeof(t)+": %v"+nl, args}).(*diagpoint)
 	}
 
 	// 2. THE DOD FIX: Process additional `_f` strings IMMEDIATELY after the main message!
 	// This groups the error multi-line outputs together perfectly.
-	for _, d := range dias {
-		p, _ = do(ctx, diag_point{dt, s+d.f+"\n", d.a}).(*diagpoint)
+	for _, d := range dps {
+		p, _ = do(ctx, diag_point{d.t, ps+d.f+"\n", d.a}).(*diagpoint)
 	}
 
 	// 3. THE DOD FIX: trace_ctx now forces diagPrompt to avoid duplicate `error:` prefixes!
@@ -25321,8 +25348,17 @@ func info(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append
 func warn(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append(a, diagWarn, diagcs_add_i(1))...) }
 func erro(ctx Context, f any, a ...any) *diagpoint { return debug(ctx, f, append(a, diagError, diagcs_add_i(1))...) }
 func note(ctx Context, f any, a ...any) *diagpoint {
-	// 'note' is a prompt that explicitly wants the position prefix
-	return debug(ctx, sf("%v:%v", _position(ctx), f), append(a, diagPrompt, diagcs_add_i(1))...)
+	ps := _position(ctx).String() + ":" // prompt with explicit position prefix
+	switch t := f.(type) {
+	case string: f = ps + t
+	case *diag_point: t.f = ps + t.f
+	case []*diag_point:
+		if len(t) > 0 {
+			p := t[0]
+			p.f = ps + p.f
+		}
+	}
+	return debug(ctx, f, append(a, diagPrompt, diagcs_add_i(1))...)
 }
 
 // Helper function to replace diagstack behaviour seamlessly
@@ -25779,11 +25815,11 @@ func (u *universe) do(ctx Context, op any) (res any) {
 
 		} else if p != t.project {
 			dps := []*diag_point{_f("re-declared project, probably cycled `use` %v → %v", p.name, t.name)}
-			dps = append(dps, _fLoadedProjs(u, ". %[3]s")...)
+			dps = append(dps, _fLoadedProjs(u, 0, "loaded-project: %[3]s → %[1]s")...)
 			if false {
-				erro(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{stop:"smart.Main"})
+				erro(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{num:10,/*stop:"smart.Main"*/})
 			} else {
-				info(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{num:10,/*stop:"smart.Main"*/})
+				note(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{num:10,/*stop:"smart.Main"*/})
 			}
 		}
 
