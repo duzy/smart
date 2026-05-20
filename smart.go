@@ -5368,7 +5368,7 @@ func (p parse_auto_ctx) do(ctx Context, op any) (_ any) {
 }
 
 type braced_ctx struct{ Context }
-func (p braced_ctx) do(ctx Context, op any) (_ any) {
+func (p braced_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
@@ -6961,7 +6961,7 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 		_f("undefined %v", sym),
 		_f("→ %v, name=%s tok=%v", obj, ts(name,ctx), tok),
 		_f("project %v, bases=%v", p.project.name, p.project.bases),
-		trace_ctx{5}, callstack{num:32})
+		trace_ctx{100}, callstack{num:10})
 
 	return
 }
@@ -7141,7 +7141,7 @@ func (p *compiler) calling(ctx Context) (result Value) {
 			erro(pc(ctx, name.Pos()), //_fMapKeys("%v", p.scope.elems),
 				_f("unexpected: tok=%v sym=%v name=%v", tok, sym, name),
 				// _f("%v", p.scope.elems[symSlash]),
-				callstack{num:10}, unwind{})
+				trace_ctx{100}, callstack{num:10}, unwind{})
 		}
 	}
 
@@ -7151,7 +7151,7 @@ func (p *compiler) calling(ctx Context) (result Value) {
 			if t, e := p.project.ext.Lookup(sym.String()); e == nil && t != nil {
 				erro(pc(ctx, name.Pos()),
 					_f("unexpected: tok=%v sym=%v name=%v dialect=%v", tok, sym, name, p.dialect),
-					unwind{})
+					trace_ctx{100}, unwind{})
 			}
 		}
 	}
@@ -7159,7 +7159,7 @@ func (p *compiler) calling(ctx Context) (result Value) {
 	if obj == nil {
 		erro(pc(ctx, name.Pos()),
 			_f("nil symbol; tok=%v sym=%v name=%v", tok, sym, name),
-			callstack{num:32}, unwind{})
+			trace_ctx{100}, callstack{num:10}, unwind{})
 	}
 
 	if closure {
@@ -8721,40 +8721,33 @@ func (p *compiler) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 		return
 	}
 
-	var specVal0 Value
-	switch v := g.spec[0].(type) {
-    case *pair:
-        var s string
-        if f, y := v.key.(flag); !y {
-            debug(ctx, "'%v' invalid use spec", v.key)
-        } else if s = __string(ctx, f.Value); s != "list" {
-            debug(ctx, "'%v' invalid use spec, do you mean -list?", v.key)
-        }
-		specVal0 = v.val
-	case *argumented:
-		specVal0, ctx = v.Value, v.ctx(ctx)
-	default:
-		specVal0 = v
-    }
-
-	var specVals []Value
-	for _, val := range xmerge(ctx, specVal0) {
-		if !isTrivial(val) { specVals = append(specVals, val) }
-	}
-	if len(specVals) == 0 {
-        erro(pc(ctx,g.spec), "empty use spec: %v", ts(g.spec[0]))
-    }
-
 	var opts useopts
 	var args = parseOpts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, y := a.(flag); y {
-			erro(pc(ctx,a), "unkown use opts: %v", ts(a))
+			erro(pc(ctx,a), "unkown use opts: %v", ts(a,ctx))
 		}
 	}
 
-	for _, specVal := range specVals {
-		p.use1(ctx, opts, specVal, args...)
+	var vals []Value
+	switch v := g.spec[0].(type) {
+    case *pair:
+        var s string
+        if f, y := v.key.(flag); !y {
+            erro(ctx, "'%v' invalid use spec", v.key)
+        } else if s = __string(ctx, f.Value); s != "list" {
+            erro(ctx, "'%v' invalid use spec, do you mean -list?", v.key)
+        }
+		vals = xmerge(ctx, v.val)
+	case *argumented:
+		vals = xmerge(ctx, v.Value)
+		ctx = v.ctx(ctx)
+	default:
+		vals = xmerge(ctx, v)
+    }
+
+	for _, spec := range vals {
+		if !isTrivial(spec) { p.use1(pc(ctx,spec.Pos()), opts, spec, args...) }
 	}
 	return
 }
@@ -8837,7 +8830,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	if loaded == nil {
 		// Pass the target absPath so the firewall knows exactly what to capture!
 		cc := &use_project_ctx{
-			Context: pc(ctx, specVal), 
+			Context: ctx,
 			target:  absPath, 
 			loaded:  &loaded,
 		}
@@ -8857,7 +8850,7 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			erro(ctx,
 				_f("%s not loaded (%s)", spec, absPath),
 				_fLoadedProjs(u, ". %[3]s"), //_fMapKeys(". %v", u.globe.loaded),
-				trace_ctx{100}, callstack{stop:"smart.Main"})
+				trace_ctx{100}, callstack{num:10,/* stop:"smart.Main" */})
 			return nil 
 		}
 		if loaded == p.project {
@@ -8998,9 +8991,7 @@ func (p *compiler) spec(ctx Context, keyword token, pos Pos, f specParseFunc) {
 		}
 	}
 	
-	p.spaces(ctx)
-	
-	ctx = pc(ctx, p.pos)
+	p.spaces(ctx); if false { ctx = pc(ctx, p.pos) }
 	
 	switch p.tok {
 	case LINEND:
@@ -9171,14 +9162,14 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 				_f("re-decalre: %v", name),
 				_f("project.absPath: %v", p.project.absPath),
 				_f("new absName: %v", absName),
-				callstack{num:5}, trace_ctx{2}, unwind{})
+				trace_ctx{100}, callstack{num:10}, unwind{})
 			return
 		} else if o := p.project.lookup(name); o != nil {
 			erro(pc(pc(ctx,p.project),p),
 				_f("re-decalre: %v → %v", name, ts(o,ctx)),
 				_f("new absName: %v", absName),
 				_f("%v %v", p.project, p.project.absPath),
-				callstack{stop:"smart.run"}, unwind{})
+				trace_ctx{100}, callstack{num:10,/* stop:"smart.run" */}, unwind{})
 			return
 		}
 	}
@@ -9201,7 +9192,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 				_f("the root project spec must be `.`, not: `%v` (name=%s)", spec, name),
 				_f("%s", symBaseWorkDir),
 				_f("%s", absPath),
-				callstack{num:10}, unwind{})
+				trace_ctx{100}, callstack{num:10}, unwind{})
 		}
 	} else {
 		switch spec {
@@ -9210,7 +9201,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 				_f("incorrect spec: %s (name=%s)", spec, name),
 				_f("%s", symBaseWorkDir),
 				_f("%s", absPath),
-				callstack{num:10}, unwind{})
+				trace_ctx{100}, callstack{num:10}, unwind{})
 		}
 	}
 
@@ -9248,7 +9239,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 				_f("Newly minted project: %p (Name: %v)", dec.project, dec.project.name),
 				_f("Is this a configuration.sm reload?: %v", do(ctx, is_config_mode{})),
 				_f("name '%v' already taken: %v", name, dec.project.name),
-				callstack{num:30}, unwind{})
+				trace_ctx{100}, callstack{num:16}, unwind{})
 		}
 	}
 
@@ -9265,7 +9256,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 					p.scope.def(ctx, defDecl, __symbol(ctx, k), t.val)
 				default:
 					debug(ctx, "%v: unknown target: %v : %v", p.project.name, t, ts(t,ctx),
-						callstack{num:16})
+						trace_ctx{100}, callstack{num:16})
 				}
 			}
 		}
@@ -9328,11 +9319,8 @@ func (p *absolute_ctx) do(ctx Context, op any) (_ any) {
     return p.Context.do(ctx, op)
 }
 func _absolute_ctx(ctx Context, abs Symbol) Context {
-    if do(ctx, absolute_path{}) == abs {
-		return ctx
-	} else {
-		return &absolute_ctx{ctx, abs}
-	}
+    if false && do(ctx, absolute_path{}) == abs { return ctx }
+	return &absolute_ctx{ctx, abs}
 }
 
 func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
@@ -9365,7 +9353,7 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 	// we drop it BEFORE the resolution loop. This saves massive Disk I/O!
 	// =================================================================
 	if implicitBase != symEmpty {
-		if res := ctx.do(ctx, check_ancestor{implicitBase}); res != nil && res.(bool) {
+		if res := ctx.do(ctx, is_ancestor{implicitBase}); res != nil && res.(bool) {
 			implicitBase = symEmpty // Benign structural cycle averted at zero cost!
 		}
 	}
@@ -9395,7 +9383,7 @@ paramsloop:
 	for i, elem := range append(implicitBases, params...) {
 		isImplicit := (i < numImplicit)
 
-		ec := ctx
+		ec := pc(ctx, elem.Pos())
 
 		if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
 		if x, y := elem.(*argumented); y { elem, ec = x.Value, x.ctx(ec) }
@@ -9426,12 +9414,14 @@ paramsloop:
 			// 1. Local `.base` file objects natively yield their absolute path
 			abs, isDir = x.fullname(), x._isDir
 		} else {
+			finalSearch := true
+
 			// THE DOD FIX: Symbol-Domain Relative Check
 			isRelative := __symHasPrefix(spec, symDotSlash) || __symHasPrefix(spec, symDotDotSlash)
 
 			// 2. Global Priority: Bare specs hit p.search before crawling ancestors!
 			// This perfectly intercepts `app.simple` and prevents local hijacking.
-			if !isRelative { abs, isDir = p.search(ec, spec) }
+			if !isRelative { abs, isDir = p.search(ec, spec); finalSearch = false }
 
 			// 3. Structural Crawl: Fallback for implicit bases not found globally
 			if isImplicit && abs == symEmpty {
@@ -9459,9 +9449,7 @@ paramsloop:
 			}
 
 			// 4. Ultimate Fallback: Catch explicit relative paths or final p.search fallback
-			if abs == symEmpty { 
-				abs, isDir = p.search(ec, spec) 
-			}
+			if finalSearch && abs == symEmpty { abs, isDir = p.search(ec, spec) }
 		}
 
 		if abs == symEmpty {
@@ -9483,11 +9471,22 @@ paramsloop:
 			continue paramsloop
 		}
 
-		if cc := _absolute_ctx(ec, abs); isDir {
-			p.directory(cc, spec, abs)
-		} else {
-			p.file(cc, spec, abs)
-		}
+		// =================================================================
+		// THE DOD FIX: Recursive Descent State Protection!
+		// We MUST isolate the compiler's Host Project state before diving 
+		// into a nested parse. Otherwise, `p.project` permanently bleeds 
+		// out of the nested `parse()` and hijacks the host's AST!
+		// =================================================================
+		func (host *project, hostScope *scope) {
+			defer func() { p.project, p.scope = host, hostScope }()
+			p.project = nil // Prevent host bleeding into the nested parse
+
+			if cc := _absolute_ctx(ec, abs); isDir {
+				p.directory(cc, spec, abs)
+			} else {
+				p.file(cc, spec, abs)
+			}
+		} (p.project, p.scope)
 	}
 
 	// =================================================================
@@ -9508,7 +9507,7 @@ paramsloop:
 		}
 	}
 	if p.project.bases = finalBases; bestBase != nil {
-		// NOTE: p.project.projs must have been initialized in `parent.do`!
+		// NOTE: `parent.do(declared_project)` must have been initialized p.project.projs!
 		p.project.projs[symDotBase] = bestBase
 	}
 
@@ -9534,7 +9533,7 @@ paramsloop:
 	return
 }
 
-type check_ancestor struct { name Symbol }
+type is_ancestor struct { name Symbol }
 type parent struct{ Context ; *project }
 
 func (p parent) do(ctx Context, op any) any {
@@ -9546,7 +9545,7 @@ func (p parent) do(ctx Context, op any) any {
 		return p.project
 	// THE DOD FIX: O(1) Caller Cycle Pruning
 	// Instantly detects if a child is trying to implicitly load its active parent!
-	case check_ancestor:
+	case is_ancestor:
 		if p.project != nil && p.project.name == t.name { return true }
 		// Pass up the chain in case it's a grandparent
 		return p.Context.do(ctx, op)
@@ -9591,8 +9590,14 @@ func (p parent) do(ctx Context, op any) any {
 
 		p.bases = append(p.bases, t.project)
 
-		// Unified Project Namespace Registration
-		p.proj(t.project)
+		// =================================================================
+		// THE DOD FIX: Safe Namespace Registration!
+		// Do NOT call `p.proj(t.project)`! It structurally mutates the base's
+		// internal path/parent pointers, causing `re-declared project` crashes.
+		// We use direct map assignment to achieve safe aliasing.
+		// =================================================================
+		if p.projs == nil { p.projs = make(map[Symbol]*project) }
+		p.projs[t.project.name] = t.project
 
 		// Direct Universe Feed
 		return _universe(ctx).do(ctx, op)
@@ -9635,13 +9640,11 @@ func (cc *configure_project_ctx) do(ctx Context, op any) (_ any) {
 }
 
 func (p *compiler) parse(ctx Context) bool {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "file '"+p.filename()+"'")) }
-	
+	if l_traverse.enabled { defer un(l_tracef(l_traverse, "compiler.parse(%s)", p.filename())) }
+
 	var u = _universe(ctx)
 	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.parse")) }
 	
-	ctx = pc(ctx, p, 1, 1)
-
 	if p.tok == EOF {
 		erro(pc(ctx, p.pos), "early end of file", callstack{num:64}, unwind{})
 		return false
@@ -10005,60 +10008,6 @@ func caller_pos(ctx Context, _ ...any) Context {
 	return ctx
 }
 
-type source struct{}
-type source_piped struct{ filename Symbol }
-type source_ctx struct{
-	Context
-	filename Symbol
-	callerFile Symbol
-	callerLine int
-	callerFunc *runtime.Func
-}
-func (p *source_ctx) do(ctx Context, op any) any {
-    switch t := op.(type) {
-	case inner_cast: return p.Context
-	case dynamic_cast: return t.ctx(p, p.Context)
-	case source_piped: return t.filename == p.filename
-    case source: return fmt.Sprintf("%s:%d", p.callerFile, p.callerLine) // __symBase(p.callerFile)
-	case get_fatpos: if false && t.p == NoPos { return Position{ Filename: p.callerFile, Line: p.callerLine } }
-    case get_pos: return nil
-    }
-    return p.Context.do(ctx, op)
-}
-func (p *compiler) source(ctx Context, filename Symbol, text []byte) Value {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.source")) }
-
-	p.scanner.init(ctx, u.fset.AddFile(filename, -1, len(text)), text, 0)
-	p.next(ctx, true) // starts scanning
-
-	if truly(ctx, is_text_parser{}) {
-		if p.tok == PROJECT {
-			erro(pc(ctx,p), "unexpected keyword: %v", p.tok)
-		}
-		return ease(ctx, p.values(ctx))
-	}
-
-	if false {
-		if pc, file, line, ok := runtime.Caller(0); ok {
-			var sym = intern(file)
-			ctx = &source_ctx{ctx, filename, sym, line, runtime.FuncForPC(pc)}
-		}
-	}
-	
-	var prevProject = p.project // nil if initial source.
-
-	if !p.parse(ctx) {
-		erro(pc(ctx,p), "parse failed, %s", p.scope, callstack{num:16})
-	}
-
-	if false && p.project != prevProject {
-		erro(pc(ctx,p), "project not unwind: %v != %v, %s", p.project, prevProject, p.scope,
-			callstack{num:32}, unwind{})
-	}
-	return nil // only text parser has value result
-}
-
 // If src != nil, load_source_bytes converts src to a []byte if possible;
 // otherwise it returns an error. If src == nil, load_source_bytes returns
 // the result of reading the file specified by filename.
@@ -10097,6 +10046,60 @@ func load_source_bytes(ctx Context, filename string, source ...any) (_ []byte) {
         erro(pc(ctx,filename), "%v", e)
         return
     }
+}
+
+type source struct{}
+type source_piped struct{ filename Symbol }
+type source_ctx struct{
+	Context
+	filename Symbol
+	callerFile Symbol
+	callerLine int
+	callerFunc *runtime.Func
+}
+func (p *source_ctx) do(ctx Context, op any) any {
+    switch t := op.(type) {
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
+	case source_piped: return t.filename == p.filename
+    case source: return fmt.Sprintf("%s:%d", p.callerFile, p.callerLine) // __symBase(p.callerFile)
+	case get_fatpos: if false && t.p == NoPos { return Position{ Filename: p.callerFile, Line: p.callerLine } }
+    case get_pos: return nil
+    }
+    return p.Context.do(ctx, op)
+}
+func (p *compiler) source(ctx Context, filename Symbol, text []byte) Value {
+	u := _universe(ctx)
+	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.source")) }
+
+	p.scanner.init(ctx, u.fset.AddFile(filename, -1, len(text)), text, 0)
+	p.next(ctx, true) // starts scanning
+	ctx = pc(ctx, p) // immediately push pos: ../app/do.smart:1:1
+
+	if truly(ctx, is_text_parser{}) {
+		if p.tok == PROJECT {
+			erro(pc(ctx,p), "unexpected keyword: %v", p.tok)
+		}
+		return ease(ctx, p.values(ctx))
+	}
+
+	if false {
+		if pc, file, line, ok := runtime.Caller(0); ok {
+			ctx = &source_ctx{ctx, filename, intern(file), line, runtime.FuncForPC(pc)}
+		}
+	}
+	
+	var prevProject = p.project // nil if initial source.
+
+	if !p.parse(ctx) {
+		erro(pc(ctx,p), "parse failed, %s", p.scope, callstack{num:16})
+	}
+
+	if false && p.project != prevProject {
+		erro(pc(ctx,p), "project not unwind: %v != %v, %s", p.project, prevProject, p.scope,
+			callstack{num:32}, unwind{})
+	}
+	return nil // only text parser has value result
 }
 
 type is_text_parser struct{}
@@ -10179,9 +10182,7 @@ func (p *compiler) autoload(ctx Context, tag string) {
 
 		f := p.stat_file(ctx, v)
 
-		if f == nil || !f.exists() {
-			continue
-		}
+		if !f.exists() { continue }
 
 		// =================================================================
 		// THE DOD FIX: Guard against Delegate Context Leaks!
@@ -10397,7 +10398,7 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 			erro(pc(pc(ctx,p),filename),
 				// _ft(diagPrompt, "%s: No Smart source files found!", filename),
 				_f("No Smart source files found! (%s %v)", spec, filename),
-				callstack{num:32}, trace_ctx{50}, unwind{})
+				trace_ctx{100}, callstack{num:32}, unwind{})
 		}
 		return
 	}
@@ -10420,10 +10421,7 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	}
 
 	for _, s := range sources {
-		text := load_source_bytes(ctx, s.String())
-		if text != nil {
-			p.source(ctx, s, text)
-		}
+		if t := load_source_bytes(ctx, s.String()); t != nil { p.source(ctx, s, t) }
 	}
 
 	p.saveConfiguration(ctx)
@@ -25782,7 +25780,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 
 	case declared_project:
 		if t.project == nil {
-			erro(ctx, "declared nil project", callstack{stop:"smart.Main"})
+			erro(ctx, "declared nil project", trace_ctx{100}, callstack{stop:"smart.Main"})
 			return
 		}
 
@@ -25797,13 +25795,13 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			// Append to the list to lock in the strict load order
 			u.globe.loadedProjs = append(u.globe.loadedProjs, t.project)
 
-		} else if p != t.project { // Properly cycled "use"
-			dps := []*diag_point{_f("re-declared project: %v → %v", p.name, t.name)}
+		} else if p != t.project {
+			dps := []*diag_point{_f("re-declared project, probably cycled `use` %v → %v", p.name, t.name)}
 			dps = append(dps, _fLoadedProjs(u, ". %[3]s")...)
 			if false {
 				erro(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{stop:"smart.Main"})
 			} else {
-				info(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{num:5})
+				info(pc(ctx,p.pos), dps, trace_ctx{100}, callstack{num:10,/*stop:"smart.Main"*/})
 			}
 		}
 
@@ -25827,7 +25825,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 						t.scope.def(ctx, defDecl, __symbol(ctx, k), p.val)
 					default:
 						erro(ctx, "%v: unknown target: %v : %v", t.name, p, ts(p,ctx),
-							callstack{stop:"smart.Main"})
+							trace_ctx{100}, callstack{num:10,/* stop:"smart.Main" */})
 					}
 				}
 			}
@@ -32049,7 +32047,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 			debug(ctx,
 				_f("slow: %d values, %v, %d result", len(values), d, len(result)),
 				_f("slow: %d pats: %v", len(pats), pats),
-				callstack{num:5,stop:"smart.evoke"})
+				callstack{num:10,/* stop:"smart.evoke" */})
 		}
 	}(time.Now())}
 
@@ -32059,9 +32057,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 
 	// 1. OPTIMIZATION: Pre-allocate capacity
 	capacity := len(values) / 2
-	if ctx.neg {
-		capacity = len(values)
-	}
+	if ctx.neg { capacity = len(values) }
 	result = make([]Value, 0, capacity)
 
 	// 2. OPTIMIZATION: Pre-compile fast-path matchers for patterns!
