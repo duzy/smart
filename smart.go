@@ -5196,11 +5196,10 @@ func (p *compiler) for_done(ctx Context) {
 var pprofCounter int
 
 type parse_codeblock_ctx struct{ *automatic }
-func (p *parse_codeblock_ctx) do(ctx Context, op any) (_ any) {
+func (p parse_codeblock_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return p.automatic
 	case dynamic_cast: return t.ctx(p, p.automatic)
-	case is_undef: return true
 	}
 	// THE DOD FIX: Delegate to the embedded struct itself!
 	// This allows `automatic.do()` to intercept `$0` lookups in the defs map
@@ -5224,7 +5223,7 @@ func (p *compiler) codeblock(ctx *automatic, t *template) {
 		if p.tok == SPACE || p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
 			p.next(ctx, true)
 		} else {
-			p.clause(&c)
+			p.clause(c)
 		}
 	}
 }
@@ -7387,7 +7386,7 @@ composeloop: // parses right-fixes
 		}
 
 	case PCON: // path, except -I/path/to/include
-		if !truly(ctx, parse_no_path{}) {
+		if /* !truly(ctx, parse_no_path{}) */ true {
 			x = p.path(ctx, x)
 			goto composeloop
 		}
@@ -8785,14 +8784,6 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		}
 	}
 
-	defer func() {
-		if loaded != nil {
-			if prev := p.project.proj(loaded); prev != nil && prev != loaded {
-				erro(ctx, "%s already taken", loaded)
-			}
-		}
-	} ()
-
 	if u.verboseImport {
 		if /* len(p.loadStack) > 1 */ false {
 			defer func(s string) { p.verpre = s } (p.verpre)
@@ -9592,8 +9583,6 @@ func (p parent) do(ctx Context, op any) any {
 
 		// =================================================================
 		// THE DOD FIX: Safe Namespace Registration!
-		// Do NOT call `p.proj(t.project)`! It structurally mutates the base's
-		// internal path/parent pointers, causing `re-declared project` crashes.
 		// We use direct map assignment to achieve safe aliasing.
 		// =================================================================
 		if p.projs == nil { p.projs = make(map[Symbol]*project) }
@@ -9898,21 +9887,12 @@ func (p *compiler) parse(ctx Context) bool {
 			// 7. ATTACH THE CONFIGURE CLOSURE
 			// =================================================================
 			if implicitConfigure != nil {
-				var activeConfigure *project
-				if prev := p.project.proj(implicitConfigure); prev != nil && prev != implicitConfigure {
-					erro(ctx, "%v already taken", implicitConfigure)
-				} else {
-					activeConfigure = implicitConfigure
-				}
-
-				if activeConfigure == nil { activeConfigure = implicitConfigure }
-
-				if c := p.project.configure; c != activeConfigure {
+				if c := p.project.configure; c != implicitConfigure {
 					if c != nil && c != p.project {
 						erro(ctx, "%s already specified", symDotConfigure)
 					} else {
-						p.project.configure = activeConfigure
-						if g := _universe(ctx).globe; g.main == activeConfigure {
+						p.project.configure = implicitConfigure
+						if g := _universe(ctx).globe; g.main == implicitConfigure {
 							g.main = p.project
 						}
 					}
@@ -10292,7 +10272,7 @@ func (p *compiler) include(ctx Context, doc *commentgroup, g *clause_opts, _ int
 	// scanner and compilestate so `include` doesn't corrupt the AST stream.
 	func () {
 		_scanner, _state := p.scanner, p.compilestate
-		defer func() { p.scanner, p.compilestate = _scanner, _state }()
+		defer func() { p.scanner, p.compilestate = _scanner, _state } ()
 
 		// Retain the current project so the included AST splices natively
 		p.compilestate = compilestate{
@@ -10324,9 +10304,6 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 	}
 
 	if prev, ok := u.globe.loaded[filename]; ok {
-		if _p := p.project.proj(prev); _p != nil && _p != prev {
-			erro(ctx, "%s already taken", prev)
-		}
 		do(ctx, declared_project{prev})
 		return
 	}
@@ -10335,7 +10312,7 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 	// STATE PROTECTION
 	// =========================================================
 	_scanner, _state := p.scanner, p.compilestate
-	defer func() { p.scanner, p.compilestate = _scanner, _state }()
+	defer func() { p.scanner, p.compilestate = _scanner, _state } ()
 
 	// Reset but retain some fields. Do not blindly wipe the whole state!
 	// Retaining project: _state.project is structurally necessary so projectStart
@@ -10344,13 +10321,11 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 		project: _state.project,
 	}
 
-	text := load_source_bytes(ctx, filename.String())
-
-	if len(text) == 0 {
-		erro(pc(ctx,filename), "no smart code loaded", callstack{num:32}, unwind{})
-	} else {
-		p.source(ctx, filename, text)
+	if t := load_source_bytes(ctx, filename.String()); len(t) > 0 {
+		p.source(ctx, filename, t)
 		p.saveConfiguration(ctx)
+	} else {
+		erro(pc(ctx,filename), "no smart code loaded", callstack{num:32}, unwind{})
 	}
 	return
 }
@@ -10374,15 +10349,8 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 		if loaded == nil { return }
 		if u.globe.main == nil { u.globe.main = loaded }
 		if spec == symDot { spec = filename }
-
 		if p.project != loader {
 			erro(ctx, "%v: parser project changed: %v", loader, p.project)
-		}
-
-		if loader != nil {
-			if prev := loader.proj(loaded); prev != nil && prev != loaded {
-				erro(ctx, "%s already taken", loaded)
-			}
 		}
 	} (time.Now(), p.project)
 
@@ -11483,11 +11451,6 @@ func (p *compiler) configure(ctx Context) {
 		p.configure1(ctx)
 	}
 }
-
-type (
-	is_undef struct{}
-	parse_no_path struct{}
-)
 
 func promptEnteringDirectory(ctx Context, s string) *diagpoint {
 	return prompt(ctx, "smart: Entering directory '%s'\n", s)
