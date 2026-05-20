@@ -14,7 +14,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/base64"
-	enc_bin "encoding/binary"
+	// enc_bin "encoding/binary"
     enc_json "encoding/json"
     enc_xml "encoding/xml"
     // enc_csv "encoding/csv"
@@ -23,7 +23,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"hash/fnv" // "hash/maphash"
+	// "hash/fnv" // "hash/maphash"
     "hash/crc64"
     hashpkg "hash"
 	"io/fs"
@@ -1282,13 +1282,103 @@ func getSymSeq(sym Symbol) (seq []Symbol) {
 	return
 }
 
+const (
+	fnvOffset = 14695981039346656037
+	fnvPrime  = 1099511628211
+)
+
+// mix64 breaks a uint64 into bytes and perfectly folds it into the FNV-1a avalanche
+func mix64(h uint64, v uint64) uint64 {
+	h = (h ^ (v & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 8) & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 16) & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 24) & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 32) & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 40) & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 48) & 0xFF)) * fnvPrime
+	h = (h ^ ((v >> 56) & 0xFF)) * fnvPrime
+	return h
+}
+
+// mixStr folds a string directly into the FNV-1a avalanche without []byte casting
+func mixStr(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h = (h ^ uint64(s[i])) * fnvPrime
+	}
+	return h
+}
+
+// mixAny delegates the type extraction for the hash stream
+func mixAny(ctx Context, h uint64, v any) uint64 {
+	switch t := v.(type) {
+	case Kind:     return mix64(h, uint64(t))
+	case token:    return mix64(h, uint64(t))
+	case int64:    return mix64(h, uint64(t))
+	case uint64:   return mix64(h, t)
+	case string:   return mixStr(h, t)
+	case []string:
+		for _, s := range t { h = mixStr(h, s) }
+		return h
+	case *list:
+		// THE DOD FIX: Fold the child hashes directly into the running stream!
+		// No early return. `hashVal` safely routes the AST node correctly.
+		for _, elem := range t.elems {
+			h = mix64(h, hashVal(ctx, elem)) 
+		}
+		return h
+	case Value:
+		if t != nil {
+			if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
+				return mix64(h, uint64(__int(ctx, t)))
+			}
+			return mixStr(h, __string(ctx, t))
+		}
+		return h
+	case []Value:
+		for _, val := range t {
+			if val.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
+				h = mix64(h, uint64(__int(ctx, val)))
+			} else {
+				h = mixStr(h, __string(ctx, val))
+			}
+		}
+		return h
+	default:
+		erro(ctx, "fnv1: unsupported type : %s", ts(v))
+		return h
+	}
+}
+
+func fnv1(ctx Context, t any, a ...any) uint64 {
+	h := uint64(fnvOffset)
+
+	// 1. Hash the primary type/identity
+	if t != nil {
+		switch x := t.(type) {
+		case interface{ kind() Kind }:
+			h = mix64(h, uint64(x.kind()))
+		case Kind:
+			h = mix64(h, uint64(x))
+		default:
+			h = mixStr(h, typeof(x))
+		}
+	}
+
+	// 2. Stream variadic components into the hash
+	for _, v := range a {
+		h = mixAny(ctx, h, v)
+	}
+	
+	return h
+}
+
 // hashSeq uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
 func hashSeq(seq []Symbol) uint64 {
-	var h uint64 = 14695981039346656037
+	var h uint64 = fnvOffset
 	for _, s := range seq {
 		h ^= uint64(s)
-		h *= 1099511628211
+		h *= fnvPrime
 	}
 	return h
 }
@@ -1296,10 +1386,10 @@ func hashSeq(seq []Symbol) uint64 {
 // hashStr uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
 func hashStr(str string) uint64 {
-	var h uint64 = 14695981039346656037
+	var h uint64 = fnvOffset
 	for _, s := range str {
 		h ^= uint64(s)
-		h *= 1099511628211
+		h *= fnvPrime
 	}
 	return h
 }
@@ -1307,10 +1397,10 @@ func hashStr(str string) uint64 {
 // hashBytes uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
 func hashBytes(bts []byte) uint64 {
-	var h uint64 = 14695981039346656037
+	var h uint64 = fnvOffset
 	for _, s := range bts {
 		h ^= uint64(s)
-		h *= 1099511628211
+		h *= fnvPrime
 	}
 	return h
 }
@@ -12367,63 +12457,7 @@ func pc(ctx Context, a any, n ...int) Context {
 	return ctx
 }
 
-func fnv1(ctx Context, t any, a ...any) (_ uint64) {
-	var h = fnv.New64()
-	var o = enc_bin.LittleEndian
-	if t != nil {
-		var b []byte
-		switch x := t.(type) {
-		case interface{ kind() Kind }:
-			b = make([]byte, 8)
-			o.PutUint64(b, uint64(x.kind()))
-		case Kind:
-			b = make([]byte, 8)
-			o.PutUint64(b, uint64(x))
-		default:
-			b = []byte(typeof(x))
-		}
-		h.Write(b)
-	}
-	for _, v := range a {
-		var b []byte
-		switch t := v.(type) {
-		case Kind:
-			b = o.AppendUint64(b, uint64(t))
-		case token:
-			b = o.AppendUint64(b, uint64(t))
-		case int64:
-			b = o.AppendUint64(b, uint64(t))
-		case uint64:
-			b = o.AppendUint64(b, uint64(t))
-		case string:
-			b = []byte(t)
-		case []string:
-			for _, s := range t { b = append(b, []byte(s)...) }
-		case Value:
-			if t != nil {
-				if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
-					b = o.AppendUint64(b, uint64(__int(ctx, t)))
-				} else {
-					b = []byte(__string(ctx, t))
-				}
-			}
-		case []Value:
-			for _, t := range t {
-				if t.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
-					b = o.AppendUint64(b, uint64(__int(ctx, t)))
-				} else {
-					b = []byte(__string(ctx, t))
-				}
-			}
-		default:
-			erro(ctx, "fnv1: unsupported type : %s", ts(v))
-		}
-		h.Write(b)
-	}
-	return h.Sum64()
-}
-
-func hashVal(ctx Context, x Value) (u uint64) {
+func hashVal(ctx Context, x Value) uint64 {
 	switch p := x.(type) {
 	case *loc: return hashVal(ctx, p.Value)
 	case *xloc: return hashVal(ctx, p.Value)
@@ -12433,9 +12467,9 @@ func hashVal(ctx Context, x Value) (u uint64) {
 	case *strcomp: return fnv1(ctx, p, p.any()...)
 	case *compound: return fnv1(ctx, p, p.any()...)
 	case *qualword:
-		var a []any
-		for _, v := range unpack(p) { a = append(a, v) }
-		return fnv1(ctx, p, a...)
+		// THE DOD FIX: Pass the raw slice to fnv1!
+		// `mixAny` automatically handles `[]Value`, dodging []any boxing!
+		return fnv1(ctx, p, unpack(p))
 	case *group: return fnv1(ctx, p, p.any()...)
 	case *path: return fnv1(ctx, p, p.any()...)
 	case *pair: return fnv1(ctx, p, p.key, p.val)
