@@ -585,6 +585,8 @@ const (
 	symVariantTag
 	symConfigurationSm
 
+	symDotSlash     // ./
+	symDotDotSlash  // ../
 	symDotBase      // .base
 	symDotConfigure // .configure
 	symDotContainer // .container
@@ -720,6 +722,7 @@ var coreSymbols = []string{
 
 	"target.tmp", "target.out", "target.triple", "rel.remnant", "rel.chop", "variant.tag", "configuration.sm",
 
+	"./", "../",
 	".base", ".configure", ".container", ".self", ".usee", ".mode", ".goals", ".go", ".search",
 	".smart", ".sm", ".os",
 
@@ -6459,7 +6462,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 	case symEmpty:
 		erro(ctx, "resolving empty name")
 		return
-	case symDotSelf:
+	case symDotSelf: break // DISABLE resolve(.self), must use {.self}
 		var self *project
 		if isClosure {
 			if t := cast[*term](ctx); t != nil { self = t.project }
@@ -6467,7 +6470,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 			self = p.project
 		}
 		return self
-	case symDotBase:
+	case symDotBase: break // DISABLE resolve(.base), must use {.base}
 		var base *project
 		if isClosure {
 			if t := cast[*term](ctx); t != nil && t.project.bases != nil {
@@ -6477,7 +6480,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 			base = p.project.bases[0]
 		}
 		return base
-	case symDotConfigure:
+	case symDotConfigure: break // DISABLE resolve(.configure), must use {.configure}
 		var configure *project
 		if isClosure {
 			if t := cast[*term](ctx); t != nil { configure = t.project.configure }
@@ -8006,7 +8009,8 @@ func (p *compiler) braced_dot(ctx Context) Value {
 		}
 	}
 
-	erro(pc(ctx, pos), "project alias '.%s' not found", targetSym)
+	erro(pc(ctx, pos), "project alias '%s' not found", targetSym,
+		_fMapKeys(". %v", p.project.projs))
 	return &null{valbase{pos}}
 }
 
@@ -9347,7 +9351,7 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 			if _, y := elem.(*pair); y { continue }
 			numBaseParams += 1
 		}
-		if numBaseParams == 0 {
+		if /* numBaseParams == 0 */ true {
 			if len(ss) > 2 {
 				baseName := __symJoinBy(symDot, ss[:len(ss)-2]...)
 				implicitIndex = len(implicitBases)
@@ -9382,8 +9386,6 @@ paramsloop:
 	for i, elem := range append(implicitBases, params...) {
 		isImplicit := (i < numImplicit)
 
-		// THE DOD FIX: Loop-Local Context Isolation!
-		// Prevents `implicit_load_ctx` from leaking into explicit bases.
 		ec := ctx
 
 		if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
@@ -9406,31 +9408,53 @@ paramsloop:
 		var abs Symbol
 		var isDir bool
 
+		// =================================================================
+		// THE DOD FIX: Restored the Strict Ancestor Match!
+		// We walk UP the tree to find nested parent modules (e.g., foo.bar),
+		// but we DO NOT look across siblings to prevent false module hijacking.
+		// =================================================================
 		if x, y := to_file(elem); y && x._mtime != 0 {
+			// 1. Local `.base` file objects natively yield their absolute path
 			abs, isDir = x.fullname(), x._isDir
-		} else if isImplicit {
-			curr := p.project.absPath
-			path := __symPathJoin(__symSplit(spec, symDot)...)//Replace(spec, ".", "/")
-			for curr != symEmpty && curr != symDot && curr != symSlash {
-				// 1. Direct Ancestor Match (__symJoinBy(symSlash, path))
-				if curr == path || __symHasSuffix(curr, __symPathJoin(symEmpty, path)) {//HasSuffix(curr, "/"+specStr)
-					if f := _stat(ec, curr); f.exists() {
+		} else {
+			// THE DOD FIX: Symbol-Domain Relative Check
+			isRelative := __symHasPrefix(spec, symDotSlash) || __symHasPrefix(spec, symDotDotSlash)
+
+			// 2. Global Priority: Bare specs hit p.search before crawling ancestors!
+			// This perfectly intercepts `app.simple` and prevents local hijacking.
+			if !isRelative {
+				abs, isDir = p.search(ec, spec)
+			}
+
+			// 3. Structural Crawl: Fallback for implicit bases not found globally
+			if abs == symEmpty && isImplicit {
+				curr := p.project.absPath
+				path := __symPathJoin(__symSplit(spec, symDot)...)
+
+				for curr != symEmpty && curr != symDot && curr != symSlash {
+					// A. Direct Ancestor Match: Safely resolves nested parent paths (e.g., foo.bar)
+					if curr == path || __symHasSuffix(curr, __symPathJoin(symEmpty, path)) {
+						if f := _stat(ec, curr); f.exists() {
+							abs, isDir = f.fullname(), f._isDir
+							break
+						}
+					}
+
+					// B. Sibling Match: Safely resolves structural cousins (e.g., foo.baz)
+					// Safe to restore because Step 2 acts as a global namespace shield!
+					if f := _stat(ec, __symPathJoin(curr, path)); f.exists() {
 						abs, isDir = f.fullname(), f._isDir
 						break
 					}
-				}
 
-				// 2. Sibling Match from Common Root (Crucial for `foo.baz`)
-				if f := _stat(ec, __symPathJoin(curr, path)); f.exists() {
-					abs, isDir = f.fullname(), f._isDir
-					break
+					curr = __symDir(curr) 
 				}
-
-				curr = __symDir(curr) 
 			}
-			if abs == symEmpty { abs, isDir = p.search(ec, spec) }
-		} else {
-			abs, isDir = p.search(ec, spec)
+
+			// 4. Ultimate Fallback: Catch explicit relative paths or final p.search fallback
+			if abs == symEmpty { 
+				abs, isDir = p.search(ec, spec) 
+			}
 		}
 
 		if abs == symEmpty {
@@ -9438,7 +9462,7 @@ paramsloop:
 			erro(ec, "%v: no such base; %v → %v", p.project, elem, spec)
 		}
 
-		// 1. Prevent physical duplicates BEFORE cache injection!
+		// Prevent physical duplicates BEFORE cache injection!
 		for _, base := range p.project.bases {
 			if base.absPath == abs {
 				erro(ec, "duplicated base: %v : %v → %v (in %v)", base, elem, spec)
@@ -9446,7 +9470,7 @@ paramsloop:
 			}
 		}
 
-		// 2. THE DOD FIX: Cache Bypassing!
+		// Cache Bypassing!
 		if prev, ok := _universe(ec).globe.loaded[abs]; ok && prev != nil {
 			ec.do(ec, declared_project{prev})
 			continue paramsloop
@@ -9462,6 +9486,7 @@ paramsloop:
 	// =================================================================
 	// 4. DIAMOND INHERITANCE DEDUPLICATION
 	// =================================================================
+	var bestBase *project
 	var finalBases []*project
 	for i, base := range p.project.bases {
 		var isRedundant bool
@@ -9469,8 +9494,16 @@ paramsloop:
 			if i != j && other.has_base(base) { isRedundant = true; break }
 		}
 		if !isRedundant { finalBases = append(finalBases, base) }
+
+		if bestBase == nil { bestBase = base } // Fallback to the first base loaded
+		if ss := __symSplit(base.name, symDot); len(ss) > 0 && ss[len(ss)-1] == symBase {
+			bestBase = base // Exact metaclass match found!
+		}
 	}
-	p.project.bases = finalBases
+	if p.project.bases = finalBases; bestBase != nil {
+		// NOTE: p.project.projs must have been initialized in `parent.do`!
+		p.project.projs[symDotBase] = bestBase
+	}
 
 	// =================================================================
 	// 5. EXPORT APPLICATION
@@ -9495,11 +9528,15 @@ paramsloop:
 }
 
 type parent struct{ Context ; *project }
+
 func (p parent) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
-	case get_project: // TODO: return p.project
+	case get_project:
+		// THE DOD FIX: Contextual Host Binding
+		// Deeply nested contexts correctly resolve ctx.project() to the host!
+		return p.project
 	case declared_project:
 		if t.has_base(p.project) {
 			warn(ctx, // _f("%s", t.loop_base_path(ctx, p.project, "")),
@@ -9526,6 +9563,12 @@ func (p parent) do(ctx Context, op any) any {
 		}
 
 		p.bases = append(p.bases, t.project)
+
+		// THE DOD FIX: Unified Project Namespace Registration
+		// Always register the exact name of the base. Note that this
+		// will ensure `p.projs != nil`, thus the best base for ".base"
+		// alias will be selected and set `p.projs[.base]` in `compiler.bases`.
+		p.proj(t.project)
 
 		// THE DOD FIX: Direct Universe Feed!
 		// Swallow the event from the Context chain so grandparents are
@@ -10315,9 +10358,6 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 		}
 
 		if loader != nil {
-			if d := loader.resolveDef(ctx, loaded.name); d != nil {
-				erro(pc(ctx, d.pos), _f("%v: %v: %v", loader, loaded, d))
-			}
 			if prev := loader.proj(loaded); prev != nil && prev != loaded {
 				erro(ctx, "%s already taken", loaded)
 			}
@@ -10332,9 +10372,12 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	sources := p.sources(ctx, filename)
 
 	if len(sources) == 0 {
-		erro(pc(ctx,filename),
-			_f("%s: No Smart source files found!", spec),
-			callstack{num:32}, trace_ctx{3}, unwind{})
+		if !truly(ctx, is_implicit_load{}) {
+			erro(pc(pc(ctx,p),filename),
+				// _ft(diagPrompt, "%s: No Smart source files found!", filename),
+				_f("No Smart source files found! (%s %v)", spec, filename),
+				callstack{num:32}, trace_ctx{50}, unwind{})
+		}
 		return
 	}
 	
@@ -12323,19 +12366,19 @@ func pc(ctx Context, a any, n ...int) Context {
 				}
 			}
 		case string:
-			var pos Position
-			pos.Filename = intern(t)
-			if 0 == len(n) { pos.Line   = 1 }
-			if 0 <  len(n) { pos.Line   = n[0] }
-			if 1 <  len(n) { pos.Column = n[1] }
-			p = pos
+			if t != "" {
+				pos := Position{Filename:intern(t), Line:1}
+				if 0 <  len(n) { pos.Line   = n[0] }
+				if 1 <  len(n) { pos.Column = n[1] }
+				p = pos
+			}
 		case Symbol:
-			var pos Position
-			pos.Filename = t
-			if 0 == len(n) { pos.Line   = 1 }
-			if 0 <  len(n) { pos.Line   = n[0] }
-			if 1 <  len(n) { pos.Column = n[1] }
-			p = pos
+			if t != symEmpty {
+				pos := Position{Filename:t, Line:1}
+				if 0 <  len(n) { pos.Line   = n[0] }
+				if 1 <  len(n) { pos.Column = n[1] }
+				p = pos
+			}
 		}
 	}
 	if p != nil { ctx = &pos_ctx{ctx,p} }
@@ -24974,6 +25017,7 @@ var   diagnostic_limit_bytes = 10_000
 
 func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 func _f(f string, a ...any) *diag_point { return &diag_point{0, f, a} }
+func _ft(t diagtype, f string, a ...any) *diag_point { return &diag_point{t, f, a} }
 
 type diag_struct struct{ t diagtype; f string; a []any }
 type diag_trace diag_struct
@@ -25212,7 +25256,12 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			if proj := _project(c); proj == nil {
 				str += "<nil>"
 			} else {
-				str += proj.name.String()
+				var bs string
+				for i, b := range proj.bases {
+					if i > 0 { bs += " " }
+					bs += b.name.String()
+				}
+				str += sf("%s (%s)", proj.name, bs)
 			}
 
 			if e := _entry(c); e != nil {
