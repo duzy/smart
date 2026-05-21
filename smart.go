@@ -5701,7 +5701,11 @@ func (p *compiler) is_list_term(ctx Context) bool {
 }
 
 func (p *compiler) rule_params(ctx Context, args []Value) (err error) {
-	var s = _scope(ctx)
+	// THE DOD FIX: Bypass Context Staleness!
+	// `ctx` captured the root scope before `openscope` was called. 
+	// By reading `p.scope` directly, we guarantee the parameters are 
+	// bound to the actively pushed local rule scope!
+	var s = p.scope //_scope(ctx)
 	for _, arg := range args {
 		var a *auto
 		switch t := arg.(type) {
@@ -5751,7 +5755,7 @@ func (p parse_params_ctx) do(ctx Context, op any) (_ any) {
 }
 
 func (p *compiler) depends(ctx Context, params bool) (res []Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "depends")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.depends")) }
 
 	p.spaces(ctx)
 
@@ -5789,7 +5793,7 @@ func (p *compiler) depends(ctx Context, params bool) (res []Value) {
 
 // If lhs is set, result list elements which are identifiers are not resolved.
 func (p *compiler) values(ctx Context) (values []Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "values")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.values")) }
 
 	for p.spaces(ctx); !p.is_list_term(ctx); p.spaces(ctx) {
 		var prev = p.pos
@@ -5887,7 +5891,7 @@ func (p *compiler) group(ctx Context) *group {
 }
 
 func (p *compiler) corner_list(ctx Context) *list { // ⌜a b c⌟
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "corner")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.corner_list")) }
 
 	var elems []Value
 	switch p.tok {
@@ -5918,7 +5922,7 @@ corner_loop:
 }
 
 func (p *compiler) argumented(ctx Context, x Value) *argumented {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "argumented")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.argumented")) }
 
 	ctx = group_ctx{aware_ctx{ctx, COMMA}}
 
@@ -5949,7 +5953,7 @@ func (p *compiler) globmeta(ctx Context) (x *globmeta) {
 }
 
 func (p *compiler) globrange(ctx Context) (x *globrange) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "globrange")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.globrange")) }
 
 	p.expect(ctx, LBRACK) // skip '['
 
@@ -5971,7 +5975,7 @@ func (p parse_glob_ctx) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 func (p *compiler) glob(ctx Context, x Value) (g *globpat) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "glob")) }
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.glob")) }
 
 	ctx = parse_glob_ctx{ctx}
 
@@ -6535,9 +6539,9 @@ func (p *compiler) promptConfigurationLoads(ctx Context) bool { return p.check(c
 func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (result Value) {
 	switch sym {
 	case symEmpty:
-		erro(ctx, "resolving empty name")
+		erro(pc(ctx,pos), "resolving empty name")
 		return
-	case symDotSelf: break // DISABLE resolve(.self), must use {.self}
+	case symDotSelf: //erro(pc(ctx,pos), "disabled $(.self), use {.self}"); break
 		var self *project
 		if isClosure {
 			if t := cast[*term](ctx); t != nil { self = t.project }
@@ -6545,7 +6549,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 			self = p.project
 		}
 		return self
-	case symDotBase: break // DISABLE resolve(.base), must use {.base}
+	case symDotBase: //erro(pc(ctx,pos), "disabled $(.base), use {.base}"); break
 		var base *project
 		if isClosure {
 			if t := cast[*term](ctx); t != nil && t.project.bases != nil {
@@ -6555,7 +6559,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 			base = p.project.bases[0]
 		}
 		return base
-	case symDotConfigure: break // DISABLE resolve(.configure), must use {.configure}
+	case symDotConfigure: //erro(pc(ctx,pos), "disabled $(.configure), use {.configure}"); break
 		var configure *project
 		if isClosure {
 			if t := cast[*term](ctx); t != nil { configure = t.project.configure }
@@ -7534,19 +7538,18 @@ orloop:
 	for p.tok != EOF {
 		switch p.spaces(ctx); p.tok {
 		case  COMMA: p.step(ctx); continue orloop
-		case RBRACE:                   break orloop
+		case RBRACE:                 break orloop
 		}
 
+		pos := p.pos
 		v := p.expr(aware_ctx{ctx, COMMA})
-		w := expand(final{pc(ctx,v)},v)
+		w := expand(final{pc(ctx,pos)}, v)
 		va = append(va, merge(w)...)
 	}
 
 	p.expect(ctx, RBRACE)
 
-	for _, a := range va {
-		if __true(ctx, a) { return a }
-	}
+	for _, a := range va { if __true(ctx, a) { return a } }
 	return
 }
 
@@ -8706,13 +8709,13 @@ func (p *compiler) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 
 		// Assuming builtin.name was upgraded to a Symbol when we updated knownobject
 		switch x.name {
-		case symPlain:
+		case symPlain, symPrint, symPrintf:
 			evoke(&cc, x, opts, g.spec[1:])
 		default:
-			erro(pc(ctx,p), "'%s' is not evaler", x.name)
+			erro(pc(ctx,p), "'%s' is not an evaler", x.name)
 		}
 	default:
-		erro(pc(ctx,p), "resolved '%s' is not evaler: %v → %v", typeof(x), prop0, sym)
+		erro(pc(ctx,prop0.Pos()), "resolved '%s' is `%s`, not a builtin", sym, typeof(x))
 	}
 }
 
@@ -10263,12 +10266,26 @@ func (p *compiler) autoload(ctx Context, tag string) {
 	if d == nil || d.value == nil || isEmpty(d.value) {
 		return
 	}
-	
-	for _, v := range xmerge(final{ctx}, d.value) {
-		if isTrivial(v) { continue }
+
+	cc := final{closure_with(ctx, p.scope)}
+	for _, _v := range merge(d.value) {
+		v := expand(cc, _v)
+		if isTrivial(v) {
+			if checkpoints { erro(pc(ctx,_v.Pos()), "%v → %v", _v, v) }
+			continue
+		}
+		if checkpoints {
+			if strings.HasPrefix(_v.String(), `&//.`) {
+				if !strings.HasPrefix(v.String(), p.project.absPath.String()) {
+					erro(pc(ctx,d.pos),
+						_f("%v: %s: %v", p.project, d.name, d.value),
+						_f("%s", v),
+						_f("%s", p.project.absPath))
+				}
+			}
+		}
 
 		f := p.stat_file(ctx, v)
-
 		if !f.exists() { continue }
 
 		// =================================================================
@@ -10277,15 +10294,14 @@ func (p *compiler) autoload(ctx Context, tag string) {
 		// yield the LEAF project's appendix file. We MUST mathematically block 
 		// the base template from prematurely loading the leaf's files!
 		// =================================================================
-		fnSym := f.fullname()
-		if __symDir(fnSym) != p.project.absPath {
+		fn := f.fullname()
+
+		if __symDir(fn) != p.project.absPath {
 			continue // Not our file! Let the leaf template load it later.
 		}
 
-		text := load_source_bytes(ctx, fnSym.String())
-		if len(text) == 0 {
-			continue
-		}
+		text := load_source_bytes(ctx, fn.String())
+		if len(text) == 0 { continue }
 
 		// State Protection
 		func () {
@@ -10294,7 +10310,7 @@ func (p *compiler) autoload(ctx Context, tag string) {
 
 			// p.compilestate is retained so locals flow natively into the appendix.
 
-			p.source(&autoload_ctx{ctx, p.pos, v, nil}, fnSym, text)
+			p.source(&autoload_ctx{ctx, p.pos, v, nil}, fn, text)
 		} ()
 	}
 }
@@ -15071,16 +15087,16 @@ func (p *delegate) id(ctx Context, pre string) string {
 }
 
 func (p *delegate) src(sigil string) (s string) {
-	if s = p._src(); !p.l.is_closure_delegate() {
-		s = sigil + s
-	}
+	if s = p._src(); !p.l.is_closure_delegate() { s = sigil + s }
 	return
 }
 
 func (p *delegate) _src() (s string) { // source representation
 	switch x := p.x.(type) {
-	case   *def: s += x.name.String()
-	case *arrow: s += x.String()
+	case     *def: s += x.name.String()
+	case   *arrow: s += x.String()
+	case *project: s += "{."+x.name.String()+"}"
+	case     self: s += "{.self}"
 	default: if x != nil { s += x.String() }
 	}
 
@@ -25135,13 +25151,25 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			panic(too_many_diags{y})
 		}
 
-        pos, msg := p.position.String(), p.message
+		pos, msg := p.position.String(), p.message
 
-        if diagnostic_count_bytes {
-            d.flushed += len(pos) + len(msg)
-        } else {
-            d.flushed += 1
-        }
+		// THE DOD FIX: Protect diagPrompt!
+		// diagPrompt prints raw text and expects the payload to retain its own formatting.
+		// We only strip the duplicate prefix for Info/Warn/Error which prepend it manually.
+		if p.t != diagPrompt && strings.HasPrefix(msg, pos) {
+			msg = msg[len(pos):]
+			if strings.HasPrefix(msg, ": ") {
+				msg = msg[2:]
+			} else if strings.HasPrefix(msg, ":") {
+				msg = msg[1:]
+			}
+		}
+
+		if diagnostic_count_bytes {
+			d.flushed += len(pos) + len(msg)
+		} else {
+			d.flushed += 1
+		}
 
 		// if p.panic != nil { msg += fmt.Sprintf(": %v", p.panic) }
 
@@ -25159,16 +25187,16 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			}
 		}
 
-        if p.stack != nil {
-            fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
-            if diagnostic_count_bytes {
-                d.flushed += len(p.stack)
-            } else {
-                d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
-            }
-        }
-        return
-    }
+		if p.stack != nil {
+			fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
+			if diagnostic_count_bytes {
+				d.flushed += len(p.stack)
+			} else {
+				d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
+			}
+		}
+		return
+	}
 
 	for 0 < len(d.points) {
 		d.Lock()
@@ -25182,7 +25210,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
 		}
 	}
-    return
+	return
 }
 
 func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
@@ -34909,11 +34937,6 @@ func (ctx *__wildcard) project(p *project, pats ...Value) {
 					if checkpoints { if !__symIsAbs(dirSym) {
 						erro(ctx, "%v: !abs: %v → %v, %v", p.spec, ts(matchedDir,ctx), dirSym, searchVal)
 					}}
-
-					if searchSym.String() == "*.c" {
-						var proj = matchedFile.project
-						debug(ctx, "%v: %v %v %v %v %v %v", proj.name, matchedFile, argPat, matchedPat, searchVal, matchedDir, _project(ctx))
-					}
 
 					if isSearchPat {
 						ctx.directory(dirSym, searchVal)
