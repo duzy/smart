@@ -1044,7 +1044,7 @@ func internLocked(s string, h uint64) Symbol {
 	// 4. Register newly shredded strings into the fast-path map!
 	if meta.Kind() == SymSeq {
 		hSeq := hashSeq(vocab.sequences[meta.Idx])
-		vocab.seqsyms[h] = append(vocab.seqsyms[hSeq], sym)
+		vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
 	}
 	return sym
 }
@@ -5705,7 +5705,7 @@ func (p *compiler) rule_params(ctx Context, args []Value) (err error) {
 	// `ctx` captured the root scope before `openscope` was called. 
 	// By reading `p.scope` directly, we guarantee the parameters are 
 	// bound to the actively pushed local rule scope!
-	var s = p.scope //_scope(ctx)
+	var s = p.scope
 	for _, arg := range args {
 		var a *auto
 		switch t := arg.(type) {
@@ -7671,15 +7671,9 @@ func (p *compiler) braced_word(ctx Context) (res Value) {
 
 	p.expect(ctx, RBRACE)
 
-	switch len(elems) {
-	case 0:
-	case 1: return &word{valbase{pos}, __symbol(ctx, elems[0])}
-	default:
-		erro(ctx,
-			_f("too many word elements"),
-			callstack{num:10}, unwind{})
-	}
-	return &word{valbase{pos}, symEmpty}
+	var syms []Symbol
+	for _, elem := range elems { syms = append(syms, __symbol(ctx, elem)) }
+	return &word{valbase{pos}, __symJoinBy(symSpace, syms...)}
 }
 
 func (p *compiler) braced_words(ctx Context) (res Value) {
@@ -12840,12 +12834,12 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	y.build(&sb); sy = sb.String(); sb.Reset()
 	metaL := vocab.symetas[x]
 	metaR := vocab.symetas[y]
+	kL := metaL.Kind()
+	kR := metaR.Kind()
 
-	// THE DOD FIX 2: Concurrency Isolation!
-	// `vocab.numbers` MUST be accessed while the lock is still held, 
-	// protecting against concurrent slice reallocations.
-	kL, kR := metaL.Kind(), metaR.Kind()
-	if kL > 0 && kR > 0 {
+	// THE DOD FIX: Strict Numeric Guard
+	// Safely prevent SymSeq (3) and SymEph (4) from falling into the SymFlt trap!
+	if (kL == SymInt || kL == SymFlt) && (kR == SymInt || kR == SymFlt) {
 		if kL == SymInt { iL = int64(vocab.numbers[metaL.Idx]) } else { fL = math.Float64frombits(vocab.numbers[metaL.Idx]) }
 		if kR == SymInt { iR = int64(vocab.numbers[metaR.Idx]) } else { fR = math.Float64frombits(vocab.numbers[metaR.Idx]) }
 	}
@@ -16573,18 +16567,16 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 			}
 		}
 
-	// =================================================================
-	// THE DOD FIX: Lexical Evocation Shield!
-	// When a derived project evokes an inherited rule/variable, we MUST 
-	// supply the lexical boundaries of the defining base project!
-	// This ensures that variables like `&/` perfectly resolve to the base 
-	// project's absolute path, preventing the leaf project from poisoning it.
-	// =================================================================
-	// THE DOD FIX: Intercept Evocations!
-	// Inherited rules and targets must evaluate exactly where they were defined.
-	case absolute_path: return c.d.scope.project.absPath
-	case get_project: return c.d.scope.project
-	case get_scope: return c.d.scope
+	// THE DOD FIX: The Instance Evaluator!
+	// Force project and path queries to resolve against the derived caller
+	// (e.g. app.base) by explicitly extracting them from the caller's context (`c.Context`), 
+	// bypassing `autoload_ctx` and `c.d.scope` entirely!
+	case get_project: return _project(c.Context)
+	case absolute_path: return _project(c.Context).absPath
+	
+	// Keep get_scope returning the lexical scope (c.d.scope) so variable inheritance works, 
+	// or change to _scope(c.Context) if variables should also dynamically bind.
+	case get_scope: if false { return _scope(c.Context) } else { return c.d.scope }
 	}
 	return c.evocation.do(ctx, op)
 }
@@ -30176,7 +30168,7 @@ func (ctx *__origin) do(c Context, op any) any {
 func (ctx *__origin) x() (res any) {
     var vals []Value
     var scope = _scope(ctx)
-    for _, a := range ctx.a {
+    for _, a := range merge(ctx.a...) {
         if s := __symbol(ctx, a); s == symEmpty {
             vals = append(vals, _null(a.Pos()))
         } else if d := scope.finddef(s); d != nil {
