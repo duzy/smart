@@ -2261,7 +2261,7 @@ func __symbol(ctx Context, val Value) Symbol {
 	case *rule: return __symbol(ctx, v.target)
 	case *stemmed_rule: return __symbol(ctx, v.target)
 	case matched_rule: return __symbol(ctx, v.target)
-	case *strlit: return internSeq([]Symbol{symApostrophe,intern(v.s),symApostrophe})
+	case *strlit: return internSeq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
 	case *strval:
 		seq := []Symbol{symQuotation}
 		for _, v := range v.v { seq = append(seq, __symbol(ctx,v)) }
@@ -2270,6 +2270,10 @@ func __symbol(ctx Context, val Value) Symbol {
 		seq := []Symbol{symQuotation}
 		for _, v := range v.elems { seq = append(seq, __symbol(ctx,v)) }
 		return internSeq(append(seq, symQuotation))
+	case *compound:
+		seq := []Symbol{}
+		for _, v := range v.elems { seq = append(seq, __symbol(ctx,v)) }
+		return internSeq(seq)
 
 	// AST Numeric Types - Zero-Allocation Fast Paths
 	case *integer: // Base struct, in case the parser ever emits it directly
@@ -2906,13 +2910,25 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 	s.Lock()
 
 	var sym = intern(name)
-	if a, y := s.elems[sym]; !y || a == nil {
+	if a, ok := s.elems[sym]; !ok || a == nil {
 		d = new(def)
 		d.name, d.pos, d.scope = sym, _pos(ctx), s
 		s.elems[sym] = d
 		isNew = true
-	} else {
-		d, _ = a.(*def)
+	} else if d, ok = a.(*def); !ok {
+		// THE DOD FIX: Allow explicit variables (*def) to overwrite implicit automatic variables (*auto)!
+		if _, isAuto := a.(*auto); isAuto {
+			d = new(def)
+			d.name, d.pos, d.scope = sym, _pos(ctx), s
+			s.elems[sym] = d
+			isNew = true
+		} else {
+			s.Unlock()
+
+			// Safely catch other collisions (like *rule) and unwind!
+			erro(ctx, "symbol '%s' is already defined as %T, cannot redefine as a variable", sym, a)
+			return nil, false
+		}
 	}
 
 	s.Unlock()
@@ -5036,7 +5052,7 @@ func (p *compiler) foreach_done(ctx Context) {
 			var dps []*diag_point
 			if false && checkpoints {
 				dd = strings.HasSuffix(p.project.spec.String(), "testdata/template") ||
-					strings.HasSuffix(p.project.spec.String(), "testdata/template/foreach")
+					 strings.HasSuffix(p.project.spec.String(), "testdata/template/foreach")
 				if dd { for _, v := range vals { dps = append(dps, _f("%v", v)) } }
 			}
 
@@ -5430,14 +5446,23 @@ func (p parse_auto_ctx) do(ctx Context, op any) (_ any) {
 		}
 		return true // Legacy {auto} (no parens) acts as blanket acceptor
 
-	case find_auto: // bound autos
+	case get_auto: // bound autos
 		// Parse-time Currying: Answer the expansion engine instantly!
-		// Check whether your engine uses `t.s` or `t.name` in `find_auto`
+		// Check whether your engine uses `t.s` or `t.name` in `get_auto`
 		if v, ok := p.autos[t.s]; ok {
 			return &def{knownobject{objbase{}, t.s}, v, defVoid}
 		}		
 		// If it's an unbound argument (like a1), let it fall through 
 		// so `expand` freezes it as an AST node!
+
+	case set_auto:
+		if p.autos != nil {
+			if _, ok := p.autos[t.s]; ok {
+				p.autos[t.s] = t.v
+				// Return res_auto to satisfy modifier_var interceptor
+				return res_auto{nil, t.v} 
+			}
+		}
 	}
 	return p.Context.do(ctx, op)
 }
@@ -5635,7 +5660,7 @@ func (p *compiler) braced(ctx Context) (x Value) {
 			return x
 
 		case symSelf: // {self ...}
-			// TODO: return loc{self{ p.braced_project(ctx).(project) }}
+			return p.braced_self(ctx)
 
 		case symStr: // {str ...}, see $(string ...)
 			return p.braced_str(ctx)
@@ -7058,9 +7083,12 @@ func (p *parse_foreach_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
-    case find_auto: if t.s == symUnderscore { return p.a }
 	case is_auto_sym: if t.s == symUnderscore { return true }
 	case is_auto_preserved: if t.s == symUnderscore { return true }
+    case get_auto: if t.s == symUnderscore { return p.a }
+	case set_auto:
+		// Parse-time context does not hold runtime values.
+		// Let it safely fall through to the runtime `automatic` wrapper!
 	}
 	return p.Context.do(ctx, op)
 }
@@ -7079,10 +7107,13 @@ func (p *parse_grep_ctx) do(ctx Context, op any) (_ any) {
 		if p.a != nil {
 			if _, y := p.a[t.s]; y { return true }
 		}
-    case find_auto:
+    case get_auto:
 		if p.a != nil {
 			if x, y := p.a[t.s]; y { return x }
 		}
+	case set_auto:
+		// Parse-time context does not hold runtime values. 
+		// Let it safely fall through to the runtime execution wrapper!
 	case regex_subexp_auto:
 		p.a = map[Symbol]*auto{sym_0:&auto{knownobject{p.o, sym_0}}}
 		for i, name := range t.SubexpNames() {
@@ -7567,7 +7598,7 @@ func (f braced_foreach_ctx) do(c Context, o any) (_ any) {
     switch t := o.(type) {
 	case inner_cast: return f.Context
 	case dynamic_cast: return t.ctx(f, f.Context)
-    case find_auto:
+    case get_auto:
 		if t.s == symUnderscore {
 			var a *automatic
 			switch t := f.Context.(type) {
@@ -7578,6 +7609,19 @@ func (f braced_foreach_ctx) do(c Context, o any) (_ any) {
 				if _, y := a.defs[t.s]; !y {
 					return
 				}
+			}
+		}
+	case set_auto:
+		// THE DOD FIX: Intercept `$_` assignments inside `{foreach}` loops!
+		if t.s == symUnderscore {
+			var a *automatic
+			switch tCtx := f.Context.(type) {
+			case *automatic: a = tCtx
+			case *__foreach: a = &tCtx.automatic
+			}
+			if a != nil {
+				d, v := a.set(c, t.o, t.s, t.v)
+				return res_auto{d, v}
 			}
 		}
     }
@@ -7608,7 +7652,10 @@ valsloop:
 
 	var temps []Value
 	switch p.spaces(ctx); p.tok {
-	case RBRACE: return _null(p.pos)
+	case RBRACE:
+		// THE DOD FIX 1: Prevent token leaks!
+		// Do not return `_null(p.pos)` early. Let it fall through 
+		// to expect(RBRACE) to cleanly process the bodiless loop.
 	case COMMA:
 		for p.step(ctx); p.tok != RBRACE; {
 			p.spaces(ctx)
@@ -7636,9 +7683,22 @@ valsloop:
 			if recipe_start && p.tok == LINEND {
 				do(ctx, add_recipe_line{a})
 			} else {
-				va = append(va, a...)
+				// THE DOD FIX 2: Evaporate inner nulls!
+				// Filter out empty/null values generated by conditional loop bodies.
+				for _, item := range a {
+					if !isEmpty(item) {
+						va = append(va, item)
+					}
+				}
 			}
 		}
+	}
+
+	// THE DOD FIX 3: Evaporate empty loops!
+	// If the loop yielded nothing, return an empty list so it vanishes.
+	// Passing an empty slice to `ease()` would inject a `_null(pos)`!
+	if len(va) == 0 {
+		return &list{elements{}}
 	}
 	return ease(ctx, va)
 }
@@ -8010,6 +8070,44 @@ func (p *compiler) braced_path(ctx Context) (x Value) {
 	return
 }
 
+// resolve_project safely expands the name and searches both local and global universe caches.
+func (p *compiler) resolve_project(ctx Context, pos Pos, name Value) *project {
+	var specVal = expand(final{ctx}, name)
+	if specVal == nil { specVal = name }
+	targetSym := __symbol(ctx, specVal)
+
+	if targetSym == symEmpty {
+		erro(pc(ctx, pos), "empty project name")
+		return nil
+	}
+
+	// THE DOD FIX: 1. Current Active Project Match
+	// If the requested project is the one we are currently compiling, return it instantly!
+	if p.project != nil {
+		if targetSym == p.project.name || targetSym == p.project.spec {
+			return p.project
+		}
+		
+		// 2. Contextual Local Lookup (Dependencies / Sub-projects)
+		if p.project.projs != nil {
+			if proj, ok := p.project.projs[targetSym]; ok && proj != nil {
+				return proj
+			}
+		}
+	}
+
+	// 3. Global Universe Lookup
+	// If not found locally, resolve its absolute path and fetch it from the global cache!
+	abs, _ := p.search(ctx, targetSym)
+	if proj, ok := _universe(ctx).globe.loaded[abs]; ok && proj != nil {
+		return proj
+	}
+
+	erro(pc(ctx, pos), "project '%s' not found or loaded", targetSym)
+	return nil
+}
+
+// braced_project implements: {project <name>}
 func (p *compiler) braced_project(ctx Context) Value {
 	pos := p.pos
 	p.next(ctx, true) // consumes "project"
@@ -8018,32 +8116,24 @@ func (p *compiler) braced_project(ctx Context) Value {
 	p.spaces(ctx)
 	p.expect(ctx, RBRACE)
 
-	// Safely expand and extract the pure symbol (e.g., foo.bar.aaa.base)
-	var specVal = expand(final{ctx}, name)
-	if specVal == nil { specVal = name }
-	targetSym := __symbol(ctx, specVal)
-
-	if targetSym == symEmpty {
-		erro(pc(ctx, pos), "empty project name")
-		return &null{valbase{pos}}
-	}
-
-	// 1. Contextual Local Lookup
-	// Check if it's explicitly registered in the current project's scope.
-	if p.project != nil && p.project.projs != nil {
-		if proj, ok := p.project.projs[targetSym]; ok && proj != nil {
-			return &loc{proj, pos}
-		}
-	}
-
-	// 2. Global Universe Lookup
-	// If not found locally, resolve its absolute path and fetch it from the global cache!
-	abs, _ := p.search(ctx, targetSym)
-	if proj, ok := _universe(ctx).globe.loaded[abs]; ok && proj != nil {
+	if proj := p.resolve_project(ctx, pos, name); proj != nil {
 		return &loc{proj, pos}
 	}
+	return &null{valbase{pos}}
+}
 
-	erro(pc(ctx, pos), "project '%s' not found or loaded", targetSym)
+// braced_self implements: {self <name>}
+func (p *compiler) braced_self(ctx Context) Value {
+	pos := p.pos
+	p.next(ctx, true) // consumes "self"
+	p.spaces(ctx)
+	name := p.expr(ctx)
+	p.spaces(ctx)
+	p.expect(ctx, RBRACE)
+
+	if proj := p.resolve_project(ctx, pos, name); proj != nil {
+		return self{proj, pos} 
+	}
 	return &null{valbase{pos}}
 }
 
@@ -11140,6 +11230,12 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 			case ASSIGN_SUS: vals2 = append(vals1, vals2...) // -=+
 			}
 			d.value = ease(ctx, vals2)
+			if false && d.name.String() == "configure.heads" {
+				debug(pc(ctx,rhs),
+					_f("%v %v", vals1, vals2),
+					_f("%v", d.value),
+					trace_ctx{5}, callstack{num:5})
+			}
 		default:
 			erro(ctx, "unknown: %v %v %v", d.name, d.o, tok)
 		}
@@ -12372,6 +12468,7 @@ func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
 		debug(pc(ctx,val),
 			_f("%v: nil file : %v", val, ts(val,ctx)),
 			_f("%v → %v", val, expand(ctx,val)),
+			_f("%v", _scope(ctx)),
 			callstack{num:10}, unwind{})
 	}
 	return
@@ -16224,14 +16321,14 @@ func (c *evoke_ctx) do(ctx Context, op any) (_ any) {
 func expand(ctx Context, v Value) (res Value) {
 	switch t := v.(type) {
 	case *auto:
-		val := t.def(ctx)
-		if val == nil || isTrivial(val) {
+		if val := t.def(ctx); val == nil || isTrivial(val) {
 			// Unbound! Bubble the deferral state.
 			if truly(ctx, keep_autos{}) { do(ctx, act_defer_macro{}) }
 			return t // Return AST node because it's unbound
+		} else {
+			// THE DOD FIX: Preserve positional tracking for auto expansions!
+			return _loc(val, t.pos)
 		}
-		// THE DOD FIX: Preserve positional tracking for auto expansions!
-		return _loc(expand(ctx, val), t.Pos())
 
 	case *builtin:
 		// Polymorphic Configuration Bubbling
@@ -16558,13 +16655,32 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 	case inner_cast: return &c.evocation
 	case dynamic_cast: return t.ctx(c, &c.evocation)
 	case param_name: return nil // avoids program execution
-	case find_auto: // IsDigits(t.s.String())
+	case get_auto: // IsDigits(t.s.String())
 		if isSymKind(t.s, SymInt) {
 			if x, y := c.defs[t.s]; y {
 				return x
 			} else {
 				return nil
 			}
+		}
+	case set_auto:
+		// THE DOD FIX: Intercept `$1, $2, ...` assignments inside macros!
+		if isSymKind(t.s, SymInt) {
+			if c.defs == nil {
+				c.defs = make(map[Symbol]*def)
+			}
+			d, ok := c.defs[t.s]
+			if !ok {
+				// Initialize a new variable override for this macro run
+				d = new(def)
+				d.name = t.s
+				d.o = t.o
+				c.defs[t.s] = d
+			} else if t.o != defInvalid {
+				d.o = t.o
+			}
+			d.value = t.v
+			return res_auto{d, t.v}
 		}
 
 	// THE DOD FIX: The Instance Evaluator!
@@ -20424,7 +20540,7 @@ func ts(i any, o ...any) (s string) {
 	// THE DOD FIX: Safely tie node evaporation to the feature flag!
 	var evaporate bool 
 	switch i.(type) {
-	case *valbase, *loc, *xloc, slicer:
+	case *valbase, *loc, *xloc, self, slicer:
 		evaporate = evaporation // Only evaporate if the feature is enabled!
 	}
 
@@ -20486,10 +20602,18 @@ func ts(i any, o ...any) (s string) {
 		} else {
 			content = x.mark.String() + " " + ts(x.Context)
 		}
+	case    *automatic:
+		defs := x.defs.String()
+		if defs != "" { defs += " " }
+		content = defs + ts(x.Context)
 	case    *evocation:
 		defs := x.defs.String()
 		if defs != "" { defs += " " }
 		content = x.x.String() + " | " + defs + ts(x.Context)
+	case    *execution:
+		var s string
+		if v := x.prerequisite; v != nil { s = v.String() + " "	}
+		content = s + ts(x.Context)
 	case     *delegate:
 		content = ts(x.x, barrier)
 		if x.o != nil { content += " " + ts(x.o, barrier) }
@@ -20965,7 +21089,7 @@ func (m def_map) String() (s string) {
 
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
-type find_auto struct{ s Symbol }
+type get_auto struct{ s Symbol }
 type set_auto  struct{ o origin; s Symbol; v Value }
 type res_auto  struct{ d *def; v Value }
 type automatic struct{
@@ -20973,11 +21097,6 @@ type automatic struct{
 	sync.RWMutex
 	defs def_map
 	params map[Symbol]*auto
-}
-func (ac *automatic) ts(t string) string {
-	s := ac.defs.String()
-	if s != "" { s += " " }
-	return "{"+t+" "+s+ts(ac.Context)+"}"
 }
 func (ac *automatic) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
@@ -20987,7 +21106,7 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 		if t.automatic == nil {
 			panic("automatic.init_args")
 		}
-	case find_auto:
+	case get_auto:
 		if d, _ := ac.defs[t.s]; d != nil {
 			return d
 		}
@@ -20998,7 +21117,7 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 	return ac.Context.do(ctx, op)
 }
 func (ac *automatic) amend(ctx Context, name Symbol, val Value) (out *def, res Value) {
-	if d, _ := ac.do(ctx, find_auto{name}).(*def); d == nil {
+	if d, _ := ac.do(ctx, get_auto{name}).(*def); d == nil {
 		return ac.set(ctx, defVoid, name, val)
 	} else if res = d.value; d.value != val {
 		out, d.value = d, val
@@ -21106,7 +21225,7 @@ func (ac *automatic) args(ctx Context, vals []Value) {
 }
 
 func auto_find(ctx Context, name Symbol) (d *def) {
-	d, _ = do(ctx, find_auto{name}).(*def)
+	d, _ = do(ctx, get_auto{name}).(*def)
 	return
 }
 
@@ -22732,7 +22851,7 @@ type project struct { // A project is a Logical DAG.
 	opt project_opts
 }
 
-type project_ctx struct{ Context ; p *project }
+type project_ctx struct { Context ; p *project }
 func (c project_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return c.Context
@@ -23615,17 +23734,6 @@ func (p *execution) do(ctx Context, op any) (res any) {
     return p.automatic.do(ctx, op)
 }
 
-func (p *execution) ts(t string) (s string) {
-    s = "{" + t
-    if v := p.prerequisite; v != nil {
-        s += " " + v.String()
-    }
-    s += " " + ts(p.Context) + "}"
-	return
-}
-
-func (p *execution) aquire() func() { p.Lock() ; return p.Unlock }
-
 func (p *execution) depth() (res int) {
     for c := p.caller(); c != nil; c = c.caller() { res += 1 }
     return
@@ -24282,7 +24390,7 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
 }
 
 func (prog *program) execute(_ctx Context) (res Value) {
-    var exe = &execution{
+    exe := &execution{
         automatic:automatic{Context:_ctx, defs:make(def_map)},
         recs:make(map[Value]int), start:time.Now(), prog:prog,
         proj:prog.project, recipes:prog.recipes, language:prog.language,
@@ -25207,8 +25315,29 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
 func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
 
+type in_debug struct{} 
+type debug_ctx struct{ Context }
+
+func (c debug_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case inner_cast: return c.Context
+	case dynamic_cast: return t.ctx(c, c.Context)
+	case in_debug: return true // Signal that we are already debugging!
+	}
+	return c.Context.do(ctx, op)
+}
+
 var _debug_m sync.Mutex
 func debug(ctx Context, f any, a ...any) *diagpoint {
+	// THE DOD FIX: Goroutine-safe Re-entrancy Guard!
+	// If this context chain is already inside a debug call, short-circuit immediately.
+	if truly(ctx, in_debug{}) {
+		panic("nesting debug")
+	}
+
+	// Wrap the context so downstream evaluations know we are logging
+	ctx = debug_ctx{ctx}
+	
 	_debug_m.Lock(); defer _debug_m.Unlock()
 
 	var unwound = false
@@ -25313,7 +25442,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			}
 
 			if e := _entry(c); e != nil {
-				if t, _, _ := entryIndicator(c, e); t == "" {
+				if t := e.String(); t == "" {// if t, _, _ := entryIndicator(c, e)
 					str += ": " + ident(ctx, e)
 				} else {
 					str += ": " + t
@@ -27019,7 +27148,6 @@ func (ctx *modifier_env) x(args ...Value) (result any) {
 type modifier_var struct { modifier_ }
 func (ctx *modifier_var) x(args ...Value) any {
 	for _, arg := range args {
-		// 1. ONE-LINE EXTRACTION! __symbol natively handles *pair keys, *words, and dynamic nodes.
 		sym := __symbol(ctx, arg)
 
 		if sym == symEmpty {
@@ -27028,21 +27156,26 @@ func (ctx *modifier_var) x(args ...Value) any {
 		}
 
 		var value Value
+
 		switch a := arg.(type) {
 		case *pair:
 			if x, y := a.val.(*group); y {
 				value = x.list()
 			} else {
-				// CRITICAL: Do NOT expand here. Store the raw AST node (e.g., $(file $(a).c))
 				value = a.val
 			}
 		default:
-			// For *word or any dynamically resolved identifier, assign _null
 			value = _null(arg.Pos())
 		}
 
-		// Re-bind the raw node into the local runtime scope using the native Symbol!
-		_scope(ctx).def(ctx, defVoid, sym, value)
+		// THE DOD FIX: Write to the Rule Traverse Scope!
+		// Try to inject the variable into the dynamic execution context first.
+		if res := do(ctx, set_auto{defVoid, sym, value}); res == nil {
+			// Fallback: Re-bind into the local lexical scope
+			_scope(ctx).def(ctx, defVoid, sym, value)
+		}
+
+		// Successfully stored in the rule traverse scope!
 	}
 	return nil
 }
