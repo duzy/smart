@@ -2261,11 +2261,12 @@ func __symbol(ctx Context, val Value) Symbol {
 	case *rule: return __symbol(ctx, v.target)
 	case *stemmed_rule: return __symbol(ctx, v.target)
 	case matched_rule: return __symbol(ctx, v.target)
-	case *strlit: return internSeq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
+	case *strlit:
+		return internSeq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
 	case *strval:
-		seq := []Symbol{symQuotation}
+		seq := []Symbol{symLbrace}
 		for _, v := range v.v { seq = append(seq, __symbol(ctx,v)) }
-		return internSeq(append(seq, symQuotation))
+		return internSeq(append(seq, symRbrace))
 	case *strcomp:
 		seq := []Symbol{symQuotation}
 		for _, v := range v.elems { seq = append(seq, __symbol(ctx,v)) }
@@ -3066,7 +3067,7 @@ const (
 	RAW      // raw strings
 	ESCAPE   // \", \\n, etc. (see value.EscapeChar)
 	STRING   // 'abc'
-	STRVAL   // {abc}
+	STRVAL   // {abc} {= a b c}
 	STRCOMP  // "abc $(foo) 123"
 	// _literal_end
 
@@ -22573,11 +22574,6 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 	return hit_segs{c, ss}
 }
 
-func _tokq(ctx Context, c *valcache, t *qualword) hit_segs {
-	// 1. unpack(t) correctly interleaves the dots: [word(foo), punct(.), word(c)]
-	// 2. Wrap it in a temporary compound so tokc can natively extract the hit_segs!
-	return tokc(ctx, c, &compound{elements{unpack(t)}})	// Let the universal flattener safely interleave the structural dots!
-}
 func tokq(ctx Context, c *valcache, t *qualword) hit_segs {
 	// Interleave punct(.) on the fly so it hits the cache edges correctly
 	res := make([]Value, 0, len(t.elems)*2-1)
@@ -22594,30 +22590,78 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 		if !truly(ctx, propCache|propUncache) { erro(ctx, "%v %v", k, c, callstack{num:10}) }
 	}(c.String())}
 
+	var fallbackSemantic bool
+	var prefix, suffix, inner Symbol
+
 	switch t := k.(type) {
 	case *argumented: return _hit(ctx, c, t.Value)
 	case *loc       : return _hit(ctx, c, t.Value)
 	case *rule      : return _hit(ctx, c, t.target)
-	case *closure   : return do_hit(&fullctx{ctx,t}, toks(ctx, c, "&")) // Return directly to avoid duplication
 	case *compound  : r = do_hit(&fullctx{ctx,t}, tokc(ctx, c, t))
 	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
 	case *path      : r = do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
-	case *qualword  : r = do_hit(&fullctx{ctx,t}, tokq(ctx, c, t)) // CRITICAL FIX: Route qualword to tokq
-	case *percpat   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
-	case *regexpat  : r = do_hit(&fullctx{ctx,t}, toks(ctx, c))
-	case *strval    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `{`+__string(ctx,t)+`}`))
-	case *strlit    : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `'`+__string(ctx,t.s)+`'`))
-	case *strcomp   : r = do_hit(&fullctx{ctx,t}, toks(ctx, c, `"`+__string(ctx,t)+`"`))
+	
+	case *closure:
+		return do_hit(&fullctx{ctx,t}, hit_segs{c, [][]Symbol{{symAmpersand}}})
+	
+	case *percpat, *regexpat:
+		r = do_hit(&fullctx{ctx,t}, hit_segs{c, nil})
+
+	case *strlit:
+		prefix, suffix, inner = symApostrophe, symApostrophe, intern(t.s)
+		fallbackSemantic = true
+	case *strval:
+		var seq []Symbol
+		for _, v := range t.v { seq = append(seq, __symbol(ctx, v)) }
+		prefix, suffix, inner = symLbrace, symRbrace, internSeq(seq)
+		fallbackSemantic = true
+	case *strcomp:
+		var seq []Symbol
+		for _, v := range t.elems { seq = append(seq, __symbol(ctx, v)) }
+		prefix, suffix, inner = symQuotation, symQuotation, internSeq(seq)
+		fallbackSemantic = true
+	case *qualword:
+		if r = do_hit(&fullctx{ctx,t}, tokq(ctx, c, t)); len(r) > 0 {
+			return r 
+		}
+		fallbackSemantic = true
 	default:
-		segs := strings.Split(__string(ctx, k), pathSep)
-		r = do_hit(&fullctx{ctx,t}, toks(ctx, c, segs...))
+		fallbackSemantic = true
 	}
 
-	// Universal Closure Inclusion: For any non-recursive query, unconditionally
-	// fetch the dynamic closures branch ("&") and append it to the results.
-	if false { r = append(r, do_hit(&fullctx{ctx, k}, toks(ctx, c, "&"))...) }
+	if fallbackSemantic {
+		var sym = inner
+		if sym == symEmpty { sym = __symbol(ctx, k) }
+		if sym != symEmpty {
+			var matrix [][]Symbol
+
+			if prefix != symEmpty { matrix = append(matrix, []Symbol{prefix}) }
+
+			for _, s := range __symSplit(sym, symSlash) {
+				if s != symEmpty {
+					for i, d := range __symSplit(s, symDot) {
+						if i > 0 {
+							matrix = append(matrix, []Symbol{symDot})
+						}
+						if d != symEmpty {
+							matrix = append(matrix, []Symbol{d})
+						}
+					}
+				}
+			}
+
+			if suffix != symEmpty { matrix = append(matrix, []Symbol{suffix}) }
+
+			r = do_hit(&fullctx{ctx, k}, hit_segs{c, matrix})
+		}
+	}
+
+	if false { 
+		r = append(r, do_hit(&fullctx{ctx, k}, hit_segs{c, [][]Symbol{{symAmpersand}}})...) 
+	}
 	return r
 }
+
 func do_hit(c Context, a any) (r []*valcache) { r, _ = do(c,a).([]*valcache); return }
 func hit(ctx Context, c *valcache, k Value) []*valcache { return _hit(ctx, c, k) }
 
@@ -22738,20 +22782,22 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	var u = &uncache_t{ctx, nil}
 	var k Value
 
-	if v, ok := key.(Value); ok {
+	// THE DOD FIX: Semantic Repacking!
+	// If the key is a dynamic AST node (like a *qualword containing a *file),
+	// but it isn't a glob pattern, it will fail to traverse the structural cache.
+	// We extract the pure semantic string and repack it as a *path to guarantee a cache hit.
+	v, isValue := key.(Value)
+	if isValue {
 		k = v
-	} else {
-		str := __string(ctx, key)
+	} else if s := __string(ctx, key); strings.Contains(s, pathSep) {
 		// Emulate the parser: if the raw string is a path, pack it into a *path AST node.
-		if strings.Contains(str, pathSep) {
-			if segs := splitPathStr(ctx, str); len(segs) > 1 {
-				k = packPath(segs)
-			} else {
-				k = _rw(_pos(ctx), str)
-			}
+		if segs := splitPathStr(ctx, s); len(segs) > 1 {
+			k = packPath(segs)
 		} else {
-			k = _rw(_pos(ctx), str)
+			k = _rw(_pos(ctx), s)
 		}
+	} else {
+		k = _rw(_pos(ctx), s)
 	}
 
 	var x = hit(u, c, k)
@@ -23033,6 +23079,21 @@ func select_file(ctx Context, m []matched_filemap) (res *file) {
 
 func (p *project) file(ctx Context, a any) *file {
     return select_file(ctx, unmap_files(ctx, p, a, nil))
+}
+
+func (p *project) file1(ctx Context, a any) *file {
+	// 1. Try to resolve via project file mappings
+	if f := select_file(ctx, unmap_files(ctx, p, a, nil)); f != nil {
+		return f
+	}
+	
+	// 2. THE DOD FIX: Unmapped Fallback!
+	// If the file is not mapped to any specific directory via globs, 
+	// forcefully create/retrieve its VFS node relative to the project root!
+	if sym := __symbol(ctx, a.(Value)); sym != symEmpty {
+		return _stat(ctx, sym, stat_dir{p.absPath}, stat_nonexist{true})
+	}
+	return nil
 }
 
 func (p *project) tempdir(ctx Context) (d *def, s string) {
@@ -34651,17 +34712,6 @@ func (ctx *__file) x() any {
 	var res []Value
 	var proj = _project(ctx)
 	for _, a := range merge(ctx.a...) {
-		if checkpoints {
-			if s := a.String(); strings.Contains(s, "{}") || strings.HasSuffix(s, ".x") {
-				debug(pc(ctx,a), _f("%v", a),
-					_f("a: %v", _scope(ctx).resolve(intern("a"))),
-					_f("s: %v", _scope(ctx).resolve(intern("s"))),
-					_f("x: %v", _scope(ctx).resolve(intern("x"))),
-					_f("o: %v", _scope(ctx).resolve(intern("o"))),
-					_f("@: %v", _scope(ctx).resolve(symAt)),
-					callstack{num:16}, unwind{})
-			}
-		}
 		if x, y := to_file(a); y {
 			if !ctx.exists || x.exists() /* || x.stat(ctx) != nil */ {
 				res = append(res, try_fullfile(ctx, x))
@@ -34671,14 +34721,13 @@ func (ctx *__file) x() any {
 			continue
 		}
 
-		var mapped = select_files(ctx, unmap_files(ctx, proj, a, nil))
+		var matched = unmap_files(ctx, proj, a, nil)
+		var mapped = select_files(ctx, matched)
 
-		// CRITICAL FIX: If the string maps to no physical files, but the file
-		// is not strictly required to exist, forcefully retrieve/create its VFS node!
+		// If the string maps to no physical files, but the file is not strictly
+		// required to exist, forcefully retrieve/create its VFS node!
 		if len(mapped) == 0 && !ctx.exists {
-			if f := proj.file(ctx, a); f != nil {
-				mapped = []*file{f}
-			}
+			debug(ctx, "%v %v %v", __symbol(ctx,a), a, ts(a,ctx))
 		}
 
 		for _, f := range mapped {
