@@ -2083,7 +2083,6 @@ func __symPathRel(base, path Symbol) Symbol {
 }
 
 // __symPath natively converts a flat Symbol (or SymSeq) into a structural *path AST node.
-// It relies entirely on __symSplit to natively unroll and re-intern directory segments.
 func __symPath(pos Pos, sym Symbol) Value {
 	if sym == symEmpty {
 		return nil
@@ -19771,9 +19770,11 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			// THE DOD FIX: The Infinite Loop Shield!
 			// If __symPath found no slashes, it returns a *word. 
 			// We MUST abort recursion to prevent a stack overflow!
-			if _, isWord := unpacked.(*word); !isWord {
-				return match(ctx, unpacked, val)
-			}
+			if _, isWord := unpacked.(*word); !isWord { return match(ctx, unpacked, val) }
+		}
+	case *raw:
+		if strings.Contains(p.s, pathSep) {
+			return match(ctx, __symPath(p.pos, intern(p.s)), val)
 		}
 	}
 
@@ -19795,6 +19796,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			if _, isWord := unpacked.(*word); !isWord {
 				return match(ctx, pat, unpacked)
 			}
+		}
+	case *raw:
+		if strings.Contains(v.s, pathSep) {
+			return match(ctx, pat, __symPath(v.pos, intern(v.s)))
 		}
 	}
 
@@ -22757,21 +22762,23 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 			// nodes (*word, *raw), causing valcache.matchPayload to reject perfect trie hits!
 			// We MUST only repack messy dynamic composites (like *qualword) that the cache doesn't understand.
 			switch k.(type) {
-			case *raw, *strlit:
-				// Leave pure static strings completely untouched!
-			case *word, *file, *barefile:
-				// These nodes often hold dynamic, fused OS paths. 
+			case *strlit, *strcomp, *strval:
+				// Leave strings completely untouched!
+			case *word:
+				// These nodes can harbor dynamic, shredded OS paths (e.g., from shell evals).
 				// We unroll them natively, but ONLY overwrite `k` if they physically 
-				// contain slashes (returning a *path). This preserves the strict 
-				// pointer/Pos identity of pure atomic words!
+				// contain slashes (returning a *path). This safely upgrades fused paths
+				// while flawlessly preserving the pointer/type identity of pure atomic nodes!
 				if unpacked := __symPath(k.Pos(), sym); unpacked != nil {
 					if _, isWord := unpacked.(*word); !isWord {
 						k = unpacked
 					}
 				}
 			default:
-				// Repack dynamic composites into normalized *path/*word, preserving original Pos
-				k = __symPath(k.Pos(), sym)
+				// Messy dynamic composites (*qualword, *strcomp) are always fully repacked
+				if unpacked := __symPath(k.Pos(), sym); unpacked != nil {
+					k = unpacked
+				}
 			}
 
 			// Effortlessly routes pure paths through the exact same matrix builder
@@ -22905,22 +22912,18 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	var u = &uncache_t{ctx, nil}
 	var k Value
 
-	// THE DOD FIX: Semantic Repacking!
-	// If the key is a dynamic AST node (like a *qualword containing a *file),
-	// but it isn't a glob pattern, it will fail to traverse the structural cache.
-	// We extract the pure semantic string and repack it as a *path to guarantee a cache hit.
-	v, isValue := key.(Value)
-	if isValue {
+	if v, isValue := key.(Value); isValue {
 		k = v
-	} else if s := __string(ctx, key); strings.Contains(s, pathSep) {
-		// Emulate the parser: if the raw string is a path, pack it into a *path AST node.
-		if segs := splitPathStr(ctx, s); len(segs) > 1 {
-			k = packPath(segs)
-		} else {
-			k = _rw(_pos(ctx), s)
-		}
 	} else {
-		k = _rw(_pos(ctx), s)
+		// THE DOD FIX: Native Symbol-Domain Repacking!
+		// `key` is not an AST Value (likely a raw string). Extract it, intern it 
+		// to jump into the Symbol Domain, and let __symPath unroll it flawlessly!
+		s, pos := __string(ctx, key), _pos(ctx)
+		if s != "" {
+			k = __symPath(pos, intern(s))
+		} else {
+			k = &valbase{pos}
+		}
 	}
 
 	var x = hit(u, c, k)
