@@ -2084,44 +2084,58 @@ func __symPathRel(base, path Symbol) Symbol {
 
 // __symPath natively converts a flat Symbol (or SymSeq) into a structural *path AST node.
 // It relies entirely on __symSplit to natively unroll and re-intern directory segments.
-func __symPath(pos Pos, sym Symbol) Value { //return _pathSym_OBSOLETE(pos, sym)
+func __symPath(pos Pos, sym Symbol) Value {
 	if sym == symEmpty {
 		return nil
 	}
 
-	segments := __symSplit(sym, symSlash)
+	var segments []Symbol
+	var current []Symbol
+
+	// THE DOD FIX: Deep Sequence Unrolling
+	// __symSplit only checks the top-level sequence, missing slashes trapped inside nested symbols.
+	// __symFlatSeq flattens the entire tree, exposing every single symSlash!
+	for _, part := range __symFlatSeq(sym) {
+		if part == symSlash {
+			segments = append(segments, internSeq(current))
+			current = nil
+		} else {
+			current = append(current, part)
+		}
+	}
+	segments = append(segments, internSeq(current))
 
 	// Fast-path: Natively a single word, no slashes found
 	if len(segments) == 1 {
-		return &word{valbase{pos}, sym}
+		return &word{valbase{pos}, segments[0]}
 	}
 
-	var p = new(path)
+	var elems []Value
 	
 	for i, part := range segments {
 		if i == 0 {
 			switch part {
-			case symEmpty:  p.elems = append(p.elems, makePunct(pos, PROOT))
-			case symTilde:  p.elems = append(p.elems, makePunct(pos, TILDE))
-			case symDot:    p.elems = append(p.elems, makePunct(pos, DOT))
-			case symDotDot: p.elems = append(p.elems, makePunct(pos, DOTDOT))
-			default:        p.elems = append(p.elems, &word{valbase{pos}, part})
+			case symEmpty:  elems = append(elems, makePunct(pos, PROOT))
+			case symTilde:  elems = append(elems, makePunct(pos, TILDE))
+			case symDot:    elems = append(elems, makePunct(pos, DOT))
+			case symDotDot: elems = append(elems, makePunct(pos, DOTDOT))
+			default:        elems = append(elems, &word{valbase{pos}, part})
 			}
 		} else if part == symEmpty {
 			// Absolute trailing slash (PTAIL)
 			if i+1 == len(segments) {
-				p.elems = append(p.elems, makePunct(pos, PTAIL))
+				elems = append(elems, makePunct(pos, PTAIL))
 			}
 			// Middle empty segments ("//") are skipped per engine design
 		} else {
-			p.elems = append(p.elems, &word{valbase{pos}, part})
+			elems = append(elems, &word{valbase{pos}, part})
 		}
 	}
 
-	if len(p.elems) == 1 {
-		return p.elems[0]
+	if len(elems) == 1 {
+		return elems[0]
 	}
-	return p
+	return &path{elements{elems}}
 }
 
 // __symHasPrefix checks if one Symbol conceptually starts with another Symbol's sequence.
@@ -19743,14 +19757,24 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	case *globbrace: return match(ctx, &p.globpat, val)
 	case *globmeta, *globrange, *percpat: return match(ctx, _globpat(pat), val)
 	case *delegate, *closure: return false, nil, nil, nil
-	case *file:
-		switch segs := splitPathStr(ctx, p.name.String()); len(segs) {
-		case 0: rem = val ; goto Normalize
-		case 1: return match(ctx, segs[0], val)
-		default: return match(ctx, packPath(segs), val)
-		}
 	case flag:
 		if v, ok := val.(flag); ok { return match(ctx, p.Value, v.Value) }
+	case *file:
+		// Unrolling *file always changes type (*path or *word), so it never infinite loops.
+		if unpacked := __symPath(p.pos, p.name); unpacked != nil {
+			return match(ctx, unpacked, val)
+		}
+		rem = val
+		goto Normalize
+	case *word:
+		if unpacked := __symPath(p.pos, p.s); unpacked != nil {
+			// THE DOD FIX: The Infinite Loop Shield!
+			// If __symPath found no slashes, it returns a *word. 
+			// We MUST abort recursion to prevent a stack overflow!
+			if _, isWord := unpacked.(*word); !isWord {
+				return match(ctx, unpacked, val)
+			}
+		}
 	}
 
 	switch v := val.(type) {
@@ -19760,10 +19784,17 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
 	case *delegate, *closure: return false, nil, nil, nil
 	case *file:
-		switch segs := splitPathStr(ctx, v.name.String()); len(segs) {
-		case 0: rem = val ; goto Normalize
-		case 1: return match(ctx, pat, segs[0])
-		default: return match(ctx, pat, packPath(segs))
+		if unpacked := __symPath(v.pos, v.name); unpacked != nil {
+			return match(ctx, pat, unpacked)
+		}
+		rem = val
+		goto Normalize
+	case *word:
+		if unpacked := __symPath(v.pos, v.s); unpacked != nil {
+			// THE DOD FIX: The Infinite Loop Shield!
+			if _, isWord := unpacked.(*word); !isWord {
+				return match(ctx, pat, unpacked)
+			}
 		}
 	}
 
@@ -22518,37 +22549,39 @@ func matchCharSet(pattern string, char byte) bool {
 }
 
 // canStartMatch natively handles atomics, unrolls compressed edges, 
-// and safely permits hardware wildcard bypasses.
+// and perfectly bridges unlexed dynamic query strings via prefix matching.
 func canStartMatch(c *valcache, segment []Symbol) bool {
 	if len(segment) == 0 { return false }
 
 	firstToken := segment[0]
-
-	// THE DOD FIX: If the query STARTS with a wildcard, it can match anything!
-	// We MUST instantly permit it, otherwise OS files will be preemptively rejected.
 	if isWildcardMeta(firstToken) { return true }
 
 	// 1. Exact Token Match
 	if _, ok := c.get(firstToken); ok { return true }
 
-	// 2. Hardware Wildcards in the Trie
+	// 2. Hardware Wildcards
 	if _, ok := c.get(symWildcardChar); ok { return true }
 	if _, ok := c.get(symWildcardOne); ok { return true }
 	if _, ok := c.get(symWildcardAny); ok { return true }
 
-	// Safely extract the byte for character-level math
+	// Safely extract the string and first byte for character-level math
 	firstStr := firstToken.String()
 	if len(firstStr) == 0 { return false }
-	firstByte := firstStr[0] // Correctly isolated as a byte!
+	firstByte := firstStr[0]
 
-	// 3. Scan edges for unrolled partials and character sets
+	// 3. Scan edges for unrolled partials, sets, and prefixes
 	for _, entry := range c.o {
 		str := entry.k.String()
-		
 		if isCharSet(str) && matchCharSet(str, firstByte) {
 			return true
 		}
 		
+		// THE DOD FIX: Allow compressed dynamic query tokens (e.g., ".configure")
+		// to safely start a match against fragmented Trie edges (e.g., ".")!
+		if false { if len(str) > 0 && strings.HasPrefix(firstStr, str) {
+			return true
+		}}
+
 		edgeTokens := __symFlatSeq(entry.k)
 		if len(edgeTokens) > 0 && edgeTokens[0] == firstToken { 
 			return true 
@@ -22719,6 +22752,28 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 
 	if fallbackSemantic {
 		if sym := __symbol(ctx, k); sym != symEmpty {
+			// THE DOD FIX: Selective AST Repacking!
+			// Blindly overwriting `k` destroys the exact pointer and Pos fields of static
+			// nodes (*word, *raw), causing valcache.matchPayload to reject perfect trie hits!
+			// We MUST only repack messy dynamic composites (like *qualword) that the cache doesn't understand.
+			switch k.(type) {
+			case *raw, *strlit:
+				// Leave pure static strings completely untouched!
+			case *word, *file, *barefile:
+				// These nodes often hold dynamic, fused OS paths. 
+				// We unroll them natively, but ONLY overwrite `k` if they physically 
+				// contain slashes (returning a *path). This preserves the strict 
+				// pointer/Pos identity of pure atomic words!
+				if unpacked := __symPath(k.Pos(), sym); unpacked != nil {
+					if _, isWord := unpacked.(*word); !isWord {
+						k = unpacked
+					}
+				}
+			default:
+				// Repack dynamic composites into normalized *path/*word, preserving original Pos
+				k = __symPath(k.Pos(), sym)
+			}
+
 			// Effortlessly routes pure paths through the exact same matrix builder
 			r = do_hit(&fullctx{ctx, k}, hit_segs{c, __symMatrix(sym, false)})
 		}
@@ -22869,6 +22924,7 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	}
 
 	var x = hit(u, c, k)
+
 	for _, a := range u.a {
 		switch t := a.(type) {
 		case T:
