@@ -207,8 +207,15 @@ const (
 	symRbrace       // }
 	symLbrack       // [
 	symRbrack       // ]
+	symLtopcorner   // ⌜
+	symLbotcorner   // ⌞
+	symLsingguil    // ‹
+	symLguillemet   // «
+	symRguillemet   // »
+	symRsingguil    // ›
+	symRbotcorner   // ⌟
+	symRtopcorner   // ⌝
 	symHash         // #
-
 	symEqualSign    //  =   ASSIGN
 	symUnshiSign    //  =+  ASSIGN_USH
 	symAddeqSign    // +=   ASSIGN_ADD
@@ -657,7 +664,7 @@ var coreSymbols = []string{
 
 	// --- *START* punctuations ---
 	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/", "//", `\`, `\\`,
-	"(", ")", "{", "}", "[", "]", "#", "=", "=+", "+=",
+	"(", ")", "{", "}", "[", "]", "⌜","⌞","‹","«","»","›","⌟","⌝", "#","=", "=+", "+=",
 
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
@@ -1274,7 +1281,7 @@ func internSeq(seq []Symbol) Symbol {
 	return sym
 }
 
-func getSymSeq(sym Symbol) (seq []Symbol) {
+func __symSeq(sym Symbol) (seq []Symbol) {
 	vocab.RLock()
 	meta := vocab.symetas[sym]
 	if meta.Kind() == SymSeq {
@@ -1284,6 +1291,77 @@ func getSymSeq(sym Symbol) (seq []Symbol) {
 	}
 	vocab.RUnlock()
 	return
+}
+
+// __symFlatSeq recursively flattens a Symbol into a 1D slice of atomic leaf symbols.
+// It optimizes lock contention by acquiring the vocabulary read lock exactly once.
+func __symFlatSeq(sym Symbol) []Symbol {
+	if sym == symEmpty {
+		return nil
+	}
+
+	var flatten func(Symbol, []Symbol) []Symbol
+	flatten = func(s Symbol, acc []Symbol) []Symbol {
+		if meta := vocab.symetas[s]; meta.Kind() == SymSeq {
+			for _, p := range vocab.sequences[meta.Idx] {
+				if p != symEmpty {
+					acc = flatten(p, acc)
+				}
+			}
+			return acc
+		}
+		// Atomic leaf symbol
+		return append(acc, s)
+	}
+
+	// Pre-allocate a small capacity (e.g., 4 or 8) to completely eliminate 
+	// the first few append() reallocation cycles!
+	seq := make([]Symbol, 0, 4)
+	
+	vocab.RLock()
+	seq = flatten(sym, seq)
+	vocab.RUnlock()
+
+	return seq
+}
+
+// __symMatrix is the pristine 2D trie edge builder.
+// It forwards tokenized Symbol sequences natively, bypassing string parsing completely.
+func __symMatrix(sym Symbol, isGlob bool) [][]Symbol {
+	var matrix [][]Symbol
+	var current []Symbol
+
+	for _, part := range __symFlatSeq(sym) {
+		if part == symEmpty {
+			continue
+		}
+
+		// 1. Directory Boundary: Start a new outer slice!
+		if part == symSlash {
+			if len(current) > 0 {
+				matrix = append(matrix, current)
+				current = nil
+			}
+			continue
+		}
+
+		// 2. Native Glob Normalization: `**` + `.` becomes `**` + `*` + `.`
+		if isGlob && part == symDot {
+			if len(current) > 0 && current[len(current)-1] == symWildcardAny {
+				// Kept strictly in the same inner slice!
+				current = append(current, symWildcardOne, symDot)
+				continue
+			}
+		}
+
+		// 3. Append atomic tokens natively
+		current = append(current, part)
+	}
+
+	if len(current) > 0 {
+		matrix = append(matrix, current)
+	}
+	return matrix
 }
 
 // mixBytes continuous FNV-1a fold
@@ -1475,7 +1553,7 @@ func __symIsAbs(sym Symbol) bool {
 		return false
 	}
 
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 	if len(seq) == 0 {
 		return false
 	}
@@ -1505,7 +1583,7 @@ func __symIsAbs(sym Symbol) bool {
 
 // __symDir returns the directory portion of a Symbol as a new Symbol.
 func __symDir(sym Symbol) Symbol {
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 
 	// Scan backwards for the last symSlash
 	for i := len(seq) - 1; i >= 0; i-- {
@@ -1521,7 +1599,7 @@ func __symDir(sym Symbol) Symbol {
 
 // __symBase returns the file name portion of a Symbol as a new Symbol.
 func __symBase(sym Symbol) Symbol {
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash {
@@ -1740,7 +1818,7 @@ func __symNBase(n int, sym Symbol) Symbol {
 // then slices the string natively to guarantee zero heap allocations.
 func __symExt(sym Symbol) Symbol {
 	if sym == symEmpty { return symEmpty }
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash { break } // Stop searching at directory boundary
 		if seq[i] == symDot {
@@ -1764,13 +1842,13 @@ func __symJoinBy(sep Symbol, syms ...Symbol) Symbol {
 	var sepSeq []Symbol
 	
 	if sep != symEmpty {
-		sepSeq = getSymSeq(sep)
+		sepSeq = __symSeq(sep)
 		cap += len(sepSeq) * (len(syms) - 1)
 	}
 
 	for _, sym := range syms {
 		if sym != symEmpty {
-			cap += len(getSymSeq(sym))
+			cap += len(__symSeq(sym))
 		}
 	}
 
@@ -1782,7 +1860,7 @@ func __symJoinBy(sep Symbol, syms ...Symbol) Symbol {
 			out = append(out, sepSeq...)
 		}
 		if sym != symEmpty {
-			out = append(out, getSymSeq(sym)...)
+			out = append(out, __symSeq(sym)...)
 		}
 	}
 	
@@ -1799,7 +1877,7 @@ func __symPathJoin(syms ...Symbol) Symbol {
 	// First pass: Calculate capacity and strict absoluteness
 	for _, sym := range syms {
 		if sym != symEmpty {
-			seq := getSymSeq(sym)
+			seq := __symSeq(sym)
 			cap += len(seq) + 1 // +1 for potential slashes
 			
 			// CRITICAL FIX: Only the first valid sequence determines absoluteness!
@@ -1818,7 +1896,7 @@ func __symPathJoin(syms ...Symbol) Symbol {
 
 	for _, sym := range syms {
 		if sym == symEmpty { continue }
-		seq := getSymSeq(sym)
+		seq := __symSeq(sym)
 
 		var segStart = 0
 		for i := 0; i <= len(seq); i++ {
@@ -1905,12 +1983,12 @@ func __symPathRel(base, path Symbol) Symbol {
 		return symDot
 	}
 
-	baseSeq := getSymSeq(base)
+	baseSeq := __symSeq(base)
 	if len(baseSeq) == 1 && baseSeq[0] == symDot {
 		baseSeq = nil // Treat "." as an empty sequence to properly count segments
 	}
 	
-	pathSeq := getSymSeq(path)
+	pathSeq := __symSeq(path)
 	if len(pathSeq) == 1 && pathSeq[0] == symDot {
 		pathSeq = nil
 	}
@@ -2004,11 +2082,53 @@ func __symPathRel(base, path Symbol) Symbol {
 	return internSeq(out)
 }
 
+// __symPath natively converts a flat Symbol (or SymSeq) into a structural *path AST node.
+// It relies entirely on __symSplit to natively unroll and re-intern directory segments.
+func __symPath(pos Pos, sym Symbol) Value { //return _pathSym_OBSOLETE(pos, sym)
+	if sym == symEmpty {
+		return nil
+	}
+
+	segments := __symSplit(sym, symSlash)
+
+	// Fast-path: Natively a single word, no slashes found
+	if len(segments) == 1 {
+		return &word{valbase{pos}, sym}
+	}
+
+	var p = new(path)
+	
+	for i, part := range segments {
+		if i == 0 {
+			switch part {
+			case symEmpty:  p.elems = append(p.elems, makePunct(pos, PROOT))
+			case symTilde:  p.elems = append(p.elems, makePunct(pos, TILDE))
+			case symDot:    p.elems = append(p.elems, makePunct(pos, DOT))
+			case symDotDot: p.elems = append(p.elems, makePunct(pos, DOTDOT))
+			default:        p.elems = append(p.elems, &word{valbase{pos}, part})
+			}
+		} else if part == symEmpty {
+			// Absolute trailing slash (PTAIL)
+			if i+1 == len(segments) {
+				p.elems = append(p.elems, makePunct(pos, PTAIL))
+			}
+			// Middle empty segments ("//") are skipped per engine design
+		} else {
+			p.elems = append(p.elems, &word{valbase{pos}, part})
+		}
+	}
+
+	if len(p.elems) == 1 {
+		return p.elems[0]
+	}
+	return p
+}
+
 // __symHasPrefix checks if one Symbol conceptually starts with another Symbol's sequence.
 func __symHasPrefix(sym, prefix Symbol) bool {
 	if sym == prefix { return true }
 	if prefix == symEmpty { return true }
-	return isSeqPrefix(getSymSeq(sym), getSymSeq(prefix))
+	return isSeqPrefix(__symSeq(sym), __symSeq(prefix))
 }
 
 // __symHasSuffix performs a zero-allocation lexical suffix check on Walled Garden IDs.
@@ -2017,8 +2137,8 @@ func __symHasSuffix(sym, suffix Symbol) bool {
 	if sym == suffix { return true }
 	if suffix == symEmpty { return true }
 
-	symSeq := getSymSeq(sym)
-	sufSeq := getSymSeq(suffix)
+	symSeq := __symSeq(sym)
+	sufSeq := __symSeq(suffix)
 
 	if len(sufSeq) > len(symSeq) { return false }
 
@@ -2036,8 +2156,8 @@ func __symTrimPrefix(sym, prefix Symbol) Symbol {
 	if sym == prefix { return symEmpty }
 	if prefix == symEmpty { return sym }
 
-	symSeq := getSymSeq(sym)
-	preSeq := getSymSeq(prefix)
+	symSeq := __symSeq(sym)
+	preSeq := __symSeq(prefix)
 
 	if len(preSeq) > len(symSeq) { return sym }
 
@@ -2054,8 +2174,8 @@ func __symTrimSuffix(sym, suffix Symbol) Symbol {
 	if sym == suffix { return symEmpty }
 	if suffix == symEmpty { return sym }
 
-	symSeq := getSymSeq(sym)
-	sufSeq := getSymSeq(suffix)
+	symSeq := __symSeq(sym)
+	sufSeq := __symSeq(suffix)
 
 	if len(sufSeq) > len(symSeq) { return sym }
 
@@ -2072,7 +2192,7 @@ func __symTrimSuffix(sym, suffix Symbol) Symbol {
 // (Note: Corrected to 1 argument to match filepath logic)
 func __symTrimExt(sym Symbol) Symbol {
 	if sym == symEmpty { return symEmpty }
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash { break } // Stop searching at directory boundary
 		if seq[i] == symDot {
@@ -2092,7 +2212,7 @@ func __symSplit(sym Symbol, sep Symbol) (res []Symbol) {
 		return []Symbol{symEmpty} 
 	}
 
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 
 	// 2. Exact Capacity Calculation
 	cap := 1
@@ -2134,8 +2254,8 @@ func __symContains(sym Symbol, sep Symbol) bool {
 	if sep == symEmpty { return true }
 	if sym == symEmpty { return false }
 
-	seq := getSymSeq(sym)
-	sepSeq := getSymSeq(sep)
+	seq := __symSeq(sym)
+	sepSeq := __symSeq(sep)
 
 	// --- SEQUENCE SUB-MATCH (Pure Integer Math) ---
 	// If `sep` was also shredded into multiple tokens (e.g., "dir/file"),
@@ -2188,7 +2308,7 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 	}
 
 	var segs []Value
-	seq, start := getSymSeq(sym), 0
+	seq, start := __symSeq(sym), 0
 
 	for i := 0; i <= len(seq); i++ {
 		if i == len(seq) || seq[i] == symSlash {
@@ -2275,6 +2395,22 @@ func __symbol(ctx Context, val Value) Symbol {
 		seq := []Symbol{}
 		for _, v := range v.elems { seq = append(seq, __symbol(ctx,v)) }
 		return internSeq(seq)
+	case *qualword:
+		seq := []Symbol{}
+		for i, v := range v.elems {
+			if i > 0 { seq = append(seq, symDot) } // Interleave the dot natively!
+			seq = append(seq, __symbol(ctx, v))
+		}
+		return internSeq(seq)
+	case *list:
+		// THE DOD FIX: Support for list expansion inside composite nodes!
+		// A list like `⌜.s1 .s2⌟` must evaluate its children and join them with spaces.
+		seq := []Symbol{symLtopcorner} // ⌜
+		for i, e := range v.elems {
+			if i > 0 { seq = append(seq, symSpace) } // Explicitly join with space!
+			seq = append(seq, __symbol(ctx, e))
+		}
+		return internSeq(append(seq, symRbotcorner)) // ⌟
 
 	// AST Numeric Types - Zero-Allocation Fast Paths
 	case *integer: // Base struct, in case the parser ever emits it directly
@@ -2325,14 +2461,14 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *boolean: return []Symbol{_if(t.bool,symTrue,symFalse)}
 	case *prediction: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *option: return []Symbol{_if(t.bool,symOn,symOff)}
-	case *word: return getSymSeq(t.s)
-	case *auto: return getSymSeq(t.name)
-	case *def: return getSymSeq(t.name)
-	case *file: return getSymSeq(t.name)
-	case *uselist: return getSymSeq(t.name)
-	case *builtin: return getSymSeq(t.name)
-	case *project: return getSymSeq(t.name)
-	case self: return getSymSeq(t.project.name)
+	case *word: return __symSeq(t.s)
+	case *auto: return __symSeq(t.name)
+	case *def: return __symSeq(t.name)
+	case *file: return __symSeq(t.name)
+	case *uselist: return __symSeq(t.name)
+	case *builtin: return __symSeq(t.name)
+	case *project: return __symSeq(t.name)
+	case self: return __symSeq(t.project.name)
 
 	case *integer: // Base struct, in case the parser ever emits it directly
 		var s Symbol
@@ -2460,13 +2596,13 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 		return symbolize_delegate(symDollarSign, t)
 	case *strlit:
         // Semantic Equality: 'foo' (strlit) == foo (word)
-		// getSymSeq unpacks the hologram into a flat []Symbol slice
-		return getSymSeq(intern(t.s))
+		// __symSeq unpacks the hologram into a flat []Symbol slice
+		return __symSeq(intern(t.s))
 	case *raw:
 		// FIXME: a raw value may store strings from p.Stdout.Buf.String()!
         // Semantic Equality: "foo" (raw) == foo (word)
 		// TODO: symbolize_string(trivial_ctx{t.pos}, t.s)
-		return getSymSeq(intern(t.String()))
+		return __symSeq(intern(t.String()))
 	}
     return
 }
@@ -10806,7 +10942,7 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 		return
 	}
 
-	seq := getSymSeq(spec)
+	seq := __symSeq(spec)
 	if len(seq) == 0 {
 		return
 	}
@@ -11857,7 +11993,7 @@ func (p *compiler) loadPlugin(ctx Context) {
 	if g == nil { return /* smart.go was not presented */ }
 
 	srcSym := g.fullname() 
-	relSeq := getSymSeq(p.project.rel)
+	relSeq := __symSeq(p.project.rel)
 	cleanRelSym := p.project.rel
 
 	// 1. Zero-Allocation `..` Replacement
@@ -14486,13 +14622,13 @@ func (p *path) String() (s string) {
 }
 func (p *path) isAbs() bool { x, y := p.elems[0].(*punct); return y && x.token == PROOT }
 func _pathStr(ctx Context, str string) *path { return &path{elements{splitPathStr(ctx, str)}} }
-func _pathSym(pos Pos, sym Symbol) Value {
+func _pathSym_OBSOLETE(pos Pos, sym Symbol) Value { // NOTE: OBSOLETED by __symPath!!
 	if sym == symEmpty {
 		return nil
 	}
 
 	// A path symbol is a flatten sequence, e.g. [foobar / a . def . am]
-	seq := getSymSeq(sym)
+	seq := __symSeq(sym)
 	if len(seq) == 0 {
 		return _word(pos, sym)
 	}
@@ -14868,15 +15004,15 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 	// THE DOD FIX: Use `__symIsAbs` instead of `filepath.IsAbs(X.String())`
 	if __symIsAbs(name) {
 		fullname = name
-		fullSeq := getSymSeq(fullname)
-		dirSeq  := getSymSeq(dir)
+		fullSeq := __symSeq(fullname)
+		dirSeq  := __symSeq(dir)
 
 		if dir != symEmpty && isSeqPrefix(fullSeq, dirSeq) && len(fullSeq) > len(dirSeq) && fullSeq[len(dirSeq)] == symSlash {
 			tailSeq := fullSeq[len(dirSeq)+1:]
 			if sub == symEmpty {
 				name = internSeq(tailSeq)
 			} else {
-				subSeq := getSymSeq(sub)
+				subSeq := __symSeq(sub)
 				if isSeqPrefix(tailSeq, subSeq) && len(tailSeq) > len(subSeq) && tailSeq[len(subSeq)] == symSlash {
 					name = internSeq(tailSeq[len(subSeq)+1:])
 				}
@@ -14893,8 +15029,8 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 			sub = symEmpty
 		} else {
 			if __symHasPrefix(sub, dir) {
-				dirSeq := getSymSeq(dir)
-				subSeq := getSymSeq(sub)
+				dirSeq := __symSeq(dir)
+				subSeq := __symSeq(sub)
 
 				if len(subSeq) > len(dirSeq) && subSeq[len(dirSeq)] == symSlash {
 					sub = internSeq(subSeq[len(dirSeq)+1:])
@@ -20775,6 +20911,35 @@ func _rw(pos Pos, s string) Value {
 	}
 	return &raw{valbase{pos}, s}
 }
+func _rw1(pos Pos, s string) Value {
+	if s == "" { return &valbase{pos} }
+	
+	// Fast path: strings under 64 bytes are interned as *word.
+	if len(s) < 64 {
+		var ok bool
+		var sym Symbol
+		h := hashStr(s)
+		vocab.RLock()
+		for _, sym = range vocab.strsyms[h] {
+			if ok = symEqualsStringLocked(sym, s); ok { break }
+		}
+		vocab.RUnlock()
+		
+		// If found in vocab, return the word immediately.
+		if ok { 
+			return &word{valbase{pos}, sym} 
+		}
+
+		// THE DOD FIX: Force dynamic interning!
+		// If patsubst generates a new path segment (e.g., "__cxxabi_config.h"), 
+		// we MUST explicitly intern it here to guarantee it becomes a *word, 
+		// ensuring perfect AST parity with statically parsed paths!
+		return &word{valbase{pos}, intern(s)}
+	}
+	
+	// Extremely long strings (>= 64 bytes) are kept as raw to avoid polluting the intern map.
+	return &raw{valbase{pos}, s}
+}
 
 func makeDate(pos Pos, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
 func makeTime(pos Pos, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
@@ -22105,18 +22270,11 @@ func cache(ctx Context, c *valcache, ss [][]Symbol) *valcache {
 func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 	seen := make(map[*valcache]bool)
 	seenShadows := make(map[*valcache]struct{})
-	seenAmpNodes := make(map[*valcache]struct{}) // Query-level & edge lock
-	var shadowsToSearch []*valcache              // Queue to defer shadow searches
+	seenAmpNodes := make(map[*valcache]struct{})
+	var shadowsToSearch []*valcache
 
-	// =================================================================
-	// THE DOD FIX: The Memoization Shield!
-	// We encode the exact state of the recursive descent into a struct.
-	// If `f0` reaches the same Trie node `c` with the same string indices 
-	// `i, j, k`, we instantly return the cached result, instantly pruning 
-	// catastrophic backtracking (ReDoS) from O(N^M) down to O(N * M)!
-	// =================================================================
 	type matchState struct {
-		c *valcache
+		c       *valcache
 		i, j, k int
 	}
 	memoEvaluated := make(map[matchState]struct{})
@@ -22136,41 +22294,34 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 	f0 = func(c *valcache, ss [][]Symbol, i, j, k int) (found bool) {
 		if c == nil { return false }
 
-		// =================================================================
-		// THE DOD FIX: Intercept & Cache State
-		// =================================================================
 		state := matchState{c, i, j, k}
-		if _, ok := memoEvaluated[state]; ok {
-			return memoResult[state] // Return cached boolean result!
-		}
+		if _, ok := memoEvaluated[state]; ok { return memoResult[state] }
 		
-		// Guarantee the result is permanently cached when this branch finishes
 		defer func() {
 			memoEvaluated[state] = struct{}{}
 			memoResult[state] = found
 		}()
 
-		// 1. Success Condition
 		if i == len(ss) { return fullmatch(c) }
-
-		// 2. Segment Boundary
 		if j == len(ss[i]) { return f0(c, ss, i+1, 0, 0) }
 
 		s := ss[i][j]
-		sStr := s.String() // Retrieve the string representation for character-level math
+		
+		// THE DOD OPTIMIZATION: Lazy string evaluation!
+		// We only pull the string from the vocab array if character-math is actually needed.
+		var sStr string
+		getSStr := func() string {
+			if sStr == "" { sStr = s.String() }
+			return sStr
+		}
 
-		// 3. Token Boundary
-		if k == len(sStr) { return f0(c, ss, i, j+1, 0) }
+		// If k > 0, we must have evaluated sStr already.
+		if k > 0 && k == len(getSStr()) { return f0(c, ss, i, j+1, 0) }
 
-		// ---------------------------------------------------------------------
-		// DYNAMIC CLOSURE SHADOWING
-		// ---------------------------------------------------------------------
 		var doDynamicClosureShadowing func()
 		if x, y := c.get(symAmpersand); !y { doDynamicClosureShadowing = func() {} } else {
 			doDynamicClosureShadowing = func() {
-				// CRITICAL FIX: Lock the specific '&' edge!
 				if _, ok := seenAmpNodes[x]; ok { return } else { seenAmpNodes[x] = struct{}{} }
-
 				if proj := _project(ctx); proj != nil {
 					for _, payload := range x.a {
 						if shadow := proj.shadow(ctx, payload); shadow != nil {
@@ -22185,55 +22336,47 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 		}
 		if priorDynamicClosureShadowing { doDynamicClosureShadowing() }
 
-		// 4. Input Wildcard (Integer Switching!)
+		// Wildcards bypass strings completely
 		switch s {
-		case symWildcardOne: // "*"
+		case symWildcardOne: 
 			for _, entry := range c.o {
-				if f0(entry.v, ss, i, j, 0) { found = true } // Greedy Consume (Trie)
+				if f0(entry.v, ss, i, j, 0) { found = true } 
 			}
-			if f0(c, ss, i, j+1, 0) { found = true } // Stop (Consume Input)
+			if f0(c, ss, i, j+1, 0) { found = true } 
 			return found
 
-		case symWildcardShort: // "*?"
-			if f0(c, ss, i, j+1, 0) { found = true } // Stop (Non-Greedy)
+		case symWildcardShort: 
+			if f0(c, ss, i, j+1, 0) { found = true } 
 			for _, entry := range c.o {
-				if f0(entry.v, ss, i, j, 0) { found = true } // Continue
+				if f0(entry.v, ss, i, j, 0) { found = true } 
 			}
 			return found
 
-		case symWildcardAny: // "**"
+		case symWildcardAny: 
 			for _, entry := range c.o {
-				if f0(entry.v, ss, i, j, 0) { found = true } // Greedy Consume
+				if f0(entry.v, ss, i, j, 0) { found = true } 
 			}
-			if f0(c, ss, i, j+1, 0) { found = true } // Stop
+			if f0(c, ss, i, j+1, 0) { found = true } 
 			return found
 
-		case symWildcardChar: // "?"
+		case symWildcardChar: 
 			for _, entry := range c.o {
 				keyStr := entry.k.String()
-				// Match Literal or Set
 				if (len(keyStr) == 1 && !isWildcardMeta(entry.k)) || (len(keyStr) > 2 && keyStr[0] == '[') {
 					if f0(entry.v, ss, i, j+1, 0) { found = true }
 				}
-				// Match Trie Wildcards (*, **, *?)
 				if isWildcardMeta(entry.k) {
-					if f0(entry.v, ss, i, j+1, 0) { found = true } // Stop
-					if f0(c, ss, i, j+1, 0) { found = true }       // Continue
+					if f0(entry.v, ss, i, j+1, 0) { found = true } 
+					if f0(c, ss, i, j+1, 0) { found = true }       
 				}
 			}
 			return found
 		}
 
-		// ---------------------------------------------------------------------
-		// 5. TRIE WILDCARD LOGIC
-		// ---------------------------------------------------------------------
-
-		// A. Compressed Node Match
-		if k == 0 && (len(ss[i]) > 1 || s == symWildcardChar) {
+		// A. Compressed Node Match (z? vs zz)
+		if k == 0 && (len(ss[i])-j > 1 || s == symWildcardChar) {
 			for _, entry := range c.o {
-				if isWildcardMeta(entry.k) { continue }
-
-				// Assumes consumeCompressed has been updated to take (Symbol, []Symbol)
+				if isWildcardMeta(entry.k) || entry.k == s { continue }
 				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
 					if f0(entry.v, ss, i, j+n, 0) { found = true }
 				}
@@ -22241,26 +22384,27 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 		}
 
 		// B. Literal / Prefix Match
-		if k < len(sStr) {
+		if k == 0 {
+			// THE ULTIMATE SYMBOL FAST PATH: 1-Cycle Map Lookup!
+			if x, y := c.get(s); y && !isWildcardMeta(s) && s != symWildcardChar {
+				if f0(x, ss, i, j+1, 0) { found = true }
+			}
+		}
+
+		if k < len(getSStr()) {
+			str := getSStr()
 			for _, entry := range c.o {
 				key := entry.k
 				if isWildcardMeta(key) || key == symWildcardChar { continue }
-
-				// OPTIMIZATION: 1-Cycle Exact Integer Match Bypass
-				if k == 0 && key == s {
-					if f0(entry.v, ss, i, j+1, 0) { found = true }
-					continue
-				}
+				if k == 0 && key == s { continue } // Fast path already handled it!
 
 				keyStr := key.String()
-
 				if len(keyStr) > 2 && keyStr[0] == '[' {
-					if matchCharSet(keyStr, sStr[k]) {
+					if matchCharSet(keyStr, str[k]) {
 						if f0(entry.v, ss, i, j, k+1) { found = true }
 					}
-				} else if len(keyStr) > 0 { // Literal partial prefix match
-					if strings.HasPrefix(sStr[k:], keyStr) {
-						// Advance k by the length of the matched prefix.
+				} else if len(keyStr) > 0 { 
+					if strings.HasPrefix(str[k:], keyStr) {
 						if f0(entry.v, ss, i, j, k+len(keyStr)) { found = true }
 					}
 				}
@@ -22268,52 +22412,43 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 		}
 
 		// D. Trie Wildcards
-
 		if x, y := c.get(symWildcardChar); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
 
-		// Handle "*" (WildcardOne) in Trie
 		if x, y := c.get(symWildcardOne); y {
-			if f0(x, ss, i, j, k) { found = true }          // Transition (Match 0)
+			if f0(x, ss, i, j, k) { found = true }          
 
 			nextJ, nextK := j, k+1
-			if nextK == len(sStr) { nextJ++; nextK = 0 }
+			if nextK == len(getSStr()) { nextJ++; nextK = 0 }
 
 			if nextJ < len(ss[i]) {
-				if f0(c, ss, i, nextJ, nextK) { found = true } // Consume (Match 1+)
+				if f0(c, ss, i, nextJ, nextK) { found = true } 
 			} else {
-				if f0(x, ss, i, nextJ, nextK) { found = true } // End of Segment
+				if f0(x, ss, i, nextJ, nextK) { found = true } 
 			}
 		}
 
-		// Handle "*?" (WildcardShort) in Trie
 		if x, y := c.get(symWildcardShort); y {
-			if f0(x, ss, i, j, k) { found = true }          // Transition (Match 0) - Prioritized
+			if f0(x, ss, i, j, k) { found = true }          
 
 			nextJ, nextK := j, k+1
-			if nextK == len(sStr) { nextJ++; nextK = 0 }
+			if nextK == len(getSStr()) { nextJ++; nextK = 0 }
 
-			if f0(c, ss, i, nextJ, nextK) { found = true }  // Consume (Match 1+)
+			if f0(c, ss, i, nextJ, nextK) { found = true }  
 		}
 
-		// Handle "**" (WildcardAny) in Trie
 		if x, y := c.get(symWildcardAny); y {
-			if f0(c, ss, i+1, 0, 0) { found = true }      // Consume Segment - Prioritized
-			if f0(x, ss, i, j, k) { found = true }        // Transition (Match 0)
+			if f0(c, ss, i+1, 0, 0) { found = true }      
+			if f0(x, ss, i, j, k) { found = true }        
 		}
 
-		// ---------------------------------------------------------------------
-		// DYNAMIC CLOSURE SHADOWING
-		// ---------------------------------------------------------------------
 		if !priorDynamicClosureShadowing { doDynamicClosureShadowing() }
 		return found
 	}
 
-	// 1. Traverse the Static Trie and collect all static matches
 	f0(root, ss, 0, 0, 0)
 
-	// 2. Flush the queue: Traverse the Discovered Shadow Tries
 	for _, shadow := range shadowsToSearch {
 		f0(shadow, ss, 0, 0, 0)
 	}
@@ -22321,33 +22456,43 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 	return
 }
 
-// Helper to instantly identify meta symbols (O(1) CPU cycles)
+// Helper to instantly and safely identify ALL meta symbols
 func isWildcardMeta(sym Symbol) bool {
-	return sym >= symWildcardOne && sym <= symWildcardShort
+	return sym == symWildcardAny || sym == symWildcardOne || sym == symWildcardShort || sym == symWildcardChar
 }
 
-// Returns number of tokens consumed (n) and success (ok).
+func isCharSet(str string) bool {
+	// Fast heuristic check for [a-z] format
+	return len(str) >= 3 && str[0] == '[' && str[len(str)-1] == ']'
+}
+
+// consumeCompressed perfectly matches a multi-token Trie edge against the matrix array.
+// Operates exclusively via Symbol ID equivalence and zero-allocation prefix slicing.
 func consumeCompressed(nodeKey Symbol, tokens []Symbol) (int, bool) {
 	keyStr := nodeKey.String()
 	keyIdx, tokIdx := 0, 0
 
 	for keyIdx < len(keyStr) {
-		if tokIdx >= len(tokens) { return 0, false } // Not enough tokens
+		if tokIdx >= len(tokens) { return 0, false } 
 
 		tSym := tokens[tokIdx]
-
-		// If input has complex wildcards, abort optimization (let recursion handle it)
-		if tSym == symWildcardAny || tSym == symWildcardOne { return 0, false }
-
-		if tSym == symWildcardChar { // "?"
-			keyIdx++ // Consumes 1 char of nodeKey
-			tokIdx++ // Consumes 1 token
-			continue
+		
+		// Safely handle hardware wildcards embedded in the query
+		if isWildcardMeta(tSym) {
+			if tSym == symWildcardChar { // "?" consumes exactly 1 byte
+				keyIdx++ 
+				tokIdx++ 
+				continue
+			}
+			// Complex wildcards (**, *) cannot be consumed as compressed literals
+			return 0, false 
 		}
 
 		tStr := tSym.String()
 
-		// Literal Match (e.g. tStr="z" matches keyStr="zz" at index 0)
+		// Optimization: Instantly fail if token is larger than the remaining Trie edge
+		if len(tStr) > len(keyStr)-keyIdx { return 0, false }
+
 		if strings.HasPrefix(keyStr[keyIdx:], tStr) {
 			keyIdx += len(tStr)
 			tokIdx++
@@ -22355,13 +22500,10 @@ func consumeCompressed(nodeKey Symbol, tokens []Symbol) (int, bool) {
 			return 0, false
 		}
 	}
-	// Must consume exactly the whole nodeKey
 	return tokIdx, true
 }
 
-// No changes required! Call this using the string extracted by the caller.
 func matchCharSet(pattern string, char byte) bool {
-	// Simplified parser for [a-z0-9]
 	inner := pattern[1 : len(pattern)-1]
 	for i := 0; i < len(inner); i++ {
 		if i+2 < len(inner) && inner[i+1] == '-' {
@@ -22375,33 +22517,41 @@ func matchCharSet(pattern string, char byte) bool {
 	return false
 }
 
+// canStartMatch natively handles atomics, unrolls compressed edges, 
+// and safely permits hardware wildcard bypasses.
 func canStartMatch(c *valcache, segment []Symbol) bool {
 	if len(segment) == 0 { return false }
 
 	firstToken := segment[0]
 
-	// 1. Fast Path: Check exact full-token match natively using integer hashing
+	// THE DOD FIX: If the query STARTS with a wildcard, it can match anything!
+	// We MUST instantly permit it, otherwise OS files will be preemptively rejected.
+	if isWildcardMeta(firstToken) { return true }
+
+	// 1. Exact Token Match
 	if _, ok := c.get(firstToken); ok { return true }
 
-	// 2. Hardware Wildcards
+	// 2. Hardware Wildcards in the Trie
 	if _, ok := c.get(symWildcardChar); ok { return true }
 	if _, ok := c.get(symWildcardOne); ok { return true }
+	if _, ok := c.get(symWildcardAny); ok { return true }
 
+	// Safely extract the byte for character-level math
 	firstStr := firstToken.String()
 	if len(firstStr) == 0 { return false }
+	firstByte := firstStr[0] // Correctly isolated as a byte!
 
-	// 3. Scan edges for partial matches and sets (Bypasses speculative interning!)
-	firstByte := firstStr[0]
+	// 3. Scan edges for unrolled partials and character sets
 	for _, entry := range c.o {
-		keyStr := entry.k.String()
-		if len(keyStr) == 0 { continue }
-
-		// Check for 1-char partial prefix match natively
-		if keyStr[0] == firstByte { return true }
-
-		// Check character sets [a-z]
-		if keyStr[0] == '[' && matchCharSet(keyStr, firstByte) {
+		str := entry.k.String()
+		
+		if isCharSet(str) && matchCharSet(str, firstByte) {
 			return true
+		}
+		
+		edgeTokens := __symFlatSeq(entry.k)
+		if len(edgeTokens) > 0 && edgeTokens[0] == firstToken { 
+			return true 
 		}
 	}
 
@@ -22465,95 +22615,62 @@ func (p *fullctx) do(ctx Context, op any) any {
 	return p.Context.do(ctx, op)
 }
 
-// toks handles pure string splitting. We intercept the string here BEFORE it
-// hits tokenizeSegments, ensuring "**.c" natively compiles as "**/*.c".
-func toks(ctx Context, c *valcache, segs ...string) hit_segs {
-	var norm []string
-	for _, seg := range segs {
-		// Option 1: Normalize intra-string path closures
-		if strings.Contains(seg, "**.") {
-			norm = append(norm, strings.ReplaceAll(seg, "**.", "**/*."))
-		} else {
-			norm = append(norm, seg)
-		}
-	}
-
-	// CRITICAL FIX: tokenizeSegments was upgraded to return [][]Symbol natively.
-	// We no longer need to loop and intern manually here!
-	return hit_segs{c, tokenizeSegments(norm)}
-}
-
-// tokc delegates to toks, so it automatically inherits the normalization
-// applied above when prefix is evaluated.
+// tokc aggregates symbols up to a closure, then builds the matrix natively.
 func tokc(ctx Context, c *valcache, comp *compound) hit_segs {
-	var prefix string
+	var seq []Symbol
 	for _, e := range comp.elems {
 		if _, isClosure := unbox(e).(*closure); isClosure {
-			var ss [][]Symbol
-			if prefix != "" {
-				ss = append(ss, toks(ctx, c, prefix).s...)
+			var matrix [][]Symbol
+			if len(seq) > 0 {
+				matrix = __symMatrix(internSeq(seq), false)
 			}
-			ss = append(ss, []Symbol{symAmpersand}) // Integer injection!
-			return hit_segs{c, ss}
+			matrix = append(matrix, []Symbol{symAmpersand}) // Native closure injection!
+			return hit_segs{c, matrix}
 		}
-		prefix += __string(ctx, e)
+		seq = append(seq, __symbol(ctx, e))
 	}
-	if prefix != "" { return toks(ctx, c, prefix) }
+	if len(seq) > 0 {
+		return hit_segs{c, __symMatrix(internSeq(seq), false)}
+	}
 	return hit_segs{c, nil}
 }
 
+// tokg aggregates symbols and natively applies glob normalizations.
 func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
-	var s []Symbol // Now an array of Symbols!
-
-	for i, e := range g.elems {
+	var seq []Symbol
+	for _, e := range g.elems {
 		if _, isClosure := unbox(e).(*closure); isClosure {
-			var ss [][]Symbol
-			if len(s) > 0 { ss = append(ss, s) }
-			ss = append(ss, []Symbol{symAmpersand})
-			return hit_segs{c, ss}
-		}
-
-		str := __string(ctx, e)
-
-		if strings.Contains(str, "**.") {
-			str = strings.ReplaceAll(str, "**.", "**/*.")
-		}
-
-		// Intern the single glob element (e.g. "**", "foo", "bar")
-		s = append(s, intern(str))
-
-		if str == "**" && i+1 < len(g.elems) {
-			nextStr := __string(ctx, g.elems[i+1])
-			if nextStr == "." || strings.HasPrefix(nextStr, ".") {
-				// Inject the pre-interned wildcard directly!
-				s = append(s, symWildcardOne)
+			var matrix [][]Symbol
+			if len(seq) > 0 {
+				matrix = __symMatrix(internSeq(seq), true) // isGlob = true!
 			}
+			matrix = append(matrix, []Symbol{symAmpersand})
+			return hit_segs{c, matrix}
 		}
+		
+		// By appending to the sequence and letting __symMatrix handle the dot-splits,
+		// `**.` normalization is natively captured across sequence boundaries!
+		seq = append(seq, __symbol(ctx, e))
 	}
-	return hit_segs{c, [][]Symbol{s}}
+	if len(seq) > 0 {
+		return hit_segs{c, __symMatrix(internSeq(seq), true)}
+	}
+	return hit_segs{c, nil}
 }
 
-// tokp natively delegates to tokc/tokg/toks, so it requires no normalization logic of its own.
+// tokp natively delegates to tokc/tokg, and handles generic elements via __symMatrix.
 func tokp(ctx Context, c *valcache, p *path) hit_segs {
-	var ss [][]Symbol // CRITICAL FIX: Changed from [][]string
-
-	if false && checkpoints { defer func() {
-		if t := tokenizePath(__string(ctx, p)); sf("%s",ss) != sf("%s",t) {
-			erro(ctx, "%v: %v != %v", p, ss, t)
-		}
-	}()}
+	var ss [][]Symbol
 
 	for _, e := range p.elems {
 		switch t := unbox(e).(type) {
 		case *closure:
-			ss = append(ss, []Symbol{symAmpersand}) // CRITICAL FIX: Changed from "&"
+			ss = append(ss, []Symbol{symAmpersand})
 			return hit_segs{c, ss}
 
 		case *compound:
 			res := tokc(ctx, c, t)
 			ss = append(ss, res.s...)
-
-			// CRITICAL FIX: Compare against SymClosure, not "&"
 			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == symAmpersand {
 				return hit_segs{c, ss}
 			}
@@ -22561,26 +22678,17 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 		case *globpat:
 			res := tokg(ctx, c, t)
 			ss = append(ss, res.s...)
-
-			// CRITICAL FIX: Compare against SymClosure, not "&"
 			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == symAmpersand {
 				return hit_segs{c, ss}
 			}
 
 		default:
-			ss = append(ss, toks(ctx, c, __string(ctx, t)).s...)
+			// Completely replaces toks() !
+			matrix := __symMatrix(__symbol(ctx, t), false)
+			ss = append(ss, matrix...)
 		}
 	}
 	return hit_segs{c, ss}
-}
-
-func tokq(ctx Context, c *valcache, t *qualword) hit_segs {
-	// Interleave punct(.) on the fly so it hits the cache edges correctly
-	res := make([]Value, 0, len(t.elems)*2-1)
-	for i, e := range t.elems { if i > 0 { res = append(res, implicitDot) }
-		res = append(res, e)
-	}
-	return tokc(ctx, c, &compound{elements{res}})
 }
 
 func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
@@ -22591,68 +22699,28 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	}(c.String())}
 
 	var fallbackSemantic bool
-	var prefix, suffix, inner Symbol
 
 	switch t := k.(type) {
 	case *argumented: return _hit(ctx, c, t.Value)
 	case *loc       : return _hit(ctx, c, t.Value)
 	case *rule      : return _hit(ctx, c, t.target)
 	case *compound  : r = do_hit(&fullctx{ctx,t}, tokc(ctx, c, t))
-	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
 	case *path      : r = do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
+	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
+	case *percpat   : r = do_hit(&fullctx{ctx,t}, hit_segs{c, nil})
+	case *regexpat  : r = do_hit(&fullctx{ctx,t}, hit_segs{c, nil})
 	
 	case *closure:
 		return do_hit(&fullctx{ctx,t}, hit_segs{c, [][]Symbol{{symAmpersand}}})
 	
-	case *percpat, *regexpat:
-		r = do_hit(&fullctx{ctx,t}, hit_segs{c, nil})
-
-	case *strlit:
-		prefix, suffix, inner = symApostrophe, symApostrophe, intern(t.s)
-		fallbackSemantic = true
-	case *strval:
-		var seq []Symbol
-		for _, v := range t.v { seq = append(seq, __symbol(ctx, v)) }
-		prefix, suffix, inner = symLbrace, symRbrace, internSeq(seq)
-		fallbackSemantic = true
-	case *strcomp:
-		var seq []Symbol
-		for _, v := range t.elems { seq = append(seq, __symbol(ctx, v)) }
-		prefix, suffix, inner = symQuotation, symQuotation, internSeq(seq)
-		fallbackSemantic = true
-	case *qualword:
-		if r = do_hit(&fullctx{ctx,t}, tokq(ctx, c, t)); len(r) > 0 {
-			return r 
-		}
-		fallbackSemantic = true
 	default:
 		fallbackSemantic = true
 	}
 
 	if fallbackSemantic {
-		var sym = inner
-		if sym == symEmpty { sym = __symbol(ctx, k) }
-		if sym != symEmpty {
-			var matrix [][]Symbol
-
-			if prefix != symEmpty { matrix = append(matrix, []Symbol{prefix}) }
-
-			for _, s := range __symSplit(sym, symSlash) {
-				if s != symEmpty {
-					for i, d := range __symSplit(s, symDot) {
-						if i > 0 {
-							matrix = append(matrix, []Symbol{symDot})
-						}
-						if d != symEmpty {
-							matrix = append(matrix, []Symbol{d})
-						}
-					}
-				}
-			}
-
-			if suffix != symEmpty { matrix = append(matrix, []Symbol{suffix}) }
-
-			r = do_hit(&fullctx{ctx, k}, hit_segs{c, matrix})
+		if sym := __symbol(ctx, k); sym != symEmpty {
+			// Effortlessly routes pure paths through the exact same matrix builder
+			r = do_hit(&fullctx{ctx, k}, hit_segs{c, __symMatrix(sym, false)})
 		}
 	}
 
@@ -25629,7 +25697,7 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 			rel = __symBase(rel)
 		} else {
 			t := __symPathRel(symBaseTmpPath, base)
-			tSeq := getSymSeq(t)
+			tSeq := __symSeq(t)
 			
 			// strings.HasPrefix(t, ".smart" + pathSep)
 			if len(tSeq) >= 2 && tSeq[0] == symDotSmart && tSeq[1] == symSlash {
@@ -25655,7 +25723,7 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 	}
 
 	// --- Prefix Trimming ---
-	relSeq := getSymSeq(rel)
+	relSeq := __symSeq(rel)
 	trimStart := 0
 	
 	// Trim ".smart/"
@@ -25924,7 +25992,7 @@ func (ctx *universe) trimFileSpec(c Context, spec Symbol) Symbol {
 	}
 
 	// 1. Emulate strings.ReplaceAll(spec, "../", "")
-	seq := getSymSeq(spec)
+	seq := __symSeq(spec)
 	hasDotDot := false
 	for _, s := range seq {
 		if s == symDotDot {
@@ -25952,10 +26020,10 @@ func (ctx *universe) trimFileSpec(c Context, spec Symbol) Symbol {
 	trimDirSlash := func(target Symbol, dirSym Symbol) Symbol {
 		if dirSym == symEmpty { return target }
 		
-		dirSeq := getSymSeq(dirSym)
+		dirSeq := __symSeq(dirSym)
 		if len(dirSeq) == 0 { return target }
 		
-		tSeq := getSymSeq(target)
+		tSeq := __symSeq(target)
 		
 		// If dir already inherently ends in a slash, use standard prefix match
 		if dirSeq[len(dirSeq)-1] == symSlash {
@@ -32093,7 +32161,7 @@ func (ctx *__path) do(c Context, op any) any {
 	}
 	return ctx.builtinbase.do(c, op)
 }
-func (ctx *__path) x() any {
+func (ctx *__path) x0() any {
     var res []Value
     for _, a := range ctx.a {
         if x, y := a.(*path); y {
@@ -32103,6 +32171,21 @@ func (ctx *__path) x() any {
         }
     }
     return res
+}
+func (ctx *__path) x() any {
+	var res []Value
+	for _, a := range ctx.a {
+		if x, y := a.(*path); y {
+			// Already a path, append directly
+			res = append(res, x)
+		} else if sym := __symbol(ctx, a); sym != symEmpty {
+			// THE DOD FIX: Pure Symbol routing!
+			// Evaluates the AST natively into a Symbol ID, and uses 
+			// __symSplit to rebuild the structural path natively!
+			res = append(res, __symPath(_pos(ctx), sym))
+		}
+	}
+	return res
 }
 
 type __word struct { builtinbase }
@@ -32563,23 +32646,6 @@ func (ctx *__subst) x() (_ any) {
 	return res
 }
 
-func coupleVal(ctx Context, v Value, str string) (_ Value) {
-	// Use unbox just in case v is wrapped in *loc or *argumented
-	switch unbox(v).(type) {
-	case *strlit, *strcomp:
-		return _strlit(_pos(ctx), str)
-	case *path:
-		return _pathStr(ctx, str)
-	case *file, fullfile:
-		// REFINED: Treat files as paths if they contain slashes, otherwise words.
-		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
-		return _rw(_pos(ctx), str)
-	default:
-		if strings.Contains(str, pathSep) { return _pathStr(ctx, str) }
-		return _rw(_pos(ctx), str)
-	}
-}
-
 // $(patsubst pattern,replacement,text)
 // TODO: supports: $(var:pattern=replacement)
 // TODO: supports: $(var:suffix=replacement)
@@ -32617,7 +32683,7 @@ func (ctx *__patsubst) x0() (_ any) {
 	if benchmark { defer func(t0 time.Time) {
 		if d := time.Since(t0); d > 25*time.Millisecond {
 			debug(ctx,
-				_f("slow: %d values, %v", len(res), d),
+				_f("slow patsubst: %v", d),
 				callstack{num:10, stop:"smart.evoke"})
 		}
 	}(time.Now())}
@@ -32630,67 +32696,38 @@ func (ctx *__patsubst) x0() (_ any) {
 		if 2 < l { sources = merge(ctx.a[2:]...) }
 	}
 
-	var proj = _project(ctx)
 	for _, src := range sources {
-		var srcFile, full = ctx.srcFile(proj, src)
-
-		// This now returns an exact, cleanly stripped stem (e.g., "foo")
 		var ok, /* srcPat */_, stems = ctx.matchPats(srcPats, src)
 
 		if !ok {
-			// Pass-through unmatched files seamlessly
 			if !ctx.filter && !isTrivial(src) { res = append(res, src) }
 			continue
 		}
 
 		for _, dstPat := range dstPats {
-			// Ignore ramnant check to allow static replacements
 			if val, _ := stencil(ctx, dstPat, stems); isNull(val) {
 				erro(ctx, "nil stencil: %v", dstPat)
-			} else if srcFile != nil {
-				// If the source was a file, we want to maintain its "file-like" identity
-				// without incurring the cost of a full VFS/trie lookup.
-				dst := proj.file(ctx, val)
-
-				var str string
-
-				// TIER 2: Pure In-Memory Symbolic Coercion
-				// If the stencil AST failed to natively cast to a file, we flatten
-				// it to a string/symbol and force it into the local project trie.
-				// We MUST NOT call `_stat`, as it triggers global VFS locks and I/O!
-				if dst == nil {
-					if str = __string(ctx, val); str != "" {
-						// Re-attempt local file mapping using the fully collapsed symbol.
-						// (Adjust the argument to match your `proj.file` signature, e.g.,
-						// __symbol(ctx, val) or a string wrapper).
-						dst = proj.file(ctx, __symbol(ctx, val))
-					}
+			} else if str := __string(ctx, val); str != "" {
+				// =========================================================
+				// THE DOD FIX: 100% Lexical Patsubst!
+				// DO NOT call `_stat` or `proj.file` here. 
+				// patsubst is a pure string manipulation function.
+				// The engine will naturally convert these strings to *file 
+				// dependencies later when `depends:` evaluates!
+				// =========================================================
+				var v Value
+				switch unbox(src).(type) {
+				case *strlit, *strcomp:
+					v = _strlit(_pos(ctx), str)
+				case *path:
+					v = _pathStr(ctx, str)
+				case *file, fullfile:
+					// REFINED: Treat files as paths if they contain slashes, otherwise words.
+					if strings.Contains(str, pathSep) { v = _pathStr(ctx, str) } else { v = _rw(_pos(ctx), str) }
+				default:
+					if strings.Contains(str, pathSep) { v = _pathStr(ctx, str) } else { v = _rw(_pos(ctx), str) }
 				}
-
-				// TIER 3: Degrade to String
-				// If it still isn't a valid file node within this project's bounds,
-				// safely degrade to a string. The engine will natively coerce this
-				// string back into a `*file` dependency when the rule's `depends:`
-				// block is fully evaluated later!
-				if dst == nil {
-					if str != "" {
-						res = append(res, coupleVal(pc(ctx, dstPat), src, str))
-					}
-					continue // Safely move to next pattern
-				}
-
-				if dst == nil {
-					erro(ctx, "%v → %v (nil file)", srcFile, val, callstack{num:5})
-				} else if dst.pos = src.Pos(); full {
-					res = append(res, fullfile{dst})
-				} else {
-					res = append(res, dst)
-				}
-			} else {
-				if str := __string(ctx, val); str != "" {
-					// Uses the coupleVal function for standard string replacements
-					res = append(res, coupleVal(pc(ctx, dstPat), src, str))
-				}
+				res = append(res, v)
 			}
 		}
 	}
@@ -32726,15 +32763,26 @@ func (ctx *__patsubst) x() (_ any) {
 		for _, dstPat := range dstPats {
 			if val, _ := stencil(ctx, dstPat, stems); isNull(val) {
 				erro(ctx, "nil stencil: %v", dstPat)
-			} else if str := __string(ctx, val); str != "" {
-				// =========================================================
-				// THE DOD FIX: 100% Lexical Patsubst!
-				// DO NOT call `_stat` or `proj.file` here. 
-				// patsubst is a pure string manipulation function.
-				// The engine will naturally convert these strings to *file 
-				// dependencies later when `depends:` evaluates!
-				// =========================================================
-				res = append(res, coupleVal(pc(ctx, dstPat), src, str))
+				
+			// =========================================================
+			// THE DOD FIX: Pure Symbol Domain Evaluation!
+			// By using __symbol, the sequence (including symSlash) is preserved.
+			// _pathSym natively unrolls it into _word elements, completely
+			// bypassing _pathStr, splitPathStr, and the _rw raw fallback!
+			// =========================================================
+			} else if sym := __symbol(ctx, val); sym != symEmpty {
+				var v Value
+				
+				switch unbox(src).(type) {
+				case *strlit, *strcomp:
+					v = _strlit(_pos(ctx), sym.String())
+				case *path, *file, fullfile:
+					v = __symPath(_pos(ctx), sym)
+				default:
+					v = __symPath(_pos(ctx), sym)
+				}
+				
+				res = append(res, v)
 			}
 		}
 	}
@@ -33581,7 +33629,7 @@ func (ctx *__bases) x() any {
 		}
 
 		// 3. O(1) AST Construction
-		seq := getSymSeq(baseSym)
+		seq := __symSeq(baseSym)
 		
 		if len(seq) == 0 {
 			// Fast Path: It's a primitive SymRaw or SymEph (no slashes)
@@ -33735,7 +33783,7 @@ func (ctx *__dirs) x() any {
 		// 3. Dump the _stat! Everything is just a path representation 
 		// until the traversal engine actually demands a file!
 		if dirSym != symEmpty {
-			l = append(l, _pathSym(a.Pos(), dirSym))
+			l = append(l, __symPath(a.Pos(), dirSym))
 		}
 	}
 	return l
@@ -33799,7 +33847,7 @@ func (ctx *__dir) x() (_ any) {
 				// Zero disk I/O if the VFS has already cached this path!
 				f := _stat(ctx, checkSym, stat_nonexist{false})
 				if f != nil && f._mtime != 0 {
-					l = append(l, _pathSym(a.Pos(), currSym))
+					l = append(l, __symPath(a.Pos(), currSym))
 					break
 				}
 			} else if __symHasSuffix(currSym, suffixSym) {
@@ -33818,14 +33866,14 @@ func (ctx *__dir) x() (_ any) {
 						if res == "" {
 							res = "/"
 						}
-						l = append(l, _pathSym(a.Pos(), intern(res)))
+						l = append(l, __symPath(a.Pos(), intern(res)))
 					} else {
 						// Fallback safeguard
-						l = append(l, _pathSym(a.Pos(), currSym))
+						l = append(l, __symPath(a.Pos(), currSym))
 					}
 				} else {
 					// `upTo` requests the exact path containing the boundary
-					l = append(l, _pathSym(a.Pos(), currSym))
+					l = append(l, __symPath(a.Pos(), currSym))
 				}
 				break
 			}
@@ -33964,7 +34012,7 @@ func (ctx *__undirs) x() any {
 
 		// 3. Zero-Allocation AST Construction
 		if resSym != symEmpty {
-			l = append(l, _pathSym(a.Pos(), resSym))
+			l = append(l, __symPath(a.Pos(), resSym))
 		}
 	}
 	
@@ -34724,12 +34772,6 @@ func (ctx *__file) x() any {
 		var matched = unmap_files(ctx, proj, a, nil)
 		var mapped = select_files(ctx, matched)
 
-		// If the string maps to no physical files, but the file is not strictly
-		// required to exist, forcefully retrieve/create its VFS node!
-		if len(mapped) == 0 && !ctx.exists {
-			debug(ctx, "%v %v %v", __symbol(ctx,a), a, ts(a,ctx))
-		}
-
 		for _, f := range mapped {
 			if !ctx.exists || f.exists() {
 				res = append(res, try_fullfile(ctx, f))
@@ -34836,7 +34878,7 @@ func stepPattern(ctx Context, pat Value, nameSym Symbol) (nextPats []Value) {
 		// THE DOD FIX: Use `_pathSym` to evaluate the local segment!
 		// This guarantees `nameSym` (like "a.def.am") is mathematically 
 		// shattered and grouped exactly like the VFS directory walker!
-		localVal := _pathSym(p.Pos(), nameSym)
+		localVal := __symPath(p.Pos(), nameSym)
 
 		if isMultiWildcard(first) {
 			// ** spans directories, so it must remain in the pattern for children
@@ -35015,7 +35057,7 @@ func (ctx *__wildcard) directory(topDirSym Symbol, pats ...Value) {
 			}
 
 			// 2. Exclude Check
-			dnVal := _pathSym(_pos(ctx), dnSym)
+			dnVal := __symPath(_pos(ctx), dnSym)
 
 			for _, x := range ctx.exclude {
 				if ok, _, rem, _ := match(ctx, x, dnVal); ok && (rem == nil || isEmpty(rem) || len(unpack(rem)) == 0) {
