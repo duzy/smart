@@ -58,6 +58,7 @@ type hashbytes [sha256.Size]byte
 const (
 	project_resolve_cache = false
     detect_traverse_loops = true // turn on/off traverse loop detection
+	trace_dump_exec_ctx = checkpoints && true
 
     vertag = "dev" // dev, alpha, beta, final
 
@@ -8365,11 +8366,9 @@ func (p *compiler) modifier(ctx Context) (res *modifier) {
 	var elems []Value
 	var val = p.expr(ctx)
 
-	// CRITICAL FIX: Fast-path Symbol extraction!
 	var sym = __symbol(ctx, val)
 	if sym == symEmpty {
 		erro(pc(ctx,val), "unsupported modifier: %s", ts(val,ctx))
-		// Assuming `dialects` and `modifiers` maps are upgraded to `map[Symbol]...`
 	} else if _, y := dialects[sym]; y {
 		if p.dialect == symEmpty {
 			p.dialect = sym // Safely bridge back to string if dialect requires it
@@ -12481,6 +12480,24 @@ func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, 
     return
 }
 
+func auto_target_value(ctx Context, nilValIsErro ...bool) (res Value) {
+	if val := auto_get(ctx, symAt); val == nil {
+		if __t(nilValIsErro...) { erro(ctx, "target is nil") }
+	} else if v := expand(ctx, val); v == nil {
+		erro(ctx, "target expanded to nil: %v", val)
+	} else {
+		res = scalarize(v)
+	}
+	return
+}
+
+func auto_target_valsym(ctx Context, e ...bool) (val Value, sym Symbol) {
+	if val = auto_target_value(ctx, e...); val != nil {
+		sym, _ = fullname_sym(ctx, val) // Normalized natively!
+	}
+	return
+}
+
 type waitopts struct{
     ReportUpdates      bool
     ExecResults        bool
@@ -12576,6 +12593,15 @@ func as_file(ctx Context, val Value, projs ...*project) (res *file) {
 	// Fallback for raw strings and unexpanded paths
 	v = scalarize(v)
 	if x, y := v.(fullname); y { v = x.Value }
+	
+	// THE DOD FIX: Absolute Path Shield
+	// If the path evaluates to an absolute OS boundary, it cannot be tracked inside 
+	// a relative project trie. We abort project resolution to permanently prevent 
+	// double-absolute concatenations (e.g., /Volumes/workspace//Volumes/workout/...).
+	if sym := __symbol(ctx, v); __symIsAbs(sym) {
+		return nil
+	}
+
 	switch t := v.(type) {
 	case *file: return t
 	case fullfile: return t.file
@@ -12605,21 +12631,35 @@ func file_fullname(ctx Context, val Value, projs ...*project) (f *file, s Symbol
 
 func fullname_sym(ctx Context, val Value, projs ...*project) (s Symbol, y bool) {
 	// OPTIMIZATION 3: Decoupled String Fallback
-	// Prevents double-evaluation of the AST if the file lookup fails
+	// as_file cleanly rejects absolute OS paths. If it returns a file, it's relative.
+	// If it returns nil, we safely fall back to the raw Symbol which inherently 
+	// preserves the pristine absolute string!
 	if f := as_file(ctx, val, projs...); f != nil {
-		return f.fullname(), __symIsAbs(f.fullname())
+		s = f.fullname()
+		return s, __symIsAbs(s)
 	}
-	return __symbol(ctx, val), false
+	
+	s = __symbol(ctx, val)
+	return s, __symIsAbs(s)
 }
 
 func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
-	if f := as_file(ctx, val, projs...); f != nil { res.Value = f } else {
-		// Only panic if the expanded value fundamentally cannot be a file
-		debug(pc(ctx,val),
-			_f("%v: nil file : %v", val, ts(val,ctx)),
-			_f("%v → %v", val, expand(ctx,val)),
-			_f("%v", _scope(ctx)),
-			callstack{num:10}, unwind{})
+	if f := as_file(ctx, val, projs...); f != nil { 
+		res.Value = f 
+	} else {
+		// THE DOD FIX: Absolute Fallback Packing
+		// Since as_file now correctly rejects absolute paths, we must securely 
+		// pack them as generic Values instead of throwing a false positive panic!
+		v := scalarize(expand(ctx, val))
+		if sym := __symbol(ctx, v); __symIsAbs(sym) {
+			res.Value = v
+		} else {
+			debug(pc(ctx,val),
+				_f("%v: nil file : %v", val, ts(val,ctx)),
+				_f("%v → %v", val, expand(ctx,val)),
+				_f("%v", _scope(ctx)),
+				callstack{num:10}, unwind{})
+		}
 	}
 	return
 }
@@ -17272,6 +17312,10 @@ type exec_log struct {
     filename Symbol
     lines int
 }
+func (p *exec_log) String() string {
+	if p == nil { return "<nil-log>" } else { return p.filename.String() }
+}
+
 func (p *exec_log) Write(b []byte) (n int, err error) {
     if p.writer != nil {
 		p.Lock(); defer p.Unlock()
@@ -17473,14 +17517,6 @@ func (p *exec_ctx) do(ctx Context, op any) any {
     case wants_fullfile: return p.fullname
     }
     return p.Context.do(ctx, op)
-}
-func (p *exec_ctx) ts(t string) (s string) {
-    s = "{" + t
-    if p.sh != nil {
-        s += " " + filepath.Base(p.sh.Path)
-    }
-    s += " " + ts(p.Context) + "}"
-    return
 }
 
 func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
@@ -17966,13 +18002,11 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 	}
 
 	// --- 3. Target Extraction ---
-	if t := auto_target_value(ctx); patterned(ctx, t) {
+	if t, s := auto_target_valsym(ctx, true); patterned(ctx, t) {
 		erro(ctx, "target is pattern: %v", ec.target)
 	} else {
+		if _, isFlag := t.(flag); !isFlag { ec.targetName = s }
 		ec.target = t
-		if _, isFlag := t.(flag); !isFlag {
-			ec.targetName, _ = fullname_sym(ctx, ec.target)
-		}
 	}
 
 	// --- 4. Argument Extraction ---
@@ -18010,15 +18044,12 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 			return ""
 		}
 
-		// Use pure Symbol IDs instead of repeatedly interning strings!
 		containerName := stringify(intern("container"))
 		if containerName == "" { erro(ctx, ".container.name undefined") }
 
 		containerImage := stringify(intern("image"))
 		if containerImage == "" { erro(ctx, ".container.image undefined") }
 
-		// CRITICAL FIX: The Docker command syntax must prepend the arguments!
-		// Prepending prevents invalid command generation like `docker -flag exec container shell`
 		ec.args = append([]string{"exec", containerName, cmd}, ec.args...)
 		cmd = "docker"
 	}
@@ -18033,12 +18064,29 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 
 	if ec.path {
 		if s := __symDir(ec.targetName); s != symEmpty && s != symDot && s != symPathSep {
-			// CRITICAL FIX: Unpack the Walled Garden Symbol back into a string for the OS
 			strPath := s.String()
 			if e := os.MkdirAll(strPath, 0755); e != nil {
 				erro(ctx, "make path '%s' for target failed: %v", strPath, e)
 			}
 		}
+	}
+
+	// THE DOD FIX: Resolving the TODO with a Professional Debug Block!
+	if trace_dump_exec_ctx {
+		var recipe string
+		if ec.line.s != "" {
+			recipe = fmt.Sprintf("\n  recipe:  %q", ec.line.s)
+		}
+		
+		debug(ctx,
+			_f("exec_ctx {\n  target:  %v\n  workdir: %s\n  cmd:     %s (opt: %q)\n  args:    %v\n  log:     %v%s\n}",
+				ec.targetName,
+				ec.workdir,
+				cmd, p.cmd,
+				ec.args,
+				ec.log,
+				recipe,
+			), trace_ctx{50}, callstack{num:16})
 	}
 
 	// --- 7. Execution ---
@@ -20257,6 +20305,9 @@ func traverse(ctx Context, val Value) {
 		} else if x := _execution(ctx); x != nil {
 			x.traved(ctx, auto_target_value(ctx), p, nil, p)
 		}
+	case *modification:
+		if e := _execution(ctx); e != nil { e.Wait() }
+		for _, m := range p.list { traverse(pc(ctx,m.Pos()), m) }
 	case *modifier:
 		if sym := __symbol(ctx, p.elems[0]); sym == symEmpty {
 			erro(ctx, "empty name: %v", p.elems[0])
@@ -20264,9 +20315,6 @@ func traverse(ctx Context, val Value) {
 		} else if truly(ctx, interpret{sym, p.elems[1:]}) {
 			modify(ctx, &p.group, true)
 		}
-	case *modification:
-		if e := _execution(ctx); e != nil { e.Wait() }
-		for _, m := range p.list { traverse(ctx, m) }
 	case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
 		do(ctx, act_traverse{p})
 	default:
@@ -20787,6 +20835,10 @@ func ts(i any, o ...any) (s string) {
 		var s string
 		if v := x.prerequisite; v != nil { s = v.String() + " "	}
 		content = s + ts(x.Context)
+	case     *exec_ctx:
+		var s string
+		if x.sh == nil { s = "<nil-sh>" } else { s = filepath.Base(x.sh.Path) }
+		content =  s + ts(x.Context)
 	case     *delegate:
 		content = ts(x.x, barrier)
 		if x.o != nil { content += " " + ts(x.o, barrier) }
@@ -24046,10 +24098,11 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
     }
 
     if res = i.evaluate(ctx, args...); checkpoints { p.check_evaluate(ctx, i, args, res) }
+
     if res != nil {
         if d, prev := auto_set(ctx, defVoid, symDash, res); d == nil {
             _, ent, _ := entryIndicator(ctx, _entry(ctx))
-            prompt(ctx, "%v: %s\n", ent, interp_name(i))
+            prompt(ctx, "%v: %s\n", ent, interpName(i))
             erro(ctx, "set buffer value failed: %v → %v", prev, res)
         }
     }
@@ -24058,7 +24111,7 @@ func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Val
 
     if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
         _, ent, _ := entryIndicator(ctx, _entry(ctx))
-        prompt(ctx, "%v: %s\n", ent, interp_name(i))
+        prompt(ctx, "%v: %s\n", ent, interpName(i))
         erro(ctx, "update recipes hash failed: %v", e)
     }
     return
@@ -25201,26 +25254,6 @@ func _scope(ctx Context) (s *scope) {
 
 func _project(ctx Context) (p *project) {
     p, _ = do(ctx, get_project{}).(*project)
-    return
-}
-
-func auto_target_value(ctx Context) (res Value) {
-    if val := auto_get(ctx, symAt); val == nil {
-        if false { erro(ctx, "target is nil") }
-    } else if v := expand(ctx, val); v == nil {
-        erro(ctx, "multiple targets: %v → %v", val, v)
-    } else {
-        res = scalarize(v)
-    }
-    return
-}
-
-func auto_target_valsym(ctx Context) (val Value, sym Symbol) {
-    if val = auto_target_value(ctx); val == nil {
-        if false { erro(ctx, "target is nil") }
-    } else {
-        sym, _ = fullname_sym(ctx, val)
-    }
     return
 }
 
@@ -26984,10 +27017,8 @@ var dialects = map[Symbol]interpreter{
 	symYaml:    &yaml{ whitespace:false },
 }
 
-func interp_name(i interpreter) (s Symbol) {
-    for k, d := range dialects {
-        if d == i { s = k; break }
-    }
+func interpName(i interpreter) (s Symbol) {
+    for k, d := range dialects { if d == i { s = k; break } }
     return
 }
 
