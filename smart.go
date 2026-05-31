@@ -58,12 +58,12 @@ type hashbytes [sha256.Size]byte
 const (
 	project_resolve_cache = false
     detect_traverse_loops = true // turn on/off traverse loop detection
-	trace_dump_exec_ctx = checkpoints && true
 
     vertag = "dev" // dev, alpha, beta, final
 
 	windowsOS = runtime.GOOS == "windows"
 
+    fmtExitStatus = "exit status %d"
 	hexChars = "0123456789abcdef"
 	shredderChars = `:./\-+#~_*?⌜⌟⌞⌝` // ' ' \t \n \r
 	escaperChars = "\"\r\n"
@@ -77,6 +77,11 @@ const (
 
 	fnvOffset = 14695981039346656037
 	fnvPrime  = 1099511628211
+
+    maxPromptStr = 16
+    maxWorkers = 3
+    maxRetries = 1
+	maxCallRecursion  = 32 //64
 
 	// Threshold for preferring for-loop-array then using a map-lookup.
 	mapThreshold = 16
@@ -1439,6 +1444,11 @@ func fnv1(ctx Context, t any, a ...any) uint64 {
 		case int64:    h = mixUint64(h, uint64(tv))
 		case uint64:   h = mixUint64(h, tv)
 		case string:   h = mixString(h, tv)
+		// THE DOD FIX: Native Symbol Support
+		// We explicitly hash the String() to guarantee cross-run deterministic 
+		// caching. Hashing the integer ID would cause massive cache invalidation 
+		// if symbols are interned in a different order!
+		case Symbol:   h = mixString(h, tv.String())
 		case []string:
 			for _, s := range tv { h = mixString(h, s) }
 		case *list:
@@ -12702,10 +12712,9 @@ func (p *pos_ctx) do(ctx Context, op any) any {
 		if p.pos != nil {
 			var pos Pos
 			switch x := p.pos.(type) {
-			// THE DOD FIX: get_pos must strictly return Pos. If we return a Position
-			// struct, downstream type assertions (like in `_pos()`) will fail!
 			case Pos: pos = x
 			case Poser: pos = x.Pos()
+			case Position: return x // NOTE: Intercept `Position`, so `debug` can trace correctly
 			}
 			if pos != NoPos { return pos }
 		}
@@ -12713,14 +12722,14 @@ func (p *pos_ctx) do(ctx Context, op any) any {
 		if t.p == NoPos && p.pos != nil {
 			var pos Pos
 			switch x := p.pos.(type) {
-			case Position: if x.valid() { return t }
+			case Position: if x.valid() { return x }
 			case Pos: pos = x
 			case Poser: pos = x.Pos()
 			}
 			if pos != NoPos { return p.Context.do(ctx, get_fatpos{pos}) }
 		}
 	}
-	if p.Context == nil { return nil } // CRITICAL FIX: Prevent nil pointer dereference
+	if p.Context == nil { return nil }
 	return p.Context.do(ctx, op)
 }
 
@@ -13270,6 +13279,7 @@ func isEmpty(v any) (_ bool) {
 	case *loc: return isEmpty(t.Value)
 	case *xloc: return isEmpty(t.Value)
 	case *list: return isEmpty(t.elems)
+	case *recipe: return isEmpty(t.elems)
 	case *compound: return isEmpty(t.elems)
 	case *qualword: return isEmpty(t.elems)
 	case *strcomp: return isEmpty(t.elems)
@@ -13791,7 +13801,7 @@ func (_ *punct) kind() Kind { return KindPunct }
 func (p *punct) String() string { return p.token.String() }
 func _punct(pos Pos, tok token) *punct { return &punct{valbase{pos}, tok} }
 
-type word struct{ valbase; s Symbol }
+type word struct{ valbase; s Symbol } // AST representation for a Symbol.
 func (_ *word) kind() Kind { return KindWord }
 func (p *word) String() string { return p.s.String() }
 
@@ -14740,6 +14750,8 @@ func (c fullfile_ctx) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 func fullfile_if_wanted(ctx Context, f *file) Value {
+	// NOTE: see also general_opts.fullname, exec_ctx.do, etc.
+	if f == nil { return nil }
     if truly(ctx, wants_fullfile{}) { return fullfile{f} }
     return f
 }
@@ -15039,12 +15051,16 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 			erro(ctx, "stat: invalid argument: %v", ts(a,ctx))
 		}
 	}
-	if name.String() == ".configure/header/HAVE_STDLIB_H.log" {
-		debug(ctx,
-			_f("name=%v", name),
-			_f("sub=%v", sub),
-			_f("dir=%v", dir),
-			callstack{num:10})
+	if checkpoints {
+		if s := name; strings.Contains(s.String(), "//") {
+			erro(ctx, "concated abs paths: %v", s, callstack{num:10})
+		}
+		if s := sub; strings.Contains(s.String(), "//") {
+			erro(ctx, "concated abs paths: %v", s, callstack{num:10})
+		}
+		if s := dir; strings.Contains(s.String(), "//") {
+			erro(ctx, "concated abs paths: %v", s, callstack{num:10})
+		}
 	}
 
 	var fullname Symbol
@@ -15824,11 +15840,9 @@ func __string(ctx Context, v any) (res string) {
 	case *raw: return t.s
 	case *word: return t.s.String()
 	case *regexpat: return t.Regexp.String()
-	case *file: return t.filestub.name.String()
 	case *filestub: return t.name.String()
 	case *project: return t.name.String()
 	case self: return t.name.String()
-	case fullfile: return t.fullname().String()
 	case negative: return "!"+__string(ctx, t.Value)
 	case flag: return "-"+__string(ctx, t.Value)
 	case *disjunction: return __string(ctx, t.val)
@@ -15847,9 +15861,6 @@ func __string(ctx Context, v any) (res string) {
 	case *percpat:
 		if t.Prefix != nil { res += __string(ctx, t.Prefix) }; res += "%"
 		if t.Suffix != nil { res += __string(ctx, t.Suffix) }
-	case *barefile:
-		if v = t.Value; t.file != nil { v = t.file }
-		return __string(ctx, v)
 	case *compound:
 		var cc = &com_ctx{ctx, 0}
 		for i, e := range com(cc, nil, t.elems) { // a{x y z}b → axb ayb azb
@@ -15900,6 +15911,7 @@ func __string(ctx Context, v any) (res string) {
 				res = __string(ctx, val)
 			}
 		}
+	case fullfile: return t.fullname().String()
 	case fullname:
 		if v := t.Value; v != nil {
 			if x, y := to_file(v); y {
@@ -15913,6 +15925,16 @@ func __string(ctx Context, v any) (res string) {
 			}
 			return __string(ctx, v)
 		}
+	case *file:
+		// THE DOD FIX: Dynamic Query-Time Fullfile!
+        // We preserve the pure `*file` storage, but if the execution context 
+        // (like `shell -full`) explicitly requests absolute paths, we dynamically 
+        // project the absolute path to the shell without mutating the AST!
+        if truly(ctx, wants_fullfile{}) { return t.fullname().String() }
+        return t.name.String() // Default presented name, ie. t.filestub.name.String()
+	case *barefile:
+		if t.file == nil { v = t.Value } else { v = t.file }
+		return __string(ctx, v)
 	case *conjunction: // see also $(join ...)
 		var ( sep = __string(ctx, t.sep); ss []string )
 		for _, v := range t.elems { if s := __string(ctx, v); s != "" { ss = append(ss, s) } }
@@ -15939,7 +15961,18 @@ func __string(ctx Context, v any) (res string) {
 		for i, arg := range t.args { if 0 < i { res += "," }; res += __string(ctx, arg) }
 		res += ")"
 	case *recipe:
-		for _, elem := range t.elems { res += __string(ctx, elem) }
+		for _, elem := range t.elems {
+			if isEmpty(elem) { continue }
+			if s := __string(ctx, elem); s != "" {
+				// THE DOD FIX: Boundary Space Squashing!
+				// If an empty variable caused two `raw` spaces to border each other,
+				// we seamlessly trim the leading spaces off the incoming string.
+				if len(res) > 0 && res[len(res)-1] == ' ' && s[0] == ' ' {
+					s = strings.TrimLeft(s, " ")
+				}
+				res += s
+			}
+		}
 	case *plainline:
 		if len(t.elems) == 1 {
 			if d, y := t.elems[0].(*delegate); y {
@@ -16814,7 +16847,7 @@ func expand(ctx Context, v Value) (res Value) {
 		if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
 		return v
 	default:
-		if checkpoints { erro(pc(ctx,v), "%v", ts(v,ctx), callstack{stop:"smart.runcase"}) }
+		if checkpoints { erro(pc(ctx,v), "%v (%T)", ts(v,ctx), v, callstack{stop:"smart.runcase"}) }
 		return v
 	}
 }
@@ -17043,17 +17076,9 @@ func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
     return ease(ctx, list)
 }
 
-// Note that it's is also used with Sscanf.
-const (
-    fmtExitStatus = "exit status %d"
-    maxPromptStr = 32
-    maxWorkers = 3
-    maxRetries = 1
-)
-
 type exec_opts struct {
     general_opts
-    logname *fullname "log"
+    logname *fullname "log" // NOTE: muste be pointer to work with parseOpts!
     forRecipe Value `forrecipe,forrecipes,for-recipe,for-recipes`
     forStdout Value `forstdout,for-stdout,for-out`
     forStderr Value `forstderr,for-stderr,for-err`
@@ -17122,67 +17147,84 @@ var (
         rxShellNoSuchFileDir:struct{}{},
     }
 
-    matchcontexts = map[*regexp.Regexp]func(*exec_buffer, []byte, [][]byte)Context{
-        rxCodeLinePanic: func(p *exec_buffer, line []byte, sm [][]byte) Context {
-            return p.sc(sm[1], sm[2], sm[3], 0) // TODO: column(line, sm[4])
+    matchcontexts = map[*regexp.Regexp]func(*exec_buffer, []byte, [][]byte) Position {
+        rxCodeLinePanic: func(p *exec_buffer, line []byte, sm [][]byte) Position {
+			return p.makePos(string(sm[1]), string(sm[2]), string(sm[3]))
         },
     }
 
-	commonerrors = map[*regexp.Regexp]func(Context, []byte, [][]byte){
-		rxExitStatus: func(c Context, line []byte, sm [][]byte) {
+	commonerrors = map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+		rxExitStatus: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 			if string(sm[1]) != "0" {
-				erro(c, _f("non-zero exit status %s {\n%s\n}", sm[1], sm[0]))
+				erro(pc(ctx, p.logPos(0)), _f("non-zero exit status %s {\n%s\n}", sm[1], sm[0]))
 			}
 		},
-		rxShellNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
-			erro(c, _f("missing command '%s' {\n%s\n}", sm[2], sm[0]))
+		rxShellNoSuchFileDir: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			col := bytes.Index(line, sm[2]) + 1
+			erro(pc(ctx, p.logPos(col)), _f("missing command '%s' {\n%s\n}", trimPromptString(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
 		},
-		regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(c Context, line []byte, sm [][]byte) {
-			erro(c, _f("missing command '%s' {\n%s\n}", sm[2], sm[0]))
+		regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			col := bytes.Index(line, sm[2]) + 1
+			erro(pc(ctx, p.logPos(col)), _f("missing command '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
 		},
-		regexp.MustCompile(`the input device is not a TTY`): func(c Context, line []byte, sm [][]byte) {
-			erro(c, _f("missing TTY {\n%s\n}", sm[0]))
+		regexp.MustCompile(`the input device is not a TTY`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			erro(pc(ctx, p.logPos(0)), _f("missing TTY {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 		},
 	}
 
 	// `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
-	knownerrors = map[*regexp.Regexp]map[*regexp.Regexp]func(Context, []byte, [][]byte){
-		regexp.MustCompile(`^(?:.*/)?clang`): map[*regexp.Regexp]func(Context, []byte, [][]byte){
-			rxCodeLinePanic: func(c Context, line []byte, sm [][]byte) {
+	knownerrors = map[*regexp.Regexp]map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+		regexp.MustCompile(`^(?:.*/)?clang`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+			
+			rxCodeLinePanic: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				// We union the source-code position with the log position
+				ctx = pc(ctx, p.logPos(0))
+
 				t := string(sm[4])
 				s := string(sm[5])
 
 				fact := fmt.Sprintf("code %s", t)
 				if m := rxFileNotFound.FindStringSubmatch(s); m != nil {
 					fact = fmt.Sprintf("missing file '%s'", m[1])
-					do(c, missing_file{m[1]})
+					do(ctx, missing_file{m[1]})
 				}
 
 				switch t {
 				case "warning":
-					debug(c, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
+					debug(ctx, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
 				default:
-					erro(c, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3}) // "error", "fatal error"
+					erro(ctx, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
 				}
 			},
 
-			rxIgnoringDirectory: func(c Context, line []byte, sm [][]byte) {
-				debug(pc(c, sm[2]), 5, _f("ignored directory '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
+			// Extracted Missing File Logic
+			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no such file or directory: '(.+)'`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				col := bytes.Index(line, sm[2]) + 1
+				erro(pc(ctx, p.logPos(col)), _f("missing file '%s' {\n%s\n}", trimPromptString(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
+				do(ctx, missing_file{string(sm[2])}) 
+			},
+			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no input files`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				erro(pc(ctx, p.logPos(0)), _f("missing input files {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			rxLdManyMinVersions: func(c Context, line []byte, sm [][]byte) {
-				debug(c, 5, _f("multiple min versions {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			rxIgnoringDirectory: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				col := bytes.Index(line, sm[2]) + 1
+				debug(pc(ctx, p.logPos(col)), 5, _f("ignored directory '%s' {\n%s\n}", trimPromptString(string(sm[1])), sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`  +"([^"]+?)", referenced from:`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing reference '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-			regexp.MustCompile(`undef: *(.+)`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("undefined symbol '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
+			rxLdManyMinVersions: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), 5, _f("multiple min versions {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(c Context, line []byte, sm [][]byte) {
-				if truly(c, is_configure{}) && string(sm[2]) == "warning" {
+			regexp.MustCompile(`  +"([^"]+?)", referenced from:`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing reference '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+			regexp.MustCompile(`undef: *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("undefined symbol '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+
+			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				if truly(ctx, is_configure{}) && string(sm[2]) == "warning" {
 					return
 				}
 
@@ -17201,73 +17243,75 @@ var (
 					fact = fmt.Sprintf("%s %s", tool, kind) // Fallback (e.g. "clang error")
 				}
 
-				debug(c, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
+				debug(pc(ctx, p.logPos(0)), _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("corrupt object file '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
+			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("corrupt object file '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing library '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
+			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing library '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`(.+?): Too many positional arguments specified!`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("too many arguments {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			regexp.MustCompile(`(.+?): Too many positional arguments specified!`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("too many arguments {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?ar`): map[*regexp.Regexp]func(Context, []byte, [][]byte){
-			rxArNoSuchFileDir: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing archive file '%s' {\n%s\n}", filepath.Base(string(sm[1])), sm[0]), trace_ctx{50}, callstack{num: 3})
+		regexp.MustCompile(`^(?:.*/)?ar`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+			rxArNoSuchFileDir: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing archive file '%s' {\n%s\n}", filepath.Base(string(sm[1])), sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-			rxArNoMembers: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("empty archive {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-		},
-		regexp.MustCompile(`^(?:.*?bash -c|.*?)git`): map[*regexp.Regexp]func(Context, []byte, [][]byte){
-			rxGitNotRepo: func(c Context, line []byte, sm [][]byte) {
-				debug(pc(c, sm[2]), _f("missing git repository '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
+			rxArNoMembers: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("empty archive {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?python`): map[*regexp.Regexp]func(Context, []byte, [][]byte){
-			rxIncludedFrom: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("included from {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-			rxPyFileLineIn: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("python trace {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-			rxPyFileNotFound: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing python file {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-			rxPyModuleNotFound: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing python module {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+		regexp.MustCompile(`^(?:.*?bash -c|.*?)git`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+			rxGitNotRepo: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				col := bytes.Index(line, sm[2]) + 1
+				debug(pc(ctx, p.logPos(col)), _f("missing git repository '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?docker`): map[*regexp.Regexp]func(Context, []byte, [][]byte){
-			rxDockerCannotConnect: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("docker connection failed {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+		regexp.MustCompile(`^(?:.*/)?python`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+			rxIncludedFrom: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("included from {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-			rxDockerConNotRunning: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("docker container stopped {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			rxPyFileLineIn: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("python trace {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-			rxDockerNoSuchContainer: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing docker container {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			rxPyFileNotFound: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing python file {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-			rxDockerNetworkNotFound: func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing docker network {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-		},
-		regexp.MustCompile(`^(?:.*/)?protoc`): map[*regexp.Regexp]func(Context, []byte, [][]byte){
-			regexp.MustCompile(`^(.+?\.proto): File not found\.`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing proto file '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-			regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("missing proto import '%s' {\n%s\n}", sm[4], sm[0]), trace_ctx{50}, callstack{num: 3})
-			},
-			regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(c Context, line []byte, sm [][]byte) {
-				debug(c, _f("undefined proto type '%s' {\n%s\n}", sm[4], sm[0]), trace_ctx{50}, callstack{num: 3})
+			rxPyModuleNotFound: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing python module {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?echo`): map[*regexp.Regexp]func(Context, []byte, [][]byte){},
+		regexp.MustCompile(`^(?:.*/)?docker`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+			rxDockerCannotConnect: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("docker connection failed {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+			rxDockerConNotRunning: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("docker container stopped {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+			rxDockerNoSuchContainer: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing docker container {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+			rxDockerNetworkNotFound: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing docker network {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+		},
+		regexp.MustCompile(`^(?:.*/)?protoc`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+			regexp.MustCompile(`^(.+?\.proto): File not found\.`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing proto file '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+			regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): Import "(.+?)" was not found or had errors.`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("missing proto import '%s' {\n%s\n}", sm[4], sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+			regexp.MustCompile(`^(.+?\.proto):(\d+):(\d+): "(.+?)" is not defined.`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				debug(pc(ctx, p.logPos(0)), _f("undefined proto type '%s' {\n%s\n}", sm[4], sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+		},
+		regexp.MustCompile(`^(?:.*/)?echo`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+		},
 	}
 )
 
@@ -17355,7 +17399,7 @@ func (p *exec_log) createWriter(file *os.File, dir, cmd string) {
 }
 
 type exec_buffer struct {
-    *exec_ctx
+    xc *exec_ctx // only if executing
 
     Tie  io.Writer
     Buf *bytes.Buffer
@@ -17366,12 +17410,9 @@ type exec_buffer struct {
 
     forLine Value
 }
-func (p *exec_buffer) do(ctx Context, op any) any {
-	switch t := op.(type) {
-	case inner_cast: return p.exec_ctx
-	case dynamic_cast: return t.ctx(p, p.exec_ctx)
-	}
-	return p.Context.do(ctx, op)
+func (p *exec_buffer) String() string {
+	if p.Buf == nil { return "<no buffer>" }
+	return sf("<buffer %v bytes>", p.Buf.Len())
 }
 func (p *exec_buffer) Write(b []byte) (n int, err error) {
     var expandForLine = p.forLine != nil && !isTrivial(p.forLine)
@@ -17379,8 +17420,8 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
     if p.Buf != nil {
         if n, err = p.Buf.Write(b); err != nil { return }
     }
-    if p.log != nil {
-        if _, err = p.log.Write(b); err != nil { return }
+    if p.xc.log != nil {
+        if _, err = p.xc.log.Write(b); err != nil { return }
     }
     if p.Tie != nil {
         if n, err = p.Tie.Write(b); err != nil { return }
@@ -17394,12 +17435,12 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
     p.wrote += uint64(n)
 
     scanLine := expandForLine ||
-        (p.scanStdout && p == &p.stdout) ||
-        (p.scanStderr && p == &p.stderr)
+        (p.xc.scanStdout && p == &p.xc.stdout) ||
+        (p.xc.scanStderr && p == &p.xc.stderr)
 
     if !scanLine { return }
-    if false && truly(p, is_rule{rxConfigRuleHeaders}) {
-        note(p, "%s %s", do(p, execution_lang{}), p.sh)
+    if false && truly(p.xc, is_rule{rxConfigRuleHeaders}) {
+        note(p.xc, "%s %s", do(p.xc, execution_lang{}), p.xc.sh)
     }
 
     for slice := b[:]; len(slice) > 0; {
@@ -17419,35 +17460,41 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
             }
 
             if expandForLine {
-                c := p.exec_ctx
+                c := p.xc
                 c.line.s = string(line)
                 c.lino.int64 = int64(p.lnum)
-                v := expand(final{p.Context}, p.forLine)
+                v := expand(final{c.Context}, p.forLine)
                 if !isNull(v) && is_notice_line(c.line.s) {
-                    note(p, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v))
+                    note(c, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v))
                 }
             }
 
-            k := func(rx *regexp.Regexp, f func(Context, []byte, [][]byte)) {
-                if sm := rx.FindSubmatch(line); sm != nil {
-                    if p.zeroStatusErrors && rxZeroStatusErrors != nil {
-                        if _, y := rxZeroStatusErrors[rx]; y {
-                            p.resetStatusZero.Store(true)
-                        }
-                    }
-                    c := Context(p)
-                    if x, y := matchcontexts[rx]; y {
-                        c = x(p, line, sm)
-                    } else {
-                        c = p.pc(0)
-                    }
-                    if !truly(c, is_configure_ignore{rx, sm}) {
-                        f(c, line, sm)
-                    }
-                }
-            }
+			k := func(rx *regexp.Regexp, f func(Context, *exec_buffer, []byte, [][]byte)) {
+				if sm := rx.FindSubmatch(line); sm != nil {
+					if p.xc.zeroStatusErrors && rxZeroStatusErrors != nil {
+						if _, y := rxZeroStatusErrors[rx]; y {
+							p.xc.resetStatusZero.Store(true)
+						}
+					}
+
+					// Local Context Shadowing
+					ctx := p.xc.Context 
+					
+					// Apply Source Code Positions if matchcontexts extracted them
+					if x, y := matchcontexts[rx]; y {
+						if pos := x(p, line, sm); pos.valid() {
+							ctx = pc(ctx, pos)
+						}
+					}
+
+					if !truly(ctx, is_configure_ignore{rx, sm}) {
+						f(ctx, p, line, sm)
+					}
+				}
+			}
+
             for rx, f := range commonerrors { k(rx, f) }
-            for rx, f := range p.known { k(rx, f) }
+            for rx, f := range p.xc.known { k(rx, f) } // FIXME: use language/domain specific knownerrors, not all
 
             p.line.Reset()
         }
@@ -17455,33 +17502,32 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
     return
 }
 func (p *exec_buffer) filepath(s string) string {
-    if p.workdir != "" && !filepath.IsAbs(s) { s = filepath.Join(p.workdir, s) }
+    if p.xc.workdir != "" && !filepath.IsAbs(s) { s = filepath.Join(p.xc.workdir, s) }
     return s
 }
-func (p *exec_buffer) covpos(s1, s2, s3 string) (pos Position) {
-    pos.Filename  = intern(p.filepath(s1))
-    pos.Line,   _ = strconv.Atoi(s2)
-    pos.Column, _ = strconv.Atoi(s3)
-    return
+func (p *exec_buffer) makePos(s1, s2, s3 string) Position {
+	line, _   := strconv.Atoi(s2)
+	column, _ := strconv.Atoi(s3)
+	return Position{
+		Filename: intern(p.filepath(s1)),
+		Line:     line,
+		Column:   column,
+	}
 }
-func (p *exec_buffer) lpos(column int) Position {
-    var pos Position
-    if p.log != nil {
-        pos.Filename, pos.Line, pos.Column = p.log.filename, p.lnum, column
+func (p *exec_buffer) logPos(column int) (pos Position) {
+    if p.xc.log != nil {
+		pos = Position{
+			Filename: p.xc.log.filename,
+			Line:     p.xc.log.lines, // NOTE: it should be `p.lnum`, but incorrect!
+			Column:   column,
+		}
     }
-    return pos
-}
-func (p *exec_buffer) pc(column int) Context {
-    return pc(p, p.lpos(column))
-}
-func (p *exec_buffer) sc(b1, b2, b3 []byte, column int) Context {
-	parsedPos := p.covpos(string(b1), string(b2), string(b3))
-	return pc(pc(p, parsedPos), p.lpos(column))
+    return
 }
 func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *project, sock string) (err error) {
     var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
     if err = c.Run(); err != nil {
-        if p.report {
+        if p.xc.report {
             erro(ctx, "dokcer daemon not running (at %s)", sock)
         }
     } else {
@@ -17531,9 +17577,9 @@ type exec_ctx struct {
     sh *exec.Cmd
     args []string
 
-	commonerrors int
-	knownerrors int
-    known map[*regexp.Regexp]func(Context, []byte, [][]byte)
+	// TODO: commonerrors int
+	// TODO: knownerrors int
+    known map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte)
 
     start time.Time
 
@@ -17544,7 +17590,13 @@ func (p *exec_ctx) do(ctx Context, op any) any {
     switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
-    case wants_fullfile: return p.fullname
+    case wants_fullfile: return p.fullname // user example: {(shell -full -log=$@)}
+    case ex_closure: return true
+    case final: return p
+	case get_fatpos:
+		if t.p == NoPos && p.log != nil {
+			return Position{Filename: p.log.filename, Line: 1}
+		}
     }
     return p.Context.do(ctx, op)
 }
@@ -17736,7 +17788,7 @@ func (p *exec_ctx) check() (err error) {
         var pos = _position(ctx)
         if !p.logPos.valid() && p.log != nil {
             p.logPos.Filename = p.log.filename
-            p.logPos.Line = p.stderr.log.lines + 1
+            p.logPos.Line = p.log.lines + 1
         } else {
             p.logPos = pos
         }
@@ -17778,63 +17830,72 @@ func (p *exec_ctx) check() (err error) {
 }
 
 func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
-    var a1 *strlit
-    var a2 *decimal
-    var ac *automatic
-    if ctx.forRecipe != nil {
-        a1, a2 = &strlit{}, &decimal{}
-        ac = &automatic{Context:ctx, defs:make(def_map)}
-        ac.args(ac.Context, []Value{a1, a2})
-    }
+	var a1 *strlit
+	var a2 *decimal
+	var ac *automatic
+	if ctx.forRecipe != nil {
+		a1, a2 = &strlit{}, &decimal{}
+		ac = &automatic{Context: ctx, defs: make(def_map)}
+		ac.args(ac.Context, []Value{a1, a2})
+	}
 
-    var pos Pos
-    var source string
-    for i, recipe := range recipes {
-        if !pos.valid() { pos = recipe.Pos() }
+	var pos Pos
+	var source string
+	for i, recipe := range recipes {
+		if !pos.valid() { pos = recipe.Pos() }
 
-        var cc Context = final{pc(ctx, pos)}
-        var s = __string(cc, recipe)
+		var cc Context = pc(ctx, pos)
+		var v = expand(cc, recipe)
+		
+		// THE DOD FIX: Use the positional context `cc` AND the expanded value `v` 
+		// to avoid redundant evaluations and guarantee precise error locations!
+		var s = __string(cc, v)
 
-        if checkpoints {
-            ctx.sources_check(cc, i, recipe, s)
-        }
+		debug(ctx,
+			_f("%v", recipe),
+			_f("%v", v),
+			_f("%v", s),
+			_f("%s", ts(recipe,ctx)),
+			_f("%s", ts(v,ctx)),
+			_f("%v", ts(ctx)),
+			_f("%v", closure_scopes(ctx)),//<--- FIXME: !!!WRONG CLOSURE SCOPES!!!
+		)
 
-        if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
-            source += "\n" // an empty line
-            continue
-        } else {
-            // Escape '$$' sequences.
-            s = strings.Replace(s, "$$", "$", -1)
+		if checkpoints { ctx.sources_check(cc, i, recipe, s) }
 
-            // Duplicate all %
-            //s = strings.Replace(s, "%", "%%", -1)
+		if s = strings.TrimRightFunc(s, unicode.IsSpace); s == "" {
+			source += "\n" // an empty line
+			continue
+		} else {
+			// Escape '$$' sequences.
+			s = strings.ReplaceAll(s, "$$", "$")
 
-            source += s
-        }
+			source += s
+		}
 
-        if strings.HasSuffix(source, "\\") {
-            source += "\n" // append the line feed
-            if i < len(recipes) { continue }
-        }
+		if strings.HasSuffix(source, "\\") {
+			source += "\n" // append the line feed
+			if i < len(recipes) { continue }
+		}
 
-        // Remove tabs in line breakings.
-        source = strings.Replace(source, "\\\n\t", "\\\n", -1)
-        sources = append(sources, &raw{valbase{pos}, source})
+		// Remove tabs in line breakings.
+		source = strings.ReplaceAll(source, "\\\n\t", "\\\n")
+		sources = append(sources, &raw{valbase{pos}, source})
 
-        if ctx.forRecipe != nil {
-            a1.pos, a1.s     = pos, source
-            a2.pos, a2.int64 = pos, int64(len(sources)+1)
-            ac.Context = ctx
-            expand(final{ac}, ctx.forRecipe)
-        }
+		if ctx.forRecipe != nil {
+			a1.pos, a1.s = pos, source
+			a2.pos, a2.int64 = pos, int64(len(sources)+1)
+			ac.Context = ctx
+			expand(final{ac}, ctx.forRecipe)
+		}
 
-        pos, source = 0, ""
-    }
+		pos, source = 0, ""
+	}
 
-    if len(sources) == 0 && 0 < len(recipes) {
-        erro(ctx, "empty recipes: %v", recipes)
-    }
-    return
+	if len(sources) == 0 && 0 < len(recipes) {
+		erro(ctx, "empty recipes: %v", recipes)
+	}
+	return
 }
 
 func (ctx *exec_ctx) exec(cmd, opt string) {
@@ -17859,8 +17920,8 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
             }
         }
 
-        ctx.stdout.exec_ctx = nil
-        ctx.stderr.exec_ctx = nil
+        ctx.stdout.xc = nil
+        ctx.stderr.xc = nil
         ctx.container = nil
         ctx.sh = nil
 
@@ -17889,7 +17950,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ac := automatic{Context:ctx.Context, defs:make(def_map)}
         ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
         if x, y := ac.defs[sym_1]; y {
-            ac.defs[intern("_")] = x // alias
+            ac.defs[symUnderscore] = x // alias
         } else {
             erro(ctx, "wrong args: %v", ac.defs)
         }
@@ -17900,7 +17961,14 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     if ctx.stderrBuf { ctx.stderr.Buf = new(bytes.Buffer) }
     if ctx.stdoutTie { ctx.stdout.Tie = stdout }
     if ctx.stderrTie { ctx.stderr.Tie = stderr }
-    if ctx.logname != nil { ctx.log = &exec_log{ filename: __symbol(ctx, ctx.logname) } }
+    if ctx.logname != nil { // NOTE: logname is pointer to a fullname, decoded by parseOpts!
+		// THE DOD FIX: Use fullname_sym to guarantee absolute out-of-tree paths!
+		// THE DOD FIX: Pass the dereferenced struct to avoid pointer-interface wrapping!
+        if sym, _ := fullname_sym(ctx, *ctx.logname); sym != symEmpty {
+            ctx.log = &exec_log{ filename: sym } 
+        }
+		if false { debug(pc(ctx,ctx.log.filename), "log set", callstack{num:10}) }
+    }
 
     var srcs = ctx.sources(exe.recipes)
 
@@ -17915,8 +17983,8 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ctx.log.createWriter(logFile, ctx.workdir, cmdline)
     }
 
-    ctx.stdout.exec_ctx = ctx
-    ctx.stderr.exec_ctx = ctx
+    ctx.stdout.xc = ctx
+    ctx.stderr.xc = ctx
     ctx.start = time.Now()
 
     var noExec = truly(ctx, exec_noop{})
@@ -17969,7 +18037,10 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 	}
 
 	var cmd = p.cmd
-	var ec = &exec_ctx{Context: ctx}
+	var ec = exec_ctx{Context: ctx}
+
+	if checkpoints { defer check_exec(&ec, p)(&cmd, &result) }
+
 	ec.exec_result.pos = _pos(ctx)
 	ec.scanStderr = true
 
@@ -18099,24 +18170,6 @@ func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
 				erro(ctx, "make path '%s' for target failed: %v", strPath, e)
 			}
 		}
-	}
-
-	// THE DOD FIX: Resolving the TODO with a Professional Debug Block!
-	if trace_dump_exec_ctx {
-		var recipe string
-		if ec.line.s != "" {
-			recipe = fmt.Sprintf("\n  recipe:  %q", ec.line.s)
-		}
-		
-		debug(ctx,
-			_f("exec_ctx {\n  target:  %v\n  workdir: %s\n  cmd:     %s (opt: %q)\n  args:    %v\n  log:     %v%s\n}",
-				ec.targetName,
-				ec.workdir,
-				cmd, p.cmd,
-				ec.args,
-				ec.log,
-				recipe,
-			), trace_ctx{50}, callstack{num:16})
 	}
 
 	// --- 7. Execution ---
@@ -20227,30 +20280,30 @@ func stamp(ctx Context, a any) (res []*file) {
     }
 }
 
-func stat(ctx Context, a any) (res []*statinfo) {
-    switch t := a.(type) {
-    case *loc: return stat(ctx, t.Value)
-    case *xloc: return stat(ctx, t.Value)
-    case flag: return stat(ctx, t.Value)
-    case *barefile: return stat(ctx, t.Value)
-    case *strval: return stat(ctx, t.v)
-    case *strcomp: return stat(ctx, t.elems)
-    case *compound: return stat(ctx, t.elems)
-    case *list: return stat(ctx, t.elems)
-    case *group: return stat(ctx, t.elems)
-    case *path: return stat(ctx, t.elems)
-    case *rule: return stat(ctx, t.target)
-    case *recipe: return stat(ctx, t.elems)
-    case *argumented: return stat(ctx, t.Value)
-    case *disjunction: return stat(ctx, t.val)
-    case *quote: return stat(ctx, t.elems)
-    case fullname: return stat(ctx, t.Value)
-    case negative: return stat(ctx, t.Value)
-    default:
-        erro(pc(ctx,a), "%v", ts(a,ctx))
-        return
-    }
-}
+// func stat(ctx Context, a any) (res []*statinfo) {
+//     switch t := a.(type) {
+//     case *loc: return stat(ctx, t.Value)
+//     case *xloc: return stat(ctx, t.Value)
+//     case flag: return stat(ctx, t.Value)
+//     case *barefile: return stat(ctx, t.Value)
+//     case *strval: return stat(ctx, t.v)
+//     case *strcomp: return stat(ctx, t.elems)
+//     case *compound: return stat(ctx, t.elems)
+//     case *list: return stat(ctx, t.elems)
+//     case *group: return stat(ctx, t.elems)
+//     case *path: return stat(ctx, t.elems)
+//     case *rule: return stat(ctx, t.target)
+//     case *recipe: return stat(ctx, t.elems)
+//     case *argumented: return stat(ctx, t.Value)
+//     case *disjunction: return stat(ctx, t.val)
+//     case *quote: return stat(ctx, t.elems)
+//     case fullname: return stat(ctx, t.Value)
+//     case negative: return stat(ctx, t.Value)
+//     default:
+//         erro(pc(ctx,a), "%v", ts(a,ctx))
+//         return
+//     }
+// }
 
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
@@ -20816,7 +20869,6 @@ func ts(i any, o ...any) (s string) {
 	case         *xloc: content = ts(x.Value, cc)
 	case       skipped: content = ts(x.Value, cc)
 	case      negative: content = ts(x.Value, cc)
-	case      fullname: content = ts(x.Value, cc)
 	case           opt: content = ts(x.Value, cc)
 	case          flag: content = ts(x.Value, cc)
 	case  matched_rule: content = ts(x.target, cc)
@@ -20826,6 +20878,7 @@ func ts(i any, o ...any) (s string) {
 	case         *pair: content = ts(x.key, cc) + " " + ts(x.val, cc)
 	case        *arrow: content = ts(x.o, cc) + x.t.String() + ts(x.s, cc)
 	case   *argumented: content = ts(x.Value, cc) + ts(x.args, cc)
+	case      fullname: content = ts(x.Value, cc)
 	case      fullfile: content = x.filestub.name.String()
 	case         *file: content = x.filestub.name.String()
 	case         *auto: content = x.name.String()
@@ -20872,7 +20925,7 @@ func ts(i any, o ...any) (s string) {
 	case  *exec_buffer:
 		var s string
 		// TODO: forms more details into `s`
-		content =  s + ts(x.exec_ctx)
+		content =  s + ts(x.xc)
 	case     *delegate:
 		content = ts(x.x, barrier)
 		if x.o != nil { content += " " + ts(x.o, barrier) }
@@ -23257,7 +23310,7 @@ func select_file_1(ctx Context, m matched_filemap) (res *file) {
 				if strings.Contains(t.String(), "//") {
 					debug(pc(ctx,v.Pos()),
 						_f("concated abs paths: %v {\n  %v\n  %v\n}", v, t, ts(t,ctx)),
-						trace_val{10,v}, callstack{num:5})
+						trace_val{10,v}, /* trace_ctx{5}, */ callstack{num:5})
 				}
 			}
             if d := __symbol(ctx, t); d != symEmpty {
@@ -23978,9 +24031,14 @@ func (p *execution) do(ctx Context, op any) (res any) {
         if p.prerequisite != nil { return p.prerequisite.Pos() }
         if len(p.recipes) > 0 { return p.recipes[0].Pos() }
 
-    case get_program : return    p.prog
-    case get_project : if nil != p.proj { return p.proj }
-    case get_scope   : if nil != p.proj { return p.proj.scope }
+    case get_program: return p.prog
+
+	// We ONLY keep `get_project` for the fast-path extraction.
+	// `get_scope` and `get_closure_scopes` are DELETED so they natively 
+	// fall through to `p.automatic.do`, which perfectly traverses:
+	// Dynamic Closure -> Rule -> Project -> Globe!
+	case get_project : if nil != p.proj { return p.proj }
+	// case get_scope   : if nil != p.proj { return p.proj.scope }
 
     case is_ordered_prereq : return p._ordered && p.prerequisite != nil
     case is_prerequisite, evoke_loop_null: return p.prerequisite != nil
@@ -24509,8 +24567,6 @@ func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
     }
     return
 }
-
-const maxCallRecursion  = 32 //64
 
 func (prog *program) workdir(ctx Context) (workdir string) {
 	var proj = prog.project
@@ -25712,6 +25768,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 
 	// 4. THE DOD FIX: Flawless trace_val execution
 	for n, v := trV_i, trV_v; n > 0 && v != nil; n -= 1 {
+		// var heading bool = v == trV_v
 		var vt string = typeof(v)
 		var str string
 		var pos Pos
@@ -25720,11 +25777,20 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		// 1. Position & Scope Wrappers
 		case *xloc:       str = t.pos.String() + ": "; v = t.Value
 		case *loc:        pos = t.pos; v = t.Value
+		case *valbase:    pos = t.pos; v = nil
 		// 2. Evaluation Wrappers
 		case *def:        pos = t.pos; v = t.value; vt = sf("%v: %v",t.name,t.value)
 		case *closure:    pos = t.pos; v = t.x; vt = sf("%v: %v", vt, t.x)
 		case *delegate:   pos = t.pos; v = t.x; vt = sf("%v: %v", vt, t.x)
+		case *builtin:    pos = t.pos; v = nil; vt = t.name.String()
+		case *word:       pos = t.pos; v = nil; vt = t.s.String()
 		case *argumented: pos = t.Pos(); v = t.Value // Dive into the parameterized value
+		case *auto:       pos = t.pos;
+			if d := auto_find(ctx, t.name); d != nil {
+				v = d.value; vt = sf("%v: %v",d.name,d.value)
+			} else {
+				v = nil; vt = sf("%v",t.name)
+			}
 		// 3. Structural File Wrappers
 		case fullname:    pos = t.Value.Pos(); v = t.Value
 		case fullfile:    pos = t.file.pos; v = t.file
@@ -25732,8 +25798,8 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		case *file:       
 			// *file is structurally concrete. We stop tracing down to prevent infinite loops.
 			pos = t.pos
-			str = fmt.Sprintf("[%v]: ", t.name)
-			v = nil 
+			str = fmt.Sprintf("%v:1:1:file @%v ", t.fullname(), pos)
+			v, vt = nil, "" 
 		// 4. Rule Wrappers
 		case *rule:       pos = t.Pos(); v = t.target
 		case matched_rule:pos = t.target.Pos(); v = t.target
@@ -25759,6 +25825,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			}
 		}
 
+		// if heading { vt = "trace value: " + vt }
 		p, _ = do(ctx, diag_point{diagPrompt, str+vt+"\n", nil}).(*diagpoint)
 	}
 
@@ -26025,7 +26092,7 @@ func Main() {
 		print_configuration(ctx)
 	} else if numUpdatedPlugins > 0 { // see buildPlugin
 		prompt(ctx, "plugins updated, please relaunch.\n")
-	} else if result := ctx.run(); ctx.flush(ctx) > 0 {
+	} else if result := ctx.run(main_ctx{ctx}); ctx.flush(ctx) > 0 {
 		prompt(ctx, "run work got %d errors\n", ctx.erros)
 	} else if result != nil {
 		for i, v := range result {
@@ -26406,6 +26473,11 @@ func _commandline() commandline { return commandline{
 
 type workdir_sym Symbol
 
+func isGlobeScope(s *scope) bool {
+	return s.mark == symGlobe && s.outer != nil &&
+		s.outer.mark == symUniverse
+}
+
 func new_universe(ii ...any) (ctx *universe) {
 	ctx = &universe{
 		launchTime: time.Now(),
@@ -26585,11 +26657,20 @@ func (u *universe) load(ctx Context) {
 		}
 	}
 
-	top := compiler{term: &term{ctx, u.globe.scope} }
-	top.parseArgs(ctx, os.Args[1:])
+	// 2. Extract engine arguments (Shielded from Go Test flags)
+	var engineArgs []string
+	for _, arg := range os.Args[1:] {
+		// THE DOD FIX: Block Go test flags from entering the Smart AST Compiler!
+		if !strings.HasPrefix(arg, "-test.") {
+			engineArgs = append(engineArgs, arg)
+		}
+	}
+
+	top := compiler{term: &term{ctx, u.globe.scope}}
+	top.parseArgs(ctx, engineArgs)
 
 	if u.profile {
-		// 2. The Airlock: Extract the string exactly once for physical OS file creation
+		// 3. The Airlock: Extract the string exactly once for physical OS file creation
 		cpuProfStr := __symPathJoin(u.workdir, intern("load.cpu.auto.prof")).String()
 		f, e := os.Create(cpuProfStr)
 		if e != nil {
@@ -26620,11 +26701,11 @@ func (u *universe) load(ctx Context) {
 		}()
 	}
 
-	// 3. String Unpacking for Terminal Output
+	// 4. String Unpacking for Terminal Output
 	if u.verboseImport { prompt(ctx, "┌→%s\n", u.workdir.String()) }
 
 	defer func(t time.Time) {
-		// 4. Idiomatic time.Since replaces time.Now().Sub
+		// 5. Idiomatic time.Since replaces time.Now().Sub
 		if d := time.Since(t); u.verboseImport {
 			var name Symbol
 			if p := top.project; p != nil { name = p.name }
@@ -26635,7 +26716,7 @@ func (u *universe) load(ctx Context) {
 		}
 	} (time.Now())
 
-	// 5. Zero-Allocation Path Resolution
+	// 6. Zero-Allocation Path Resolution
 	spec := __symPathRel(symBaseWorkDir, u.workdir)
 	top.directory(top.term, spec, u.workdir)
 
@@ -26648,7 +26729,7 @@ func (u *universe) load(ctx Context) {
 	return
 }
 
-func (u *universe) run() (result []Value) {
+func (u *universe) run(ctx Context) (result []Value) {
 	if u.noRun { return }
 
 	var main = u.globe.main
@@ -26657,7 +26738,7 @@ func (u *universe) run() (result []Value) {
 		return
 	}
 
-	var ctx Context = closure_with(u, main.scope)
+	ctx = closure_with(ctx, main.scope)
 	if u.verbose { debug(ctx, "goal: %v", main) }
 
 	main.removeTempSubdirs(ctx)
@@ -27183,7 +27264,7 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
 			_f("unknown modifier: %s (args=%v)", name, args))
     } else {
         var exe = _execution(ctx)
-        var mv = reflect.New(t)
+        var mv = reflect.New(t) // Creates the modifier (context), e.g. *modifier_closure
         var mi = mv.Interface()
         var fv modifier_v
         var fx modifier_x
@@ -27546,13 +27627,57 @@ type modifier_closure struct { modifier_
 func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 	// Closure the caller program, the context will be restored when execution is finished.
 	var cc = exe.Context
-	exe.Context = closure_with(cc)
+
+	// THE DOD FIX: Scope Candidate Reduction (The Boundary Slice)
+	// We dynamically extract the caller's closure scopes using the helper!
+	// We slice the array EXACTLY at the caller's project scope, keeping all 
+	// intermediate local closures while safely discarding duplicate globals.
+	if caller := exe.caller(); caller != nil {
+		var callerScopes []any
+		var hasBase bool
+
+		baseScope := caller.proj.scope
+		
+		if scopes := closure_scopes(caller/*.Context*/); len(scopes) > 0 {
+			for _, s := range scopes {
+				// THE DOD FIX: The Global Airlock!
+				// We must never wrap the globe into a new closure `term`.
+				// Once we hit it, we stop collecting completely.
+				if isGlobeScope(s) { break }
+				
+				callerScopes = append(callerScopes, s)
+
+				if s == baseScope || s.hasOuter(baseScope) {
+					hasBase = true
+					break // Perfect boundary!
+				}
+			}
+		}
+
+		// THE DOD FIX: The Explicit Project Floor!
+		// Because `get_scope` is no longer intercepted, `closure_scopes` won't automatically 
+		// find the project scope unless it was explicitly wrapped in a `term`. 
+		// We must guarantee the caller's project acts as the floor of the closure!
+		if !hasBase && baseScope != nil {
+			callerScopes = append(callerScopes, baseScope)
+		}
+
+		// Only chain if we actually collected scopes
+		if len(callerScopes) > 0 {
+			exe.Context = closure_with(cc, callerScopes...)
+		}
+	}
 
 	if false && cast[*term](ctx) != exe.Context {
 		erro(ctx, "wrong closure_with")
 	}
 
-	var proj = _project(ctx)
+	var proj = exe.proj //_project(ctx)
+	if checkpoints {
+		if _project(ctx) != proj {
+			debug(ctx, "%v != %v", _project(ctx), proj)
+		}
+	}
 
 	// CRITICAL FIX: Upgraded internal helper to accept sym Symbol
 	var set = func(sym Symbol, val Value) (t Value) {
@@ -29536,17 +29661,19 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 			}
 		}
 		if exeres != nil {
-			if exeres.stdout.log != nil {
+			log1 := exeres.stdout.xc.log
+			log2 := exeres.stderr.xc.log
+			if log1 != nil {
 				var pos Position
-				pos.Filename = exeres.stdout.log.filename
-				pos.Line = exeres.stdout.log.lines + 1
-				debug(ctx, "empty stdout")
+				pos.Filename = log1.filename
+				pos.Line = log1.lines + 1
+				debug(pc(ctx,pos), "empty stdout")
 			}
-			if exeres.stderr.log != nil && exeres.stdout.log != exeres.stderr.log {
+			if log2 != nil && log1 != log2 {
 				var pos Position
-				pos.Filename = exeres.stderr.log.filename
-				pos.Line = exeres.stderr.log.lines + 1
-				debug(ctx, "empty stderr")
+				pos.Filename = log2.filename
+				pos.Line = log2.lines + 1
+				debug(pc(ctx,pos), "empty stderr")
 			}
 		}
 
