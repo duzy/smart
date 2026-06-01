@@ -507,6 +507,7 @@ const (
 
 	symCopy
 	symOut
+	symOutbin
 	symOutlib
 	symOuttmp
 	symOutinc
@@ -767,7 +768,7 @@ var coreSymbols = []string{
 	"rel", "relative", "reldir", "file", "stat", "wildcard", "clean", "ch", "chdir",
 	"git", "gitdir", "rename", "remove", "link", "readlink", "sym", "symlink", "truncate", "return",
 
-	"copy", "out", "outlib", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
+	"copy", "out", "outbin", "outlib", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
 	"read", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
 	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
 
