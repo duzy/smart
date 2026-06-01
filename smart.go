@@ -3062,7 +3062,7 @@ func (s *scope) string() string {
 		if false {
 			fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.mark)
 		} else {
-			mark := trimPromptStringX(s.mark.String(), 16)
+			mark := trimPromptX(s.mark.String(), 16)
 			fmt.Fprintf(&buf, "%s ← %s", mark, s.outer.string())
 		}
 	} else {
@@ -10828,9 +10828,9 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 func (p *compiler) saveConfiguration(ctx Context) {
 	if p.project == nil {
 		if p.scanner.file == nil {
-			erro(pc(ctx,p.scope.mark), "parse nil file, in %s", p.scope, callstack{num:32})
+			erro(pc(ctx, p.scope.mark), "parse nil file, in %s", p.scope, callstack{num: 32})
 		} else {
-			erro(pc(ctx,p), "nil project, in %s", p.scope, callstack{num:32})
+			erro(pc(ctx, p), "nil project, in %s", p.scope, callstack{num: 32})
 		}
 	}
 
@@ -10838,19 +10838,7 @@ func (p *compiler) saveConfiguration(ctx Context) {
 	if configs == nil { return }
 
 	var f = p.project.configuration_sm(ctx)
-
-	// =========================================================
-	// I/O OPTIMIZATION & STATE ENFORCEMENT
-	// =========================================================
-	if f != nil && f.filebase != nil {
-		if f._dirty == 0 && f.exists() {
-			// Enforce strict state transitions: Catch unwarranted saves!
-			// erro(pc(ctx,f.fullname()), "%s: conflicted configuration.sm", p.project.name)
-		}
-		if !f._updated && f.exists() {
-			return // Cache is in perfect sync with disk. Bail out instantly!
-		}
-	}
+	if f == nil || f.filebase == nil { return } // Safety airlock
 
 	if p.promptEnteringDirectory {
 		p.promptEnteringDirectory = false
@@ -10858,21 +10846,50 @@ func (p *compiler) saveConfiguration(ctx Context) {
 		flush(ctx)
 	}
 
-	// CRITICAL FIX: Retain the pure Symbol ID for context tracking
 	var fnSym = f.fullname()
 
-	if checkpoints {
-		if c := p.project.configuration; c != nil && c.fullname() != fnSym {
-			debug(pc(pc(ctx, c.fullname()), fnSym),
-				_f("%s: configuration already loaded", p.project.name),
-				trace_ctx{5}, callstack{num:5})
+	// 1. DIVERGENCE HANDLING: Discard the difference gracefully, but advise the user!
+	if c := p.project.configuration; c != nil && c.fullname() != fnSym {
+		// UNCONDITIONAL HINT: Teach the user how to optimize their Walled Garden initialization!
+		debug(pc(pc(ctx, c.fullname()), fnSym),
+			_f("%s: configuration relocated during evaluation", p.project.name),
+			_f("hint: use '-set(workout=$//out)' to sync the Walled Garden before loading!"),
+			trace_ctx{5}, callstack{num: 5})
+	}
+
+	// 2. I/O OPTIMIZATION: Serialize entirely in memory first!
+	var buf bytes.Buffer
+	fmt.Fprintf(&buf, "# %s (%s)\n", p.project.name.String(), p.project.spec.String())
+
+	for _, c := range configs {
+		fmt.Fprintf(&buf, "configure %s =", c.name)
+
+		// SAFE SERIALIZATION: Prevent `{}` and `[]` parsing crashes
+		if c.value != nil && !isTrivial(c.value) {
+			if s := c.value.String(); s != "" && s != "{}" && s != "[]" {
+				fmt.Fprintf(&buf, " %s", s)
+			}
+		}
+		fmt.Fprintf(&buf, "\n")
+	}
+
+	fmt.Fprintf(&buf, "\n# %d configs.\n", len(configs))
+	var newPayload = buf.Bytes()
+	var fnStr = fnSym.String()
+
+	// 3. ZERO-I/O CACHE SYNC: Prevent timestamp thrashing!
+	if f.exists() {
+		if existing, err := os.ReadFile(fnStr); err == nil && bytes.Equal(existing, newPayload) {
+			// The bytes on disk perfectly match the memory state.
+			// Abort the write to preserve the OS modification time!
+			f._updated = false
+			f._dirty = 0
+			p.project.configuration = f
+			return
 		}
 	}
 
-	// --- AIRLOCK: Unpack string exactly once for physical OS operations ---
-	var fnStr = fnSym.String()
-
-	// Zero-allocation directory resolution inside the Walled Garden!
+	// 4. ATOMIC WRITE (Only executed if the configuration actually changed)
 	if dirSym := __symDir(fnSym); dirSym != symEmpty && dirSym != symDot && dirSym != symPathSep {
 		if e := os.MkdirAll(dirSym.String(), os.FileMode(0755)); e != nil {
 			erro(pc(ctx, fnSym), "make path %s failed: %v", dirSym.String(), e)
@@ -10880,53 +10897,24 @@ func (p *compiler) saveConfiguration(ctx Context) {
 		}
 	}
 
-	// =========================================================
-	// ATOMIC WRITE: Protect against concurrent '1:1: syntax error'
-	// =========================================================
 	var tmpFn = fnStr + ".tmp"
-	var o, e = os.OpenFile(tmpFn, os.O_RDWR | os.O_CREATE | os.O_TRUNC, os.FileMode(0600))
-	if e != nil {
+	// os.WriteFile is faster and safer than OpenFile + Fprintf for memory buffers
+	if e := os.WriteFile(tmpFn, newPayload, 0600); e != nil {
 		erro(pc(ctx, fnSym), "%s: %v", p.project.name.String(), e)
 		return
 	}
-	
-	defer func() {
-		o.Close() // Must close before rename/remove
-		if 0 < diagCount(ctx, diagError) {
-			os.Remove(tmpFn)
-		} else {
-			// Instantly swap the file. Readers NEVER see a truncated/empty file!
-			os.Rename(tmpFn, fnStr)
-			
-			// CRITICAL FIX: Use the 'stamp' airlock to pierce the VFS Cache!
-			// The OS replaced the inode, meaning ModTime and Size have changed.
-			if f != nil && f.filebase != nil {
-				f.stamp(ctx) 
-				
-				// Safely clear the flags ONLY if the rename and stamp succeed!
-				f._updated = false
-				f._dirty = 0 
-			}
-		}
-	} ()
 
-	fmt.Fprintf(o, "# %s (%s)\n", p.project.name.String(), p.project.spec.String())
-
-	for _, c := range configs {
-		fmt.Fprintf(o, "configure %s =", c.name)
-
-		// =========================================================
-		// SAFE SERIALIZATION: Prevent `{}` and `[]` parsing crashes
-		// =========================================================
-		if c.value != nil && !isTrivial(c.value) {
-			if s := c.value.String(); s != "" && s != "{}" && s != "[]" {
-				fmt.Fprintf(o, " %s", s)
-			}
-		}
-		fmt.Fprintf(o, "\n")
+	if 0 < diagCount(ctx, diagError) {
+		os.Remove(tmpFn)
+	} else {
+		// Instantly swap the file. Readers NEVER see a truncated/empty file!
+		os.Rename(tmpFn, fnStr)
+		
+		// The OS replaced the inode, meaning ModTime and Size have changed.
+		f.stamp(ctx) 
+		f._updated = false
+		f._dirty = 0 
 	}
-
-	fmt.Fprintf(o, "\n# %d configs.\n", len(configs))
 
 	p.project.configuration = f // saved configuration.sm
 }
@@ -14343,8 +14331,8 @@ func multiline(ctx Context, recipes... Value) (res string) {
     return
 }
 
-type XML struct { Value }
-func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
+type xml struct { Value }
+func (p *xml) String() string { return "(:xml " + p.Value.String() + ")" }
 
 /*
    <books number="3">
@@ -14456,14 +14444,14 @@ type dialect_xml struct { whitespace bool }
 func (p *dialect_xml) evaluate(ctx Context, args ...Value) (result Value) {
     var source = multiline(ctx, _execution(ctx).recipes...)
     if v := DecodeXML(ctx, source, p.whitespace); v != nil {
-        return &XML{ v }
+        return &xml{ v }
     } else {
-        return &XML{ _none(_pos(ctx)) }
+        return &xml{ _none(_pos(ctx)) }
     }
 }
 
-type JSON struct { Value }
-func (p *JSON) String() string { return "(:json " + p.Value.String() + ")" }
+type json struct { Value }
+func (p *json) String() string { return "(:json " + p.Value.String() + ")" }
 
 type jsonDecodeState struct {
     dec *enc_json.Decoder
@@ -14635,14 +14623,14 @@ func (_ *dialect_json) evaluate(ctx Context, args ...Value) (result Value) {
     var recipes = _execution(ctx).recipes
     var source = multiline(ctx, recipes...)
     if v := DecodeJSON(ctx, source); v != nil {
-        return &JSON{ result }
+        return &json{ result }
     } else {
-        return &JSON{ _none(recipes[0].Pos()) }
+        return &json{ _none(recipes[0].Pos()) }
     }
 }
 
-type YAML struct { Value }
-func (p *YAML) String() string { return "(:yaml " + p.Value.String() + ")" }
+type yaml struct { Value }
+func (p *yaml) String() string { return "(:yaml " + p.Value.String() + ")" }
 
 /*
    TODO: implement the yaml format:
@@ -14662,9 +14650,9 @@ type dialect_yaml struct { whitespace bool }
 func (p *dialect_yaml) evaluate(ctx Context, args ...Value) (result Value) {
     var source = multiline(ctx, _execution(ctx).recipes...)
     if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
-        return &YAML{ result }
+        return &yaml{ result }
     } else {
-        return &YAML{ _none(_pos(ctx)) }
+        return &yaml{ _none(_pos(ctx)) }
     }
 }
 
@@ -14997,7 +14985,7 @@ func (p *file) stat(ctx Context) (si *statinfo) {
 		p._isDir = info.IsDir()
 	} else if x, y := err.(*fs.PathError); y {
 		if false {
-			erro(ctx, "%v: %v", trimPromptString(x.Path), x.Err)
+			erro(ctx, "%v: %v", trimPrompt(x.Path), x.Err)
 		}
 		return
 	} else {
@@ -17205,7 +17193,7 @@ var (
 		},
 		rxShellNoSuchFileDir: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 			col := bytes.Index(line, sm[2]) + 1
-			erro(pc(ctx, p.logPos(col)), _f("missing command '%s' {\n%s\n}", trimPromptString(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
+			erro(pc(ctx, p.logPos(col)), _f("missing command '%s' {\n%s\n}", trimPrompt(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
 		},
 		regexp.MustCompile(`(.+?): (.+?):( command)? not found`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 			col := bytes.Index(line, sm[2]) + 1
@@ -17244,7 +17232,7 @@ var (
 			// Extracted Missing File Logic
 			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no such file or directory: '(.+)'`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				col := bytes.Index(line, sm[2]) + 1
-				erro(pc(ctx, p.logPos(col)), _f("missing file '%s' {\n%s\n}", trimPromptString(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
+				erro(pc(ctx, p.logPos(col)), _f("missing file '%s' {\n%s\n}", trimPrompt(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
 				do(ctx, missing_file{string(sm[2])}) 
 			},
 			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no input files`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
@@ -17253,7 +17241,7 @@ var (
 
 			rxIgnoringDirectory: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				col := bytes.Index(line, sm[2]) + 1
-				debug(pc(ctx, p.logPos(col)), 5, _f("ignored directory '%s' {\n%s\n}", trimPromptString(string(sm[1])), sm[0]), trace_ctx{50}, callstack{num: 3})
+				debug(pc(ctx, p.logPos(col)), 5, _f("ignored directory '%s' {\n%s\n}", trimPrompt(string(sm[1])), sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
 			rxLdManyMinVersions: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
@@ -17278,9 +17266,9 @@ var (
 
 				// Prime Fact Extraction
 				var fact string
-				if strings.HasPrefix(msg, "no such file or directory:") {
-					file := strings.TrimSpace(strings.TrimPrefix(msg, "no such file or directory:"))
-					fact = fmt.Sprintf("missing file %s", file)
+				if tag := "no such file or directory:"; strings.HasPrefix(msg, tag) {
+					file := strings.Trim(strings.TrimPrefix(msg, tag), ` '`)
+					fact = fmt.Sprintf("missing file %s", trimPrompt(file))
 				} else if msg == "no input files" {
 					fact = "missing input files"
 				} else {
@@ -17359,8 +17347,8 @@ var (
 	}
 )
 
-func trimPromptString(str string) string { return trimPromptStringX(str, maxPromptStr) }
-func trimPromptStringX(str string, x int) (s string) {
+func trimPrompt(str string) string { return trimPromptX(str, maxPromptStr) }
+func trimPromptX(str string, x int) (s string) {
     var segs = strings.Split(str, pathSep)
     if len(segs) <= 1 {
         if n, m := len(str), maxPromptStr; n > m {
@@ -17851,13 +17839,11 @@ func (p *exec_ctx) check() (err error) {
         } else if wn > 0 {
             if diffLogPos { warn(ctx, "%v: %d known warnings", str, wn) }
             warn(p, "%v: exit status %d", str, p.status)
-            warn(ctx, "%v: %d known warnings", str, wn)
-            warnstack(ctx, 3)
+            warn(ctx, "%v: %d known warnings", str, wn, callstack{num:3})
         } else if in > 0 && p.scanInfos {
             if diffLogPos { info(ctx, "%v: %d known messages", str, in) }
             info(p, "%v: exit status %d", str, p.status)
-            info(ctx, "%v: %d known messages", str, in)
-            infostack(ctx, 8)
+            info(ctx, "%v: %d known messages", str, in, callstack{num:5})
         }
 
         // if p.retStatus {
@@ -17975,7 +17961,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         }
 
         if !ctx.silent && ctx.prompt {
-            var ps = ctx.cmd + trimPromptString(ctx.targetName.String())
+            var ps = ctx.cmd + trimPrompt(ctx.targetName.String())
             if _execution(exe.Context) == nil { ps += " …… ok" }
             if ps != "" {
                 var s = time.Now().Sub(ctx.start).String()
@@ -20323,31 +20309,6 @@ func stamp(ctx Context, a any) (res []*file) {
         return
     }
 }
-
-// func stat(ctx Context, a any) (res []*statinfo) {
-//     switch t := a.(type) {
-//     case *loc: return stat(ctx, t.Value)
-//     case *xloc: return stat(ctx, t.Value)
-//     case flag: return stat(ctx, t.Value)
-//     case *barefile: return stat(ctx, t.Value)
-//     case *strval: return stat(ctx, t.v)
-//     case *strcomp: return stat(ctx, t.elems)
-//     case *compound: return stat(ctx, t.elems)
-//     case *list: return stat(ctx, t.elems)
-//     case *group: return stat(ctx, t.elems)
-//     case *path: return stat(ctx, t.elems)
-//     case *rule: return stat(ctx, t.target)
-//     case *recipe: return stat(ctx, t.elems)
-//     case *argumented: return stat(ctx, t.Value)
-//     case *disjunction: return stat(ctx, t.val)
-//     case *quote: return stat(ctx, t.elems)
-//     case fullname: return stat(ctx, t.Value)
-//     case negative: return stat(ctx, t.Value)
-//     default:
-//         erro(pc(ctx,a), "%v", ts(a,ctx))
-//         return
-//     }
-// }
 
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
@@ -24339,7 +24300,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	// We only extract the physical string if we actually need to print it to the terminal!
 	if verb {
 		targetFullStr := targetFullSym.String()
-		ts := trimPromptString(targetFullStr)
+		ts := trimPrompt(targetFullStr)
 		
 		d := time.Since(p.start) // Idiomatic Go replacement for time.Now().Sub
 		
@@ -25055,7 +25016,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 			}
 
 			var d = time.Since(st)
-			prompt(ctx, "update %v …… %s (in %v)\n", trimPromptString(filenameStr), status, d)
+			prompt(ctx, "update %v …… %s (in %v)\n", trimPrompt(filenameStr), status, d)
 			if d := opts.debug; d > 0 { debug(ctx, "%v (%v)", auto_get(ctx, symAt), d) }
 		}(time.Now())
 	}
@@ -25904,22 +25865,22 @@ func note(ctx Context, f any, a ...any) *diagpoint {
 	return debug(ctx, f, append(a, diagPrompt, diagcs_add_i(1))...)
 }
 
-// Helper function to replace diagstack behaviour seamlessly
-func debugstack(ctx Context, n int, dt diagtype, a ...any) *diagpoint {
-	var f any = ""
-	if len(a) > 0 {
-		if x, y := a[0].(string); y {
-			f, a = x, a[1:] // separate the format string and args
-		} else {
-			f, a = a[0], a[1:] // handle non-string leading args safely
-		}
-	}
-	return debug(ctx, f, append(a, dt, trace_ctx{n})...)
-}
-func infostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagInfo, a...) }
-func warnstack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagWarn, a...) }
-func errostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagError, a...) }
-func notestack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagPrompt, a...) }
+// // Helper function to replace diagstack behaviour seamlessly
+// func debugstack(ctx Context, n int, dt diagtype, a ...any) *diagpoint {
+// 	var f any = ""
+// 	if len(a) > 0 {
+// 		if x, y := a[0].(string); y {
+// 			f, a = x, a[1:] // separate the format string and args
+// 		} else {
+// 			f, a = a[0], a[1:] // handle non-string leading args safely
+// 		}
+// 	}
+// 	return debug(ctx, f, append(a, dt, trace_ctx{n}, callstack{num:3})...)
+// }
+// func infostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagInfo, a...) }
+// func warnstack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagWarn, a...) }
+// func errostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagError, a...) }
+// func notestack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagPrompt, a...) }
 
 func walkSmartBaseDirs(ctx Context, cwd Symbol, vis func(Symbol) bool) Symbol {
 	for s := cwd; s != symEmpty && s != symDot && s != symPathSep; {
@@ -26976,7 +26937,7 @@ func (e failureFileNotFound) Error() string {
     if s, t := e.file.fullname(), e.file.name; s == t {
         return fmt.Sprintf(`"%v" not found`, t)
     } else {
-        return fmt.Sprintf(`"%v" not found (at %s)`, t, s) //trimPromptString(s)
+        return fmt.Sprintf(`"%v" not found (at %s)`, t, s) //trimPrompt(s)
     }
 }
 
@@ -27622,7 +27583,7 @@ func (ctx *modifier_set) x(args ...Value) (_ any) {
 					traved = int(f._traved)
 				}
 
-				var ts = trimPromptString(s.String())
+				var ts = trimPrompt(s.String())
 				prompt(ctx, "%s …… traversed (%d)\n", ts, traved)
 			}
 		}
@@ -27768,7 +27729,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		if n > 1 {
 			if ctx.verbose {
 				// AIRLOCK: Only extract the string for the terminal output!
-				ts := trimPromptString(sSym.String())
+				ts := trimPrompt(sSym.String())
 				prompt(ctx, "%s …… traversed (%d, %v)\n", ts, n)
 				if false { debug(ctx, "%v, %v, (%d)", f, sSym, n) }
 			}
@@ -28692,7 +28653,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr Symbol, savedDepsFile *fi
 		var n int
 		if savedDepsFile == nil {
 			if n = flush(dc.Context); n > 0 { // aka. dc.points = nil
-				var s = trimPromptString(targetVal.String())
+				var s = trimPrompt(targetVal.String())
 				prompt(ctx, "%v: %d errors counted\n", word, n)
 				debug(ctx, `%v: %d errors for "%s", dep "%s"`, proj, n, s, word)
 				erro(ctx, `%v: %v`, ctx)
@@ -29725,9 +29686,9 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 		defer func(st time.Time) {
 			var f string
 			if ctx.verbFilename {
-				f = trimPromptString(filename)
+				f = trimPrompt(filename)
 			} else {
-				f = trimPromptString(target.String())
+				f = trimPrompt(target.String())
 			}
 
 			var s string
@@ -34975,7 +34936,7 @@ outer:
 			if opts.verbose { prompt(ctx, "… %s\n", err) }
 			break
 		} else if opts.verbose {
-			var d = trimPromptString(dstName)
+			var d = trimPrompt(dstName)
 			var s = filepath.Base(srcName)
 			prompt(ctx, "%s → %s …… ok\n", d, s)
 		}
