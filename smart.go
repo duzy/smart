@@ -283,9 +283,10 @@ const (
 	symOff
 
 	symOS        // os
+	symMo        // mo
 	symMode      // mode
-	symGoals     // goals
 	symGo        // go
+	symGoals     // goals
 	symSm        // sm
 	symSmart     // smart
 
@@ -299,6 +300,7 @@ const (
 	symDock
 	symSh
 	symShell
+	symPy
 	symPython
 	symPerl
 	symPlain
@@ -351,6 +353,7 @@ const (
 	symDebug
 
 	symPrint
+	symPrintf
 	symPrompt
 	symPreserve
 	symCollapse
@@ -392,6 +395,7 @@ const (
 	symSure
 	symTrace
 
+	symDef
 	symDefor
 	symOr
 	symAnd
@@ -486,8 +490,8 @@ const (
 	symFile
 	symStat
 	symWildcard
-	symPrintf
 	symClean
+	symCh
 	symChdir
 
 	symGit
@@ -496,12 +500,14 @@ const (
 	symRemove
 	symLink
 	symReadlink
+	symSym
 	symSymlink
 	symTruncate
 	symReturn
 
 	symCopy
 	symOut
+	symOutlib
 	symOuttmp
 	symOutinc
 	symDecode
@@ -531,6 +537,7 @@ const (
 	symTmp
 	symTs
 
+	symApp
 	symAhead
 	symShared
 	symStatic
@@ -539,19 +546,47 @@ const (
 	symWork
 	symWorkspace
 	symModified
+	symTest
+	symBugs
+	symDev
 
-	symSrc
-	symBin
-	symBit
-	symLog
-	symExe
-	symDyn
-	symSO
-	symCC
-	symC
-	symo  // o
-	symO  // O
-	symOs
+	symSrc // src
+	symBin // bin
+	symBit // bit
+	symLog // log
+	symExe // exe
+	symDyn // dyn
+	symLlc // llc
+	symCpp // cpp
+	symCxx // cxx
+
+	sym_c   // c
+	sym_cc  // cc
+	sym_cxx // c++
+	sym_o   // o
+	sym_O   // O
+	sym_Os  // Os
+	sym_m   // m
+	sym_mm  // mm
+	sym_s   // s
+	sym_S   // S
+	sym_so  // so
+	sym_h   // h
+	sym_hh  // hh
+
+	symPackage
+	symVersion
+	symVendor
+	symUrl
+	symBugreport
+	symTar
+	symTarname
+	symHave
+	
+	sym_fPIC
+	sym_fcxx
+	sym_fmodules
+	sym_fvisibility
 
 	symM
 	symMM
@@ -559,10 +594,21 @@ const (
 	symMD
 	symMV
 	symMP
-	symFPIC
-	symFcxx
-	symFmodules
-	symFvisibility
+
+	symPACKAGE
+	symNAME
+	symVERSION
+	symVENDOR
+	symSTRING
+	symURL
+	symBUGREPORT
+	symTARNAME
+	symHAVE
+	symH
+	symFUN
+	symSYM
+	symEXIT
+	symSTDLIB
 
 	symReadDir
 	symRelativeDir
@@ -626,6 +672,8 @@ const (
 	symDotCc        // .cc    - common file suffix
 	symDotC         // .c     - common file suffix
 	symDotO         // .o     - common file suffix
+	symDotMm        // .mm    - common file suffix
+	symDotM         // .m     - common file suffix
 
 	symDashC        // -c
 	symDashM        // -M
@@ -690,23 +738,23 @@ var coreSymbols = []string{
 
 	"true", "false", "yes", "no", "on", "off",
 
-	"os", "mode", "goals", "go", "sm", "smart",
+	"os", "mo", "mode", "go", "goals", "sm", "smart",
 
 	"mailto", "ftp", "ftps", "http", "https", "extbit",
 
-	"dock", "sh", "shell", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
+	"dock", "sh", "shell", "py", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
 	"assert", "append", "eval", "value", "config", "configure", "configuration",
 
 	"auto", "autoload", "answer", "bool", "boolean", "defer", "var", "set", "dep", "env",
 	"str", "self", "here", "word", "words", "quote", "defs", "glob", "regex", "fullname", "name",
 
 	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
-	"print", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
+	"print", "printf", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
 	"closure", "cd", "mkdir", "sudo", "fork", "wait", "stamp", "touch", "extract", "deps", "check",
 	"case", "cond", "if", "where", "once", "dirty", "by",
 
 	"type", "types", "typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace",
-	"defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "greater", "less",
+	"def", "defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "greater", "less",
 	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which", "bare",
 	"div", "divide", "mul", "multiply", "minus", "element", "field", "fields", "split", "search",
 	"usee", "user", "uses", "path", "finalize", "resolve", "strip", "trim", "ext", "chop", "chopdir",
@@ -716,17 +764,26 @@ var coreSymbols = []string{
 	"dir", "dirs", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9",
 	"undir", "undirs", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9",
 
-	"rel", "relative", "reldir", "file", "stat", "wildcard", "printf", "clean", "chdir",
-	"git", "gitdir", "rename", "remove", "link", "readlink", "symlink", "truncate", "return",
+	"rel", "relative", "reldir", "file", "stat", "wildcard", "clean", "ch", "chdir",
+	"git", "gitdir", "rename", "remove", "link", "readlink", "sym", "symlink", "truncate", "return",
 
-	"copy", "out", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
+	"copy", "out", "outlib", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
 	"read", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
 	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
 
-	"ahead", "shared", "static", "inlines", "hidden", "work", "workspace", "modified",
+	"app", "ahead", "shared", "static", "inlines", "hidden", "work", "workspace", "modified", "test",
+	"bugs", "dev",
 
-	"src", "bin", "bit", "log", "exe", "dyn", "so", "cc", "c", "o", "O", "Os",
-	"M", "MM", "MG", "MD", "MV", "MP", "fPIC", "fcxx", "fmodules", "fvisibility",
+	"src", "bin", "bit", "log", "exe", "dyn", "llc", "cpp", "cxx",
+	"c", "cc", "c++", "o", "O", "Os", "m", "mm", "s", "S", "so", "h", "hh",
+
+	"package", "version", "vendor", "url", "bugreport", "tar", "tarname", "have",
+
+	"fPIC", "fcxx", "fmodules", "fvisibility",
+
+	"M", "MM", "MG", "MD", "MV", "MP",
+	"PACKAGE", "NAME", "VERSION", "VENDOR", "STRING", "URL", "BUGREPORT", "TARNAME", "HAVE", "H",
+	"FUN", "SYM", "EXIT", "STDLIB",
 
 	// --- *END* monolithic strings ---
 	// --- *SEPARATOR* of Atomic and Composite Symbols (ID shifting occurs after this point) ---
@@ -744,7 +801,7 @@ var coreSymbols = []string{
 	".smart", ".sm", ".os",
 
 	// --- common file suffixes ---
-	".tmp", ".src", ".bin", ".log", ".exe", ".dyn", ".so", ".cc", ".c", ".o",
+	".tmp", ".src", ".bin", ".log", ".exe", ".dyn", ".so", ".cc", ".c", ".o", ".mm", ".m",
 
 	// --- common compiler flags ---
 	"-c", "-M", "-MM", "-MG", "-MD", "-MV", "-MP", "-Os", "-O1", "-O2", "-O3",
@@ -10805,9 +10862,9 @@ func (p *compiler) saveConfiguration(ctx Context) {
 
 	if checkpoints {
 		if c := p.project.configuration; c != nil && c.fullname() != fnSym {
-			erro(pc(pc(ctx, fnSym), c.fullname()),
-				_f("%s: configuration already loaded", p.project.name.String()),
-				trace_ctx{5})
+			debug(pc(pc(ctx, c.fullname()), fnSym),
+				_f("%s: configuration already loaded", p.project.name),
+				trace_ctx{5}, callstack{num:5})
 		}
 	}
 
@@ -17851,15 +17908,15 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
 		// to avoid redundant evaluations and guarantee precise error locations!
 		var s = __string(cc, v)
 
-		debug(ctx,
+		if false { debug(ctx,
 			_f("%v", recipe),
 			_f("%v", v),
 			_f("%v", s),
 			_f("%s", ts(recipe,ctx)),
 			_f("%s", ts(v,ctx)),
 			_f("%v", ts(ctx)),
-			_f("%v", closure_scopes(ctx)),//<--- FIXME: !!!WRONG CLOSURE SCOPES!!!
-		)
+			_f("%v", closure_scopes(ctx)),
+		)}
 
 		if checkpoints { ctx.sources_check(cc, i, recipe, s) }
 
@@ -28867,7 +28924,7 @@ CorrectCC:
 			switch s {
 			case symDashM, symDashMM, symDashMG, symDashMD, symDashMV, symDashMP,
 				symDashOs, symDashO1, symDashO2, symDashO3, symDashC, symDashShared, symDashStatic,
-				symFPIC, symDashFvisibilityInlinesHidden, symDashFcxxModules, symDashFmodules, symDashFmodulesTs:
+				sym_fPIC, symDashFvisibilityInlinesHidden, symDashFcxxModules, symDashFmodules, symDashFmodulesTs:
 				continue // discard unused args
 			}
 		}
