@@ -11698,7 +11698,7 @@ minusloop:
 						b := prompt(ctx, "… %s\n", s)
 						flush(ctx)
 
-						if checkpoints { p.configure_val_check(&exe, d.name, op, merge(newVal), a, b) }
+						if checkpoints { p.check_configure_val(&exe, d.name, op, merge(newVal), a, b) }
 					}
 				} (diagCount(ctx, diagInfo, diagWarn, diagError))
 			}
@@ -11800,7 +11800,7 @@ minusloop:
 						b := prompt(ctx, "… %s\n", s)
 						flush(ctx)
 
-						if checkpoints { p.configure_val_check(&exe, d.name, op, vals, a, b) }
+						if checkpoints { p.check_configure_val(&exe, d.name, op, vals, a, b) }
 					}
 				} (diagCount(ctx, diagInfo, diagWarn, diagError))
 			}
@@ -14305,8 +14305,8 @@ func (p *plainline) int(ctx Context) (_ int64) {
     return
 }
 
-type plainint struct{}
-func (p *plainint) evaluate(ctx Context, args ...Value) (_ Value) {
+type dialect_plain struct{}
+func (p *dialect_plain) evaluate(ctx Context, args ...Value) (_ Value) {
     var res = &plain{}
     var exe = _execution(ctx)
     var opts struct { general_opts }
@@ -14344,13 +14344,6 @@ func multiline(ctx Context, recipes... Value) (res string) {
 
 type XML struct { Value }
 func (p *XML) String() string { return "(xml " + p.Value.String() + ")" }
-func (p *XML) _cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*XML); ok {
-        assert(ok, "value is not XML")
-        res = cmp(ctx, p.Value, a.Value)
-    }
-    return
-}
 
 /*
    <books number="3">
@@ -14458,8 +14451,8 @@ func DecodeXML(ctx Context, source string, ws bool) (result Value) {
     return
 }
 
-type xml struct { whitespace bool }
-func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
+type dialect_xml struct { whitespace bool }
+func (p *dialect_xml) evaluate(ctx Context, args ...Value) (result Value) {
     var source = multiline(ctx, _execution(ctx).recipes...)
     if v := DecodeXML(ctx, source, p.whitespace); v != nil {
         return &XML{ v }
@@ -14469,14 +14462,7 @@ func (p *xml) evaluate(ctx Context, args ...Value) (result Value) {
 }
 
 type JSON struct { Value }
-func (p *JSON) String() string { return "(json " + p.Value.String() + ")" }
-func (p *JSON) _cmp(ctx Context, v Value) (res cmpres) {
-    if a, ok := v.(*JSON); ok {
-        assert(ok, "value is not JSON")
-        res = cmp(ctx, p.Value, a.Value)
-    }
-    return
-}
+func (p *JSON) String() string { return "(:json " + p.Value.String() + ")" }
 
 type jsonDecodeState struct {
     dec *enc_json.Decoder
@@ -14643,8 +14629,8 @@ LoopJSON:
     return
 }
 
-type json struct {}
-func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
+type dialect_json struct {}
+func (_ *dialect_json) evaluate(ctx Context, args ...Value) (result Value) {
     var recipes = _execution(ctx).recipes
     var source = multiline(ctx, recipes...)
     if v := DecodeJSON(ctx, source); v != nil {
@@ -14655,7 +14641,7 @@ func (_ *json) evaluate(ctx Context, args ...Value) (result Value) {
 }
 
 type YAML struct { Value }
-func (p *YAML) String() string { return "(yaml " + p.Value.String() + ")" }
+func (p *YAML) String() string { return "(:yaml " + p.Value.String() + ")" }
 
 /*
    TODO: implement the yaml format:
@@ -14671,8 +14657,8 @@ func DecodeYAML(ctx Context, source string, ws bool) (result Value) {
     return
 }
 
-type yaml struct { whitespace bool }
-func (p *yaml) evaluate(ctx Context, args ...Value) (result Value) {
+type dialect_yaml struct { whitespace bool }
+func (p *dialect_yaml) evaluate(ctx Context, args ...Value) (result Value) {
     var source = multiline(ctx, _execution(ctx).recipes...)
     if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
         return &YAML{ result }
@@ -17077,8 +17063,8 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 }
 
 type executer interface { execute(Context, ...Value) []Value }
-type eval struct { accumulation bool ; o origin }
-func (p *eval) evaluate(ctx Context, args ...Value) (_ Value) {
+type dialect_eval struct { accumulation bool ; o origin }
+func (p *dialect_eval) evaluate(ctx Context, args ...Value) (_ Value) {
     var exe = _execution(ctx)
     if exe == nil {
         erro(ctx, "wrong eval context: %v", ts(ctx))
@@ -18083,11 +18069,11 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     }
 }
 
-type executor struct {
+type dialect_exec struct {
     cmd, opt string
     contained bool
 }
-func (p *executor) evaluate(ctx Context, args ...Value) (result Value) {
+func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
 	var prog = _program(ctx)
 	if prog == nil {
 		erro(ctx, "needs program context to exec: %v", ctx)
@@ -24076,7 +24062,7 @@ type execution struct{
     countFiles int
     traceLevel int
 
-    interpreted []interpreter
+    interpreted []evaluater
 }
 func (p *execution) caller() *execution { return _execution(p.Context) }
 func (p *execution) do(ctx Context, op any) (res any) {
@@ -24232,7 +24218,7 @@ func (p *execution) interp(ctx Context, name Symbol, args []Value) (res bool) {
     return true
 }
 
-func (p *execution) interpret(ctx Context, i interpreter, args []Value) (res Value) {
+func (p *execution) interpret(ctx Context, i evaluater, args []Value) (res Value) {
     target, _, _ := wait(ctx, waitopts{
         ExecResults: false,
         ReportUpdates: false,
@@ -27199,25 +27185,25 @@ func (p *ltracing) elapsed() time.Duration {
 	return time.Now().Sub(p.tm)
 }
 
-type interpreter interface {
+type evaluater interface {
     evaluate(Context, ...Value) Value
 }
 
-var dialects = map[Symbol]interpreter{
-	symEmpty:   &eval{ o:defExpand0 }, // Use your constant for ""
-	symEval:    &eval{ o:defExpand1 },
-	symValue:   &eval{ accumulation:true },
-	symShell:   &executor{ cmd:"bash",   opt:"-c", contained:false },
-	symPython:  &executor{ cmd:"python", opt:"-c", contained:false },
-	symPerl:    &executor{ cmd:"perl",   opt:"-e", contained:false },
-	symDock:    &executor{ cmd:"sh",     opt:"-c", contained:true  },
-	symPlain:   &plainint{},
-	symJson:    &json{},
-	symXml:     &xml{ whitespace:false },
-	symYaml:    &yaml{ whitespace:false },
+var dialects = map[Symbol]evaluater{
+	symEmpty:   &dialect_eval{ o:defExpand0 }, // Use your constant for ""
+	symEval:    &dialect_eval{ o:defExpand1 },
+	symValue:   &dialect_eval{ accumulation:true },
+	symShell:   &dialect_exec{ cmd:"bash",   opt:"-c", contained:false },
+	symPython:  &dialect_exec{ cmd:"python", opt:"-c", contained:false },
+	symPerl:    &dialect_exec{ cmd:"perl",   opt:"-e", contained:false },
+	symDock:    &dialect_exec{ cmd:"sh",     opt:"-c", contained:true  },
+	symPlain:   &dialect_plain{}, // i.e. plain text
+	symJson:    &dialect_json{},
+	symXml:     &dialect_xml{ whitespace:false },
+	symYaml:    &dialect_yaml{ whitespace:false },
 }
 
-func interpName(i interpreter) (s Symbol) {
+func interpName(i evaluater) (s Symbol) {
     for k, d := range dialects { if d == i { s = k; break } }
     return
 }
@@ -27369,22 +27355,9 @@ func modify(ctx Context, g *group, hyphen bool) (res Value) {
 
 type modifier struct { group }
 func (m *modifier) kind() Kind { return m.group.kind()|KindModifier }
-func (m *modifier) _cmp(ctx Context, v Value) (_ cmpres) {
-    if x, y := v.(*modifier); y { return cmp(ctx, &m.group, &x.group) }
-    return
-}
 
 type modification struct { valbase ; list []*modifier }
 func (_ *modification) kind() Kind { return KindModification }
-func (g *modification) _cmp(ctx Context, v Value) (res cmpres) {
-    if o, y := v.(*modification); y && len(g.list) == len(o.list) {
-        for i, m := range g.list {
-            if t := cmp(ctx, m, o.list[i]); t != cmpEqual { return t }
-        }
-        res = cmpEqual
-    }
-    return
-}
 func (g *modification) String() (s string) {
     s = "{"
     for i, m := range g.list {
@@ -29928,7 +29901,7 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
         if f, y := target.(*file); y {
             erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f._mtime)
         } else {
-            erro(ctx, "failed stamp(%v) (%T)", target, target)
+            erro(ctx, "failed stamp(%v): %s", target, ts(target,ctx))
         }
     }
     return
