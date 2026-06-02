@@ -15980,16 +15980,44 @@ func __string(ctx Context, v any) (res string) {
 	case fullfile: return t.fullname().String()
 	case fullname:
 		if v := t.Value; v != nil {
-			if x, y := to_file(v); y {
-				if x == nil {
-					erro(ctx, "nil file")
-				} else if x.filestub == nil {
-					erro(ctx, "nil file stub")
+			// Flatten any nested collections or list structures cleanly
+			items := merge(v)
+
+			// FAST PATH: Single structural scalar item (Bypass Builder allocations)
+			if len(items) == 1 && items[0] == v {
+				if x, y := to_file(v); y {
+					if x == nil {
+						erro(ctx, "nil file")
+					} else if x.filestub == nil {
+						erro(ctx, "nil file stub")
+					} else {
+						return x.fullname().String()
+					}
+				}
+				return __string(ctx, v)
+			}
+
+			// COLD PATH: Distributed collection stringification
+			var sb strings.Builder
+			for _, item := range items {
+				var s string
+				if x, y := to_file(item); y {
+					if x == nil {
+						erro(ctx, "nil file")
+					} else if x.filestub == nil {
+						erro(ctx, "nil file stub")
+					} else {
+						s = x.fullname().String()
+					}
 				} else {
-					return x.fullname().String()
+					s = __string(ctx, item)
+				}
+				if s != "" {
+					if sb.Len() > 0 { sb.WriteByte(' ') }
+					sb.WriteString(s)
 				}
 			}
-			return __string(ctx, v)
+			return sb.String()
 		}
 	case *file:
 		// THE DOD FIX: Dynamic Query-Time Fullfile!
