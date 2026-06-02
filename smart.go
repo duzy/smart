@@ -509,6 +509,7 @@ const (
 	symOut
 	symOutbin
 	symOutlib
+	symOutobj
 	symOuttmp
 	symOutinc
 	symDecode
@@ -768,7 +769,7 @@ var coreSymbols = []string{
 	"rel", "relative", "reldir", "file", "stat", "wildcard", "clean", "ch", "chdir",
 	"git", "gitdir", "rename", "remove", "link", "readlink", "sym", "symlink", "truncate", "return",
 
-	"copy", "out", "outbin", "outlib", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
+	"copy", "out", "outbin", "outlib", "outobj", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
 	"read", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
 	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
 
@@ -12617,7 +12618,7 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
     }
 
     if opts.StampCurrentTarget {
-        if fs = stampFile(ctx, target); fs != nil {
+        if fs = stampFiles(ctx, target); fs != nil {
             if false { reportFileUpdates(ctx, fs) }
         }
     }
@@ -12720,6 +12721,39 @@ func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
 		}
 	}
 	return
+}
+
+// file_stat guarantees the resolution of a VFS *file node and its absolute path Symbol,
+// safely handling both relative project files and absolute out-of-tree sandbox paths.
+func file_stat(ctx Context, target Value) (tf *file, fullSym Symbol) {
+	// 1. Leverage the existing `fullname_sym` to safely get the pristine absolute path
+	var isAbs bool
+	fullSym, isAbs = fullname_sym(ctx, target)
+	if fullSym == symEmpty {
+		return nil, symEmpty
+	}
+
+	// 2. FAST PATH: Attempt existing relative resolution via `as_file`
+	if tf = as_file(ctx, target); tf != nil {
+		return tf, fullSym
+	}
+
+	// 3. COLD PATH: Force VFS Registration via _stat (for absolute or dynamically generated files)
+	targetSym := __symbol(ctx, target)
+
+	if isAbs {
+		return _stat(ctx, targetSym), fullSym
+	}
+
+	// Dynamic VFS Base Directory math
+	dirSym := __symTrimSuffix(fullSym, targetSym)
+	if dirSym != fullSym {
+		dirSym = __symTrimSuffix(dirSym, symSlash)
+	} else {
+		dirSym = __symDir(fullSym)
+	}
+
+	return _stat(ctx, targetSym, stat_dir{dirSym}), fullSym
 }
 
 func splitpath(ctx Context, a any) (ss []string) {
@@ -14830,7 +14864,7 @@ func (n existence) String() (s string) {
 }
 
 type statinfo struct{
-    file *file
+    *file
     next *statinfo
 }
 
@@ -15746,21 +15780,21 @@ func deleteFile(ctx Context, val Value) (res []*file) {
     return
 }
 
-func stampFile(ctx Context, val Value) (res []*file) {
+func stampFiles(ctx Context, val Value) (res []*file) {
     switch t := val.(type) {
-    case *barefile: if t.file != nil { return stampFile(ctx, t.file) }
-	case matched_rule: return stampFile(ctx, t.target)
-    case *rule: return stampFile(ctx, t.target)
-    case *project: if e := t.main; e != nil { return stampFile(ctx, e) }
-    case *use: if e := t.project.main; e != nil { return stampFile(ctx, e) }
-    case *uselist: for _, e := range t.list { res = append(res, stampFile(ctx, e)...) }
+    case *barefile: if t.file != nil { return stampFiles(ctx, t.file) }
+	case matched_rule: return stampFiles(ctx, t.target)
+    case *rule: return stampFiles(ctx, t.target)
+    case *project: if e := t.main; e != nil { return stampFiles(ctx, e) }
+    case *use: if e := t.project.main; e != nil { return stampFiles(ctx, e) }
+    case *uselist: for _, e := range t.list { res = append(res, stampFiles(ctx, e)...) }
     case *list:
-        for _, e := range t.elems { res = append(res, stampFile(ctx, e)...) }
+        for _, e := range t.elems { res = append(res, stampFiles(ctx, e)...) }
     case *path:
         if si := statFile(ctx, val); si == nil || si.file == nil {
             erro(ctx, "no path name for `%s`", val)
         } else {
-            return stampFile(ctx, si.file)
+            return stampFiles(ctx, si.file)
         }
     }
     return
@@ -17230,12 +17264,12 @@ var (
 			},
 
 			// Extracted Missing File Logic
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no such file or directory: '(.+)'`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no such file or directory: '(.+)'`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				col := bytes.Index(line, sm[2]) + 1
 				erro(pc(ctx, p.logPos(col)), _f("missing file '%s' {\n%s\n}", trimPrompt(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
 				do(ctx, missing_file{string(sm[2])}) 
 			},
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no input files`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no input files`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				erro(pc(ctx, p.logPos(0)), _f("missing input files {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
@@ -17255,7 +17289,7 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("undefined symbol '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				if truly(ctx, is_configure{}) && string(sm[2]) == "warning" {
 					return
 				}
@@ -17278,10 +17312,10 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("corrupt object file '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-			regexp.MustCompile(`((?:clang|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("missing library '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
@@ -17526,7 +17560,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 			}
 
             for rx, f := range commonerrors { k(rx, f) }
-            for rx, f := range p.xc.known { k(rx, f) } // FIXME: use language/domain specific knownerrors, not all
+            for rx, f := range p.xc.known { k(rx, f) }
 
             p.line.Reset()
         }
@@ -17828,7 +17862,7 @@ func (p *exec_ctx) check() (err error) {
         var diffLogPos = !p.logPos.sameLine(pos)
         var str, _, _ = entryIndicator(ctx, _entry(ctx))
         if (/* !p.retStatus && */ p.status != 0) || en > 0 {
-            if p.removeOnFail {
+            if !(checkpoints && keepTempfileForDebugging) && p.removeOnFail {
                 if e := os.RemoveAll(p.targetName.String()); e != nil {
                     warn(ctx, "remove: %v", e)
                 }
@@ -17928,6 +17962,8 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
 	return
 }
 
+var keepExecContextForDebugging bool = false
+
 func (ctx *exec_ctx) exec(cmd, opt string) {
     var exe = _execution(ctx)
     var env, sep = exe.env(ctx)
@@ -17946,17 +17982,21 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         if logFile != nil { logFile.Close() }
         if false && ctx.log != nil && ctx.log.filename != symEmpty {
             if ctx.stdout.wrote == 0 && ctx.stderr.wrote == 0 {
-                os.Remove(ctx.log.filename.String())
+				if !(checkpoints && keepTempfileForDebugging) {
+					os.Remove(ctx.log.filename.String())
+				}
             }
         }
 
-        ctx.stdout.xc = nil
-        ctx.stderr.xc = nil
-        ctx.container = nil
-        ctx.sh = nil
+		if !(checkpoints && keepExecContextForDebugging) {
+			ctx.stdout.xc = nil
+			ctx.stderr.xc = nil
+			ctx.container = nil
+			ctx.sh = nil
+		}
 
         if !ctx.silent && !is_configure_ctx(ctx) && ctx.target != nil {
-            var files = stampFile(stamp_file_ctx{ctx}, ctx.target)
+            var files = stampFiles(stamp_file_ctx{ctx}, ctx.target)
             if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
         }
 
@@ -18035,7 +18075,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
             if rx.MatchString(src.s) { ctx.known = m }
         }
         if ctx.known == nil {
-            note(ctx, "unknown: %s", src)
+            info(ctx, "unknown command: %s", src)
         }
 
         ctx.sh = exec.Command(cmd, ctx.args...)
@@ -20310,6 +20350,9 @@ func stamp(ctx Context, a any) (res []*file) {
     }
 }
 
+type run_modification_end_checks struct{}
+type modification_checkpoints_ctx struct{ Context ; f []func() }
+
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
 	case *loc: traverse(ctx, p.Value)
@@ -20339,44 +20382,39 @@ func traverse(ctx Context, val Value) {
 
 		if target == nil {
 			erro(ctx, "$@ is not defined")
+			return
 		}
 
 		if _entry(ctx) == p {
-			var proj = _project(ctx)
-
 			if c := cast[*term](ctx); c != nil {
-				// ZERO-ALLOCATION MATH: Use symAt here too!
 				if t := auto_get(c, symAt); t != nil && eq(ctx, t, target) {
-					if true { warn(ctx, "%v: %v: %v\n", proj, p, t) }
-					// FIXES: skip traversal as it's closure...
+					warn(ctx, "%v: %v: %v\n", _project(ctx), p, t)
 					return
 				}
 			}
 
-			prompt(ctx, "%v: %v: %v\n", proj, p, target)
-			debug(ctx, "%v: %v: %v", proj, p, target)
+			warn(ctx, "%v: %v: %v", _project(ctx), p, target)
 		} else {
 			ctx = &rule_ctx{ctx, p, nil}
 		}
 
 	progloop:
 		for _, prog := range p.program {
-			switch func () (u uint) {
+			switch func () (state uint) {
 				defer func() {
-					if e := recover(); e != nil {
-						switch t := e.(type) {
-						case traverse_state: u = t.uint
-						default: erro(ctx, "%v", e)
-						}
+					switch e := recover().(type) {
+					case traverse_state: state = e.uint
+					default: if e != nil { erro(ctx, "%v", e) }
 					}
 				} ()
-				if v := prog.execute(ctx); v != nil { do(ctx, exe_res{v}) }
+				do(ctx, program_res{prog.execute(ctx)})
 				return
 			} () {
 			case traverse_done: break progloop
 			case traverse_next: continue progloop
 			}
 		}
+
 	case *closure, *delegate, *arrow:
 		if val := expand(ctx,p); !isTrivial(val) {
 			updated(ctx, val) // NOTE: ensure that updated flag is correct (see rule.updated)
@@ -20395,7 +20433,9 @@ func traverse(ctx Context, val Value) {
 		}
 	case *modification:
 		if e := _execution(ctx); e != nil { e.Wait() }
-		for _, m := range p.list { traverse(pc(ctx,m.Pos()), m) }
+		if checkpoints { ctx = &modification_checkpoints_ctx{ctx, nil} }
+		for _, m := range p.list { traverse(pc(ctx,m.pos), m) }
+		if checkpoints { do(ctx, run_modification_end_checks{}) }
 	case *modifier:
 		if sym := __symbol(ctx, p.elems[0]); sym == symEmpty {
 			erro(ctx, "empty name: %v", p.elems[0])
@@ -23406,6 +23446,8 @@ func (p *project) tempdirSym(ctx Context) Symbol {
 	return intern(s)
 }
 
+var keepTempfileForDebugging bool
+
 type tempfile struct {
 	*file
 	cleaned atomic.Bool // Thread-safe state tracking
@@ -23423,11 +23465,16 @@ func (p *tempfile) cleanup() bool {
 	}
 
 	// THE AIRLOCK: avoid creating new SymSeq based on ephemeral symbol:
-	fullname := filepath.Join(p.dir.String(), p.sub.String(), p.name.String())
+	fullname := p.fullname().String()//filepath.Join(p.dir.String(), p.sub.String(), p.name.String())
 
-	// 1. Delete the physical file from the OS
-	if err := os.Remove(fullname); err != nil && !os.IsNotExist(err) {
-		// Optional: log error
+	// 1. Delete the physical file from the OS (Skip if debugging/checkpoints!)
+	if !(checkpoints && keepTempfileForDebugging) {
+		if err := os.Remove(fullname); err != nil && !os.IsNotExist(err) {
+			// TODO: Optional: log error
+		}
+	} else {
+		// Print so we know exactly where the Walled Garden left it!
+		fmt.Fprintf(os.Stderr, "[GC] Kept tempfile for debugging: %v\n", fullname)
 	}
 
 	// 2. Wipe the Symbol memory slot and release string to the GC!
@@ -23972,7 +24019,7 @@ type dirtyOpts struct {
 }
 
 type default_value struct{ v Value }
-type exe_res       struct{ v Value }
+type program_res   struct{ v Value }
 type get_program   struct{}
 
 type is_ordered_prereq struct{}
@@ -24048,8 +24095,11 @@ func (p *execution) do(ctx Context, op any) (res any) {
     case is_ordered_prereq : return p._ordered && p.prerequisite != nil
     case is_prerequisite, evoke_loop_null: return p.prerequisite != nil
 
+	case program_res:
+		if t.v != nil { p.values = append(p.values, t.v) }
+		return
+
     case default_value:  p.defval = t.v; return
-    case exe_res:        p.values = append(p.values, t.v); return
     case mark_dirty:     p.dirty_mark(t.a...)//; return
     case act_traverse:   p.traverse(ctx, t.v); return
     case act_traversed:  return p.traversed(ctx,t.v)
@@ -24181,6 +24231,8 @@ func (p *execution) interp(ctx Context, name Symbol, args []Value) (res bool) {
 }
 
 func (p *execution) interpret(ctx Context, i evaluater, args []Value) (res Value) {
+    if checkpoints { defer p.check_interpret(ctx, i, args) (&res) }
+	
     target, _, _ := wait(ctx, waitopts{
         ExecResults: false,
         ReportUpdates: false,
@@ -24192,7 +24244,7 @@ func (p *execution) interpret(ctx Context, i evaluater, args []Value) (res Value
         return
     }
 
-    if res = i.evaluate(ctx, args...); checkpoints { p.check_evaluate(ctx, i, args, res) }
+	res = i.evaluate(ctx, args...)
 
     if res != nil {
         if d, prev := auto_set(ctx, defVoid, symDash, res); d == nil {
@@ -24433,7 +24485,8 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 				_f("%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue),
 				_f("recursion: %T %v", prereqValue, prereqValue),
 				_f("recursion: %T %v", targetValue, targetValue),
-				_f("recursion: %v : %v ; in %v", targetValue, prereqFile, projs))
+				_f("recursion: %v : %v ; in %v", targetValue, prereqFile, projs),
+				trace_ctx{5})
 		}
 		for c := p; c != nil; c = c.caller() {
 			if val := auto_get(c, symAt); val != nil && eq(c, val, prereqValue) {
@@ -25803,7 +25856,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		case *file:       
 			// *file is structurally concrete. We stop tracing down to prevent infinite loops.
 			pos = t.pos
-			str = fmt.Sprintf("%v:1:1:file @%v ", t.fullname(), pos)
+			str = fmt.Sprintf("%v:1:1:file@%v ", t.fullname(), pos)
 			v, vt = nil, "" 
 		// 4. Rule Wrappers
 		case *rule:       pos = t.Pos(); v = t.target
@@ -25864,23 +25917,6 @@ func note(ctx Context, f any, a ...any) *diagpoint {
 	}
 	return debug(ctx, f, append(a, diagPrompt, diagcs_add_i(1))...)
 }
-
-// // Helper function to replace diagstack behaviour seamlessly
-// func debugstack(ctx Context, n int, dt diagtype, a ...any) *diagpoint {
-// 	var f any = ""
-// 	if len(a) > 0 {
-// 		if x, y := a[0].(string); y {
-// 			f, a = x, a[1:] // separate the format string and args
-// 		} else {
-// 			f, a = a[0], a[1:] // handle non-string leading args safely
-// 		}
-// 	}
-// 	return debug(ctx, f, append(a, dt, trace_ctx{n}, callstack{num:3})...)
-// }
-// func infostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagInfo, a...) }
-// func warnstack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagWarn, a...) }
-// func errostack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagError, a...) }
-// func notestack(ctx Context, n int, a ...any) *diagpoint { return debugstack(ctx, n, diagPrompt, a...) }
 
 func walkSmartBaseDirs(ctx Context, cwd Symbol, vis func(Symbol) bool) Symbol {
 	for s := cwd; s != symEmpty && s != symDot && s != symPathSep; {
@@ -26746,7 +26782,9 @@ func (u *universe) run(ctx Context) (result []Value) {
 	ctx = closure_with(ctx, main.scope)
 	if u.verbose { debug(ctx, "goal: %v", main) }
 
-	main.removeTempSubdirs(ctx)
+	if !(checkpoints && keepTempfileForDebugging) {
+		main.removeTempSubdirs(ctx)
+	}
 
 	if u.profile || u.cpuProfile != "" {
 		var name = u.cpuProfile
@@ -27549,7 +27587,7 @@ func (ctx *modifier_set) x(args ...Value) (_ any) {
 		switch a := arg.(type) {
 		case *pair:
 			// NOTE: pair.Value is not expanded, need to do it again.
-			value = expand(final{ctx}, a.val)
+			value = expand(ctx, a.val) // NOTE: modifier_var don't expand val
 			if value == nil {
 				value = a.val
 			}
@@ -28950,7 +28988,7 @@ func (ctx *modifier_touch) x(args ...Value) (result any) {
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
             erro(ctx, "touch '%v' failed: %v", arg, err)
         } else {
-            files = append(files, stampFile(stamp_file_ctx{ctx}, arg)...)
+            files = append(files, stampFiles(stamp_file_ctx{ctx}, arg)...)
         }
     }
 
@@ -29451,21 +29489,38 @@ func (ctx *modifier_copyfile) x(args ...Value) (result any) {
 
 type modifier_writefile struct { modifier_ }
 func (ctx *modifier_writefile) x(args ...Value) (result any) {
-	target := auto_get(ctx, symAt)
-    if target == nil { erro(ctx, "target is undefined") }
-	
-    var (
-        filename Symbol
-		str string
-        f *os.File
-    )
+	args = xmerge(ctx, args...)
+
+	var target Value
+    if n := len(args); n > 1 {
+        erro(ctx, "too many files: %v", args)
+		return nil
+    } else if n == 1 {
+        target = args[0]
+    } else {
+        target = auto_get(ctx, symAt)
+    }
+
+    if isTrivial(target) {
+        erro(ctx, "%v: target is trivial (%v)", target, args)
+		return nil
+    }
+
+    var f *os.File
     defer func() {
-        if filename != symEmpty { os.Remove(filename.String()); f = nil }
         if f == nil { erro(ctx, "file %s not generated", target) }
     } ()
 
-    filename, _ = fullname_sym(ctx, target)
+	// ====================================================================
+	// THE DOD FIX: Unified Global VFS Resolution!
+	// ====================================================================
+	tf, filename := file_stat(ctx, target)
+	if filename == symEmpty {
+		erro(ctx, "write-file: empty or invalid target: %v", target)
+		return
+	}
 
+	var str string
     if h := auto_get(ctx, symDash); h == nil {
         erro(ctx, "buffer value is nil")
     } else {
@@ -29473,14 +29528,23 @@ func (ctx *modifier_writefile) x(args ...Value) (result any) {
     }
 
     var err error
-	if f, err = os.Create(filename.String()); err != nil {
+	var fn = filename.String()
+	if f, err = os.Create(fn); err != nil {
 		erro(ctx, "%v", err)
 	} else if _, err = f.WriteString(str); err != nil {
 		f.Close()
-		erro(ctx, _f("%v", err), _f("%v", str))
+		os.Remove(fn)
+		erro(ctx, "%v\n%v", err, str)
 	} else {
 		f.Close()
-		result = _stat(ctx, filename)
+
+		// Ensure the VFS node caches the new file size and mod-time!
+		// (Use whatever stamp method is available in this context)
+		if tf != nil {
+			tf.stamp(stamp_file_ctx{ctx}) 
+		}
+		
+		result = tf
 	}
     return
 }
@@ -29582,32 +29646,37 @@ type modifier_updatefile struct { modifier_
 	mode os.FileMode "mode"
 }
 func (ctx *modifier_updatefile) x(args ...Value) (result any) {
-	assert(ctx.mode != 0, "zero file mode")
-
 	var target Value
 	var content string
 	var filename string
+
+	if ctx.mode == 0 {
+		erro(ctx, "zero file mode")
+		return
+	}
+
 	if len(args) > 0 { target = args[0] }
 
 	if isTrivial(target) { target = auto_get(ctx, symAt) }
 	if isTrivial(target) {
 		erro(ctx, "update-file: no file target")
-	} else if t := as_fullname(ctx, target); t.Value == nil {
-		erro(ctx, "update-file: not a file: %v", ts(target))
-	} else if filename = __string(ctx, t); filename == "" {
-		erro(ctx, "update-file: empty fullname: %v", ts(target))
+		return
 	}
 
-	if checkpoints {
-		defer func() {
-			ctx.x_check(target, filename, content, args, result)
-		} ()
+	if checkpoints { defer ctx.check(args, target) (&content, &result) }
+
+	// ====================================================================
+	// THE DOD FIX: Inline Helper Replacement
+	// ====================================================================
+	tf, fullSym := file_stat(ctx, target)
+	if fullSym == symEmpty {
+		erro(ctx, "update-file: empty or invalid target: %v", ts(target))
+		return
 	}
+	filename = fullSym.String()
 
 	if ctx.path { // Make path (mkdir -p)
 		if p := filepath.Dir(filename); p != "." && p != string(filepath.Separator) {
-			// Pure OS level stat. We are doing physical disk mutation, so we bypass 
-			// the VFS cache here to avoid caching intermediate/incomplete directory states.
 			if fi, _ := os.Stat(p); fi != nil && !fi.IsDir() {
 				if e := os.Remove(p); e != nil {
 					erro(ctx, "%v (%v)", e, ts(target))
@@ -29644,10 +29713,8 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 	} else {
 		if ctx.keep {
 			// keep file
-		} else if file := _stat(ctx, filename); file != nil && file.exists() && file._size == 0 {
-			// UPGRADED: 0-allocation primitive bounds checking!
-			// Invalidate the cache mathematically by zeroing the timestamp
-			file._mtime = 0 
+		} else if tf != nil && tf.exists() && tf._size == 0 { // UPDATED TO USE tf
+			tf._mtime = 0 
 			if err := os.Remove(filename); err != nil {
 				erro(ctx, "remove file failed: %v", err)
 			}
@@ -29710,8 +29777,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 			erro(ctx, "crc64 checksum failed: %v", err)
 		}
 	} else if same {
-		//removeCallerUpdated(ctx, target) // remove timestamp updated
-		result = _stat(ctx, filename)
+		result = tf // UPDATED TO USE tf
 		return
 	}
 
@@ -29719,7 +29785,7 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 	var f *os.File
 	var m = os.O_RDWR | os.O_CREATE
 	if ctx.append { m |= os.O_APPEND } else { m |= os.O_TRUNC }
-	
+
 	if f, err = os.OpenFile(filename, m, ctx.mode); err != nil {
 		erro(ctx, "open file failed: %v", err)
 	} else if f != nil {
@@ -29729,15 +29795,13 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 				erro(ctx, "close file '%s' failed: %v", filename, err)
 			}
 
-			// Re-enter the Walled Garden: Sync the fresh disk state back into the VFS!
-			if t := _stat(ctx, filename); t == nil {
-				prompt(ctx, "%s: invalid file\n", filename)
-				erro(ctx, "%v: invalid file '%s'", _project(ctx), filename)
+			// COLD PATH: Sync physical state back to the original AST node
+			if tf == nil { // UPDATED TO USE tf
+				erro(pc(ctx,filename), "%v: cannot stat file", _project(ctx))
 			} else {
-				// t.stamp() will natively pull the new ModTime and Size into the primitive struct fields
-				var fs = t.stamp(stamp_file_ctx{ctx})
+				var fs = tf.stamp(stamp_file_ctx{ctx})
 				if false && ctx.verbose { reportFileUpdates(ctx, fs) }
-				result = t // resulting the updated file
+				result = tf // UPDATED TO USE tf
 			}
 		} ()
 		if wrote, err = f.WriteString(content); err != nil {
@@ -29847,23 +29911,26 @@ func (ctx *modifier_stamp) x(args ...Value) (result any) {
     var target = auto_target_value(ctx)
 
     if isNull(target) {
-        prompt(ctx, "%v\n", _project(ctx))
-        erro(ctx, "stamp(%v) failed", target)
+        erro(ctx, "failed stamp(%v)", target, trace_ctx{5})
     }
 
-    var v = stampFile(stamp_file_ctx{ctx}, target)
-    if v != nil { return /* Done! */ }
-
-    prompt(ctx, "%v: %v\n", target, _project(ctx))
-    if ctx.next {
+    fs := stampFiles(stamp_file_ctx{ctx}, target)
+	
+    if fs != nil {
+		result = fs // Done!
+    } else if ctx.next {
         panic(traverse_state{_position(ctx),traverse_next})
     } else if ctx.error {
-        erro(ctx, "stamp(%v) error")
+        erro(ctx, "stamp(%v) error", trace_ctx{5}, trace_val{5,target})
     } else {
-        if f, y := target.(*file); y {
-            erro(ctx, "failed stamp(%v): %v %v", target, f.fullname(), f._mtime)
+        if f, y := to_file(target); y {
+            erro(pc(ctx,f.fullname()),
+				"failed stamp(%v); %v", target, f._mtime,
+				trace_ctx{5}, trace_val{5,target})
         } else {
-            erro(ctx, "failed stamp(%v): %s", target, ts(target,ctx))
+            erro(ctx,
+				"failed stamp(%v), %s", target, ts(target,ctx),
+				trace_ctx{5}, trace_val{5,target})
         }
     }
     return
