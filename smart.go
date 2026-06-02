@@ -19285,16 +19285,35 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		if wildToken == DAST || wildToken == PERC { step, k = -1, len(segments)-1 }
 
 		for ; k >= 0 && k < len(segments); k += step {
-			if k == 0 && len(rem) > 0 {
-				if mSuf, rSufAtoms, remSuf, sSuf, _, _, _ := forwardGlobComp(ctx, elems[iE:], rem); mSuf {
-					return true,
-						concat(packComp(concat(res, rSufAtoms))),
-						concat(packComp(remSuf), optraw{len(remSuf) == 0 && len(segments) > 1, segments[0].Pos(), ""}, segments[1:]),
-						concat(stems, sSuf), len(elems), 1, ILLEGAL
+			if k == 0 && len(rem) > 0 { continue }
+
+			// Extract the percpat structure if available
+			var pp *percpat
+			if iE < len(elems) {
+				pp, _ = unloc(elems[iE]).(*percpat)
+			}
+
+			mSuf, rSufAtoms, remSuf, sSuf, _, _, _ := forwardGlobComp(ctx, elems[iE:], unpack(segments[k]))
+
+			// =================================================================
+			// THE DOD FIX: Path-Level Suffix Coalescence for Complex Words
+			// =================================================================
+			if !mSuf && pp != nil {
+				targetStr := getScalarSubstr(ctx, segments[k], 0, -1) // e.g. "foo1.c"
+				sfx := getScalarSubstr(ctx, pp.Suffix, 0, -1)         // e.g. ".c"
+				pfx := getScalarSubstr(ctx, pp.Prefix, 0, -1)
+
+				if strings.HasPrefix(targetStr, pfx) && strings.HasSuffix(targetStr, sfx) {
+					stemStr := targetStr[len(pfx) : len(targetStr)-len(sfx)] // Extracts "foo1"
+
+					mSuf = true
+					rSufAtoms = unpack(segments[k])
+					remSuf = nil
+					sSuf = []Value{_rw(segments[k].Pos(), stemStr)}
 				}
 			}
 
-			if mSuf, rSufAtoms, remSuf, sSuf, _, _, _ := forwardGlobComp(ctx, elems[iE:], unpack(segments[k])); mSuf {
+			if mSuf {
 				return true,
 					concat(segments[:k], packComp(rSufAtoms)),
 					concat(
@@ -19306,7 +19325,7 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 						gapseg{iE > 0, elems[iE], rem},
 						segments[1:k],
 						gapseg{true, elems[iE], unpack(sSuf[0])},
-					))}, sSuf[1:]), len(elems), k + 1, ILLEGAL
+					))}, sSuf[1:]), len(elems), k + 1, wildToken
 			}
 		}
 
@@ -19354,20 +19373,34 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		if wildToken == ASTQ { step, k = 1, 0 }
 
 		for ; k >= 0 && k < len(segments); k += step {
-			if k == len(segments)-1 && len(rem) > 0 {
-				if mPre, rPreAtoms, remPre, sPre, _, _, _ := backwardGlobComp(ctx, elems[:iE+1], rem); mPre {
-					return true,
-						concat(packComp(concat(rPreAtoms, res))),
-						concat(
-							segments[:len(segments)-1],
-							packComp(remPre),
-							optraw{len(remPre) == 0 && len(segments) > 1, segments[len(segments)-1].Pos(), ""},
-						),
-						concat(sPre, stems), 0, 1, ILLEGAL
+			if k == len(segments)-1 && len(rem) > 0 { continue }
+
+			var pp *percpat
+			if iE < len(elems) {
+				pp, _ = unloc(elems[iE]).(*percpat)
+			}
+
+			mPre, rPreAtoms, remPre, sPre, _, _, _ := backwardGlobComp(ctx, elems[:iE+1], unpack(segments[k]))
+
+			// =================================================================
+			// THE DOD FIX: Path-Level Suffix Coalescence for Complex Words
+			// =================================================================
+			if !mPre && pp != nil {
+				targetStr := getScalarSubstr(ctx, segments[k], 0, -1)
+				sfx := getScalarSubstr(ctx, pp.Suffix, 0, -1)
+				pfx := getScalarSubstr(ctx, pp.Prefix, 0, -1)
+
+				if strings.HasPrefix(targetStr, pfx) && strings.HasSuffix(targetStr, sfx) {
+					stemStr := targetStr[len(pfx) : len(targetStr)-len(sfx)]
+
+					mPre = true
+					rPreAtoms = unpack(segments[k])
+					remPre = nil
+					sPre = []Value{_rw(segments[k].Pos(), stemStr)}
 				}
 			}
 
-			if mPre, rPreAtoms, remPre, sPre, _, _, _ := backwardGlobComp(ctx, elems[:iE+1], unpack(segments[k])); mPre {
+			if mPre {
 				return true,
 					concat(packComp(rPreAtoms), segments[k+1:]),
 					concat(
@@ -19383,7 +19416,7 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							gapseg{iE+1 < len(elems), elems[iE], rem},
 						))},
 						stems,
-					), -1, len(segments) - k, ILLEGAL
+					), -1, len(segments) - k, wildToken
 			}
 		}
 
@@ -19398,7 +19431,7 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 	return true, concat(packComp(res)), fullRem, stems, -1, 1, ILLEGAL
 }
 
-func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int) {
+func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	for iE < len(elems) {
 		patAtoms := unpack(elems[iE])
 
@@ -19417,9 +19450,44 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			}
 		}
 
-		if iS >= len(segments) { return false, res, nil, stems, iE, iS }
+		if iS >= len(segments) { return false, res, nil, stems, iE, iS, ILLEGAL }
 
 		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
+
+		// =================================================================
+		// THE DOD FIX: PERC Directory Stretch (Stem Spanning)
+		// =================================================================
+		if !m {
+			percIdx := -1
+			var pp *percpat
+			for idx, pAtom := range patAtoms {
+				if p, isPerc := unloc(pAtom).(*percpat); isPerc {
+					percIdx = idx
+					pp = p
+					break
+				}
+			}
+
+			// If it's a %, it acts like a **, so we force the gap loop to handle it!
+			if percIdx != -1 && iS+1 < len(segments) {
+				m = true
+				wt = PERC
+				remAtoms = nil // Let the gap loop consume the whole segment
+
+				// CRITICAL: Explode the percpat so the gap loop can see the Suffix!
+				var exploded []Value
+				ie = percIdx
+				if pp.Prefix != nil && !isEmpty(pp.Prefix) {
+					exploded = append(exploded, pp.Prefix)
+					ie++ // Shift the % index over by 1
+				}
+				exploded = append(exploded, _globmeta(patAtoms[percIdx].Pos(), PERC))
+				if pp.Suffix != nil && !isEmpty(pp.Suffix) {
+					exploded = append(exploded, pp.Suffix)
+				}
+				patAtoms = concat(patAtoms[:percIdx], exploded, patAtoms[percIdx+1:])
+			}
+		}
 
 		// =================================================================
 		// THE DOD FIX: Deep Symbol Domain Coalescence
@@ -19510,7 +19578,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 								nextSegs = concat(packComp(remSuf), optraw{len(remSuf) == 0 && k < len(gap), targetPos, ""}, gap[k:])
 							}
 
-							if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, nextSegs); mPath {
+							if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := forwardPathPath(ctx, pathElems, nextSegs); mPath {
 								shift := iSPath
 								if shift == 0 { shift = 1 }
 
@@ -19519,7 +19587,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 										concat(res, packComp(concat(resAtoms, gapAtoms, rSuf)), rPath),
 										remPath,
 										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + shift
+										iE + 1 + iEPath, iS + shift, wt
 								} else {
 									return true,
 										concat(res, segments[iS], gap[:k-1], packComp(concat(gapAtoms, rSuf)), rPath),
@@ -19529,7 +19597,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 											gap[:k-1],
 											gapseg{postBound, patAtoms[ie], gapAtoms},
 										))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + k + shift
+										iE + 1 + iEPath, iS + k + shift, wt
 								}
 							}
 						}
@@ -19539,6 +19607,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 					}
 				}
 			} else {
+				// PERC and DAST land here! The multi-directory greedy loop!
 				for k := len(gap); k >= 0; k-- {
 					if k == 0 {
 						if !partial { continue }
@@ -19557,12 +19626,12 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 							remSuf = remAtoms
 						}
 
-						if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap); mPath {
+						if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := forwardPathPath(ctx, pathElems, gap); mPath {
 							return true,
 								concat(res, segments[iS], rPath),
 								remPath,
 								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], remSuf}))}, sSuf, sPath),
-								iE + 1 + iEPath, iS + 1 + iSPath
+								iE + 1 + iEPath, iS + 1 + iSPath, wt
 						}
 					} else {
 						var mSuf bool
@@ -19580,7 +19649,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 							remSuf = unpack(gap[k-1])
 						}
 
-						if mPath, rPath, remPath, sPath, iEPath, iSPath := forwardPathPath(ctx, pathElems, gap[k:]); mPath {
+						if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := forwardPathPath(ctx, pathElems, gap[k:]); mPath {
 							return true,
 								concat(res, segments[iS], gap[:k], rPath),
 								remPath,
@@ -19589,7 +19658,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 									gap[:k-1],
 									gapseg{postBound, patAtoms[ie], remSuf},
 								))}, sSuf, sPath),
-								iE + 1 + iEPath, iS + 1 + k + iSPath
+								iE + 1 + iEPath, iS + 1 + k + iSPath, wt
 						}
 					}
 				}
@@ -19602,7 +19671,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 					gapseg{preBound, patAtoms[ie], remAtoms},
 					gap,
 				))}),
-				iE + 1, len(segments)
+				iE + 1, len(segments), ILLEGAL
 		}
 
 		res, stems = concat(res, packComp(resAtoms)), concat(stems, s)
@@ -19612,11 +19681,11 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			segments[iS+1:],
 		)
 
-		if !m { return false, res, rem, stems, iE, iS + 1 }
+		if !m { return false, res, rem, stems, iE, iS + 1, ILLEGAL }
 
 		if partial {
-			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + 1 }
-			return true, res, rem, stems, iE + 1, iS + 1
+			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + 1, ILLEGAL }
+			return true, res, rem, stems, iE + 1, iS + 1, ILLEGAL
 		}
 
 		iE++
@@ -19638,10 +19707,10 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 	} else {
 		rem = segments[iS:]
 	}
-	return true, res, rem, stems, iE, iS
+	return true, res, rem, stems, iE, iS, ILLEGAL
 }
 
-func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int) {
+func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	iE, iS = len(elems) - 1, len(segments) - 1
 
 	for iE >= 0 {
@@ -19662,7 +19731,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			}
 		}
 
-		if iS < 0 { return false, res, nil, stems, iE + 1, iS + 1 }
+		if iS < 0 { return false, res, nil, stems, iE + 1, iS + 1, ILLEGAL }
 
 		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
 		if !m || len(remAtoms) > 0 {
@@ -19672,10 +19741,45 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		}
 
 		// =================================================================
+		// THE DOD FIX: PERC Directory Stretch (Backward Spanning)
+		// =================================================================
+		if !m {
+			percIdx := -1
+			var pp *percpat
+			for idx, pAtom := range patAtoms {
+				if p, isPerc := unloc(pAtom).(*percpat); isPerc {
+					percIdx = idx
+					pp = p
+					break
+				}
+			}
+
+			// In backward parsing, iS > 0 means there are preceding directory segments!
+			if percIdx != -1 && iS > 0 {
+				m = true
+				wt = PERC
+				remAtoms = nil // Let the gap loop consume the whole segment
+
+				// CRITICAL: Explode the percpat so the gap loop can see the Prefix!
+				var exploded []Value
+				ie = percIdx
+				if pp.Prefix != nil && !isEmpty(pp.Prefix) {
+					exploded = append(exploded, pp.Prefix)
+					ie++ // Shift the % index over by 1
+				}
+				exploded = append(exploded, _globmeta(patAtoms[percIdx].Pos(), PERC))
+				if pp.Suffix != nil && !isEmpty(pp.Suffix) {
+					exploded = append(exploded, pp.Suffix)
+				}
+				patAtoms = concat(patAtoms[:percIdx], exploded, patAtoms[percIdx+1:])
+			}
+		}
+
+		// =================================================================
 		// THE DOD FIX: Deep Symbol Domain Coalescence
 		// Intercepts false-negatives or false-partials caused by Inner-Fragmentation!
 		// =================================================================
-		if (!m || len(remAtoms) > 0) && !patterned(ctx, elems[iE]) {
+		if !m && !patterned(ctx, elems[iE]) {
 			pSym := evalLiteralSym(ctx, elems[iE])
 			if pSym != symEmpty {
 				tSym := evalLiteralSym(ctx, segments[iS])
@@ -19765,7 +19869,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 								nextSegs = concat(gap[:k], packComp(remPre), optraw{len(remPre) == 0 && k > 0, targetPos, ""})
 							}
 
-							if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, nextSegs); mPath {
+							if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := backwardPathPath(ctx, pathElems, nextSegs); mPath {
 								shift := iSPath
 								if shift == len(nextSegs) { shift-- }
 
@@ -19774,7 +19878,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 										concat(rPath, packComp(concat(rPre, gapAtoms, resAtoms)), res),
 										remPath,
 										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{preBound, patAtoms[ie], gapAtoms}))}, s, stems),
-										iEPath, shift
+										iEPath, shift, wt
 								} else {
 									return true,
 										concat(rPath, packComp(concat(rPre, gapAtoms)), gap[k+1:], segments[iS], res),
@@ -19784,7 +19888,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 											gap[k+1:],
 											gapseg{postBound, patAtoms[ie], remAtoms},
 										))}, s, stems),
-										iEPath, shift
+										iEPath, shift, wt
 								}
 							}
 						}
@@ -19794,6 +19898,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 					}
 				}
 			} else {
+				// DAST and PERC land here! The multi-directory greedy loop!
 				for k := 0; k <= len(gap); k++ {
 					if k == len(gap) {
 						if !partial { continue }
@@ -19813,12 +19918,12 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							remPre = remAtoms
 						}
 
-						if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap); mPath {
+						if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := backwardPathPath(ctx, pathElems, gap); mPath {
 							return true,
 								concat(rPath, segments[iS], res),
 								remPath,
 								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(gapseg{preBound, patAtoms[ie], remPre}))}, s, stems),
-								iEPath, iSPath
+								iEPath, iSPath, wt
 						}
 					} else {
 						var mPre bool
@@ -19837,7 +19942,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							remPre = unpack(gap[k])
 						}
 
-						if mPath, rPath, remPath, sPath, iEPath, iSPath := backwardPathPath(ctx, pathElems, gap[:k]); mPath {
+						if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := backwardPathPath(ctx, pathElems, gap[:k]); mPath {
 							return true,
 								concat(rPath, gap[k:], segments[iS], res),
 								remPath,
@@ -19846,7 +19951,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 									gap[k+1:],
 									gapseg{postBound, patAtoms[ie], remAtoms},
 								))}, s, stems),
-								iEPath, iSPath
+								iEPath, iSPath, wt
 						}
 					}
 				}
@@ -19859,7 +19964,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 					gap,
 					gapseg{postBound, patAtoms[ie], remAtoms},
 				))}, s, stems),
-				iE + 1, 0
+				iE + 1, 0, ILLEGAL
 		}
 
 		res, stems = concat(packComp(resAtoms), res), concat(s, stems)
@@ -19869,11 +19974,11 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			optraw{len(remAtoms) == 0 && iS > 0, segments[iS].Pos(), ""},
 		)
 
-		if !m { return false, res, rem, stems, iE + 1, iS }
+		if !m { return false, res, rem, stems, iE + 1, iS, ILLEGAL }
 
 		if partial {
-			if iE > 0 { return false, res, rem, stems, iE + 1, iS }
-			return true, res, rem, stems, iE, iS
+			if iE > 0 { return false, res, rem, stems, iE + 1, iS, ILLEGAL }
+			return true, res, rem, stems, iE, iS, ILLEGAL
 		}
 
 		iE--
@@ -19895,7 +20000,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 	} else {
 		rem = segments[:iS+1]
 	}
-	return true, res, rem, stems, iE + 1, iS + 1
+	return true, res, rem, stems, iE + 1, iS + 1, ILLEGAL
 }
 
 // matchScalarScalar matches a scalar value against a scalar value.
@@ -19964,7 +20069,7 @@ func matchGlobPath(ctx Context, elems, segs []Value, trail bool) (matched bool, 
 }
 
 // matchPathPath match path segments (elems) against path segments.
-func matchPathPath(ctx Context, elems, segments []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iS int) {
+func matchPathPath(ctx Context, elems, segments []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	if checkpoints { defer check_matchPathPath(ctx, elems, segments, trail)(&matched, &res, &rem, &stems, &iE, &iS) }
 	if trail { return backwardPathPath(ctx, elems, segments) } else { return forwardPathPath(ctx, elems, segments) }
 }
@@ -20114,7 +20219,7 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		switch v := val.(type) {
 		case *path:
 			var r, rm []Value
-			matched, r, rm, stems, _, _ = matchPathPath(ctx, p.elems, v.elems, trail)
+			matched, r, rm, stems, _, _, _ = matchPathPath(ctx, p.elems, v.elems, trail)
 			res, rem = packPath(r), packPath(rm)
 		default:
 			matched, res, rem, stems = match(ctx, p.elems[0], v)
