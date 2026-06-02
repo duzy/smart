@@ -17240,12 +17240,12 @@ var (
 
 	// `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
 	knownerrors = map[*regexp.Regexp]map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
-		regexp.MustCompile(`^(?:.*/)?clang`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+		// 1. Clang / LLVM Family (Safely routes clang, clang++, wasm-ld, ld, lld)
+		regexp.MustCompile(`(?:^|/|\s)(?:[^\s/]*?)(?:clang(?:\+\+)?|wasm|l?ld)(?:-\d+(?:\.\d+)?)?(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			
 			rxCodeLinePanic: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
-				// We union the source-code position with the log position
 				ctx = pc(ctx, p.logPos(0))
-
 				t := string(sm[4])
 				s := string(sm[5])
 
@@ -17255,22 +17255,11 @@ var (
 					do(ctx, missing_file{m[1]})
 				}
 
-				switch t {
-				case "warning":
+				if t == "warning" {
 					debug(ctx, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
-				default:
+				} else {
 					erro(ctx, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
 				}
-			},
-
-			// Extracted Missing File Logic
-			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no such file or directory: '(.+)'`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
-				col := bytes.Index(line, sm[2]) + 1
-				erro(pc(ctx, p.logPos(col)), _f("missing file '%s' {\n%s\n}", trimPrompt(string(sm[2])), sm[0]), trace_ctx{50}, callstack{num: 3})
-				do(ctx, missing_file{string(sm[2])}) 
-			},
-			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (?:fatal )?error: no input files`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
-				erro(pc(ctx, p.logPos(0)), _f("missing input files {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
 			rxIgnoringDirectory: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
@@ -17282,14 +17271,17 @@ var (
 				debug(pc(ctx, p.logPos(0)), 5, _f("multiple min versions {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`  +"([^"]+?)", referenced from:`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			regexp.MustCompile(` +"([^"]+?)", referenced from:`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("missing reference '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 			regexp.MustCompile(`undef: *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("undefined symbol '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning): *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+			// ====================================================================
+			// THE DOD FIX: Consolidated & Deterministic Clang Diagnostics 
+			// ====================================================================
+			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning|fatal error): *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				if truly(ctx, is_configure{}) && string(sm[2]) == "warning" {
 					return
 				}
@@ -17298,18 +17290,25 @@ var (
 				kind := string(sm[2])
 				msg := string(sm[3])
 
-				// Prime Fact Extraction
-				var fact string
 				if tag := "no such file or directory:"; strings.HasPrefix(msg, tag) {
+					// 1. Missing File Trap (Deterministically caught here now!)
 					file := strings.Trim(strings.TrimPrefix(msg, tag), ` '`)
-					fact = fmt.Sprintf("missing file %s", trimPrompt(file))
-				} else if msg == "no input files" {
-					fact = "missing input files"
-				} else {
-					fact = fmt.Sprintf("%s %s", tool, kind) // Fallback (e.g. "clang error")
-				}
 
-				debug(pc(ctx, p.logPos(0)), _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
+					col := bytes.Index(line, []byte(file))
+					if col < 0 { col = 0 } else { col += 1 }
+
+					erro(pc(ctx, p.logPos(col)), _f("missing file '%s' {\n%s\n}", trimPrompt(file), sm[0]), trace_ctx{50}, callstack{num: 3})
+					do(ctx, missing_file{file})
+
+				} else if msg == "no input files" {
+					// 2. No Input Files Trap
+					erro(pc(ctx, p.logPos(0)), _f("missing input files {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+
+				} else {
+					// 3. Generic Error/Warning Fallback
+					fact := fmt.Sprintf("%s %s", tool, kind)
+					debug(pc(ctx, p.logPos(0)), _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
+				}
 			},
 
 			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): could not parse object file (.+?): '(.+)', using libLTO version '(.+?)' file '(.+?)' for architecture (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
@@ -17318,12 +17317,14 @@ var (
 			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): library not found for (.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("missing library '%s' {\n%s\n}", sm[2], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
-
 			regexp.MustCompile(`(.+?): Too many positional arguments specified!`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("too many arguments {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?ar`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+
+		// 2. Archiver (Safely routes ar, aarch64-ar, etc.)
+		regexp.MustCompile(`(?:^|/|\s)(?:[^\s/]*?)ar(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			rxArNoSuchFileDir: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("missing archive file '%s' {\n%s\n}", filepath.Base(string(sm[1])), sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
@@ -17331,13 +17332,17 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("empty archive {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*?bash -c|.*?)git`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+		// 3. Git
+		regexp.MustCompile(`(?:^|/|\s)git(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			rxGitNotRepo: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				col := bytes.Index(line, sm[2]) + 1
 				debug(pc(ctx, p.logPos(col)), _f("missing git repository '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?python`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+		// 4. Python
+		regexp.MustCompile(`(?:^|/|\s)python(?:3(?:\.\d+)?)?(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			rxIncludedFrom: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("included from {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
@@ -17351,7 +17356,9 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("missing python module {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?docker`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+		// 5. Docker
+		regexp.MustCompile(`(?:^|/|\s)docker(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			rxDockerCannotConnect: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("docker connection failed {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
@@ -17365,7 +17372,9 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("missing docker network {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?protoc`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+		// 6. Protoc
+		regexp.MustCompile(`(?:^|/|\s)protoc(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			regexp.MustCompile(`^(.+?\.proto): File not found\.`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), _f("missing proto file '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
@@ -17376,7 +17385,9 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("undefined proto type '%s' {\n%s\n}", sm[4], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-		regexp.MustCompile(`^(?:.*/)?echo`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
+
+		// 7. Echo
+		regexp.MustCompile(`(?:^|/|\s)echo(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 		},
 	}
 )
@@ -17535,6 +17546,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
                 }
             }
 
+			knownErrs := 0
 			k := func(rx *regexp.Regexp, f func(Context, *exec_buffer, []byte, [][]byte)) {
 				if sm := rx.FindSubmatch(line); sm != nil {
 					if p.xc.zeroStatusErrors && rxZeroStatusErrors != nil {
@@ -17556,11 +17568,21 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 					if !truly(ctx, is_configure_ignore{rx, sm}) {
 						f(ctx, p, line, sm)
 					}
+
+					knownErrs++
 				}
 			}
 
             for rx, f := range commonerrors { k(rx, f) }
             for rx, f := range p.xc.known { k(rx, f) }
+
+			if checkpoints && knownErrs == 0 {
+				if bytes.Contains(line, []byte("error: no such file or directory:")) {
+					var dps = []*diag_point{}
+					for rx, _ := range p.xc.known { dps = append(dps, _f("knows: %v", rx)) }
+					debug(p.xc, _f("missed known error\n%s", string(line)), dps, trace_ctx{3})
+				}
+			}
 
             p.line.Reset()
         }
