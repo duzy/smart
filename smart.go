@@ -59,6 +59,17 @@ const (
 	project_resolve_cache = false
     detect_traverse_loops = true // turn on/off traverse loop detection
 
+	// In the architecture of modern build systems, package managers, and
+	// interpreter engines—especially those dealing with monorepos, nested
+	// sub-projects, or closure-based execution graphs—Longest-Path Selection
+	// stands out as a highly resilient and elegant pattern for context resolution.
+	//
+	// At its core, LPS operates on the mathematical principle of maximum specificity
+	// within a hierarchical namespace. When multiple valid structural environments
+	// claim ownership of an active runtime event, the longest path string is always
+	// the most contextually accurate.
+	longest_path_selection = true
+
     vertag = "dev" // dev, alpha, beta, final
 
 	windowsOS = runtime.GOOS == "windows"
@@ -3168,8 +3179,8 @@ func (s *scope) def(ctx Context, o origin, ident any, vals ...Value) (d *def) {
 	return
 }
 
-type term struct{ Context ; *scope }
 type term_unloop struct{ *term }
+type term struct{ Context ; *scope }
 func (c *term) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return c.Context
@@ -3184,9 +3195,20 @@ func (c *term) do(ctx Context, op any) any {
 	case get_closure_scopes:
 		var res []*scope
 		if c.scope != nil { res = append(res, c.scope) }
+
+		// THE DOD FIX: Early exit if depth limit 'n' is reached
+		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
+
 		if cc := c.Context; cc != nil {
-			if x, y := do(cc, t).([]*scope); y && x != nil { res = append(res, x...) }
+			nextOp := t
+			if t.n > 0 { nextOp.n = t.n - len(res) }
+
+			if x, y := do(cc, nextOp).([]*scope); y && x != nil {
+				res = append(res, x...)
+			}
 		}
+
+		if t.n > 0 && len(res) > t.n { return res[:t.n] }
 		return res
 	}
 	if cc := c.Context; cc != nil {
@@ -3196,14 +3218,16 @@ func (c *term) do(ctx Context, op any) any {
 	return nil
 }
 
-func closure_scopes(ctx Context) (s []*scope) {
-	s, _ = do(ctx, get_closure_scopes{}).([]*scope)
+func closure_scopes(ctx Context, _n ...int) (s []*scope) {
+	var op get_closure_scopes
+	if len(_n) > 0 { op.n = _n[len(_n)-1] }
+	s, _ = do(ctx, op).([]*scope)
 	return
 }
 
-func closure_projects(ctx Context) (res []*project) {
+func closure_projects(ctx Context, _n ...int) (res []*project) {
 	var m = map[*project]struct{}{}
-	for _, s := range closure_scopes(ctx) {
+	for _, s := range closure_scopes(ctx, _n...) {
 		// NOTE: the globe scope has nil project; closure_scopes already
 		//       puts the derived polymorphic context at Index 0.
 		if s.project != nil {
@@ -5003,15 +5027,16 @@ func (p *compiler) do(ctx Context, op any) any {
 	case get_pos: return p.pos // Return compact Pos!
 	case get_scope: if false { return p.project.scope }
 	case get_closure_scopes:
-		var s, _ = p.term.do(ctx, op).([]*scope)
-		return append(s, p.project.scope)
+		// THE DOD FIX: Propagate the 'n' depth limit down to the term engine
+		var s, _ = p.term.do(ctx, t).([]*scope)
+		if t.n > 0 && len(s) >= t.n { return s[:t.n] }
+
+		res := append(s, p.project.scope)
+		if t.n > 0 && len(res) > t.n { return res[:t.n] }
+		return res
+
 	case check_compile_cycle:
-		// THE DOD FIX: Intercept the cycle ping!
-		// If a `use` chain loops back into this host project, catch it!
-		if p.project != nil && p.project.absPath == t.absPath {
-			return true 
-		}
-		// If it's not this compiler, delegate down the tree!
+		if p.project != nil && p.project.absPath == t.absPath { return true }
 		if p.Context != nil { return p.Context.do(ctx, op) }
 		return false
 	}
@@ -13311,12 +13336,12 @@ func cmp_time(l, r time.Time) cmpres {
 }
 
 func eq(x Context, a, b Value) bool { return a == b || cmp(x, a, b) == cmpEqual }
-func equal(x Context, a, b Value, yes ...bool) (res bool) {
+func equal(x Context, a, b Value, compareStringRes ...bool) (res bool) {
 	// THE DOD FIX 3: Global O(1) Hardware Fast-Path!
 	// Before doing HEAVY string expansions, immediately verify pointer equality.
 	if a == b { return true }
 
-	if __t(yes...) {
+	if __t(compareStringRes...) {
 		return __string(x, a) == __string(x, b)
 	} else {
 		return cmp(x, a, b) == cmpEqual
@@ -13335,16 +13360,17 @@ func diff(ctx Context, a, b []Value) bool {
 func isTrivial(v any) (_ bool) {
 	switch t := v.(type) {
 	case *valbase, *none, *null, *undef, nil: return true
+	case *pair: return isTrivial(t.key) && isTrivial(t.val) // CRITICAL FIX
 	case *def: return isTrivial(t.value)
 	case *loc: return isTrivial(t.Value)
 	case *xloc: return isTrivial(t.Value)
 	case *list: return isTrivial(t.elems)
+	case *path: return isTrivial(t.elems)
 	case *compound: return isTrivial(t.elems)
 	case *qualword: return isTrivial(t.elems)
 	case fullname: return isTrivial(t.Value)
-	case *word: return t.s == symEmpty || t.s.String() == ""
 	case *raw: return t.s == ""
-	case *pair: return isTrivial(t.key) && isTrivial(t.val) // CRITICAL FIX
+	case *word: return t.s == symEmpty
 	case []Value:
 		for _, v := range t { if !isTrivial(v) { return } }
 		return true
@@ -13355,19 +13381,20 @@ func isEmpty(v any) (_ bool) {
 	switch t := v.(type) {
 	case *valbase, *none, *null, *undef, nil: return true
 	case *valcache: return len(t.a) == 0 && len(t.o) == 0 && len(t.v) == 0
+	case *pair: return isEmpty(t.key) && isEmpty(t.val) // CRITICAL FIX
 	case *def: return isEmpty(t.value)
 	case *loc: return isEmpty(t.Value)
 	case *xloc: return isEmpty(t.Value)
 	case *list: return isEmpty(t.elems)
 	case *recipe: return isEmpty(t.elems)
+	case *path: return isEmpty(t.elems)
 	case *compound: return isEmpty(t.elems)
 	case *qualword: return isEmpty(t.elems)
 	case *strcomp: return isEmpty(t.elems)
-	case *strval: return len(t.v) == 0
+	case *strval: return isEmpty(t.v)//len(t.v) == 0
 	case *strlit: return t.s == ""
-	case *word: return t.s == symEmpty || t.s.String() == ""
 	case *raw: return t.s == ""
-	case *pair: return isEmpty(t.key) && isEmpty(t.val) // CRITICAL FIX
+	case *word: return t.s == symEmpty
 	case []Value:
 		for _, v := range t { if !isEmpty(v) { return } }
 		return true
@@ -13380,6 +13407,11 @@ func isUndef(v any) (_ bool) {
 	case *loc: return isUndef(t.Value)
 	case *xloc: return isUndef(t.Value)
     case *def: return t.value != nil && isUndef(t.value)
+	case *compound: return isUndef(t.elems)
+	case *qualword: return isUndef(t.elems)
+	case []Value:
+		for _, v := range t { if !isUndef(v) { return } }
+		return true
     }
     return
 }
@@ -13388,10 +13420,12 @@ func isNone(v any) (_ bool) {
 	case *none: return true
 	case *loc: return isNone(t.Value)
 	case *xloc: return isNone(t.Value)
-	case *list: return t.len() == 0 || (t.len() == 1 && isNone(t.elems[0]))
+	case *list: return isNone(t.elems)
+	case *compound: return isNone(t.elems)
+	case *qualword: return isNone(t.elems)
 	case *pair: return isNone(t.key) && isNone(t.val) // CRITICAL FIX
-	case *qualword:
-		for _, e := range t.elems { if !isNone(e) { return false } }
+	case []Value:
+		for _, v := range t { if !isNone(v) { return } }
 		return true
 	}
 	return
@@ -13401,10 +13435,12 @@ func isNull(v any) (_ bool) {
 	case *null, nil: return true
 	case *loc: return isNull(t.Value)
 	case *xloc: return isNull(t.Value)
-	case *list: return t.len() == 1 && isNull(t.elems[0])
+	case *list: return isNull(t.elems)
+	case *compound: return isNull(t.elems)
+	case *qualword: return isNull(t.elems)
 	case *pair: return isNull(t.key) && isNull(t.val) // CRITICAL FIX
-	case *qualword:
-		for _, e := range t.elems { if !isNull(e) { return false } }
+	case []Value:
+		for _, v := range t { if !isNull(v) { return } }
 		return true
 	}
 	return
@@ -16555,7 +16591,7 @@ func sel(ctx Context, v any, s Symbol) (res Value) {
 type act_defer_macro struct{}
 
 // Bubble: Sent by a *builtin to configure argument evaluation
-type arg_expansion_scope struct {
+type arg_expansion_scope struct { // NOTE: it's not a *scope!
 	force_collapse bool
 	skip_expansion map[int]struct{} // arg_index -> skip. -1 means skip ALL args.
 }
@@ -20508,6 +20544,46 @@ func stamp(ctx Context, a any) (res []*file) {
 type run_modification_end_checks struct{}
 type modification_checkpoints_ctx struct{ Context ; f []func() }
 
+type detect_traverse_loop struct{ v Value }
+type traverse_ctx struct {
+	Context
+	v Value
+}
+
+func (c *traverse_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case inner_cast: return c.Context
+	case dynamic_cast: return t.ctx(c, c.Context)
+	case detect_traverse_loop:
+		// =================================================================
+		// THE DOD FIX: Iterative loop checking to avoid stack recursion
+		// =================================================================
+		curr := c
+		for {
+			if eq(ctx, t.v, curr.v) { return true } // Robust semantic loop defuser!
+			if next, ok := curr.Context.(*traverse_ctx); ok {
+				curr = next
+			} else {
+				break
+			}
+		}
+		return curr.Context.do(ctx, op)
+	}
+
+	// ====================================================================
+	// Fast-forward past consecutive traverse_ctx layers
+	// ====================================================================
+	curr := c
+	for {
+		if next, ok := curr.Context.(*traverse_ctx); ok {
+			curr = next
+		} else {
+			break
+		}
+	}
+	return curr.Context.do(ctx, op)
+}
+
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
 	case *loc: traverse(ctx, p.Value)
@@ -20519,9 +20595,10 @@ func traverse(ctx Context, val Value) {
 	case negative: if v := p.Value; v != nil { traverse(ctx, v) }
 	case matched_rule: traverse(ctx, p.rule)
 	case *project:
-		if t := p.main; t != nil {
-			switch t.destiny().(type) { case flag: return }
-			traverse(ctx, t)
+		if p.main != nil {
+			if _, isFlagDestiny := p.main.destiny().(flag); !isFlagDestiny {
+				traverse(ctx, p.main)
+			}
 		}
 	case *stemmed_rule:
 		// NOTE: Make a clone of the underlying rule for traversing the real target;
@@ -20571,11 +20648,36 @@ func traverse(ctx Context, val Value) {
 		}
 
 	case *closure, *delegate, *arrow:
-		if val := expand(ctx,p); !isTrivial(val) {
-			updated(ctx, val) // NOTE: ensure that updated flag is correct (see rule.updated)
-			traverse(ctx, val)
-		} else if _, isArrow := p.(*arrow); isArrow {
-			erro(ctx, "traverse trivial arrow: %v: %s", p, ts(p,ctx), callstack{num: 10})
+		// =================================================================
+		// THE DOD FIX: Tail-Call Elimination Loop for Macro Chains
+		// =================================================================
+		currVal := val
+		for {
+			if truly(ctx, detect_traverse_loop{currVal}) {
+				erro(ctx, "detected traverse loop: %v", currVal)
+				return
+			}
+
+			ctx = &traverse_ctx{ctx, currVal}
+			v := expand(ctx, currVal)
+			if isTrivial(v) {
+				if _, isArrow := currVal.(*arrow); isArrow {
+					erro(ctx, "traverse trivial arrow: %v: %s", currVal, ts(currVal, ctx), callstack{num: 10})
+				}
+				return
+			}
+			updated(ctx, v)
+
+			// If the unboxed result is still another macro, loop inside this frame
+			switch v.(type) {
+			case *closure, *delegate, *arrow:
+				currVal = v
+				continue
+			}
+
+			// Traverse the final resolved concrete node
+			traverse(ctx, v)
+			return
 		}
 	case *barefile:
 		if p.file != nil { traverse(ctx, p.file) } else
@@ -20600,6 +20702,8 @@ func traverse(ctx Context, val Value) {
 		}
 	case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
 		do(ctx, act_traverse{p})
+	case *null, *none:
+		// Ignored!
 	default:
 		erro(pc(ctx,val), "unsupported traverse: %v: %s", val, ts(val,ctx), callstack{num:10})
 	}
@@ -24180,60 +24284,67 @@ type get_program   struct{}
 type is_ordered_prereq struct{}
 type is_prerequisite   struct{}
 
+type is_closure_exec struct{}
 type execution_lang struct{}
 type missing_file struct{ file string }
 
 func _execution(c Context) *execution { return cast[*execution](c) }
 
 type interpret struct{ name Symbol ; args []Value }
-type execution struct{
-    automatic
-    sync.Mutex
-    sync.WaitGroup
+type execution struct {
+	automatic
+	sync.Mutex
+	sync.WaitGroup
 
-    by dirtyOpts
+	by dirtyOpts
 
-    proj *project
-    prog *program
-    recipes []Value
-    language Symbol
+	proj     *project
+	prog     *program
+	recipes  []Value
+	language Symbol
 
-    defval   Value
-    defers []Value
-    values []Value
+	defval   Value // Singular polymorphic item!
+	defers []Value
+	values []Value
 
-    prerequisite Value
-    _ordered bool
+	prerequisite Value
+	_ordered     bool
 
-    _env []*pair
-    changedWD string
+	_env      []*pair
+	changedWD string
 
-    dirt string // reason of outdated
-    start time.Time // start time
+	dirt  string    // reason of outdated
+	start time.Time // start time
 
-    recs map[Value]int
+	recs map[Value]int
 
-    calleeErrs []error
-    calleeErrsM sync.Mutex
+	calleeErrs  []error
+	calleeErrsM sync.Mutex
 
-    missing []string
+	missing []string
 
-    grepping bool
-    grepped []Value
-    ordered []Value
-    targets []Value // all targets def
+	closureExec bool // Tracks active closure sandbox execution state!
+	grepping    bool
+	grepped     []Value
+	ordered     []Value
+	targets     []Value // all targets def
 
-    countFiles int
-    traceLevel int
+	countFiles int
+	traceLevel int
 
-    interpreted []evaluater
+	interpreted []evaluater
 }
-func (p *execution) caller() *execution { return _execution(p.Context) }
+
 func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
 	case inner_cast: return p.automatic
 	case dynamic_cast: return t.ctx(p, &p.automatic)
-    case ex_closure: return true
+
+	// =================================================================
+	// THE DOD FIX: Intercept the active state tracker safely
+	// =================================================================
+	case is_closure_exec: return p.closureExec
+
     case get_pos:
         if p.prerequisite != nil { return p.prerequisite.Pos() }
         if len(p.recipes) > 0 { return p.recipes[0].Pos() }
@@ -24282,6 +24393,8 @@ func (p *execution) do(ctx Context, op any) (res any) {
     }
     return p.automatic.do(ctx, op)
 }
+
+func (p *execution) caller() *execution { return _execution(p.Context) }
 
 func (p *execution) depth() (res int) {
     for c := p.caller(); c != nil; c = c.caller() { res += 1 }
@@ -24673,9 +24786,6 @@ func (p *execution) traverse(ctx Context, prereqValue Value) {
 		for _, entry := range entries {
 			if !isNull(entry) && targetValue == entry { continue }
 
-			// CRITICAL FIX: The ultimate payoff of Symbol Interning!
-			// Assuming your `word` struct was upgraded to use `sym Symbol` instead of `s string`.
-			// This check is now an O(1) integer comparison!
 			if w, k := targetValue.(*word); k && w.s == prereqFinal {
 				continue // target resolve to itself, does nothing
 			}
@@ -25530,7 +25640,7 @@ type (
     get_pos        struct{}
     get_project    struct{}
     get_scope      struct{}
-    get_closure_scopes struct{}
+    get_closure_scopes struct{ n int }
     no_position    struct{}
     param_name     struct{ i int }
     is_good_with   struct{ p property ; a []any }
@@ -27555,9 +27665,10 @@ type modifier_debug struct { modifier_
     warn []Value `warn`
     erro []Value `err,erro,error`
     checkOutdated bool `dirty,checkdirty,check-dirty,check-outdated`
-    trave int `tr,trave,traverse`
-    s int `stack,stack-number`
-    n int `count,num,call-number`
+    exp bool `expand,exp,x`
+	str bool `string,str`
+    s int `ts,tracestack`
+    n int `cs,callstack`
 }
 func (ctx *modifier_debug) x(args ...Value) (result any) {
     if ctx.cond != nil && !__true(ctx, ctx.cond) { return }
@@ -27567,10 +27678,7 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
     for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
     for _, v := range ctx.erro { erro(ctx, "%s", __string(ctx, v)) }
 
-    var (
-        target  = auto_get(ctx, symAt) // @
-        depends = auto_get(ctx, symCaret) // ^
-    )
+	var target = auto_get(ctx, symAt) // @
     if ctx.checkOutdated && target != nil {
         var (
             ordered = auto_get(ctx, symBar) // |
@@ -27581,23 +27689,30 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
             debug(ctx, "target not exists: %v", target)
             return
         }
+
+        var depends = auto_get(ctx, symCaret) // ^
         for _, dep := range merge(depends, ordered, grepped) {
             if dt := statFile(ctx, dep).mod(); dt.After(tt) {
                 debug(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
             }
         }
     }
+
     if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
 		var dps []*diag_point
 		for _, a := range args {
 			pos := do(ctx, get_fatpos{a.Pos()})
-			dps = append(dps, _f("%v: %v: %v\n", pos, target, a))
+
+			var v any
+			if ctx.str { v = __string(ctx, a) } else
+			if ctx.exp { v = expand(ctx, a) } else { v = a }
+			dps = append(dps, _f("%v: %v: %v\n", pos, target, v))
 		}
 
 		var aa = []any{ diagtext{} }
 		if ctx.s > 0 { aa = append(aa, trace_ctx{ctx.s}) }
-		// if ctx.n > 0 { /* d.debug(ctx.n) */ }
-		debug(pc(ctx,args), dps, aa...)
+		if ctx.n > 0 { aa = append(aa, callstack{num:ctx.n}) }
+		debug(ctx, dps, aa...)
     }
     return
 }
@@ -27850,6 +27965,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		// Only chain if we actually collected scopes
 		if len(callerScopes) > 0 {
 			exe.Context = closure_with(cc, callerScopes...)
+			exe.closureExec = true // Arm the closure-exec flag!
 		}
 	}
 
@@ -35724,8 +35840,41 @@ func (ctx *__wildcard) x() any {
 	// ====================================================================
 	// SLOW PATH: OS File System Traversal
 	// ====================================================================
-	if ctxDirSym == symEmpty {
-		ctx.project(p, pats...)
+	if ctxDirSym == symEmpty && longest_path_selection {
+		// THE DOD FIX: Select the most specific local leaf project from the closure
+		var targetProj *project = p
+		
+		if isClosure, _ := do(ctx, is_closure_exec{}).(bool); isClosure {
+			if projs := closure_projects(ctx); len(projs) > 0 {
+				maxLen := -1
+				for _, cp := range projs {
+					if cp != nil {
+						pathLen := len(cp.absPath.String())
+						if pathLen > maxLen {
+							maxLen = pathLen
+							targetProj = cp
+						}
+					}
+				}
+			}
+		} else if p != nil {
+			targetProj = p
+		}
+
+		if targetProj != nil {
+			ctx.project(targetProj, pats...)
+		}
+	} else if ctxDirSym == symEmpty {
+		// THE DOD FIX: Deterministically fetch exactly 1 active caller closure project
+		if isClosure, _ := do(ctx, ex_closure{}).(bool); isClosure {
+			if projs := closure_projects(ctx, 1); len(projs) > 0 {
+				ctx.project(projs[0], pats...)
+			} else if p != nil {
+				ctx.project(p, pats...)
+			}
+		} else if p != nil {
+			ctx.project(p, pats...)
+		}
 	} else {
 		ctx.directory(ctxDirSym, pats...)
 	}
