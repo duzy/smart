@@ -15742,6 +15742,14 @@ func dmerge(disjunction bool, args ...Value) (elems []Value) {
         case *loc: for _, v := range dmerge(disjunction, x.Value) { elems = append(elems, &loc{v,x.pos}) }
         case *xloc: for _, v := range dmerge(disjunction, x.Value) { elems = append(elems, &xloc{v,x.pos}) }
         case *list: elems = append(elems, dmerge(disjunction, x.elems...)...)
+		case fullname:
+			for _, v := range dmerge(disjunction, x.Value) {
+				if f, isFile := to_file(v); isFile {
+					elems = append(elems, fullfile{f})
+				} else {
+					elems = append(elems, fullname{v})
+				}
+			}
         default:
             if disjunction { if x, y := x.(*compound); y {
                 var saved = len(elems)
