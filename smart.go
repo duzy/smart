@@ -17751,8 +17751,6 @@ func (p *exec_ctx) do(ctx Context, op any) any {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
     case wants_fullfile: return p.fullname // user example: {(shell -full -log=$@)}
-    case ex_closure: return true
-    case final: return p
 	case get_fatpos:
 		if t.p == NoPos && p.log != nil {
 			return Position{Filename: p.log.filename, Line: 1}
@@ -21238,6 +21236,8 @@ func ts(i any, o ...any) (s string) {
 		var s string
 		// TODO: forms more details into `s`
 		content =  s + ts(x.xc)
+	case *modification_checkpoints_ctx:
+		content = ts(x.Context)
 	case     *delegate:
 		content = ts(x.x, barrier)
 		if x.o != nil { content += " " + ts(x.o, barrier) }
@@ -24347,11 +24347,9 @@ func (p *execution) do(ctx Context, op any) (res any) {
     switch t := op.(type) {
 	case inner_cast: return p.automatic
 	case dynamic_cast: return t.ctx(p, &p.automatic)
-
-	// =================================================================
-	// THE DOD FIX: Intercept the active state tracker safely
-	// =================================================================
-	case is_closure_exec: return p.closureExec
+    case final: return p // Hmm, it is "final"!
+    case ex_closure: return true // Intercept this like a final{ctx}
+	case is_closure_exec: return p.closureExec // THE DOD FIX: Intercept the active state tracker safely
 
     case get_pos:
         if p.prerequisite != nil { return p.prerequisite.Pos() }
@@ -27673,6 +27671,7 @@ type modifier_debug struct { modifier_
     warn []Value `warn`
     erro []Value `err,erro,error`
     checkOutdated bool `dirty,checkdirty,check-dirty,check-outdated`
+	ctx bool `context,ctx`
     exp bool `expand,exp,x`
 	str bool `string,str`
     s int `ts,tracestack`
@@ -27715,6 +27714,11 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
 			if ctx.str { v = __string(ctx, a) } else
 			if ctx.exp { v = expand(ctx, a) } else { v = a }
 			dps = append(dps, _f("%v: %v: %v\n", pos, target, v))
+		}
+
+		if ctx.ctx {
+			pos := _position(ctx)
+			dps = append(dps, _f("%v: %v\n", pos, ts(ctx)))
 		}
 
 		var aa = []any{ diagtext{} }
