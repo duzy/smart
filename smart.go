@@ -18664,10 +18664,10 @@ type gapseg struct {
 	rem   []Value
 }
 
-type optraw struct {
+type optword struct {
 	b bool
 	p Pos
-	s string
+	s Symbol // Migrated from string to native Symbol!
 }
 
 func concat(args ...any) (parts []Value) {
@@ -18676,9 +18676,9 @@ func concat(args ...any) (parts []Value) {
 			switch t := arg.(type) {
 			case []Value: parts = append(parts, t...)
 			case Value: parts = append(parts, t)
-			case optraw:
+			case optword:
 				if t.b {
-					parts = append(parts, _rw(t.p, t.s))
+					parts = append(parts, _word(t.p, t.s))
 				}
 			case stemseg:
 				if t.v == nil { t.v = &valbase{t.e.Pos()} }
@@ -18945,10 +18945,10 @@ func backwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem 
 func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
 	forward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
 		pos := vals[iV].Pos()
-		val := _rw(pos, str[:size])
+		val := _word(pos, intern(str[:size]))
 
 		m, r, rm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:],
-			concat(optraw{size < len(str), pos, str[size:]}, vals[iV+1:]))
+			concat(optword{size < len(str), pos, intern(str[size:])}, vals[iV+1:]))
 
 		if size == len(str) { iV += 1 }
 		return m, concat(res, val, r), rm, concat(stems, val, s), iE + 1 + ie, iV + iv, wt
@@ -18986,9 +18986,8 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 							pos := gap[k].Pos()
 
 							for i := 0; i < len(str); {
-								// PRISTINE FIX: Trust the Retroactive Trigger and return ILLEGAL
-								if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, suffix, concat(_rw(pos, str[i:]), gap[k+1:])); m {
-									stemParts := concat(gap[:k], _rw(pos, str[:i]))
+								if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, suffix, concat(_word(pos, intern(str[i:])), gap[k+1:])); m {
+									stemParts := concat(gap[:k], _word(pos, intern(str[:i])))
 									return true, concat(res, stemParts, r), rm, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), len(vals)-len(rm), ILLEGAL
 								}
 
@@ -18996,7 +18995,6 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 								i += size
 							}
 						} else {
-							// PRISTINE FIX: Return len(elems) and ILLEGAL
 							if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, suffix, nil); m {
 								return true, concat(res, gap, r), rm, concat(stems, gapseg{true, elems[iE], gap}, s), len(elems), len(vals)-len(rm), ILLEGAL
 							}
@@ -19004,16 +19002,49 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 					}
 				} else {
 					for k := len(gap); k != -1; k += -1 {
-						// PRISTINE FIX: Return len(elems) and ILLEGAL
 						if m, r, rm, s, _, _, _ := backwardGlobComp(ctx, suffix, gap[k:]); m {
 							stemParts := concat(gap[:k], rm)
-							return true, concat(res, stemParts, r), nil, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), len(vals), ILLEGAL
+
+							// =================================================================
+							// THE DOD FIX: Symmetrical Partial-Match Split for Single Asterisk
+							// =================================================================
+							if tok == SAST {
+								var head = stemParts[0]
+								if tp, isPath := unloc(head).(*path); isPath && tp.len() > 1 {
+									var remParts []Value
+									firstRem := tp.elems[1]
+
+									switch elt := unloc(firstRem).(type) {
+									case *word:
+										remParts = append(remParts, _word(firstRem.Pos(), __symJoin(symSlash, elt.s)))
+									default:
+										remParts = append(remParts, firstRem)
+									}
+
+									for _, el := range tp.elems[2:] {
+										remParts = append(remParts, el)
+									}
+									remParts = append(remParts, gap[k:]...)
+
+									return false, concat(res, tp.elems[0]), remParts, concat(stems, tp.elems[0]), iE, iV + 1, ILLEGAL
+								}
+							}
+
+							// =================================================================
+							// CORE RESOLUTION FIX: Calibrate consumption based on sub-word split
+							// =================================================================
+							var consumed = len(vals)
+							if len(rm) > 0 {
+								consumed = len(vals) - len(rm) + 1
+							}
+
+							return true, concat(res, stemParts, r), nil, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), consumed, ILLEGAL
 						}
 					}
 				}
 
 				if tok == SAST {
-					return false, concat(res, gap), nil, concat(stems, gapseg{true, elems[iE], gap}), iE, len(vals), ILLEGAL
+					return false, concat(res, gap), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, len(vals), ILLEGAL
 				} else {
 					return false, res, gap, stems, iE, iV, tok
 				}
@@ -19041,7 +19072,7 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 				} else if iv_ret == 0 {
 					matchedStr := ""
 					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
-					r = []Value{_rw(vals[iV].Pos(), matchedStr)}
+					r = []Value{_word(vals[iV].Pos(), intern(matchedStr))}
 				}
 
 				if len(s) > 0 {
@@ -19049,10 +19080,9 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 					for _, v := range unpack(s[0]) {
 						stemStr += getScalarSubstr(ctx, v, 0, -1)
 					}
-					s[0] = _rw(vals[iV].Pos(), stemStr)
+					s[0] = _word(vals[iV].Pos(), intern(stemStr))
 				}
 
-				// PRISTINE FIX: Bubble up ILLEGAL if fully consumed so Retroactive Trigger can fire!
 				ret_wt := PERC
 				if mapped_iE == len(elems) { ret_wt = ILLEGAL }
 				return true, concat(res, r), rm, concat(stems, s), mapped_iE, iV + iv_ret, ret_wt
@@ -19066,7 +19096,7 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 				sfx := ""
 				if e.Suffix != nil && !isEmpty(e.Suffix) {
 					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
-						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1) // Handle %%
+						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
 					} else {
 						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
 					}
@@ -19079,13 +19109,13 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 						stemStr := valStr[len(pfx):idx]
 						matchedLen := idx + len(sfx)
 
-						resAtom := _rw(vals[iV].Pos(), valStr[:matchedLen])
-						stemAtom := _rw(vals[iV].Pos(), stemStr)
+						resAtom := _word(vals[iV].Pos(), intern(valStr[:matchedLen]))
+						stemAtom := _word(vals[iV].Pos(), intern(stemStr))
 
 						var nextVals []Value
 						hasRem := matchedLen < len(valStr)
 						if hasRem {
-							nextVals = append(nextVals, _rw(vals[iV].Pos(), valStr[matchedLen:]))
+							nextVals = append(nextVals, _word(vals[iV].Pos(), intern(valStr[matchedLen:])))
 						}
 						nextVals = concat(nextVals, vals[iV+1:])
 
@@ -19098,7 +19128,6 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 								ret_iV += iv_rec_in
 							}
 							
-							// PRISTINE FIX: Propagate the ILLEGAL trigger status
 							ret_wt := PERC
 							if wt_in == ILLEGAL { ret_wt = ILLEGAL }
 							return true, concat(res, resAtom, r_in), rm_in, concat(stems, stemAtom, s_in), iE + 1 + ie_rec_in, ret_iV, ret_wt
@@ -19124,7 +19153,6 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 				iE++
 				iV++
 			} else {
-				// PRISTINE FIX: Relative mapping propagates seamlessly
 				m, rr, rrm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
 				return m, concat(res, rr), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
 			}
@@ -19141,10 +19169,10 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 
 	backward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
 		pos := vals[iV].Pos()
-		val := _rw(pos, str[len(str)-size:])
+		val := _word(pos, intern(str[len(str)-size:]))
 
 		m, r, rm, s, ie, iv, wt := backwardGlobComp(ctx, elems[:iE],
-			concat(vals[:iV], optraw{size < len(str), pos, str[:len(str)-size]}))
+			concat(vals[:iV], optword{size < len(str), pos, intern(str[:len(str)-size])}))
 
 		return m, concat(r, val, res), rm, concat(s, val, stems), ie, iv, wt
 	}
@@ -19182,8 +19210,8 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 
 							for i := len(str); i > 0; {
 								// PRISTINE FIX: Trust the Retroactive Trigger and return ILLEGAL
-								if m, r, rm, s, _, _, _ := backwardGlobComp(ctx, prefix, concat(gap[:k-1], _rw(pos, str[:i]))); m {
-									stemParts := concat(optraw{i < len(str), pos, str[i:]}, gap[k:])
+								if m, r, rm, s, _, _, _ := backwardGlobComp(ctx, prefix, concat(gap[:k-1], _word(pos, intern(str[:i])))); m {
+									stemParts := concat(optword{i < len(str), pos, intern(str[i:])}, gap[k:])
 									return true, concat(r, stemParts, res), rm, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, len(rm), ILLEGAL
 								}
 
@@ -19202,6 +19230,37 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 						// PRISTINE FIX: Return -1 and ILLEGAL
 						if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, prefix, gap[:k]); m {
 							stemParts := concat(rm, gap[k:])
+
+							// =================================================================
+							// THE DOD FIX: Symmetrical Partial-Match Split for Single Asterisk
+							// =================================================================
+							if tok == SAST {
+								var tail = stemParts[len(stemParts)-1]
+								if tp, isPath := unloc(tail).(*path); isPath && tp.len() > 1 {
+									lastIdx := tp.len() - 1
+									matchedElem := tp.elems[lastIdx]
+
+									var remParts []Value
+									remParts = append(remParts, gap[:k]...)
+									for i := 0; i < lastIdx; i++ {
+										if i == lastIdx-1 {
+											el := tp.elems[i]
+											switch elt := unloc(el).(type) {
+											case *word:
+												// OPTIMIZED: Native, allocation-free Symbol Domain join
+												remParts = append(remParts, _word(el.Pos(), __symJoin(elt.s, symSlash)))
+											default:
+												remParts = append(remParts, el)
+											}
+										} else {
+											remParts = append(remParts, tp.elems[i])
+										}
+									}
+
+									return false, concat(matchedElem, res), remParts, concat(matchedElem, stems), iE, iV, ILLEGAL
+								}
+							}
+
 							return true, concat(r, stemParts, res), nil, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, 0, ILLEGAL
 						}
 					}
@@ -19237,7 +19296,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 				} else if iv_ret == iV+1 {
 					matchedStr := ""
 					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
-					r = []Value{_rw(vals[iV].Pos(), matchedStr)}
+					r = []Value{_word(vals[iV].Pos(), intern(matchedStr))}
 				}
 
 				if len(s) > 0 {
@@ -19246,7 +19305,7 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 					for _, v := range unpack(s[idx]) {
 						stemStr += getScalarSubstr(ctx, v, 0, -1)
 					}
-					s[idx] = _rw(vals[iV].Pos(), stemStr)
+					s[idx] = _word(vals[iV].Pos(), intern(stemStr))
 				}
 
 				// PRISTINE FIX: Bubble up ILLEGAL if fully consumed
@@ -19274,13 +19333,13 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 					if idx >= 0 {
 						stemStr := valStr[idx+len(pfx) : len(valStr)-len(sfx)]
 
-						resAtom := _rw(vals[iV].Pos(), valStr[idx:])
-						stemAtom := _rw(vals[iV].Pos(), stemStr)
+						resAtom := _word(vals[iV].Pos(), intern(valStr[idx:]))
+						stemAtom := _word(vals[iV].Pos(), intern(stemStr))
 
 						var nextVals []Value
 						hasRem := idx > 0
 						if hasRem {
-							nextVals = append(nextVals, _rw(vals[iV].Pos(), valStr[:idx]))
+							nextVals = append(nextVals, _word(vals[iV].Pos(), intern(valStr[:idx])))
 						}
 						nextVals = concat(vals[:iV], nextVals)
 
@@ -19336,9 +19395,12 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		}
 	}
 
+	// ====================================================================
+	// Symbol Domain Migration: Replaced optraw with optword and symEmpty
+	// ====================================================================
 	fullRem := concat(
 		packComp(rem),
-		optraw{len(rem) == 0 && len(segments) > 1, segments[0].Pos(), ""},
+		optword{len(rem) == 0 && len(segments) > 1, segments[0].Pos(), symEmpty},
 		segments[1:],
 	)
 
@@ -19379,7 +19441,8 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 					mSuf = true
 					rSufAtoms = unpack(segments[k])
 					remSuf = nil
-					sSuf = []Value{_rw(segments[k].Pos(), stemStr)}
+					// Upgraded to allocation-free Symbol Domain instantiation
+					sSuf = []Value{_word(segments[k].Pos(), intern(stemStr))}
 				}
 			}
 
@@ -19388,7 +19451,7 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 					concat(segments[:k], packComp(rSufAtoms)),
 					concat(
 						packComp(remSuf),
-						optraw{len(remSuf) == 0 && k+1 < len(segments), segments[k].Pos(), ""},
+						optword{len(remSuf) == 0 && k+1 < len(segments), segments[k].Pos(), symEmpty},
 						segments[k+1:],
 					),
 					concat(stems, stemseg{elems[iE], packPath(concat(
@@ -19424,10 +19487,13 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		}
 	}
 
+	// ====================================================================
+	// Symbol Domain Migration: Replaced optraw with optword and symEmpty
+	// ====================================================================
 	fullRem := concat(
 		segments[:len(segments)-1],
 		packComp(rem),
-		optraw{len(rem) == 0 && len(segments) > 1, segments[len(segments)-1].Pos(), ""},
+		optword{len(rem) == 0 && len(segments) > 1, segments[len(segments)-1].Pos(), symEmpty},
 	)
 
 	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
@@ -19466,7 +19532,8 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 					mPre = true
 					rPreAtoms = unpack(segments[k])
 					remPre = nil
-					sPre = []Value{_rw(segments[k].Pos(), stemStr)}
+					// Upgraded to allocation-free Symbol Domain instantiation
+					sPre = []Value{_word(segments[k].Pos(), intern(stemStr))}
 				}
 			}
 
@@ -19476,7 +19543,7 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 					concat(
 						segments[:k],
 						packComp(remPre),
-						optraw{len(remPre) == 0 && k > 0, segments[k].Pos(), ""},
+						optword{len(remPre) == 0 && k > 0, segments[k].Pos(), symEmpty},
 					),
 					concat(
 						sPre[:len(sPre)-1],
@@ -19538,18 +19605,16 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 				}
 			}
 
-			// If it's a %, it acts like a **, so we force the gap loop to handle it!
 			if percIdx != -1 && iS+1 < len(segments) {
 				m = true
 				wt = PERC
-				remAtoms = nil // Let the gap loop consume the whole segment
+				remAtoms = nil
 
-				// CRITICAL: Explode the percpat so the gap loop can see the Suffix!
 				var exploded []Value
 				ie = percIdx
 				if pp.Prefix != nil && !isEmpty(pp.Prefix) {
 					exploded = append(exploded, pp.Prefix)
-					ie++ // Shift the % index over by 1
+					ie++
 				}
 				exploded = append(exploded, _globmeta(patAtoms[percIdx].Pos(), PERC))
 				if pp.Suffix != nil && !isEmpty(pp.Suffix) {
@@ -19561,19 +19626,17 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 
 		// =================================================================
 		// THE DOD FIX: Deep Symbol Domain Coalescence
-		// Intercepts false-negatives caused by Inner-Fragmentation!
 		// =================================================================
 		if !m && !patterned(ctx, elems[iE]) {
 			pSym := evalLiteralSym(ctx, elems[iE])
 			if pSym != symEmpty {
 				tSym := evalLiteralSym(ctx, segments[iS])
 				if pSym == tSym {
-					// Repair the false negative!
 					m = true
 					resAtoms = unpack(segments[iS])
 					remAtoms = nil
 					s = nil 
-					wt = ILLEGAL // ILLEGAL signifies a pure literal match
+					wt = ILLEGAL
 				}
 			}
 		}
@@ -19591,7 +19654,6 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 
 		partial := len(remAtoms) > 0
 
-		// ... [The rest of your DAST / ASTQ / PERC gap logic remains EXACTLY the same] ...
 		if wt == DAST || wt == ASTQ || wt == PERC {
 			sufAtoms := patAtoms[ie+1:]
 
@@ -19630,22 +19692,22 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 
 						if len(sufAtoms) > 0 {
 							var testVals []Value
-							if i < len(str) { testVals = unpack(_rw(targetPos, str[i:])) }
+							if i < len(str) { testVals = unpack(_word(targetPos, intern(str[i:]))) }
 							mSuf, rSuf, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, testVals)
 						} else {
 							mSuf = true
-							if i < len(str) { remSuf = unpack(_rw(targetPos, str[i:])) }
+							if i < len(str) { remSuf = unpack(_word(targetPos, intern(str[i:]))) }
 						}
 
 						if mSuf {
 							var gapAtoms []Value
-							if i > 0 { gapAtoms = []Value{_rw(targetPos, str[:i])} }
+							if i > 0 { gapAtoms = []Value{_word(targetPos, intern(str[:i]))} }
 
 							var nextSegs []Value
 							if k == 0 {
-								nextSegs = concat(packComp(remSuf), optraw{len(remSuf) == 0 && len(gap) > 0, targetPos, ""}, gap)
+								nextSegs = concat(packComp(remSuf), optword{len(remSuf) == 0 && len(gap) > 0, targetPos, symEmpty}, gap)
 							} else {
-								nextSegs = concat(packComp(remSuf), optraw{len(remSuf) == 0 && k < len(gap), targetPos, ""}, gap[k:])
+								nextSegs = concat(packComp(remSuf), optword{len(remSuf) == 0 && k < len(gap), targetPos, symEmpty}, gap[k:])
 							}
 
 							if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := forwardPathPath(ctx, pathElems, nextSegs); mPath {
@@ -19677,7 +19739,6 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 					}
 				}
 			} else {
-				// PERC and DAST land here! The multi-directory greedy loop!
 				for k := len(gap); k >= 0; k-- {
 					if k == 0 {
 						if !partial { continue }
@@ -19745,13 +19806,29 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		}
 
 		res, stems = concat(res, packComp(resAtoms)), concat(stems, s)
-		rem = concat(
-			packComp(remAtoms),
-			optraw{len(remAtoms) == 0 && iS+1 < len(segments), segments[iS].Pos(), ""},
-			segments[iS+1:],
-		)
 
-		if !m { return false, res, rem, stems, iE, iS + 1, ILLEGAL }
+		// =====================================================================
+		// THE DOD FIX: Context-Aware Path Split Rules for Early Mismatch Loops
+		// Separates mid-path remainder blocks from standalone terminal assets!
+		// =====================================================================
+		if !m {
+			var resSlash, remSlash Value
+			if iS > 0 {
+				if iS+1 < len(segments) {
+					remSlash = _word(segments[iS].Pos(), symEmpty)
+				} else {
+					resSlash = _word(segments[iS].Pos(), symEmpty)
+				}
+			}
+			res = concat(res, resSlash)
+			rem = concat(
+				remSlash,
+				packComp(remAtoms),
+				optword{len(remAtoms) == 0 && iS+1 < len(segments) && remSlash == nil, segments[iS].Pos(), symEmpty},
+				segments[iS+1:],
+			)
+			return false, res, rem, stems, iE, iS + 1, ILLEGAL
+		}
 
 		if partial {
 			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + 1, ILLEGAL }
@@ -19781,7 +19858,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 }
 
 func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	iE, iS = len(elems) - 1, len(segments) - 1
+	iE, iS = len(elems)-1, len(segments)-1
 
 	for iE >= 0 {
 		patAtoms := unpack(elems[iE])
@@ -19810,9 +19887,6 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			}
 		}
 
-		// =================================================================
-		// THE DOD FIX: PERC Directory Stretch (Backward Spanning)
-		// =================================================================
 		if !m {
 			percIdx := -1
 			var pp *percpat
@@ -19824,18 +19898,16 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 				}
 			}
 
-			// In backward parsing, iS > 0 means there are preceding directory segments!
 			if percIdx != -1 && iS > 0 {
 				m = true
 				wt = PERC
-				remAtoms = nil // Let the gap loop consume the whole segment
+				remAtoms = nil
 
-				// CRITICAL: Explode the percpat so the gap loop can see the Prefix!
 				var exploded []Value
 				ie = percIdx
 				if pp.Prefix != nil && !isEmpty(pp.Prefix) {
 					exploded = append(exploded, pp.Prefix)
-					ie++ // Shift the % index over by 1
+					ie++
 				}
 				exploded = append(exploded, _globmeta(patAtoms[percIdx].Pos(), PERC))
 				if pp.Suffix != nil && !isEmpty(pp.Suffix) {
@@ -19845,16 +19917,11 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			}
 		}
 
-		// =================================================================
-		// THE DOD FIX: Deep Symbol Domain Coalescence
-		// Intercepts false-negatives or false-partials caused by Inner-Fragmentation!
-		// =================================================================
 		if !m && !patterned(ctx, elems[iE]) {
 			pSym := evalLiteralSym(ctx, elems[iE])
 			if pSym != symEmpty {
 				tSym := evalLiteralSym(ctx, segments[iS])
 				if pSym == tSym {
-					// Repair the false negative/partial!
 					m = true
 					resAtoms = unpack(segments[iS])
 					remAtoms = nil
@@ -19877,7 +19944,6 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 		partial := len(remAtoms) > 0
 
-		// ... [The rest of your DAST / ASTQ / PERC gap logic remains EXACTLY the same] ...
 		if wt == DAST || wt == ASTQ || wt == PERC {
 			preAtoms := patAtoms[:ie]
 
@@ -19916,7 +19982,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 						if len(preAtoms) > 0 {
 							var testVals []Value
-							if i > 0 { testVals = unpack(_rw(targetPos, str[:i])) }
+							if i > 0 { testVals = unpack(_word(targetPos, intern(str[:i]))) }
 							mPre, rPre, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, testVals)
 							if !mPre || len(remPre) > 0 {
 								if mB, rB, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, testVals); mB {
@@ -19925,18 +19991,18 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 							}
 						} else {
 							mPre = true
-							if i > 0 { remPre = unpack(_rw(targetPos, str[:i])) }
+							if i > 0 { remPre = unpack(_word(targetPos, intern(str[:i]))) }
 						}
 
 						if mPre {
 							var gapAtoms []Value
-							if i < len(str) { gapAtoms = []Value{_rw(targetPos, str[i:])} }
+							if i < len(str) { gapAtoms = []Value{_word(targetPos, intern(str[i:]))} }
 
 							var nextSegs []Value
 							if k == len(gap) {
-								nextSegs = concat(gap, packComp(remPre), optraw{len(remPre) == 0 && len(gap) > 0, targetPos, ""})
+								nextSegs = concat(gap, packComp(remPre), optword{len(remPre) == 0 && len(gap) > 0, targetPos, symEmpty})
 							} else {
-								nextSegs = concat(gap[:k], packComp(remPre), optraw{len(remPre) == 0 && k > 0, targetPos, ""})
+								nextSegs = concat(gap[:k], packComp(remPre), optword{len(remPre) == 0 && k > 0, targetPos, symEmpty})
 							}
 
 							if mPath, rPath, remPath, sPath, iEPath, iSPath, _ := backwardPathPath(ctx, pathElems, nextSegs); mPath {
@@ -19968,7 +20034,6 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 					}
 				}
 			} else {
-				// DAST and PERC land here! The multi-directory greedy loop!
 				for k := 0; k <= len(gap); k++ {
 					if k == len(gap) {
 						if !partial { continue }
@@ -20038,13 +20103,29 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		}
 
 		res, stems = concat(packComp(resAtoms), res), concat(s, stems)
-		rem = concat(
-			segments[:iS],
-			packComp(remAtoms),
-			optraw{len(remAtoms) == 0 && iS > 0, segments[iS].Pos(), ""},
-		)
 
-		if !m { return false, res, rem, stems, iE + 1, iS, ILLEGAL }
+		// =====================================================================
+		// THE DOD FIX: Symmetrical Backward Context-Aware Path Split Rules
+		// Separates mid-path remainder blocks from standalone root elements!
+		// =====================================================================
+		if !m {
+			var resSlash, remSlash Value
+			if iS < len(segments)-1 {
+				if iS > 0 {
+					remSlash = _word(segments[iS].Pos(), symEmpty)
+				} else {
+					resSlash = _word(segments[iS].Pos(), symEmpty)
+				}
+			}
+			res = concat(resSlash, res)
+			rem = concat(
+				segments[:iS],
+				optword{len(remAtoms) == 0 && iS > 0 && remSlash == nil, segments[iS].Pos(), symEmpty},
+				remSlash,
+				packComp(remAtoms),
+			)
+			return false, res, rem, stems, iE + 1, iS, ILLEGAL
+		}
 
 		if partial {
 			if iE > 0 { return false, res, rem, stems, iE + 1, iS, ILLEGAL }
@@ -20171,7 +20252,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			if _, isWord := unpacked.(*word); !isWord { return match(ctx, unpacked, val) }
 		}
 	case *raw:
+		// DEFENSIVE FALLBACK: Dynamically parse raw pattern path strings into the Symbol Domain
 		if strings.Contains(p.s, pathSep) {
+			warn(pc(ctx,p.pos), _f("match path in raw: %s", ts(p,ctx)),
+				trace_ctx{3}, callstack{num:10})
 			return match(ctx, __symPath(p.pos, intern(p.s)), val)
 		}
 	}
@@ -20196,7 +20280,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			}
 		}
 	case *raw:
+		// DEFENSIVE FALLBACK: Dynamically parse raw value path strings into the Symbol Domain
 		if strings.Contains(v.s, pathSep) {
+			warn(pc(ctx,v.pos), _f("match path in raw: %s", ts(v,ctx)),
+				trace_ctx{3}, callstack{num:10})
 			return match(ctx, pat, __symPath(v.pos, intern(v.s)))
 		}
 	}
@@ -20233,10 +20320,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		case *path:
 			if trail {
 				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
-				rem = packPath(concat(v.elems[:len(v.elems)-1], optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), ""}, rem))
+				rem = packPath(concat(v.elems[:len(v.elems)-1], optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), symEmpty}, rem))
 			} else {
 				matched, res, rem, stems = match(ctx, pat, v.elems[0])
-				rem = packPath(concat(rem, optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), ""}, v.elems[1:]))
+				rem = packPath(concat(rem, optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), symEmpty}, v.elems[1:]))
 			}
 		case *compound:
 			var r, rm []Value
@@ -20262,10 +20349,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		case *path:
 			if trail {
 				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
-				rem = packPath(concat(v.elems[:len(v.elems)-1], optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), ""}, rem))
+				rem = packPath(concat(v.elems[:len(v.elems)-1], optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), symEmpty}, rem))
 			} else {
 				matched, res, rem, stems = match(ctx, pat, v.elems[0])
-				rem = packPath(concat(rem, optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), ""}, v.elems[1:]))
+				rem = packPath(concat(rem, optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), symEmpty}, v.elems[1:]))
 			}
 		case *compound:
 			var r, rm []Value
@@ -20299,8 +20386,9 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	case *regexpat:
 		if p.Regexp == nil { erro(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}) }
 		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
-			res = _rw(val.Pos(), sm[0])
-			for _, s := range sm[1:] { stems = append(stems, _rw(val.Pos(), s)) }
+			// Upgraded from _rw to allocation-free Symbol Domain instantiations
+			res = _word(val.Pos(), intern(sm[0]))
+			for _, s := range sm[1:] { stems = append(stems, _word(val.Pos(), intern(s))) }
 			matched = true
 		} else {
 			rem = val
@@ -20326,10 +20414,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		case *path:
 			if trail {
 				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
-				rem = packPath(concat(v.elems[:len(v.elems)-1], optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), ""}, rem))
+				rem = packPath(concat(v.elems[:len(v.elems)-1], optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), symEmpty}, rem))
 			} else {
 				matched, res, rem, stems = match(ctx, pat, v.elems[0])
-				rem = packPath(concat(rem, optraw{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), ""}, v.elems[1:]))
+				rem = packPath(concat(rem, optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), symEmpty}, v.elems[1:]))
 			}
 		case *compound:
 			var r, rm []Value
@@ -20349,11 +20437,8 @@ Normalize:
 		if matched, _, _, _ = match(swapped_ctx{ctx}, val, pat); matched { res, rem, stems = val, nil, nil }
 	}
 
-	// Universal unwrapper: safely destroys degenerate wrappers and empty AST ghosts
 	res, rem = correctMatchRes(res), correctMatchRes(rem)
 
-	// Universal fallback: if the matcher completely failed and dropped the remainder,
-	// securely restore the unconsumed original value
 	if !matched && res == nil && rem == nil { rem = val }
 	return
 }
@@ -22334,42 +22419,39 @@ func (p *filemap) match(ctx Context, val Value) (_ bool, _ Value, _ string) {
 }
 
 func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string) {
-	// TODO: escape file matching for 'String' and "strcomp" values
 	var res any
 	matched, res, _, _ = match(ctx, pat, val)
 
-    if false && !matched && !(isNone(pat) || isNull(pat)) {
-        var str string // NOOP
-        if n := strings.Index(str, pathSep); n < 0 { return }
+	if false && !matched && !(isNone(pat) || isNull(pat)) {
+		var str string // NOOP
+		if n := strings.Index(str, pathSep); n < 0 { return }
 
-        // NOTE: Dealing with these files:
-        //     files (
-        //         (foo.c) ⇒ $(srcdir)/sub/dir
-        //         (sub/dir/foo.c) ⇒ $(srcdir)
-        //     )
-        for _, p := range p.paths { // FIXME: performance, operate on p.(*path) instead
-            if _, ok := p.(*path); !ok { continue } // NOTE: only work with paths to improve performance
-            var ps = __string(ctx, p)
-            for i := strings.LastIndex(ps, pathSep); -1 <= i; {
-                var ( prefix = ps[i+1:]; l = len(prefix) ) // NOTE: -1 <= i < len(ps)
-                if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
-                    if matched, _, _, _ = match(ctx, pat, &raw{valbase{pat.Pos()}, str[len(prefix)+1:]}); matched { break }
-                }
-                if 0 < i { i = strings.LastIndex(ps[:i], pathSep) } else { break }
-            }
-        }
-    }
+		for _, pElem := range p.paths {
+			if _, ok := pElem.(*path); !ok { continue }
+			var ps = __string(ctx, pElem)
+			for i := strings.LastIndex(ps, pathSep); -1 <= i; {
+				var ( prefix = ps[i+1:]; l = len(prefix) )
+				if has := strings.HasPrefix(str, prefix) && str[l] == '/'; has {
+					// =========================================================
+					// Symbol Domain Migration: Upgraded unparsed legacy raw path
+					// =========================================================
+					if matched, _, _, _ = match(ctx, pat, __symPath(pat.Pos(), intern(str[len(prefix)+1:]))); matched { break }
+				}
+				if 0 < i { i = strings.LastIndex(ps[:i], pathSep) } else { break }
+			}
+		}
+	}
 
-    if res == nil {
-        // okay
-    } else if s, y := res.(string); y {
-        name = s
-    } else if a, y := res.([]string); y {
-        name = joinPathSegs(a...)
-    } else {
-        erro(ctx, "unexpected result: %v", ts(res))
-    }
-    return // NOTE: also `globMatchFile(ctx, pat, str, true)`
+	if res == nil {
+		// okay
+	} else if sStr, y := res.(string); y {
+		name = sStr
+	} else if a, y := res.([]string); y {
+		name = joinPathSegs(a...)
+	} else {
+		erro(ctx, "unexpected result: %v", ts(res))
+	}
+	return
 }
 
 func (p *filemap) stat(ctx Context, name string) (res *file) {
@@ -22794,22 +22876,53 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 
 		s := ss[i][j]
 		
-		// THE DOD OPTIMIZATION: Lazy string evaluation!
-		// We only pull the string from the vocab array if character-math is actually needed.
 		var sStr string
 		getSStr := func() string {
 			if sStr == "" { sStr = s.String() }
 			return sStr
 		}
 
-		// If k > 0, we must have evaluated sStr already.
 		if k > 0 && k == len(getSStr()) { return f0(c, ss, i, j+1, 0) }
 
 		var doDynamicClosureShadowing func()
-		if x, y := c.get(symAmpersand); !y { doDynamicClosureShadowing = func() {} } else {
+		if x, y := c.get(symAmpersand); !y {
+			doDynamicClosureShadowing = func() {}
+		} else {
 			doDynamicClosureShadowing = func() {
 				if _, ok := seenAmpNodes[x]; ok { return } else { seenAmpNodes[x] = struct{}{} }
-				if proj := _project(ctx); proj != nil {
+
+				var proj *project
+				if isClosure, _ := do(ctx, ex_closure{}).(bool); isClosure {
+					if longest_path_selection {
+						// Path Selection Rule: Hierarchically specific nested leaf validation
+						if projs := closure_projects(ctx); len(projs) > 0 {
+							bestProj := projs[0]
+							for _, cp := range projs[1:] {
+								if cp != nil && bestProj != nil {
+									bestPath := bestProj.absPath.String()
+									cpPath := cp.absPath.String()
+									if len(cpPath) > len(bestPath) && strings.HasPrefix(cpPath, bestPath) {
+										bestProj = cp
+									}
+								} else if bestProj == nil {
+									bestProj = cp
+								}
+							}
+							proj = bestProj
+						}
+					} else {
+						// Standard Rule Parity: Deterministically fetch exactly 1 active caller closure project
+						if projs := closure_projects(ctx, 1); len(projs) > 0 {
+							proj = projs[0]
+						}
+					}
+				}
+
+				if proj == nil {
+					proj = _project(ctx)
+				}
+
+				if proj != nil {
 					for _, payload := range x.a {
 						if shadow := proj.shadow(ctx, payload); shadow != nil {
 							if _, ok := seenShadows[shadow]; !ok {
@@ -22853,8 +22966,8 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 					if f0(entry.v, ss, i, j+1, 0) { found = true }
 				}
 				if isWildcardMeta(entry.k) {
-					if f0(entry.v, ss, i, j+1, 0) { found = true } 
-					if f0(c, ss, i, j+1, 0) { found = true }       
+					if f0(entry.v, ss, i, j+1, 0) { found = true }
+					if f0(c, ss, i, j+1, 0) { found = true }
 				}
 			}
 			return found
@@ -22872,7 +22985,6 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 
 		// B. Literal / Prefix Match
 		if k == 0 {
-			// THE ULTIMATE SYMBOL FAST PATH: 1-Cycle Map Lookup!
 			if x, y := c.get(s); y && !isWildcardMeta(s) && s != symWildcardChar {
 				if f0(x, ss, i, j+1, 0) { found = true }
 			}
@@ -22883,7 +22995,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			for _, entry := range c.o {
 				key := entry.k
 				if isWildcardMeta(key) || key == symWildcardChar { continue }
-				if k == 0 && key == s { continue } // Fast path already handled it!
+				if k == 0 && key == s { continue }
 
 				keyStr := key.String()
 				if len(keyStr) > 2 && keyStr[0] == '[' {
@@ -22926,8 +23038,8 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 		}
 
 		if x, y := c.get(symWildcardAny); y {
-			if f0(c, ss, i+1, 0, 0) { found = true }      
-			if f0(x, ss, i, j, k) { found = true }        
+			if f0(x, ss, i+1, 0, 0) { found = true }
+			if f0(x, ss, i, j, k) { found = true }
 		}
 
 		if !priorDynamicClosureShadowing { doDynamicClosureShadowing() }
@@ -24010,7 +24122,7 @@ func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
     return
 }
 
-func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemmed_rule) { // FIX: s is now Symbol
+func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemmed_rule) {
 	var t1, t2 time.Time
 
 	defer func(t0 time.Time) {
@@ -24024,17 +24136,17 @@ func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemme
 
 			var dps []*diag_point
 			var pos = _position(ctx)
-			// s natively prints via fmt Stringer interface
 			dps = append(dps, _f("%v: slow: %v: %v, %v %v %v", pos, p, d, d1, d2, d3))
 			dps = append(dps, _f("%v: slow: %v: %v: %v %v, %d nests", pos, p, a, v, p.patterns, n))
 
-			sStr := s.String() // Extract string once for the loop
 			for _, pat := range p.patterns {
 				var pt = pat.target
 				var pa = pat.arged
 
-				// raw struct likely expects a string, so we pass sStr
-				var full, r, _, stems = match(ctx, pt, &raw{valbase{pt.Pos()}, sStr})
+				// =================================================================
+				// Symbol Domain Migration: Replaced raw with type-pure __symPath
+				// =================================================================
+				var full, r, _, stems = match(ctx, pt, __symPath(pt.Pos(), s))
 				var m = joinp(ctx, r)
 				dps = append(dps, _f("%v: slow: %v%v: %v: %v %v %v, %v ; %v", pos, pt, pa, s, full, r, stems, m))
 			}
@@ -24042,13 +24154,11 @@ func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemme
 		}
 	} (time.Now())
 
-	// Assuming resolvePatterns123 hasn't been upgraded to Symbol yet.
-	// If it has, just pass 's'. If not, pass 's.String()'.
 	if res, t1, t2 = p.resolvePatterns123(ctx, v, s.String()); false && len(res) > 0 {
 		for _, t := range res {
 			if f, _ := to_file(t.target); f != nil {
 				f.pos = t.Pos()
-			} else if f = p.file(ctx, s.String()); f != nil { // p.file expects a string for VFS lookup
+			} else if f = p.file(ctx, s.String()); f != nil {
 				f.pos = t.Pos()
 				t.target = f
 			}
@@ -24065,45 +24175,53 @@ func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*ste
 }
 
 func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed_rule) {
-    defer func(t0 time.Time) {
-        if d := time.Now().Sub(t0); d > 1*time.Second {
-            debug(ctx, "%v: slow: %v %v", _position(ctx), val, d)
-        }
-    } (time.Now())
+	defer func(t0 time.Time) {
+		if d := time.Now().Sub(t0); d > 1*time.Second {
+			debug(ctx, "%v: slow: %v %v", _position(ctx), val, d)
+		}
+	} (time.Now())
 
 ForPatterns:
-    for _, pat := range p.patterns {
-        if full, r, _, stems := match(ctx, pat.target, &raw{valbase{pat.target.Pos()}, s}); full {
-            var m = joinp(ctx, r)
+	for _, pat := range p.patterns {
+		// =====================================================================
+		// Symbol Domain Migration: Replaced raw instantiation with __symPath
+		// =====================================================================
+		if full, r, _, stems := match(ctx, pat.target, __symPath(pat.target.Pos(), intern(s))); full {
+			var m = joinp(ctx, r)
 
-            if true {
-                for sc := _stemmed(ctx); sc != nil; { // pattern loop detection
-                    if s := __string(ctx, sc.target); s == m { continue ForPatterns }
-                    if c := inner(sc); c != nil { sc = _stemmed(c) } else { break }
-                }
-            }
+			if true {
+				for sc := _stemmed(ctx); sc != nil; { // pattern loop detection
+					if sStr := __string(ctx, sc.target); sStr == m { continue ForPatterns }
+					if c := inner(sc); c != nil { sc = _stemmed(c) } else { break }
+				}
+			}
 
-            if pa := pat.arged; len(pa) > 0 {
-                var y bool
-                var t1 = time.Now()
-                var av = xmerge(ctx, pa...)
-                var t2 = time.Now()
-                for _, a := range av { if y, _, _, _ = match(ctx, a, &raw{valbase{a.Pos()}, s}); y { break } }
+			if pa := pat.arged; len(pa) > 0 {
+				var y bool
+				var t1 = time.Now()
+				var av = xmerge(ctx, pa...)
+				var t2 = time.Now()
+				for _, a := range av {
+					// =========================================================
+					// Symbol Domain Migration: Replaced internal raw match loop
+					// =========================================================
+					if y, _, _, _ = match(ctx, a, __symPath(a.Pos(), intern(s))); y { break }
+				}
 
-                var t3 = time.Now()
-                if d := t3.Sub(t1); d > 1*time.Second {
-                    var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
-                    var ( p = _position(ctx) ; pt = pat.target )
-                    debug(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3)
-                }
+				var t3 = time.Now()
+				if d := t3.Sub(t1); d > 1*time.Second {
+					var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
+					var ( p = _position(ctx) ; pt = pat.target )
+					debug(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3)
+				}
 
-                if !y { continue ForPatterns }
-            }
+				if !y { continue ForPatterns }
+			}
 
-            res = append(res, &stemmed_rule{pat, val, stems})
-        }
-    }
-    return
+			res = append(res, &stemmed_rule{pat, val, stems})
+		}
+	}
+	return
 }
 
 func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*stemmed_rule) {
