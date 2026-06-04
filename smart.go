@@ -25349,9 +25349,6 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
     case missing_file:
         p.missing = append(p.missing, t.file)
-
-    case property:
-        if t&propDirtyOpts != 0 { return &p.by }
     }
     return p.automatic.do(ctx, op)
 }
@@ -25535,17 +25532,14 @@ func (p *execution) interpret(ctx Context, i evaluater, args []Value) (res Value
 }
 
 func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
-    var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
-    if !y {
-        erro(ctx, "nil dirtyopts : %v", ts(ctx))
-        return
-    }
+	var exe = _execution(ctx)
+
     if len(updatedDeps(ctx, target)) > 0 { return true }
     if v := auto_get(ctx, intern("^")); v != nil { a = append(a, v) }
     for _, dep := range xmerge(ctx, a...) {
-        var mat bool = len(opts.pats) == 0
+        var mat bool = len(exe.by.pats) == 0
         if !mat {
-            for _, pat := range opts.pats {
+            for _, pat := range exe.by.pats {
                 if mat, _, _, _ = match(ctx, pat, dep); mat { break }
             }
         }
@@ -27874,8 +27868,8 @@ var modifiers = map[Symbol]reflect.Type{
 	symGitAhead:    reflect.TypeOf((*modifier_gitahead)(nil)).Elem(),
 	symGitModified: reflect.TypeOf((*modifier_gitmodified)(nil)).Elem(),
 
-	symBy:           reflect.TypeOf((*modifier_setDirtyPats)(nil)).Elem(),
-	symDirty:        reflect.TypeOf((*modifier_predictDirty)(nil)).Elem(),
+	symBy:           reflect.TypeOf((*modifier_by)(nil)).Elem(),
+	symDirty:        reflect.TypeOf((*modifier_dirty)(nil)).Elem(),
 }
 
 type is_modify struct{}
@@ -28245,12 +28239,11 @@ func (ctx *modifier_dep) x(args ...Value) any {
 	return nil
 }
 
-type modifier_setDirtyPats struct { modifier_
+type modifier_by struct { modifier_ // set dirty-by match patterns
     pats []Value
 }
-func (ctx *modifier_setDirtyPats) x(args ...Value) (result any) {
-    var opts, y = do(ctx, propDirtyOpts).(*dirtyOpts)
-    if y { ctx.pats = parseOpts(final{ctx}, opts, args...) }
+func (ctx *modifier_by) x(exe *execution, args ...Value) (result any) {
+    ctx.pats = parseOpts(final{ctx}, &exe.by, args...)
     return
 }
 
@@ -30600,9 +30593,9 @@ func (ctx *modifier_case) x(args ...Value) (result any) {
     return
 }
 
-type modifier_predictDirty struct { modifier_ }
-func (ctx *modifier_predictDirty) x(args ...Value) (result any) {
-    if res := _execution(ctx).dirty(ctx, args...); res {
+type modifier_dirty struct { modifier_ }
+func (ctx *modifier_dirty) x(exe *execution, args ...Value) (result any) {
+    if res := exe.dirty(ctx, args...); res {
         return makePrediction(_pos(ctx), res, "")
     } else {
         panic(traverse_state{_pos(ctx), traverse_done})
