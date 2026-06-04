@@ -1647,10 +1647,20 @@ func isSeqEqual(a, b []Symbol) bool {
 }
 
 // isSeqPrefix performs an O(1) bounds-checked integer prefix comparison.
-func isSeqPrefix(sSeq, pSeq []Symbol) bool {
-	if len(pSeq) > len(sSeq) { return false }
-	for i := range pSeq {
-		if sSeq[i] != pSeq[i] { return false }
+func isSeqPrefix(sSeq, preSeq []Symbol) bool {
+	if len(preSeq) > len(sSeq) { return false }
+	for i := range preSeq {
+		if sSeq[i] != preSeq[i] { return false }
+	}
+	return true
+}
+
+// isSeqSuffix performs an O(1) bounds-checked integer suffix comparison.
+func isSeqSuffix(sSeq, sufSeq []Symbol) bool {
+	if len(sufSeq) > len(sSeq) { return false }
+	offset := len(sSeq) - len(sufSeq)
+	for i := range sufSeq {
+		if sSeq[offset+i] != sufSeq[i] { return false }
 	}
 	return true
 }
@@ -2271,34 +2281,26 @@ func __symPath(pos Pos, sym Symbol) Value {
 	return &path{elements{elems}}
 }
 
-// __symHasPrefix checks if one Symbol conceptually starts with another Symbol's sequence.
+// __symHasPrefix checks if one Symbol conceptually starts with another Symbol's sequence or character string.
 func __symHasPrefix(sym, prefix Symbol) bool {
 	if sym == prefix { return true }
 	if prefix == symEmpty { return true }
-	return isSeqPrefix(__symSeq(sym), __symSeq(prefix))
+	if isSeqPrefix(__symSeq(sym), __symSeq(prefix)) { return true }
+	// Lexical fallback for singular word sub-string matching.
+	// For SymRaw/SymEph, .String() is a zero-allocation map lookup.
+	return strings.HasPrefix(sym.String(), prefix.String())
 }
 
-// __symHasSuffix performs a zero-allocation lexical suffix check on Walled Garden IDs.
-// __symHasSuffix checks if one Symbol conceptually ends with another Symbol's sequence.
+// __symHasSuffix checks if one Symbol conceptually ends with another Symbol's sequence or character string.
 func __symHasSuffix(sym, suffix Symbol) bool {
 	if sym == suffix { return true }
 	if suffix == symEmpty { return true }
-
-	symSeq := __symSeq(sym)
-	sufSeq := __symSeq(suffix)
-
-	if len(sufSeq) > len(symSeq) { return false }
-
-	offset := len(symSeq) - len(sufSeq)
-	for i := 0; i < len(sufSeq); i++ {
-		if symSeq[offset+i] != sufSeq[i] {
-			return false
-		}
-	}
-	return true
+	if isSeqSuffix(__symSeq(sym), __symSeq(suffix)) { return true }
+	// Zero-allocation header check for fast-path monolithic tokens (SymRaw/SymEph)
+	return strings.HasSuffix(sym.String(), suffix.String())
 }
 
-// __symTrimPrefix removes the prefix sequence if it exists.
+// __symTrimPrefix removes the prefix sequence or string character segment if it exists.
 func __symTrimPrefix(sym, prefix Symbol) Symbol {
 	if sym == prefix { return symEmpty }
 	if prefix == symEmpty { return sym }
@@ -2306,37 +2308,36 @@ func __symTrimPrefix(sym, prefix Symbol) Symbol {
 	symSeq := __symSeq(sym)
 	preSeq := __symSeq(prefix)
 
-	if len(preSeq) > len(symSeq) { return sym }
-
-	for i := 0; i < len(preSeq); i++ {
-		if symSeq[i] != preSeq[i] {
-			return sym // Prefix doesn't match, return original
-		}
+	if isSeqPrefix(symSeq, preSeq) {
+		return internSeq(symSeq[len(preSeq):])
 	}
-	return internSeq(symSeq[len(preSeq):])
+
+	ss, pre := sym.String(), prefix.String()
+	if strings.HasPrefix(ss, pre) {
+		return intern(strings.TrimPrefix(ss, pre))
+	}
+	return sym
 }
 
-// __symTrimSuffix removes the suffix sequence if it exists.
+// __symTrimSuffix removes the suffix sequence or string character segment if it exists.
 func __symTrimSuffix(sym, suffix Symbol) Symbol {
 	if sym == suffix { return symEmpty }
 	if suffix == symEmpty { return sym }
 
 	symSeq := __symSeq(sym)
 	sufSeq := __symSeq(suffix)
-
-	if len(sufSeq) > len(symSeq) { return sym }
-
-	offset := len(symSeq) - len(sufSeq)
-	for i := 0; i < len(sufSeq); i++ {
-		if symSeq[offset+i] != sufSeq[i] {
-			return sym // Suffix doesn't match, return original
-		}
+	if isSeqSuffix(symSeq, sufSeq) {
+		return internSeq(symSeq[:len(symSeq)-len(sufSeq)])
 	}
-	return internSeq(symSeq[:offset])
+
+	ss, suf := sym.String(), suffix.String()
+	if strings.HasSuffix(ss, suf) {
+		return intern(strings.TrimSuffix(ss, suf))
+	}
+	return sym
 }
 
-// __symTrimExt removes the extension from the path, identical to strings.TrimSuffix(path, filepath.Ext(path)).
-// (Note: Corrected to 1 argument to match filepath logic)
+// __symTrimExt removes the extension from the path sequence, identical to strings.TrimSuffix(path, filepath.Ext(path)).
 func __symTrimExt(sym Symbol) Symbol {
 	if sym == symEmpty { return symEmpty }
 	seq := __symSeq(sym)
@@ -3344,7 +3345,10 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			{ pos = t }
 
 			// Explicitly format the un-prefixed trace string
-			var str = pos.String() + ": " + typeof(c) + ": "
+			var str = pos.String() + ": "
+			if false {
+				str += strings.TrimSuffix(typeof(c),"_ctx") + ": "
+			}
 
 			if proj := _project(c); proj == nil {
 				str += "<nil>"
@@ -12059,36 +12063,37 @@ func (p *compiler) configure_par(ctx Context, _op Value) (op Value, par map[Symb
 
 type is_configure struct{}
 type is_configure_ignore struct{ rx *regexp.Regexp ; s [][]byte }
-type p_configure struct{ Context }
-func (p p_configure) do(ctx Context, op any) (_ any) {
+type configure_val_ctx struct{ Context ; res *[]Value }
+func (p configure_val_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case is_configure: return true
 	case is_configure_ignore:
 		if configure_ignore(ctx, t.rx, t.s) { return true }
+	case program_res:
+		if !isTrivial(t.v) { *p.res = append(*p.res, t.v) }
+		return
 	}
 	return p.Context.do(ctx, op)
 }
 
 func (p *compiler) configure_val(ctx *execution, _op, op, val Value, par map[Symbol]Value) (res Value) {
-	// 1. Extract the integer Symbol natively!
 	opSym := __symbol(ctx, op)
 	if opSym == symEmpty {
 		erro(pc(ctx,_op), "wrong configure word: %v %v %v", ts(_op,ctx), ts(op,ctx), ts(val,ctx))
 	}
 
-	// 2. NATIVE INTEGER ROUTING! (Fixes the string-to-Symbol compiler mismatch)
 	switch opSym {
 	case symAnswer:
 		if val == nil { return _answer(op.Pos(), false) }
 		return _answer(val.Pos(), __true(ctx, val))
-	case symBool, symBoolean: // (Assuming you added symBoolean to your constants)
+	case symBool, symBoolean: 
 		if val == nil { return _boolean(op.Pos(), false) }
 		return _boolean(val.Pos(), __true(ctx, val))
 	case symValue:
 		if val == nil { return _null(op.Pos()) }
-		return expand(final{ctx},val)
+		return expand(final{ctx}, val)
 	}
 
 	if p.project.configure == nil {
@@ -12105,35 +12110,37 @@ func (p *compiler) configure_val(ctx *execution, _op, op, val Value, par map[Sym
 		var params []Value
 		for _, prog := range ent.programs() {
 			for _, p := range prog.params {
-
-				// 3. ZERO-ALLOCATION FIX: Extract param symbol natively!
 				sym := __symbol(ctx, p)
 				w := _word(p.Pos(), sym)
 
-				// 4. O(1) Integer Map Lookup!
 				if x, ok := par[sym]; ok {
 					params = append(params, x)
 				} else {
-					// 5. Integer Switch!
-					// (You can also define symTarget, symLanguage in your constants later)
 					switch sym {
 					case intern("TARGET"):
-						// Eagerly expand the target value from the calling context
-						// so it doesn't dynamically fetch the local rule's overwritten `@` later!
 						targetVal := expand(ctx, auto_get(ctx, symAt))
 						params = append(params, &pair{w, targetVal})
 					case intern("VALUE"):
 						params = append(params, &pair{w, val})
 					case intern("LANG"), intern("LANGUAGE"):
 						if ctx.language != symEmpty {
-							// 6. Cross the boundary cleanly: Intern the ctx.language string!
 							params = append(params, &pair{w, _word(w.Pos(), ctx.language)})
 						}
 					}
 				}
 			}
 		}
-		vals = append(vals, ent.execute(p_configure{ctx}, params...)...)
+
+		func() {
+			defer func() {
+				if e := recover(); e != nil {
+					if _, ok := e.(traverse_state); !ok {
+						erro(ctx, "%v", e, unwind{})
+					}
+				}
+			}()
+			traverse(configure_val_ctx{ctx, &vals}, &argumented{Value: ent, args: params})
+		}()
 	}
 	return ease(ctx, vals)
 }
@@ -13331,7 +13338,7 @@ func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
 			_f("scalarize(expand(%v)) → %v → %s", val, res.Value, ts(res.Value,ctx)),
 			_f("as_file(%v) → %v", res.Value, as_file(ctx, res.Value, projs...)),
 			_f("string(%v) → %s", val, __string(ctx,val)),
-			trace_ctx{5}, trace_val{50,val}, callstack{num:10})
+			trace_ctx{5}, trace_val{50,val}, callstack{num:20})
 	}
 	return
 }
@@ -17583,7 +17590,19 @@ func expand(ctx Context, v Value) (res Value) {
 	case *quote: return &quote{list{elements{expands(ctx, t.elems...)}}}
 	case *group: return &group{t.valbase,elements{expands(ctx, t.elems...)}}
 	case *recipe: return &recipe{strcomp{elements{expands(ctx, t.elems...)}}}
-	case *percpat: return &percpat{t.valbase, expand(ctx,t.Prefix), expand(ctx,t.Suffix)}
+	case *percpat:
+		// FIXED: Eradicated the artificial search-mode restriction (inside_pattern_search).
+		// Patterns expand cleanly in both search and build phases as long as stems exist.
+		if true || truly(ctx, inside_pattern_search{}) {
+			if stems := _stems(ctx); stems != nil && len(stems) > 0 {
+				res, rest := stencil(ctx, t, stems)
+				if len(rest) != 0 {
+					erro(pc(ctx,t.pos), "%v %v → %v %v", stems, t, res, rest)
+				}
+				return res
+			}
+		}
+		return &percpat{t.valbase, expand(ctx,t.Prefix), expand(ctx,t.Suffix)}
 	case *globpat: return &globpat{elements{expands(ctx, t.elems...)}}
 	case *globrange: return &globrange{expand(ctx, t.Value)}
 	case *argumented: return &argumented{expand(ctx, t.Value), expands(ctx, t.args...)}
@@ -19159,6 +19178,8 @@ func getScalarSym(ctx Context, v Value) Symbol {
 	case *globmeta:
 		return intern(t.token.String())
 	case *punct:
+		// NOTE: PROOT is the leading EMPTY in a path
+		// NOTE: PTAIL is the tailing EMPTY in a path
 		return intern(t.token.String())
 	case *decimal:
 		return intern(strconv.FormatInt(t.int64, 10))
@@ -20192,15 +20213,22 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		patAtoms := unpack(elems[iE])
 
 		if len(patAtoms) == 1 {
-			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PTAIL {
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && (p.token == PROOT || p.token == PTAIL) {
 				if iS < len(segments) {
-					var bypass = true
 					if targetAtoms := unpack(segments[iS]); len(targetAtoms) == 1 {
-						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == PTAIL { bypass = false }
+						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == p.token {
+							res = concat(res, segments[iS])
+							iE++
+							iS++
+							continue
+						}
 					}
-					if bypass {
+				}
+				if p.token == PTAIL {
+					if iS < len(segments) {
 						res = concat(res, packComp(patAtoms))
-						iE++; continue
+						iE++
+						continue
 					}
 				}
 			}
@@ -20208,7 +20236,33 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 
 		if iS >= len(segments) { return false, res, nil, stems, iE, iS, ILLEGAL }
 
+		coalescedCount := 1
 		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
+
+		// =================================================================
+		// THE DOD FIX: Patterned String Domain Coalescence
+		// =================================================================
+		if !m && patterned(ctx, elems[iE]) {
+			vStr := segments[iS].String()
+			for iS+coalescedCount < len(segments) {
+				nextStr := segments[iS+coalescedCount].String()
+				if strings.HasPrefix(nextStr, ".") || strings.Contains(sf("%v", segments[iS+coalescedCount]), "qualword") {
+					vStr += nextStr
+					coalescedCount++
+				} else {
+					break
+				}
+			}
+			unifiedWord := _word(segments[iS].Pos(), intern(vStr))
+			if m2, resAtoms2, remAtoms2, s2, ie2, _, wt2 := forwardGlobComp(ctx, patAtoms, []Value{unifiedWord}); m2 {
+				m = true
+				resAtoms = resAtoms2
+				remAtoms = remAtoms2
+				s = s2
+				ie = ie2
+				wt = wt2
+			}
+		}
 
 		// =================================================================
 		// THE DOD FIX: PERC Directory Stretch (Stem Spanning)
@@ -20224,7 +20278,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 				}
 			}
 
-			if percIdx != -1 && iS+1 < len(segments) {
+			if percIdx != -1 && iS+coalescedCount < len(segments) {
 				m = true
 				wt = PERC
 				remAtoms = nil
@@ -20260,7 +20314,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			}
 		}
 
-		if m && wt == ILLEGAL && iS+1 < len(segments) {
+		if m && wt == ILLEGAL && iS+coalescedCount < len(segments) {
 			tok := getGlobToken(patAtoms[len(patAtoms)-1])
 			if tok == DAST || tok == ASTQ || tok == PERC {
 				wt, ie = tok, len(patAtoms)-1
@@ -20281,7 +20335,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			}
 
 			pathElems := elems[iE+1:]
-			gap := segments[iS+1:]
+			gap := segments[iS+coalescedCount:]
 
 			preBound := ie > 0
 			postBound := len(sufAtoms) > 0
@@ -20338,7 +20392,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 										concat(res, packComp(concat(resAtoms, gapAtoms, rSuf)), rPath),
 										remPath,
 										concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], gapAtoms}))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + shift, wt
+										iE + 1 + iEPath, iS + coalescedCount + shift, wt
 								} else {
 									return true,
 										concat(res, segments[iS], gap[:k-1], packComp(concat(gapAtoms, rSuf)), rPath),
@@ -20348,7 +20402,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 											gap[:k-1],
 											gapseg{postBound, patAtoms[ie], gapAtoms},
 										))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + k + shift, wt
+										iE + 1 + iEPath, iS + k + coalescedCount + shift, wt
 								}
 							}
 						}
@@ -20381,7 +20435,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 								concat(res, segments[iS], rPath),
 								remPath,
 								concat(stems, s, stemseg{patAtoms[ie], packPath(concat(gapseg{postBound, patAtoms[ie], remSuf}))}, sSuf, sPath),
-								iE + 1 + iEPath, iS + 1 + iSPath, wt
+								iE + 1 + iEPath, iS + coalescedCount + iSPath, wt
 						}
 					} else {
 						var mSuf bool
@@ -20408,7 +20462,7 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 									gap[:k-1],
 									gapseg{postBound, patAtoms[ie], remSuf},
 								))}, sSuf, sPath),
-								iE + 1 + iEPath, iS + 1 + k + iSPath, wt
+								iE + 1 + iEPath, iS + coalescedCount + k + iSPath, wt
 						}
 					}
 				}
@@ -20426,14 +20480,10 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 
 		res, stems = concat(res, packComp(resAtoms)), concat(stems, s)
 
-		// =====================================================================
-		// THE DOD FIX: Context-Aware Path Split Rules for Early Mismatch Loops
-		// Separates mid-path remainder blocks from standalone terminal assets!
-		// =====================================================================
 		if !m {
 			var resSlash, remSlash Value
 			if iS > 0 {
-				if iS+1 < len(segments) {
+				if iS+coalescedCount < len(segments) {
 					remSlash = _word(segments[iS].Pos(), symEmpty)
 				} else {
 					resSlash = _word(segments[iS].Pos(), symEmpty)
@@ -20443,19 +20493,19 @@ func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			rem = concat(
 				remSlash,
 				packComp(remAtoms),
-				optword{len(remAtoms) == 0 && iS+1 < len(segments) && remSlash == nil, segments[iS].Pos(), symEmpty},
-				segments[iS+1:],
+				optword{len(remAtoms) == 0 && iS+coalescedCount < len(segments) && remSlash == nil, segments[iS].Pos(), symEmpty},
+				segments[iS+coalescedCount:],
 			)
-			return false, res, rem, stems, iE, iS + 1, ILLEGAL
+			return false, res, rem, stems, iE, iS + coalescedCount, ILLEGAL
 		}
 
 		if partial {
-			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + 1, ILLEGAL }
-			return true, res, rem, stems, iE + 1, iS + 1, ILLEGAL
+			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + coalescedCount, ILLEGAL }
+			return true, res, rem, stems, iE + 1, iS + coalescedCount, ILLEGAL
 		}
 
 		iE++
-		iS++
+		iS += coalescedCount
 	}
 
 	if iS < len(segments) && iS > 0 {
@@ -20483,15 +20533,22 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		patAtoms := unpack(elems[iE])
 
 		if len(patAtoms) == 1 {
-			if p, ok := unloc(patAtoms[0]).(*punct); ok && p.token == PROOT {
-				if 0 <= iS {
-					var bypass = true
+			if p, ok := unloc(patAtoms[0]).(*punct); ok && (p.token == PROOT || p.token == PTAIL) {
+				if iS >= 0 {
 					if targetAtoms := unpack(segments[iS]); len(targetAtoms) == 1 {
-						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == PROOT { bypass = false }
+						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == p.token {
+							res = concat(segments[iS], res)
+							iE--
+							iS--
+							continue
+						}
 					}
-					if bypass {
+				}
+				if p.token == PROOT {
+					if iS >= 0 {
 						res = concat(packComp(patAtoms), res)
-						iE--; continue
+						iE--
+						continue
 					}
 				}
 			}
@@ -20499,9 +20556,32 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 		if iS < 0 { return false, res, nil, stems, iE + 1, iS + 1, ILLEGAL }
 
+		coalescedCount := 1
 		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
 		if !m || len(remAtoms) > 0 {
 			if mB, resB, remB, sB, ieB, _, wtB := backwardGlobComp(ctx, patAtoms, unpack(segments[iS])); mB {
+				m, resAtoms, remAtoms, s, ie, wt = mB, resB, remB, sB, ieB, wtB
+			}
+		}
+
+		// =================================================================
+		// THE DOD FIX: Symmetrical Patterned String Domain Coalescence
+		// =================================================================
+		if !m && patterned(ctx, elems[iE]) {
+			vStr := segments[iS].String()
+			for iS-coalescedCount >= 0 {
+				if strings.Contains(sf("%v", segments[iS]), "qualword") || strings.HasPrefix(vStr, ".") {
+					vStr = segments[iS-coalescedCount].String() + vStr
+					coalescedCount++
+				} else {
+					break
+				}
+			}
+			unifiedWord := _word(segments[iS].Pos(), intern(vStr))
+			targetAtoms2 := []Value{unifiedWord}
+			if m2, resAtoms2, remAtoms2, s2, ie2, _, wt2 := forwardGlobComp(ctx, patAtoms, targetAtoms2); m2 {
+				m, resAtoms, remAtoms, s, ie, wt = m2, resAtoms2, remAtoms2, s2, ie2, wt2
+			} else if mB, resB, remB, sB, ieB, _, wtB := backwardGlobComp(ctx, patAtoms, targetAtoms2); mB {
 				m, resAtoms, remAtoms, s, ie, wt = mB, resB, remB, sB, ieB, wtB
 			}
 		}
@@ -20517,7 +20597,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 				}
 			}
 
-			if percIdx != -1 && iS > 0 {
+			if percIdx != -1 && iS-coalescedCount >= 0 {
 				m = true
 				wt = PERC
 				remAtoms = nil
@@ -20571,7 +20651,7 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			}
 
 			pathElems := elems[:iE]
-			gap := segments[:iS]
+			gap := segments[:iS-coalescedCount+1]
 
 			preBound := len(preAtoms) > 0
 			postBound := ie+1 < len(patAtoms)
@@ -20723,14 +20803,10 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 
 		res, stems = concat(packComp(resAtoms), res), concat(s, stems)
 
-		// =====================================================================
-		// THE DOD FIX: Symmetrical Backward Context-Aware Path Split Rules
-		// Separates mid-path remainder blocks from standalone root elements!
-		// =====================================================================
 		if !m {
 			var resSlash, remSlash Value
 			if iS < len(segments)-1 {
-				if iS > 0 {
+				if iS-coalescedCount+1 > 0 {
 					remSlash = _word(segments[iS].Pos(), symEmpty)
 				} else {
 					resSlash = _word(segments[iS].Pos(), symEmpty)
@@ -20738,21 +20814,21 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			}
 			res = concat(resSlash, res)
 			rem = concat(
-				segments[:iS],
-				optword{len(remAtoms) == 0 && iS > 0 && remSlash == nil, segments[iS].Pos(), symEmpty},
+				segments[:iS-coalescedCount+1],
+				optword{len(remAtoms) == 0 && iS-coalescedCount+1 > 0 && remSlash == nil, segments[iS].Pos(), symEmpty},
 				remSlash,
 				packComp(remAtoms),
 			)
-			return false, res, rem, stems, iE + 1, iS, ILLEGAL
+			return false, res, rem, stems, iE + 1, iS - coalescedCount + 1, ILLEGAL
 		}
 
 		if partial {
-			if iE > 0 { return false, res, rem, stems, iE + 1, iS, ILLEGAL }
-			return true, res, rem, stems, iE, iS, ILLEGAL
+			if iE > 0 { return false, res, rem, stems, iE + 1, iS - coalescedCount + 1, ILLEGAL }
+			return true, res, rem, stems, iE, iS - coalescedCount + 1, ILLEGAL
 		}
 
 		iE--
-		iS--
+		iS -= coalescedCount
 	}
 
 	if iS >= 0 && iS < len(segments)-1 {
@@ -20778,43 +20854,42 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 // res is the portion of the value that matched.
 // rem is the leftover unconsumed portion of the value.
 func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, res, rem Value) {
-	pStr := getScalarSubstr(ctx, pat, 0, -1)
-	vStr := getScalarSubstr(ctx, val, 0, -1)
+	if checkpoints { defer check_matchScalarScalar(ctx, pat, val, trail)(&matched, &res, &rem) }
 
-	// 1. Exact Match (Cleanly handles identical strings and structural boundaries)
-	if pStr == vStr {
-		return true, val, nil
+	patSym := getScalarSym(ctx, pat)
+	valSym := getScalarSym(ctx, val)
+	remSym := symEmpty
+
+	// Guard against structural layout anchors (like PROOT/PTAIL) masquerading as plain empty strings
+	if patSym == symEmpty {
+		if p, isPunct := unloc(pat).(*punct); isPunct {
+			if t := p.token; t == PROOT || t == PTAIL {
+				return false, nil, val
+			}
+		}
 	}
 
-	// 2. 0-Byte Prefix Consumption
-	if pStr == "" {
-		if isEmpty(pat) { return true, pat, val }
-		return false, nil, val
-	}
-
-	// 3. Atomic Token Protection
-	// If 'val' is an atomic structural token (like *punct or *globmeta),
-	// it CANNOT be partially sliced. Since pStr != vStr and pStr != "", it fails.
-	switch unloc(val).(type) {
-	case *punct, *globmeta:
-		return false, nil, val
-	}
-
-	// 4. Partial String Match
 	if trail {
-		if strings.HasSuffix(vStr, pStr) {
-			res = _rw(val.Pos(), pStr)
-			rem = _rw(val.Pos(), vStr[:len(vStr)-len(pStr)])
-			return true, res, rem
+		if matched = __symHasSuffix(valSym, patSym); matched {
+			remSym = __symTrimSuffix(valSym, patSym)
 		}
 	} else {
-		if strings.HasPrefix(vStr, pStr) {
-			res = _rw(val.Pos(), pStr)
-			rem = _rw(val.Pos(), vStr[len(pStr):])
-			return true, res, rem
+		if matched = __symHasPrefix(valSym, patSym); matched {
+			remSym = __symTrimPrefix(valSym, patSym)
 		}
 	}
-	return false, nil, val
+
+	if matched {
+		if remSym == symEmpty {
+			res = val
+		} else {
+			res = pat
+			rem = _word(val.Pos(), remSym)
+		}
+	} else {
+		rem = val
+	}
+	return
 }
 
 // matchCompComp matches a segment (elems) against another segment (vals) (non-path).
@@ -20963,7 +21038,7 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 
 	case *qualword:
-		pElems := unpack(p) // Unpack the pattern into structural elements
+		p_elems := unpack(p) // Unpack the pattern into structural elements
 		switch v := val.(type) {
 		case *path:
 			if trail {
@@ -20975,19 +21050,19 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			}
 		case *compound:
 			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, pElems, v.elems, trail)
+			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, v.elems, trail)
 			res, rem = packComp(r), packComp(rm)
 		case *qualword:
 			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, pElems, unpack(v), trail)
+			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, unpack(v), trail)
 			res, rem = packComp(r), packComp(rm)
 		case *globpat:
 			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, pElems, v.elems, trail)
+			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, v.elems, trail)
 			res, rem = packComp(r), packComp(rm)
 		default:
 			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, pElems, []Value{v}, trail)
+			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, []Value{v}, trail)
 			res, rem = packComp(r), packComp(rm)
 		}
 
@@ -20997,15 +21072,30 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			var r, rm []Value
 			matched, r, rm, stems, _, _, _ = matchPathPath(ctx, p.elems, v.elems, trail)
 			res, rem = packPath(r), packPath(rm)
-		default:
-			matched, res, rem, stems = match(ctx, p.elems[0], v)
-			matched = matched && len(p.elems) <= 1
+			goto Normalize
+		case *compound:
+			if len(v.elems) > 0 {
+				if ip, isPath := v.elems[0].(*path); isPath && len(ip.elems) > 0 {
+					leading := ip.elems[:len(ip.elems)-1]
+					last := ip.elems[len(ip.elems)-1]
+					tailComp := &compound{elements{concat([]Value{last}, v.elems[1:])}}
+					v_elems := concat(leading, []Value{tailComp})
+
+					var r, rm []Value
+					matched, r, rm, stems, _, _, _ = matchPathPath(ctx, p.elems, v_elems, trail)
+					res, rem = packPath(r), packPath(rm)
+					goto Normalize
+				}
+			}
 		}
+
+		matched, res, rem, stems = match(ctx, p.elems[0], val)
+		matched = matched && len(p.elems) <= 1
+		goto Normalize
 
 	case *regexpat:
 		if p.Regexp == nil { erro(ctx, "err match: <nil-regexp> %s", ts(val), callstack{num: 10}) }
 		if sm := p.Regexp.FindStringSubmatch(__string(ctx, val)); sm != nil {
-			// Upgraded from _rw to allocation-free Symbol Domain instantiations
 			res = _word(val.Pos(), intern(sm[0]))
 			for _, s := range sm[1:] { stems = append(stems, _word(val.Pos(), intern(s))) }
 			matched = true
@@ -21241,6 +21331,22 @@ func stamp(ctx Context, a any) (res []*file) {
 type run_modification_end_checks struct{}
 type modification_checkpoints_ctx struct{ Context ; f []func() }
 
+type inside_pattern_search struct{}
+type inside_pattern_ctx struct{ Context }
+func (c inside_pattern_ctx) do(ctx Context, op any) any {
+	switch op.(type) {
+	case inside_pattern_search:
+		return true
+	case inner_cast:
+		return c.Context
+	case dynamic_cast:
+		if t, ok := op.(dynamic_cast); ok {
+			return t.ctx(c, c.Context)
+		}
+	}
+	return c.Context.do(ctx, op)
+}
+
 type detect_traverse_loop struct{ v Value }
 type traverse_ctx struct {
 	Context
@@ -21283,32 +21389,36 @@ func (c *traverse_ctx) do(ctx Context, op any) any {
 
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
-	case *loc: traverse(ctx, p.Value)
-	case *xloc: traverse(ctx, p.Value)
-	case *list: for _, e := range p.elems { traverse(ctx, e) }
-	case *argumented: if !isTrivial(p.Value) { traverse(p.ctx(ctx), p.Value) }
-	case *auto: if v := auto_get(ctx, p.name); v != nil { traverse(ctx, v) }
-	case *def: if v := p.value; v != nil { traverse(ctx, v) }
-	case negative: if v := p.Value; v != nil { traverse(ctx, v) }
-	case matched_rule: traverse(ctx, p.rule)
+	case *null, *none, *undef: // Ignored!
+	case *loc: 
+		traverse(pc(ctx,p.pos), p.Value)
+	case *xloc: 
+		traverse(pc(ctx,p.pos), p.Value)
+	case *list: 
+		for _, e := range p.elems { traverse(ctx, e) }
+	case *argumented: 
+		if !isTrivial(p.Value) { traverse(p.ctx(ctx), p.Value) }
+	case *auto: 
+		if v := auto_get(ctx, p.name); v != nil { traverse(pc(ctx,p.pos), v) }
+	case *def: 
+		if v := p.value; v != nil { traverse(pc(ctx,p.pos), v) }
+	case negative: 
+		if v := p.Value; v != nil { traverse(ctx, v) }
+	case matched_rule: 
+		traverse(pc(ctx,p.Pos()), p.rule)
 	case *project:
 		if p.main != nil {
 			if _, isFlagDestiny := p.main.destiny().(flag); !isFlagDestiny {
-				traverse(ctx, p.main)
+				traverse(pc(ctx,p.pos), p.main)
 			}
 		}
 	case *stemmed_rule:
-		// NOTE: Make a clone of the underlying rule for traversing the real target;
-		//       the underlying rule target is readonly, it must not be changed, for
-		//       next traversal be done correctly.
-		// TODO: Consider not cloning the rule, use pointer instead!
 		var t = *p.rule
 		t.target = p.target
 		traverse(&stemmed_ctx{ctx, p}, &t)
-	case *rule:
-		// Use the native symAt constant instead of symAt!
-		var target = auto_get(ctx, symAt)
 
+	case *rule:
+		var target = auto_get(ctx, symAt)
 		if target == nil {
 			erro(ctx, "$@ is not defined")
 			return
@@ -21321,7 +21431,6 @@ func traverse(ctx Context, val Value) {
 					return
 				}
 			}
-
 			warn(ctx, "%v: %v: %v", _project(ctx), p, target)
 		} else {
 			ctx = &rule_ctx{ctx, p, nil}
@@ -21330,6 +21439,10 @@ func traverse(ctx Context, val Value) {
 	progloop:
 		for _, prog := range p.program {
 			switch func () (state uint) {
+				// =====================================================================
+				// THE UNIVERSAL RECOVERY GATE
+				// Captures traverse_state panics bubbling from anywhere in the DAG chain
+				// =====================================================================
 				defer func() {
 					switch e := recover().(type) {
 					case traverse_state: state = e.uint
@@ -21339,15 +21452,13 @@ func traverse(ctx Context, val Value) {
 				do(ctx, program_res{prog.execute(ctx)})
 				return
 			} () {
-			case traverse_done: break progloop
+			case traverse_done: return // Explicitly return if traverse_done!
 			case traverse_next: continue progloop
+			default: if false { return } // traverse_noop, traverse_case
 			}
 		}
 
 	case *closure, *delegate, *arrow:
-		// =================================================================
-		// THE DOD FIX: Tail-Call Elimination Loop for Macro Chains
-		// =================================================================
 		currVal := val
 		for {
 			if truly(ctx, detect_traverse_loop{currVal}) {
@@ -21364,44 +21475,169 @@ func traverse(ctx Context, val Value) {
 				return
 			}
 
-			// FIXED: Systematically removed premature updated(ctx, v) poll!
-			if false { updated(ctx, v) }
-
-			// If the unboxed result is still another macro, loop inside this frame
 			switch v.(type) {
 			case *closure, *delegate, *arrow:
 				currVal = v
 				continue
 			}
 
-			// Traverse the final resolved concrete node
 			traverse(ctx, v)
 			return
 		}
-	case *file:
-		if p._traved == 0 && !p.isSysFile() {
-			do(ctx, act_traverse{p})
-		} else if x := _execution(ctx); x != nil {
-			x.traved(ctx, auto_target_value(ctx), p, nil, p)
-		}
+
 	case *modification:
 		if e := _execution(ctx); e != nil { e.Wait() }
 		if checkpoints { ctx = &modification_checkpoints_ctx{ctx, nil} }
-		for _, m := range p.list { traverse(pc(ctx,m.pos), m) }
+		for _, m := range p.list { traverse(pc(ctx, m.pos), m) }
 		if checkpoints { do(ctx, run_modification_end_checks{}) }
+
 	case *modifier:
 		if sym := __symbol(ctx, p.elems[0]); sym == symEmpty {
 			erro(ctx, "empty name: %v", p.elems[0])
-			// Pass the fast Symbol natively into interpret{}
 		} else if truly(ctx, interpret{sym, p.elems[1:]}) {
 			modify(ctx, &p.group, true)
 		}
-	case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
-		do(ctx, act_traverse{p})
-	case *null, *none:
-		// Ignored!
-	default:
-		erro(pc(ctx,val), "unsupported traverse: %v: %s", val, ts(val,ctx), callstack{num:10})
+
+	case *file:
+		var x = _execution(ctx)
+		if x == nil {
+			erro(ctx, "no execution context: %v", p)
+			return
+		}
+
+		if p._traved == 0 && !p.isSysFile() {
+			p._travin += 1
+			if p._travin > 1 { return }
+
+			if detect_traverse_loops {
+				if val := auto_target_value(ctx); val != nil && eq(ctx, val, p) {
+					erro(ctx, "recursion loop identified: self dependency on %v", p)
+					return
+				}
+			}
+
+			var rulesMatched int
+			var projs = x.traverseProjs(ctx)
+
+			// A. Concrete File Target Slices Pass
+			for _, proj := range projs {
+				for _, entry := range proj._entries(ctx, p, false) {
+					if !isNull(entry) && auto_target_value(ctx) == entry { continue }
+					rulesMatched += 1 // add before traverse for concrete
+					traverse(ctx, entry)
+				}
+			}
+
+			// B. Abstract Layout Pattern Matching Pass
+			if !p.exists() {
+				for _, proj := range projs {
+					pctx := inside_pattern_ctx{ctx}
+					for _, stemmed := range proj.resolvePatterns(ctx, p, p.name) { 
+						traverse(pctx, stemmed) 
+						rulesMatched++ // add after traverse for stemmed
+					}
+				}
+				if rulesMatched == 0 && !p.exists() {
+					if !truly(ctx, inside_pattern_search{}) {
+						erro(ctx, "missing file '%s' (%s)", p.name, p.fullname())
+					}
+					// Panic a traverse_next to tell the for-loop try next traversal.
+					panic(traverse_state{_pos(ctx), traverse_next})
+					return 
+				}
+			}
+
+			p._traved = 1
+		}
+
+		x.traved(ctx, p, nil, p)
+
+	default: //case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
+		var x = _execution(ctx)
+		if x == nil {
+			erro(ctx, "no execution context: %v", val)
+			return
+		}
+
+		var projs = x.traverseProjs(ctx)
+
+		// =====================================================================
+		// NATIVELY MERGED PREREQUISITE RESOLUTION MATRIX (NO RECOVERY DUPLICATION)
+		// =====================================================================
+
+		var pat Value
+		var sym Symbol
+		var isPath bool
+
+		switch val.(type) {
+		case *path: isPath = true
+		case *percpat/*, *globpat, *globrange, *regexpat */: pat = val
+		case *strlit, *strcomp, flag: // Skips mapping files!
+			// Fast-path bypass for primitive flags/literals
+			goto skippedFilesMapping
+		}
+
+		// 1. Evaluate Stencil Layout Wildcards
+		if pat != nil {
+			if stems := _stems(ctx); stems != nil && len(stems) > 0 {
+				var rest []Value
+				val, rest = stencil(ctx, pat, stems)
+				if isTrivial(val) {
+					erro(ctx, "%v: empty stencil with %v", pat, stems)
+				} else if len(rest) > 0 {
+					erro(ctx, "%v: partial stencil with %v, rest=%v", pat, stems, rest)
+				}
+			}
+		}
+
+		// 2. Map Layout Descriptor to Real/VFS File Node
+		for _, proj := range projs {
+			if f := proj.file(ctx, val); f != nil {
+				traverse(ctx, f)
+				return
+			}
+		}
+
+		sym = __symbol(ctx, val)//getScalarSym(ctx, val)
+
+		if isPath {
+			if f := _stat(ctx, sym); f != nil { 
+				traverse(ctx, f)
+				return
+			}
+		}
+
+	skippedFilesMapping:
+		var rulesMatched int
+
+		// A. Concrete Rule Target Slices Pass
+		for _, proj := range projs {
+			for _, entry := range proj._entries(ctx, val, false) {
+				if !isNull(entry) && auto_target_value(ctx) == entry { continue }
+				rulesMatched += 1 // add before traverse for concrete
+				traverse(ctx, entry)
+			}
+		}
+
+		// B. Abstract Layout Pattern Matching Pass
+		for _, proj := range projs {
+			pctx := inside_pattern_ctx{ctx}
+			for _, entry := range proj.resolvePatterns(ctx, val, sym) {
+				traverse(pctx, entry) 
+				rulesMatched++ // add after traverse for stemmed
+			}
+		}
+
+		if rulesMatched == 0 {
+			if !truly(ctx, inside_pattern_search{}) {
+				erro(ctx, "missing target '%s'", val)
+			}
+			// Panic a traverse_next to tell the for-loop try next traversal.
+			panic(traverse_state{_pos(ctx), traverse_next})
+			return 
+		}
+
+		x.traved(ctx, val, pat, nil)
 	}
 }
 
@@ -22876,9 +23112,9 @@ func execute_entry(ctx Context, e entry, args ...Value) ([]Value, bool) {
 
 const (
 	traverse_noop uint = iota
-	traverse_case
-	traverse_done
-	traverse_next
+	traverse_case // the current program was the case (selected)
+	traverse_done // target update is done
+	traverse_next // hint to try the next execute
 )
 type traverse_state struct{ p any ; uint }
 func (t traverse_state) String() (_ string) {
@@ -22954,7 +23190,6 @@ func _stems(ctx Context) []Value {
 }
 
 type get_stems struct{}
-
 type stemmed_ctx struct{ Context ; *stemmed_rule }
 func (p *stemmed_ctx) ts(_t string) string {
 	s, t := p.target.String(), p.rule.target.String()
@@ -25096,8 +25331,6 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
     case default_value:  p.defval = t.v; return
     case mark_dirty:     p.dirty_mark(t.a...)//; return
-    case act_traverse:   p.traverse(ctx, t.v); return
-    case act_traversed:  return p.traversed(ctx,t.v)
     case act_dirt:       return p.dirty(ctx,t.a...)
 
     case param_name:
@@ -25142,6 +25375,46 @@ func (p *execution) calleeError(err error) {
 func (p *execution) level(n int) { p.traceLevel += n }
 func (p *execution) trace(a ...any) { printIndentDots(p.traceLevel, a...) }
 func (p *execution) tracef(s string, a ...any) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
+
+func (p *execution) traverseProjs(ctx Context) (projs []*project) {
+	// 1. Always prioritize the context-local active project module space
+	if activeProj := _project(ctx); activeProj != nil {
+		projs = append(projs, activeProj)
+	}
+
+	// 2. If closure execution is active, accumulate closure-bound environment tables
+	if p.closureExec {
+		for _, cp := range closure_projects(ctx) {
+			if cp == nil { continue }
+			found := false
+			for _, pj := range projs {
+				if pj == cp { found = true; break }
+			}
+			if !found { projs = append(projs, cp) }
+		}
+	}
+
+	// 3. Always ensure the root execution project context acts as a foundational fallback
+	if p.proj != nil {
+		found := false
+		for _, pj := range projs {
+			if pj == p.proj { found = true; break }
+		}
+		if !found { projs = append(projs, p.proj) }
+	}	
+	return
+}
+func (p *execution) traverseProjs1(ctx Context) (projs []*project) {
+	// 1. Isolate configuration checks to preserve module-local pattern validation
+	if truly(ctx, is_configure{}) {
+		if activeProj := _project(ctx); activeProj != nil {
+			return []*project{activeProj}
+		}
+	}
+
+	// 2. Fall back strictly to the native execution project context for standard builds
+	return []*project{p.proj}
+}
 
 func (p *execution) traversed(ctx Context, target Value) []Value {
     if !isTrivial(target) {
@@ -25381,210 +25654,13 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	return
 }
 
-// Upgraded return signature: prereqFinal is now a Symbol
-func probPrereqValue(ctx Context, projects []*project, val Value) (prereqValue, prereqPattern Value, prereqFinal Symbol, prereqFile *file) {
-	var mapPrereqFile = func(name Value) {
-		var ms = unmap_files(ctx, _project(ctx), name, nil)
-		if ms != nil {
-			defer func() { if prereqFile == nil {
-				var ds []*diag
-				for _, m := range ms { ds = append(ds, _f("%v, skipped %v", name, m)) }
-				ds = append(ds, _f("skipped %d, projects %v", len(ms), projects))
-				debug(ctx, ds)
-			}}()
-		}
-
-		if prereqFile = select_file(ctx, ms); prereqFile != nil {
-			// Assuming file.name is still a string; if you update the file struct
-			// to use Symbol later, you can remove the intern() call here.
-			prereqValue, prereqFinal = prereqFile, prereqFile.name
-		} else if prereqValue != nil {
-			if f, y := to_file(prereqValue); y {
-				prereqFile, prereqFinal = f, f.name
-			} else {
-				prereqFinal = intern(__string(ctx, prereqValue))
-				if _, y := prereqValue.(*path); y {
-					// Fallback to string for OS-level stat calls
-					if f := _stat(ctx, prereqFinal.String()); f != nil { prereqFile, prereqValue = f, f }
-				}
-			}
-		}
-	}
-
-	prereqValue = val
-	if _, y := prereqValue.(object); y { return }
-
-	if !patterned(ctx, prereqValue) {
-		switch prereqValue.(type) {
-		case flag, *strlit, *strcomp: // skip checking files for performance
-		default: mapPrereqFile(prereqValue)
-		}
-		return
-	}
-
-	var stems = _stems(ctx)
-	if len(stems) == 0 {
-		if false { erro(ctx, "%v: no stems, %v", prereqValue, ctx) }
-		return
-	}
-
-	var stemVals []Value
-	for _, s := range stems { stemVals = append(stemVals, s) }
-
-	var rest []Value
-	prereqPattern = prereqValue
-	prereqValue, rest = stencil(ctx, prereqPattern, stemVals)
-	if isTrivial(prereqValue) {
-		erro(ctx, "%v: empty stencil with %v", prereqPattern, stems)
-	} else if len(rest) > 0 {
-		erro(ctx, "%v: partial stencil with %v, rest=%v", prereqPattern, stems, rest)
-	}
-
-	mapPrereqFile(prereqValue)
-	return
-}
-
-func (p *execution) traverse(ctx Context, prereqValue Value) {
-	if prereqValue == nil { return }
-
-	var (
-		targetValue   Value
-		prereqPattern Value
-		prereqFinal   Symbol
-		prereqFile    *file
-
-		concreteList []entry
-		stemmedList  []*stemmed_rule
-	)
-
-	if targetValue = auto_target_value(ctx); targetValue == nil {
-		erro(ctx, "%v: target is nil\n", prereqFinal)
-	} else if isTrivial(targetValue) {
-		erro(ctx, "%v: target is trivial (%T)\n", prereqFinal, targetValue)
-	}
-
-	var projs = []*project{ p.proj }
-
-	if len(projs) == 0 {
-		erro(ctx,
-			_f("%v", closure_projects(ctx)),
-			_f("%v: %v → %v: no projects", p.proj, targetValue, prereqValue))
-	}
-
-	prereqValue, prereqPattern, prereqFinal, prereqFile = probPrereqValue(ctx, projs, prereqValue)
-
-	if f := prereqFile; f != nil {
-		if f._travin += 1; f._travin > 1 { return }
-	}
-
-	// Recursion detection
-	if detect_traverse_loops {
-		if eq(ctx, targetValue, prereqValue) {
-			erro(ctx,
-				_f("%v: %v: self dependency, consider using [(once)] to avoid\n", targetValue, prereqValue),
-				_f("recursion: %T %v", prereqValue, prereqValue),
-				_f("recursion: %T %v", targetValue, targetValue),
-				_f("recursion: %v : %v ; in %v", targetValue, prereqFile, projs),
-				trace_ctx{5})
-		}
-		for c := p; c != nil; c = c.caller() {
-			if val := auto_get(c, symAt); val != nil && eq(c, val, prereqValue) {
-				var f = as_file(ctx, targetValue, projs...)
-				if true && f == nil {
-					debug(ctx,
-						_f("%v: %v: recursion detected, consider using [(once)] to avoid\n", targetValue, prereqValue),
-						_f("recursion: %T %v", prereqValue, prereqValue),
-						_f("recursion: %T %v", targetValue, targetValue),
-						_f("recursion: %v : %v ; in %v", targetValue, prereqFile, projs))
-				}
-				return
-			}
-		}
-	}
-
-	if prereqFile != nil {
-		if n := prereqFile._traved; n > 0 {
-			return
-		}
-	}
-
-	t1 := time.Now()
-
-	for _, proj := range projs {
-		var entries = proj._entries(ctx, prereqValue, false)
-		if len(entries) == 0 { continue }
-		concreteList = append(concreteList, entries...)
-		for _, entry := range entries {
-			if !isNull(entry) && targetValue == entry { continue }
-
-			if w, k := targetValue.(*word); k && w.s == prereqFinal {
-				continue
-			}
-
-			traverse(ctx, entry)
-		}
-	}
-
-	if d := time.Now().Sub(t1); 60*time.Second < d {
-		var ds []*diag
-		for _, concrete := range concreteList {
-			pos := do(ctx, get_fatpos{concrete.Pos()})
-			ds = append(ds, _f("%v: slow: %v %v\n", pos, concrete, targetValue))
-		}
-		ds = append(ds, _f("%v: slow: %v: %v %v (%d concretes)\n", _position(ctx), targetValue, prereqValue, d, len(concreteList)))
-		debug(ctx, ds, diagtext{})
-	}
-
-	if prereqFile != nil && prereqFile.exists() {
-		p.traved(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
-		return
-	}
-
-	t2 := time.Now()
-	var rulesMatched int
-
-	for _, proj := range projs {
-		for _, p := range proj.patterns { assert(patterned(ctx, p.target), "not pattern") }
-
-		patterns := proj.resolvePatterns(ctx, prereqValue, prereqFinal)
-		if len(patterns) == 0 { continue }
-
-		rulesMatched += len(patterns)
-		stemmedList = append(stemmedList, patterns...)
-
-		for _, entry := range patterns { traverse(ctx, entry) }
-	}
-
-	if d := time.Now().Sub(t2); 60*time.Second < d {
-		var ds []*diag
-		for _, stemmed  := range stemmedList {
-			pos := do(ctx, get_fatpos{stemmed.Pos()})
-			ds = append(ds, _f("%v: slow: %v\n", pos, stemmed))
-		}
-		ds = append(ds, _f("%v: slow: %v: %v %v (%d stemmed)\n", _position(ctx), targetValue, prereqValue, d, len(stemmedList)))
-		debug(ctx, ds, diagtext{})
-	}
-
-	// =====================================================================
-	// THE CRITICAL FILTRATION PASS: Skip Invalid Pattern Candidates
-	// If a source dependency doesn't exist on disk and no internal rules
-	// exist to build it, this variation is invalid. Abort and try the next pattern.
-	// =====================================================================
-	if (prereqFile == nil || !prereqFile.exists()) && rulesMatched == 0 {
-		panic(traverse_state{_pos(ctx),traverse_next})
-	}
-
-	p.traved(ctx, targetValue, prereqValue, prereqPattern, prereqFile)
-	return
-}
-
-func (p *execution) traved(ctx Context, targetValue, prereqValue, prereqPattern Value, prereqFile *file) {
-    var av = targetValue
+func (p *execution) traved(ctx Context, prereqValue, prereqPattern Value, prereqFile *file) {
+    var av = auto_target_value(ctx)
     var bv = prereqValue
     if prereqFile == nil {
-        do(ctx, act_traversed{prereqValue}) // set $< $> $^ or $|
-    } else if targetValue != prereqFile {
-        do(ctx, act_traversed{prereqFile}) // set $< $> $^ or $|
+		p.traversed(ctx, prereqValue) // set $< $> $^ or $|
+    } else if av != prereqFile {
+		p.traversed(ctx, prereqFile) // set $< $> $^ or $|
         bv = prereqFile
     }
 
@@ -26373,8 +26449,6 @@ type (
     mark_dirty     struct{ a []Value }
     act_dirt       struct{ a []Value }
     act_count_dia  struct{ t []diagtype }
-    act_traversed  struct{ v Value }
-    act_traverse   struct{ v Value }
     init_args      struct{ *automatic }
 	get_fatpos     struct{ p Pos }
     get_pos        struct{}
@@ -27940,14 +28014,14 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
             tt = statFile(ctx, target).mod()
         )
         if tt.IsZero() {
-            debug(ctx, "target not exists: %v", target)
+            erro(ctx, "target not exists: %v", target)
             return
         }
 
         var depends = auto_get(ctx, symCaret) // ^
         for _, dep := range merge(depends, ordered, grepped) {
             if dt := statFile(ctx, dep).mod(); dt.After(tt) {
-                debug(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
+                erro(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
             }
         }
     }
@@ -27972,6 +28046,7 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
 		if ctx.s > 0 { aa = append(aa, trace_ctx{ctx.s}) }
 		if ctx.n > 0 { aa = append(aa, callstack{num:ctx.n}) }
 		debug(ctx, ds, aa...)
+		flush(ctx) // Ensure no cached points missing on screen!
     }
     return
 }
