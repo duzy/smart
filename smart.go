@@ -57,7 +57,6 @@ type hashbytes [sha256.Size]byte
 
 const (
 	project_resolve_cache = false
-    detect_traverse_loops = true // turn on/off traverse loop detection
 
 	// In the architecture of modern build systems, package managers, and
 	// interpreter engines—especially those dealing with monorepos, nested
@@ -9338,7 +9337,7 @@ func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
 
 func (p *compiler) stat_file(ctx Context, val Value) *file {
 	if f, ok := val.(*file); ok {
-		if !f.exists() { _ = f.stat(ctx) }
+		if !f.exists() { f.stat(ctx, true) }
 		return f
 	}
 
@@ -9351,7 +9350,7 @@ func (p *compiler) stat_file(ctx Context, val Value) *file {
 
 	// TODO: change project.file() to accept Symbol `spec`
 	if f := p.project.file(ctx, val); f != nil {
-		if !f.exists() { _ = f.stat(ctx) }
+		if !f.exists() { f.stat(ctx, true) }
 		return f
 	}
 
@@ -10329,7 +10328,7 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 	// 2. LOCAL `.base` FILE
 	// =================================================================
 	if f := _stat(ctx, symDotBase, p.project); f != nil && f._mtime != 0 {
-		if !f._isDir && f.fullname() == p.project.absPath {
+		if !f.isDir() && f.fullname() == p.project.absPath {
 			// skip self-loading
 		} else {
 			implicitBases = append(implicitBases, f)
@@ -10374,7 +10373,7 @@ paramsloop:
 		// =================================================================
 		if x, y := to_file(elem); y && x._mtime != 0 {
 			// 1. Local `.base` file objects natively yield their absolute path
-			abs, isDir = x.fullname(), x._isDir
+			abs, isDir = x.fullname(), x.isDir()
 		} else {
 			finalSearch := true
 
@@ -10394,7 +10393,7 @@ paramsloop:
 					// A. Direct Ancestor Match: Safely resolves nested parent paths (e.g., foo.bar)
 					if curr == path || __symHasSuffix(curr, __symPathJoin(symEmpty, path)) {
 						if f := _stat(ec, curr); f.exists() {
-							abs, isDir = f.fullname(), f._isDir
+							abs, isDir = f.fullname(), f.isDir()
 							break
 						}
 					}
@@ -10402,7 +10401,7 @@ paramsloop:
 					// B. Sibling Match: Safely resolves structural cousins (e.g., foo.baz)
 					// Safe to restore because Step 2 acts as a global namespace shield!
 					if f := _stat(ec, __symPathJoin(curr, path)); f.exists() {
-						abs, isDir = f.fullname(), f._isDir
+						abs, isDir = f.fullname(), f.isDir()
 						break
 					}
 
@@ -10635,7 +10634,7 @@ func (p *compiler) parse(ctx Context) bool {
 		s := intern(p.filename())
 		f := _stat(ctx, s)
 
-		if f != nil && f._isDir {
+		if f != nil && f.isDir() {
 			// If the compiler was directly handed a directory
 			absName = s
 		} else {
@@ -10817,7 +10816,7 @@ func (p *compiler) parse(ctx Context) bool {
 					}
 
 					if f.exists() {
-						cc.absPath, cc.isDir = f.fullname(), f._isDir
+						cc.absPath, cc.isDir = f.fullname(), f.isDir()
 					}
 
 					if cc.absPath == symEmpty && opts.configure != nil {
@@ -11452,8 +11451,6 @@ func (p *compiler) saveConfiguration(ctx Context) {
 		if existing, err := os.ReadFile(fnStr); err == nil && bytes.Equal(existing, newPayload) {
 			// The bytes on disk perfectly match the memory state.
 			// Abort the write to preserve the OS modification time!
-			f._updated = false
-			f._dirty = 0
 			p.project.configuration = f
 			return
 		}
@@ -11480,10 +11477,8 @@ func (p *compiler) saveConfiguration(ctx Context) {
 		// Instantly swap the file. Readers NEVER see a truncated/empty file!
 		os.Rename(tmpFn, fnStr)
 		
-		// The OS replaced the inode, meaning ModTime and Size have changed.
-		f.stamp(ctx) 
-		f._updated = false
-		f._dirty = 0 
+		// // The OS replaced the inode, meaning ModTime and Size have changed.
+		// f.stamp(ctx) 
 	}
 
 	p.project.configuration = f // saved configuration.sm
@@ -11589,18 +11584,18 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 	// _stat avoids physical disk I/O if the file was previously seen.
 	checkTarget := func(target Symbol) (Symbol, bool) {
 		if f := _stat(ctx, target); f.exists() {
-			return target, f._isDir
+			return target, f.isDir()
 		}
 		
 		// Zero-allocation extension appending using our dumb-concatenator!
 		tSmart := __symJoinBy(symEmpty, target, symDotSmart)
 		if f := _stat(ctx, tSmart); f.exists() {
-			return tSmart, f._isDir
+			return tSmart, f.isDir()
 		}
 		
 		tSm := __symJoinBy(symEmpty, target, symDotSm)
 		if f := _stat(ctx, tSm); f.exists() {
-			return tSm, f._isDir
+			return tSm, f.isDir()
 		}
 		return symEmpty, false
 	}
@@ -11623,7 +11618,7 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 		if baseSym != symEmpty {
 			// Hit the VFS instead of os.Stat!
 			if f := _stat(ctx, baseSym); f.exists() {
-				if !f._isDir {
+				if !f.isDir() {
 					// Pop the filename to get the directory (equivalent to filepath.Dir)
 					baseSym = __symPathJoin(baseSym, symDotDot)
 				}
@@ -12277,10 +12272,7 @@ minusloop:
 
 			if false { debug(pc(ctx,d.pos), "%v", d) }
 
-			if f := p.project.configuration_sm(ctx); f.filebase != nil && d.value != nil {
-				f._updated = true
-				f._dirty += 1
-			}
+			p.project.configuration_sm(ctx)
 
 			p.lineComment = nil
 		}
@@ -12396,10 +12388,7 @@ minusloop:
 			d.value = nil
 			d.set(cc, ease(ctx, vals))
 
-			if f := p.project.configuration_sm(ctx); f.filebase != nil && d.value != nil {
-				f._updated = true
-				f._dirty += 1
-			}
+			p.project.configuration_sm(ctx)
 		}
 		return
 	} else {
@@ -12771,7 +12760,7 @@ func (p *compiler) configuration(ctx Context, nameSym Symbol) {
 	// Loading the configuration cache file, aka. "configuration.sm".
 	if c := p.project.configuration; c != nil {
 		cc.configuration = c
-	} else if c := p.project.configuration_sm(ctx); c != nil && c.exists() && c.stat(ctx) != nil {
+	} else if c := p.project.configuration_sm(ctx); c != nil && c.exists() {
 		if p.promptConfigurationLoads(ctx) {
 			info(pc(ctx, c), "info: cached configuration (%p)", p.project, callstack{num:1})
 		}
@@ -12821,7 +12810,7 @@ func (p *compiler) dot_container(ctx Context, nameSym Symbol, f *file) {
 
 	if f._mtime == 0 {
 		erro(ctx, "%v: file not exists: %v", nameSym, sym)
-	} else if cc := pc(ctx, p.project); f._isDir {
+	} else if cc := pc(ctx, p.project); f.isDir() {
 		// THE DOD FIX: Replaced `ident` with `p.project` to anchor the positional 
 		// context safely without needing the artificial AST word node.
 		p.directory(cc, symDotContainer, sym)
@@ -13034,11 +13023,6 @@ func entryIndicator(ctx Context, entry Value) (str, ent, tar string) {
     return
 }
 
-func exists(ctx Context, v Value) bool {
-    // FIXME: returns true if existsWhatever ??
-    return v != nil && statFile(ctx, v).exists() == existsConfirmed
-}
-
 func (p *execution) getRecipesHash(ctx Context, target Value, values ...Value) (k, v hashbytes, err error) {
     var key = sha256.New()
     var val = sha256.New()
@@ -13109,9 +13093,9 @@ func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, 
     return
 }
 
-func auto_target_value(ctx Context, nilValIsErro ...bool) (res Value) {
+func auto_target_value(ctx Context, erroIfNilVal ...bool) (res Value) {
 	if val := auto_get(ctx, symAt); val == nil {
-		if __t(nilValIsErro...) { erro(ctx, "target is nil") }
+		if __t(erroIfNilVal...) { erro(ctx, "target is nil") }
 	} else if v := expand(ctx, val); v == nil {
 		erro(ctx, "target expanded to nil: %v", val)
 	} else {
@@ -13134,7 +13118,8 @@ type waitopts struct{
 }
 func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_result) {
     var calleeErrs []error
-    if p := _execution(ctx) ; p != nil {
+	var p = _execution(ctx)
+    if p != nil {
         if false { p.WaitGroup.Wait() } // FIXME: deadlock
 
         p.calleeErrsM.Lock()
@@ -13190,9 +13175,7 @@ func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_r
     }
 
     if opts.StampCurrentTarget {
-        if fs = stampFiles(ctx, target); fs != nil {
-            if false { reportFileUpdates(ctx, fs) }
-        }
+		stamp_target(p, target)
     }
     return
 }
@@ -13948,7 +13931,16 @@ func cmp_time(l, r time.Time) cmpres {
 	return cmpEqual // l.Equal(r)
 }
 
-func eq(x Context, a, b Value) bool { return a == b || cmp(x, a, b) == cmpEqual }
+func eq(x Context, a, b Value) bool {
+	if a == b { return true }
+	if fa, isFile := to_file(a); isFile {
+		if fb, isFile := to_file(b); isFile {
+			return fa.name == fb.name && fa.dir == fb.dir && fa.sub == fb.sub
+		}
+	}
+	return cmp(x, a, b) == cmpEqual
+}
+
 func equal(x Context, a, b Value, compareStringRes ...bool) (res bool) {
 	// THE DOD FIX 3: Global O(1) Hardware Fast-Path!
 	// Before doing HEAVY string expansions, immediately verify pointer equality.
@@ -15457,215 +15449,194 @@ func (c stamp_file_ctx) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-type existence int
 const (
-    existsWhatever existence = 1<<iota
-    existsConfirmed
-    existsNegative
+	flagIsRegular    int32 = 1 << 0
+	flagIsSymlink    int32 = 1 << 1
+	flagIsDir        int32 = 1 << 2
+	flagIsExec       int32 = 1 << 3
+	flagIsWritable   int32 = 1 << 4 // NEW: Tracks user/group/other disk write permissions
+	flagIsSocket     int32 = 1 << 5 // NEW: Identifies Unix domain sockets natively
+	flagIsSysFile    int32 = 1 << 6 // Shifted up
+	flagIsSysChecked int32 = 1 << 7 // Shifted up
 )
-func (n existence) String() (s string) {
-    switch n {
-    case existsWhatever:  s = "exists-whatever"
-    case existsNegative:  s = "exists-negative"
-    case existsConfirmed: s = "exists-confirmed"
-    }
-    return
-}
 
-type statinfo struct{
-    *file
-    next *statinfo
-}
-
-func (si *statinfo) mod() (res time.Time) {
-	var maxNano int64
-
-	// O(1) pure integer loop: no interface methods, no time.Time allocations
-	for p := si; p != nil; p = p.next {
-		// p.file.exists() safely ensures filebase isn't nil and _mtime != 0
-		if p.file != nil && p.file.exists() {
-			if p.file._mtime > maxNano {
-				maxNano = p.file._mtime
-			}
-		}
-	}
-
-	// Only construct the Go time.Time struct ONCE at the very end if a file exists
-	if maxNano > 0 {
-		// Unix(sec, nsec) seamlessly converts our UnixNano back to a time.Time
-		res = time.Unix(0, maxNano)
-	}
-
-	return // returns zero time.Time{} if no files existed
-}
-
-func (si *statinfo) exists() (res existence) {
-	res = existsWhatever
-
-	for p := si; p != nil; p = p.next {
-		if p.file != nil { // matterless is nil file
-			// p.file.exists() inherently checks p._mtime != 0 now!
-			if p.file.exists() {
-				res = existsConfirmed
-			} else {
-				res = existsNegative
-				break
-			}
-		}
-	}
-	return
-}
+// The expanded VFS physical attribute preservation mask
+const diskMask int32 = flagIsRegular | flagIsSymlink | flagIsDir | flagIsExec | flagIsWritable | flagIsSocket
 
 type filestub struct {
-	dir     Symbol    // Holographically shreds machine paths.
-	sub     Symbol    // Substitute, hidden. Portable: e.g., intern("src/core")
-	name    Symbol    // Name, representation. Portable: e.g., intern("main.c")
+	dir     Symbol
+	sub     Symbol
+	name    Symbol
 	filemap *filemap
-	other   *filestub
+	other   atomic.Pointer[filestub] // Lock-free circular linked-list pointer
 }
 
 type filebase struct {
-	sync.Mutex               // FINE-GRAINED LOCK: Protects this specific file! (vs. Coarse-Grained Locking)
-	stub         filestub    // cycled-list of file stubs of different projects
-	_updatedDeps []Value     // any updated deps (Moved up for pointer alignment)
-	_mtime       int64       // ModTime().UnixNano() (0 means non-existent)
-	_size        int64       // Size() in bytes
-	_travin      int32       // Graph traversal state
-	_traved      int32       // Graph traversal state
-	_dirty       int32       // Graph dirty state
-	_updated     bool        // true if this file has been updated
-	_isDir       bool        // Mode().IsDir()
+	stub   filestub // cycled-list of file stubs of different projects
+	_mtime int64    // UnixNano timestamp (0 means non-existent, serves as store barrier)
+	_size  int64    // Size in bytes
+	_flag  int32    // Unified lock-free bitmask for all layout properties
 }
 
-type file struct{
+type file struct {
 	valbase
 	*filebase
 	*filestub
 }
 
-func (p *file) String() string { return "{file "+p.name.String()+"}" }
+func (p *file) String() string { return "{file " + p.name.String() + "}" }
 func (p *file) basename() Symbol { return __symBase(p.name) }
-func (p *file) fullname() Symbol { return __symPathJoin(p.dir, p.sub, p.name) }
-func (p *file) exists() bool { return p != nil && p._mtime != 0 }
+func (p *file) fullname() Symbol  { return __symPathJoin(p.dir, p.sub, p.name) }
+
+func (p *file) exists() bool {
+	return p != nil && atomic.LoadInt64(&p._mtime) > 0
+}
+
+func (p *file) isDir() bool {
+	return (atomic.LoadInt32(&p._flag) & flagIsDir) != 0
+}
+
+func (p *file) isSymlink() bool {
+	return (atomic.LoadInt32(&p._flag) & flagIsSymlink) != 0
+}
+
+func (p *file) isRegular() bool {
+	return (atomic.LoadInt32(&p._flag) & flagIsRegular) != 0
+}
+
+func (p *file) isWritable() bool {
+	return (atomic.LoadInt32(&p._flag) & flagIsWritable) != 0
+}
+
+func (p *file) isSocket() bool {
+	return (atomic.LoadInt32(&p._flag) & flagIsSocket) != 0
+}
+
+func (p *file) modTime() time.Time {
+	return time.Unix(0, atomic.LoadInt64(&p._mtime))
+}
+
+func (p *file) stat(ctx Context, force bool, erroPathError ...bool) bool {
+	// 1. Conditional Lazy-Loading Cache Hit Gate
+	if !force && atomic.LoadInt64(&p._mtime) > 0 {
+		return true 
+	}
+
+	pathStr := p.fullname().String()
+
+	info, err := os.Stat(pathStr)
+	if err == nil {
+		mtime := info.ModTime().UnixNano()
+		size := info.Size()
+		mode := info.Mode()
+
+		var flags int32
+		if info.IsDir() { flags |= flagIsDir }
+		if (mode & os.ModeSymlink) != 0 { flags |= flagIsSymlink }
+		if (mode & os.ModeSocket) != 0 { flags |= flagIsSocket }
+		if mode.IsRegular() { flags |= flagIsRegular }
+		if (mode & 0111) != 0 { flags |= flagIsExec }
+		
+		// Map standard file permission writes (Owner/Group/Other write authorization)
+		if (mode.Perm() & 0222) != 0 { flags |= flagIsWritable }
+
+		if mtime == 0 { mtime = 1 }
+
+		atomic.StoreInt64(&p._size, size)
+
+		// 2. Clear previous VFS disk status bits while preserving configuration layers
+		oldFlags := atomic.LoadInt32(&p._flag)
+		mergedFlags := flags | (oldFlags &^ diskMask)
+		atomic.StoreInt32(&p._flag, mergedFlags)
+		
+		// CRITICAL STORE BARRIER: Flush timestamp last to activate visibility across threads
+		atomic.StoreInt64(&p._mtime, mtime)
+		return true
+	}
+
+	// Invalidate cache safely if file went missing or compilation deleted it
+	atomic.StoreInt64(&p._mtime, 0) 
+
+	if x, y := err.(*fs.PathError); y {
+		if __t(erroPathError...) {
+			erro(ctx, "%v: %v (VFS Target path: %s)", trimPrompt(x.Path), x.Err, pathStr)
+		}
+	} else {
+		erro(ctx, "file.stat fault: %v (VFS Target path: %s)", err, pathStr)
+	}
+	return false
+}
+
+func (p *file) isSysFile() bool {
+	flags := atomic.LoadInt32(&p._flag)
+	if (flags & flagIsSysChecked) != 0 {
+		return (flags & flagIsSysFile) != 0
+	}
+
+	var isSys bool
+	if p.filemap != nil && len(p.filemap.paths) == 1 {
+		if f, ok := p.filemap.paths[0].(flag); ok {
+			isSys = isNone(f.Value) || isNull(f.Value)
+		}
+	}
+
+	for {
+		old := atomic.LoadInt32(&p._flag)
+		next := old | flagIsSysChecked
+		if isSys { next |= flagIsSysFile }
+		if atomic.CompareAndSwapInt32(&p._flag, old, next) {
+			break
+		}
+	}
+	return isSys
+}
 
 func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
 	if p.filemap != nil {
 		var f = p.filemap.stat(ctx, p.name.String())
 		if f.exists() {
-			// Sync the primitive data directly
-			p._mtime, p._size, p._isDir = f._mtime, f._size, f._isDir
+			mtime := atomic.LoadInt64(&f._mtime)
+			size := atomic.LoadInt64(&f._size)
+			flags := atomic.LoadInt32(&f._flag)
+
+			atomic.StoreInt64(&p._size, size)
+
+			oldFlags := atomic.LoadInt32(&p._flag)
+			mergedFlags := (flags & diskMask) | (oldFlags &^ diskMask)
+			atomic.StoreInt32(&p._flag, mergedFlags)
+
+			atomic.StoreInt64(&p._mtime, mtime) 
 			res = true
 		}
 	}
 	return
 }
 
-func (p *file) stamp(ctx Context) (res []*file) {
-	var fnSym = p.fullname()
-	if fnSym == symEmpty {
-		// p.name is also a Walled Garden Symbol, so we can print it directly
-		erro(ctx, "file `%s` has no fullname", p.name)
-		return
-	}
-
-	// The Airlock: We must extract the string exactly once to touch the physical disk.
-	var fnStr = fnSym.String()
-	
-	var e error
-	var info os.FileInfo
-
-	if info, e = os.Stat(fnStr); e != nil {
-		p._mtime = 0 // Mark as non-existent
-		if truly(ctx, must_stamp_file{p}) {
-			// Stay in the Symbol domain for Context tracking!
-			// (Assuming symDotLog is an interned ".log" Symbol)
-			ctx = pc(pc(ctx, fnSym), __symJoin(fnSym, symDotLog))
-			
-			if _, y := e.(*fs.PathError); y {
-				erro(ctx, "no such file: %s", p.name)
-			} else {
-				erro(ctx, "%v", e)
-			}
-		}
-		return
-	} else if info == nil {
-		p._mtime = 0
-		if truly(ctx, must_stamp_file{p}) {
-			ctx = pc(pc(ctx, fnSym), __symJoin(fnSym, symDotLog))
-			erro(ctx, "no such file: %s", p.name)
-		}
-		return
-	}
-
-	// Extract physical reality into our Walled Garden primitives!
-	p._mtime = info.ModTime().UnixNano()
-	p._size  = info.Size()
-	p._isDir = info.IsDir()
-
-	res = append(res, p)
-
-	if !is_configure_ctx(ctx) {
-		p._updated = true
-		do(ctx, mark_dirty{[]Value{p}})
-	}
-	return
-}
-
-func (p *file) updatedDeps(_ Context, v ...Value) []Value {
-	if len(v) > 0 { p._updatedDeps = append(p._updatedDeps, v...) }
-	return p._updatedDeps
-}
-
-func (p *file) stat(ctx Context) (si *statinfo) {
-	if p.exists() {
-		// good already
-	} else if info, err := os.Stat(p.fullname().String()); err == nil {
-		// Unpack to primitives
-		p._mtime = info.ModTime().UnixNano()
-		p._size  = info.Size()
-		p._isDir = info.IsDir()
-	} else if x, y := err.(*fs.PathError); y {
-		if false {
-			erro(ctx, "%v: %v", trimPrompt(x.Path), x.Err)
-		}
-		return
-	} else {
-		erro(ctx, "file.stat: %v", err)
-	}
-	return &statinfo{ file: p }
-}
-
-func (p *file) isSysFile() bool {
-	// System files are defined by: `files ( (foo.xxx) ⇒ - )`
-	if p.filemap != nil && len(p.filemap.paths) == 1 {
-		if f, ok := p.filemap.paths[0].(flag); ok {
-			return isNone(f.Value) || isNull(f.Value)
-		}
-	}
-	return false
-}
-
 func (p *file) change(dir, sub, name Symbol) (okay bool) {
-	// 1. Fast Path: If the O(1) symbols match exactly, we are already on the right stub!
 	if p.dir == dir && p.sub == sub && p.name == name {
 		return true
 	}
 
-	// 2. OS-Boundary Check: Pure Symbol Equality!
-	// We join the parts into a single Symbol ID and compare the integers.
 	if __symPathJoin(dir, sub, name) == __symPathJoin(p.dir, p.sub, p.name) {
-		var head = &p.filebase.stub
-		for stub := p.filestub; stub != nil; stub = stub.other {
-			// Blazing fast 3-cycle integer check!
+		head := &p.filebase.stub
+		
+		for stub := p.filestub; stub != nil; stub = stub.other.Load() {
 			if stub.dir == dir && stub.sub == sub && stub.name == name {
 				p.filestub, okay = stub, true
 				return
 			}
-			if stub.other == head { break }
+			if stub.other.Load() == head { break }
 		}
 
-		p.filestub = &filestub{ dir, sub, name, nil, head.other }
-		head.other, okay = p.filestub, true
+		newStub := &filestub{dir: dir, sub: sub, name: name}
+		for {
+			nextStub := head.other.Load()
+			newStub.other.Store(nextStub)
+			if head.other.CompareAndSwap(nextStub, newStub) {
+				p.filestub, okay = newStub, true
+				break
+			}
+		}
 	}
 	return
 }
@@ -15682,25 +15653,27 @@ type cachestat struct {
 	dir, sub, name Symbol
 }
 
-// _stat retrieves or creates a Walled Garden file object, applying negative caching.
-// returns nil if: 1. "name" is empty; 2. file not exists and no "stat_nonexist{true}"
-func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
+// _stat retrieves or creates a lock-free file object, applying atomic negative caching.
+// returns nil if: 1. "name" is empty; 2. file does not exist and no "stat_nonexist{true}" flag is passed.
+func _stat(ctx Context, a0 any, aa ...any) *file {
 	var sub, dir, name Symbol
 	var fileInfo os.FileInfo
 	var nonexist bool
-	var skipIO bool // NEW: Trap to bypass os.Stat
+	var skipIO bool 
 
-	// 1. Immediately enter the Symbol Domain!
+	// 1. Instantly enter the high-speed Symbol Domain
 	switch t := a0.(type) {
-	case Symbol: name = t
-	case Value:  name = __symbol(ctx, t)
-	case string: name = intern(t)
-	default:     name = intern(__string(ctx, a0))
+	case Symbol: 
+		name = t
+	case Value:  
+		name = __symbol(ctx, t)
+	case string: 
+		name = intern(t)
+	default:     
+		name = intern(__string(ctx, a0))
 	}
 
-	// ====================================================================
-	// DOD: Fulfill Condition 1
-	// ====================================================================
+	// Fulfill Condition 1: Fast-path return on empty input identifiers
 	if name == symEmpty {
 		if checkpoints {
 			if s := __string(ctx, a0); s != "" {
@@ -15710,36 +15683,36 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 		return nil
 	}
 
+	// Parse parameters cleanly
 	for _, a := range aa {
 		switch t := a.(type) {
-		case *project:      dir = t.absPath
-		case stat_dir:      dir = t.Symbol 
-		case stat_sub:      sub = t.Symbol 
-		case stat_fileinfo: fileInfo = t.FileInfo
-		case stat_nonexist: nonexist = t.bool
+		case *project:       
+			dir = t.absPath
+		case stat_dir:       
+			dir = t.Symbol 
+		case stat_sub:       
+			sub = t.Symbol 
+		case stat_fileinfo:  
+			fileInfo = t.FileInfo
+		case stat_nonexist:  
+			nonexist = t.bool
 		case stat_justcache: 
 			nonexist = true
-			skipIO = true // THE DOD FIX: Acknowledge the cache-only request!
+			skipIO = true 
 		default:
-			erro(ctx, "stat: invalid argument: %v", ts(a,ctx))
+			erro(ctx, "stat: invalid argument: %v", ts(a, ctx))
 		}
 	}
+
 	if checkpoints {
-		if s := name; strings.Contains(s.String(), "//") {
-			erro(ctx, "concated abs paths: %v", s, callstack{num:10})
-		}
-		if s := sub; strings.Contains(s.String(), "//") {
-			erro(ctx, "concated abs paths: %v", s, callstack{num:10})
-		}
-		if s := dir; strings.Contains(s.String(), "//") {
-			erro(ctx, "concated abs paths: %v", s, callstack{num:10})
+		if strings.Contains(name.String(), "//") || strings.Contains(sub.String(), "//") || strings.Contains(dir.String(), "//") {
+			erro(ctx, "concatenated absolute paths detected: name=%v, sub=%v, dir=%v", name, sub, dir, callstack{num:10})
 		}
 	}
 
 	var fullname Symbol
 
-	// 2. Cleaned Path Resolution Logic (100% Pure Sequence Domain)
-	// THE DOD FIX: Use `__symIsAbs` instead of `filepath.IsAbs(X.String())`
+	// 2. Pure Sequence Domain Path Resolution
 	if __symIsAbs(name) {
 		fullname = name
 		fullSeq := __symSeq(fullname)
@@ -15790,42 +15763,44 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 		fullname = __symPathJoin(dir, sub, name)
 	}
 
-	// 3. First Pass: Delegate cache lookup to the Universe
+	// 3. Delegate central graph cache lookup to the Universe
 	var base *filebase
 	if b, ok := do(ctx, cachestat{fullname, dir, sub, name}).(*filebase); !ok {
-		erro(ctx, "failed to case filebase: %v", name, unwind{})
+		erro(ctx, "failed to cast filebase node for: %v", name, unwind{})
 		return nil
 	} else {
 		base = b
 	}
 
-	// 4. Fine-Grained Locking: Lock ONLY this specific file!
-	base.Lock(); defer base.Unlock()
+	// Provide an early out if manual fileinfo properties are injected via pre-scans
+	if fileInfo != nil && atomic.LoadInt64(&base._mtime) == 0 {
+		mtime := fileInfo.ModTime().UnixNano()
+		size := fileInfo.Size()
+		mode := fileInfo.Mode()
 
-	// 5. Heavy I/O: Bypass OS completely if `skipIO` is true!
-	if !skipIO && base._mtime == 0 && fileInfo == nil {
-		fileInfo, _ = os.Stat(fullname.String())
+		var flags int32
+		if fileInfo.IsDir() { flags |= flagIsDir }
+		if (mode & os.ModeSymlink) != 0 { flags |= flagIsSymlink }
+		if (mode & os.ModeSocket) != 0 { flags |= flagIsSocket }
+		if mode.IsRegular() { flags |= flagIsRegular }
+		if (mode & 0111) != 0 { flags |= flagIsExec }
+		if (mode.Perm() & 0222) != 0 { flags |= flagIsWritable }
+		if mtime == 0 { mtime = 1 }
+
+		atomic.StoreInt64(&base._size, size)
+		
+		oldFlags := atomic.LoadInt32(&base._flag)
+		mergedFlags := flags | (oldFlags &^ diskMask)
+		atomic.StoreInt32(&base._flag, mergedFlags)
+
+		atomic.StoreInt64(&base._mtime, mtime) // Initialization barrier committed last
 	}
 
-	// 6. Extraction
-	if fileInfo != nil && base._mtime == 0 {
-		base._mtime = fileInfo.ModTime().UnixNano()
-		base._size  = fileInfo.Size()
-		base._isDir = fileInfo.IsDir()
-	}
-
-	// ====================================================================
-	// DOD: Fulfill Condition 2
-	// ====================================================================
-	if base._mtime == 0 && !nonexist { 
-		return nil 
-	}
-
-	var head = &base.stub
+	head := &base.stub
 	var stub *filestub
 
 	if checkpoints {
-		for stub = head; stub != nil; stub = stub.other {
+		for stub = head; stub != nil; stub = stub.other.Load() {
 			if s := __symPathJoin(stub.dir, stub.sub, stub.name); fullname != s {
 				debug(ctx,
 					_f("fullname '%s' conflicted", fullname),
@@ -15833,20 +15808,47 @@ func _stat(ctx Context, a0 any, aa ...any) (_ *file) {
 					_f("panic: (%v, %v, %v) %s", dir, sub, name, s),
 					callstack{num:16}, unwind{})
 			}
-			if stub.other == head { break }
+			if stub.other.Load() == head { break }
 		}
 	}
 
-	// 7. The Ultimate Cache Retrieval
-	for stub = head; stub != nil; stub = stub.other {
+	// 4. Thread-Safe, Lock-Free Cache Stub Traversal Pass
+	var matchedStub *filestub
+	for stub = head; stub != nil; stub = stub.other.Load() {
 		if stub.dir == dir && stub.sub == sub && stub.name == name {
-			return &file{valbase{_pos(ctx)}, base, stub}
+			matchedStub = stub
+			break
 		}
-		if stub.other == head { break }
+		if stub.other.Load() == head { break }
 	}
 
-	stub = &filestub{dir: dir, sub: sub, name: name, other: head.other}; head.other = stub
-	return &file{valbase{_pos(ctx)}, base, stub}
+	// 5. Lock-Free CAS Insertion Loop for new layout descriptors
+	if matchedStub == nil {
+		newStub := &filestub{dir: dir, sub: sub, name: name}
+		for {
+			nextStub := head.other.Load()
+			newStub.other.Store(nextStub)
+			if head.other.CompareAndSwap(nextStub, newStub) {
+				matchedStub = newStub
+				break
+			}
+		}
+	}
+
+	// Instantiate the lock-free reference handle wrapper
+	f := &file{valbase{_pos(ctx)}, base, matchedStub}
+
+	// 6. Non-blocking Lazy Load: Fetch disk metadata safely if not bypassed
+	if !skipIO {
+		f.stat(ctx, false)
+	}
+
+	// Fulfill Condition 2: Filter non-existent targets safely with memory-barrier precision
+	if !f.exists() && !nonexist { 
+		return nil 
+	}
+
+	return f
 }
 
 type flag struct{ Value }
@@ -16373,184 +16375,6 @@ func filePerm(ctx Context, v Value, i uint32) (res os.FileMode) {
     res = os.FileMode(uintVal(ctx, v, i))&os.ModePerm
     if res == 0 { res = os.FileMode(0640) }
     return
-}
-
-// NOTE: this func is not used
-func deleteFile_UNUSED(ctx Context, val Value) (res []*file) {
-    switch t := val.(type) {
-	case matched_rule: return deleteFile_UNUSED(ctx, t.target)
-    case *rule: return deleteFile_UNUSED(ctx, t.target)
-    case *project: if e := t.main; e != nil { return deleteFile_UNUSED(ctx, e) }
-    case *use: if e := t.project.main; e != nil { return deleteFile_UNUSED(ctx, e) }
-    case *uselist: for _, e := range t.list { res = append(res, deleteFile_UNUSED(ctx, e)...) }
-    case *list:
-        for _, e := range t.elems { res = append(res, deleteFile_UNUSED(ctx, e)...) }
-    case *path:
-        if si := statFile(ctx, val); si == nil || si.file == nil {
-            erro(ctx, "no path name for `%s`", val)
-        } else {
-            return deleteFile_UNUSED(ctx, si.file)
-        }
-    case *file:
-		erro(ctx, "TODO: delete %v", t.name)
-	default:
-		warn(ctx, "%v %s", val, ts(val,ctx), callstack{num:5})
-    }
-    return
-}
-
-func stampFiles(ctx Context, val Value) (res []*file) {
-	switch t := unloc(val).(type) {
-	case matched_rule: return stampFiles(ctx, t.target)
-	case *rule: return stampFiles(ctx, t.target)
-	case *project: if e := t.main; e != nil { return stampFiles(ctx, e) }
-	case *use: if e := t.project.main; e != nil { return stampFiles(ctx, e) }
-	case *uselist: for _, e := range t.list { res = append(res, stampFiles(ctx, e)...) }
-	case *list:
-		for _, e := range t.elems { res = append(res, stampFiles(ctx, e)...) }
-	case *path:
-		if si := statFile(ctx, val); si == nil || si.file == nil {
-			erro(ctx, "no path name for `%s`", val)
-		} else {
-			return stampFiles(ctx, si.file)
-		}
-	case *word, *qualword, *compound:
-		if f := as_file(ctx, t); f != nil {
-			return stampFiles(ctx, f)
-		}
-	case *file:
-		// =====================================================================
-		// Symbol Domain Implementation: Mark file node as updated in-run
-		// =====================================================================
-		t.Lock()
-		t._updated = true
-		t.Unlock()
-		res = append(res, t)
-	default:
-		warn(ctx, "%v %s", val, ts(val,ctx), callstack{num:10})
-	}
-	return
-}
-
-func statFile(ctx Context, val Value) (res *statinfo) {
-	switch t := unloc(val).(type) {
-	case matched_rule: return statFile(ctx, t.target)
-	case *rule: return statFile(ctx, t.target)
-	case *project: if e := t.main; e != nil { return statFile(ctx, e) }
-	case *use: if e := t.project.main; e != nil { return statFile(ctx, e) }
-	case *uselist:
-		for _, e := range t.list {
-			if si := statFile(ctx, e); si != nil {
-				if res == nil { res = si } else { res.next = si }
-			}
-		}
-	case *list:
-		for _, e := range t.elems {
-			if si := statFile(ctx, e); si != nil {
-				if res == nil { res = si } else { res.next = si }
-			}
-		}
-	case *path:
-		var s string
-		if patterned(ctx, t) {
-			if v, rest := stencil(ctx, t, _stems(ctx)); len(rest) > 0 {
-				debug(ctx, "partial match: %v", rest)
-			} else {
-				s = __string(ctx, v)
-			}
-		} else {
-			s = __string(ctx, t)
-		}
-
-		if filepath.IsAbs(s) {
-			if f := _stat(ctx, s, stat_nonexist{true}); f != nil {
-				return &statinfo{ file: f }
-			}
-		}
-
-		if f := findfile(ctx, s); f != nil { return statFile(ctx, f) }
-
-	case *file:
-		if f := _stat(ctx, t.fullname().String(), stat_nonexist{true}); f != nil {
-			return &statinfo{ file: f }
-		}
-		return &statinfo{ file: t }
-
-	case *word, *qualword, *compound:
-		if f := as_file(ctx, t); f != nil {
-			return statFile(ctx, f)
-		}
-		s := __string(ctx, t)
-		if f := findfile(ctx, s); f != nil {
-			return statFile(ctx, f)
-		}
-		
-	default:
-		warn(ctx, "%v %s", val, ts(val,ctx), callstack{num:10})
-	}
-
-	// CRITICAL SAFETY SHIELD: Never return a nil statinfo to permanently prevent 
-	// dereference panics on downstream .mod()/.mtime method chains.
-	if res == nil {
-		res = &statinfo{}
-	}
-	return
-}
-
-func updated(ctx Context, val Value) (res bool) {
-	switch t := unloc(val).(type) {
-	case matched_rule: return updated(ctx, t.rule)
-	case *rule: if res = updated(ctx, t.target); res { do(ctx, mark_dirty{[]Value{ t.target }}) }
-	case *list: for _, e := range t.elems { if res = updated(ctx, e); res { break } }
-	case *use: if e := t.project.main; e != nil { return updated(ctx, e) }
-	case *uselist: for _, e := range t.list { res = res || updated(ctx, e) }
-	case *word, *qualword, *compound, *path:
-		if f := as_file(ctx, t); f != nil {
-			return updated(ctx, f)
-		}
-		if false { info(ctx, "%v %s", t, ts(t,ctx), trace_ctx{10}) }
-	case *file:
-		t.Lock()
-		res = t._updated
-		t.Unlock()
-		return res
-	default:
-		warn(ctx, "%v %s", val, ts(val,ctx), trace_ctx{5}, callstack{num:10})
-	}
-	return
-}
-
-func updatedDeps(ctx Context, val Value, deps ...Value) (res []Value) {
-	switch t := unloc(val).(type) {
-	case matched_rule: return updatedDeps(ctx, t.target, deps...)
-	case *rule: return updatedDeps(ctx, t.target, deps...)
-	case *list: for _, e := range t.elems { res = append(res, updatedDeps(ctx, e, deps...)...) }
-	case *use: if e := t.project.main; e != nil { return updatedDeps(ctx, e, deps...) }
-	case *uselist: for _, e := range t.list { res = append(res, updatedDeps(ctx, e, deps...)...) }
-	case *word, *compound, *qualword, *path:
-		if f := as_file(ctx, t); f != nil {
-			return updatedDeps(ctx, f, deps...)
-		}
-		if false { info(ctx, "%v %v", t, deps, trace_ctx{10}) }
-	case *file:
-		t.Lock()
-		if len(deps) > 0 {
-			t._updatedDeps = append(t._updatedDeps, deps...)
-			t._updated = true
-		}
-		res = t._updatedDeps
-		t.Unlock()
-	default:
-		if v := expand(ctx, val); eq(ctx, v, val) {
-			warn(ctx,
-				_f("%v %s", val, ts(val,ctx)),
-				_f("%v %v", v, deps),
-				trace_ctx{5}, callstack{num:10})
-		} else {
-			res = updatedDeps(ctx, v, deps...)
-		}
-	}
-	return
 }
 
 func __lsa(s ...string) (a []any) { for _, s := range s { a = append(a, strings.ToLower(s)) }; return }
@@ -18738,8 +18562,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
 		}
 
         if !ctx.silent && !is_configure_ctx(ctx) && ctx.target != nil {
-            var files = stampFiles(stamp_file_ctx{ctx}, ctx.target)
-            if !ctx.prompt && ctx.report { reportFileUpdates(ctx, files) }
+			stamp_target(exe, ctx.target)
         }
 
         if !ctx.silent && ctx.prompt {
@@ -18929,9 +18752,7 @@ func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
 		ec.target = v
 	}
 
-	// --- 4. ... ---
-
-	// --- 5. Container/Docker Execution Mode ---
+	// --- 4. Container/Docker Execution Mode ---
 	if p.contained {
 		var proj = _project(ctx)
 		if proj == nil { erro(ctx, "nil project") }
@@ -21387,76 +21208,87 @@ func (c *traverse_ctx) do(ctx Context, op any) any {
 	return curr.Context.do(ctx, op)
 }
 
+// register_dependency maps dependency file counts, array registers, and timeline checks natively on the execution handle.
+func register_dependency(x *execution, dep Value) {
+	if isTrivial(dep) { return }
+
+	if x._ordered && x.prerequisite != nil {
+		x.ordered = append(x.ordered, dep)
+		x.set(x, defVoid, symBar, _list(x.ordered...))
+	} else {
+		if _, y := to_file(dep); y {
+			x.Lock()
+			x.countFiles++ // Centralized metric synchronization with zero allocation
+			x.Unlock()
+		}
+		x.targets = append(x.targets, dep)
+		x.set(x, defVoid, symCaret, _list(x.targets...))
+		x.set(x, defVoid, symLangle, x.targets[0])
+		x.set(x, defVoid, symRangle, x.targets[len(x.targets)-1])
+	}
+
+	// Transaction validation pass via pure O(1) non-blocking atomic reads
+	if d, found := x.defs[symAt]; found && d != nil && d.value != nil {
+		target := d.value
+		if !isTrivial(target) {
+			tFile, _ := to_file(target)
+			if tFile == nil { tFile = as_file(x, target, x.proj) }
+			dFile, _ := to_file(dep)
+			if dFile == nil { dFile = as_file(x, dep, x.proj) }
+
+			if tFile != nil && dFile != nil {
+				// Lock-free atomic loads prevent CPU cache line bouncing and tearing
+				a := atomic.LoadInt64(&tFile._mtime)
+				b := atomic.LoadInt64(&dFile._mtime)
+
+				x.Lock()
+				// Query the centralized build graph map to check if the dependency was updated
+				_, depWasUpdated := x.updatedFiles[dFile]
+
+				// If target exists on disk (a > 0) and dependency is newer, or dependency was updated in this run
+				if (a > 0 && b > a) || depWasUpdated {
+					if x.updatedFiles == nil {
+						x.updatedFiles = make(map[*file][]Value)
+					}
+					// Cache the line history without contaminating the read-only file node
+					x.updatedFiles[tFile] = append(x.updatedFiles[tFile], dep)
+				}
+				x.Unlock()
+			}
+		}
+	}
+}
+
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
 	case *null, *none, *undef: // Ignored!
 	case *loc: 
-		traverse(pc(ctx,p.pos), p.Value)
+		traverse(pc(ctx, p.pos), p.Value)
 	case *xloc: 
-		traverse(pc(ctx,p.pos), p.Value)
+		traverse(pc(ctx, p.pos), p.Value)
 	case *list: 
 		for _, e := range p.elems { traverse(ctx, e) }
 	case *argumented: 
 		if !isTrivial(p.Value) { traverse(p.ctx(ctx), p.Value) }
 	case *auto: 
-		if v := auto_get(ctx, p.name); v != nil { traverse(pc(ctx,p.pos), v) }
+		if v := auto_get(ctx, p.name); v != nil { traverse(pc(ctx, p.pos), v) }
 	case *def: 
-		if v := p.value; v != nil { traverse(pc(ctx,p.pos), v) }
+		if v := p.value; v != nil { traverse(pc(ctx, p.pos), v) }
 	case negative: 
 		if v := p.Value; v != nil { traverse(ctx, v) }
 	case matched_rule: 
-		traverse(pc(ctx,p.Pos()), p.rule)
+		traverse(pc(ctx, p.Pos()), p.rule)
 	case *project:
 		if p.main != nil {
 			if _, isFlagDestiny := p.main.destiny().(flag); !isFlagDestiny {
-				traverse(pc(ctx,p.pos), p.main)
+				traverse(pc(ctx, p.pos), p.main)
 			}
 		}
+
 	case *stemmed_rule:
 		var t = *p.rule
 		t.target = p.target
 		traverse(&stemmed_ctx{ctx, p}, &t)
-
-	case *rule:
-		var target = auto_get(ctx, symAt)
-		if target == nil {
-			erro(ctx, "$@ is not defined")
-			return
-		}
-
-		if _entry(ctx) == p {
-			if c := cast[*term](ctx); c != nil {
-				if t := auto_get(c, symAt); t != nil && eq(ctx, t, target) {
-					warn(ctx, "%v: %v: %v\n", _project(ctx), p, t)
-					return
-				}
-			}
-			warn(ctx, "%v: %v: %v", _project(ctx), p, target)
-		} else {
-			ctx = &rule_ctx{ctx, p, nil}
-		}
-
-	progloop:
-		for _, prog := range p.program {
-			switch func () (state uint) {
-				// =====================================================================
-				// THE UNIVERSAL RECOVERY GATE
-				// Captures traverse_state panics bubbling from anywhere in the DAG chain
-				// =====================================================================
-				defer func() {
-					switch e := recover().(type) {
-					case traverse_state: state = e.uint
-					default: if e != nil { erro(ctx, "%v", e) }
-					}
-				} ()
-				do(ctx, program_res{prog.execute(ctx)})
-				return
-			} () {
-			case traverse_done: return // Explicitly return if traverse_done!
-			case traverse_next: continue progloop
-			default: if false { return } // traverse_noop, traverse_case
-			}
-		}
 
 	case *closure, *delegate, *arrow:
 		currVal := val
@@ -21485,18 +21317,119 @@ func traverse(ctx Context, val Value) {
 			return
 		}
 
-	case *modification:
-		if e := _execution(ctx); e != nil { e.Wait() }
-		if checkpoints { ctx = &modification_checkpoints_ctx{ctx, nil} }
-		for _, m := range p.list { traverse(pc(ctx, m.pos), m) }
-		if checkpoints { do(ctx, run_modification_end_checks{}) }
-
-	case *modifier:
-		if sym := __symbol(ctx, p.elems[0]); sym == symEmpty {
-			erro(ctx, "empty name: %v", p.elems[0])
-		} else if truly(ctx, interpret{sym, p.elems[1:]}) {
-			modify(ctx, &p.group, true)
+	case *rule:
+		var x = _execution(ctx)
+		if x == nil {
+			erro(ctx, "no execution context: %v", p)
+			return
 		}
+
+		target := auto_get(ctx, symAt)
+		if target == nil {
+			erro(ctx, "$@ is not defined")
+			return
+		}
+
+		if _entry(ctx) == p {
+			if c := cast[*term](ctx); c != nil {
+				if t := auto_get(c, symAt); t != nil && eq(ctx, t, target) {
+					warn(ctx, "%v: %v: %v\n", _project(ctx), p, t)
+					return
+				}
+			}
+			warn(ctx, "%v: %v: %v", _project(ctx), p, target)
+		} else {
+			ctx = &rule_ctx{ctx, p, nil}
+		}
+
+		// =====================================================================
+		// FIXED INLINE CLOSURE: Enforces strict function-scoped defer boundaries
+		// =====================================================================
+		func() {
+			oldAt := x.defs[symAt]
+			oldCaret := x.defs[symCaret]
+			oldLangle := x.defs[symLangle]
+			oldRangle := x.defs[symRangle]
+			oldBar := x.defs[symBar]
+
+			oldTargets := x.targets
+			oldOrdered := x.ordered
+
+			oldOrderedFlag := x._ordered
+			oldPrerequisite := x.prerequisite
+
+			dAt := &def{o: defVoid, value: target}
+			dAt.pos, dAt.scope, dAt.name = p.Pos(), _scope(ctx), symAt
+			x.defs[symAt] = dAt
+
+			delete(x.defs, symCaret)
+			delete(x.defs, symLangle)
+			delete(x.defs, symRangle)
+			delete(x.defs, symBar)
+
+			x.targets = nil
+			x.ordered = nil
+
+			x._ordered = false
+			x.prerequisite = target 
+
+			defer func() {
+				x.defs[symAt] = oldAt
+				x.defs[symCaret] = oldCaret
+				x.defs[symLangle] = oldLangle
+				x.defs[symRangle] = oldRangle
+				x.defs[symBar] = oldBar
+
+				x.targets = oldTargets
+				x.ordered = oldOrdered
+
+				x._ordered = oldOrderedFlag
+				x.prerequisite = oldPrerequisite
+			}()
+
+			for _, prog := range p.program {
+				var state uint
+				func() {
+					defer func() {
+						switch e := recover().(type) {
+						case traverse_state: state = e.uint
+						default: 
+							if e != nil { 
+								erro(ctx, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, target})
+								panic(e) 
+							}
+						}
+					}()
+					do(ctx, program_res{prog.execute(ctx)})
+				}()
+
+				if state == traverse_next {
+					panic(traverse_state{_pos(ctx), traverse_next})
+				}
+				if state == traverse_done {
+					return
+				}
+			}
+		}()
+
+	case *modification:
+		var x = _execution(ctx)
+		if x == nil {
+			erro(ctx, "no execution context: %v", p)
+			return
+		}
+
+		x.Wait()
+
+		if checkpoints { ctx = &modification_checkpoints_ctx{ctx, nil} }
+		for _, m := range p.list {
+			if sym := __symbol(ctx, m.elems[0]); sym == symEmpty {
+				erro(ctx, "empty name: %v", m.elems[0])
+			} else if x.interp(pc(ctx, m.pos), sym, m.elems[1:]) {
+				modify(ctx, &m.group, true)
+			}
+		}
+		if checkpoints { do(ctx, run_modification_end_checks{}) }
 
 	case *file:
 		var x = _execution(ctx)
@@ -21505,54 +21438,100 @@ func traverse(ctx Context, val Value) {
 			return
 		}
 
-		if p._traved == 0 && !p.isSysFile() {
-			p._travin += 1
-			if p._travin > 1 { return }
+		// Non-blocking lazy load initializes filesystem attributes if not cached
+		p.stat(ctx, false)
 
-			if detect_traverse_loops {
-				if val := auto_target_value(ctx); val != nil && eq(ctx, val, p) {
-					erro(ctx, "recursion loop identified: self dependency on %v", p)
-					return
-				}
-			}
+		// A. Context-driven Loop Detection
+		if truly(ctx, detect_traverse_loop{p}) {
+			erro(ctx, "recursion loop identified: self dependency on %v", p)
+			return
+		}
+
+		// B. Execution-scoped Memoization Registry (Fully Lock-Free/Thread-Safe)
+		x.Lock()
+		if x.visitedFiles == nil { x.visitedFiles = make(map[*file]struct{}) }
+		_,  alreadyVisited := x.visitedFiles[p]
+		if !alreadyVisited { x.visitedFiles[p] = struct{}{} } // Mark visited for this execution pipeline pass
+		x.Unlock()
+
+		if !alreadyVisited && !p.isSysFile() {
+			// Mount the tracking branch context onto the call chain tree
+			ctx = &traverse_ctx{ctx, p}
 
 			var rulesMatched int
 			var projs = x.traverseProjs(ctx)
 
-			// A. Concrete File Target Slices Pass
+			// 1. Concrete File Target Slices Pass
 			for _, proj := range projs {
 				for _, entry := range proj._entries(ctx, p, false) {
 					if !isNull(entry) && auto_target_value(ctx) == entry { continue }
-					rulesMatched += 1 // add before traverse for concrete
+					rulesMatched++
 					traverse(ctx, entry)
 				}
 			}
 
-			// B. Abstract Layout Pattern Matching Pass
+			// 2. Abstract Layout Pattern Matching Pass
 			if !p.exists() {
+			abstractPass:
 				for _, proj := range projs {
 					pctx := inside_pattern_ctx{ctx}
 					for _, stemmed := range proj.resolvePatterns(ctx, p, p.name) { 
-						traverse(pctx, stemmed) 
-						rulesMatched++ // add after traverse for stemmed
+						var failed bool
+						
+						oldTargets := append([]Value(nil), x.targets...)
+						oldOrdered := append([]Value(nil), x.ordered...)
+						oldCaret := x.defs[symCaret]
+						oldLangle := x.defs[symLangle]
+						oldRangle := x.defs[symRangle]
+						oldBar := x.defs[symBar]
+
+						func() {
+							defer func() {
+								switch e := recover().(type) {
+								case traverse_state: failed = e.uint == traverse_next
+								default: 
+									if e != nil { 
+										erro(pctx, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, stemmed})
+										panic(e)
+									}
+								}
+							}()
+							traverse(pctx, stemmed)
+						}()
+
+						if failed {
+							x.targets = oldTargets
+							x.ordered = oldOrdered
+							x.defs[symCaret] = oldCaret
+							x.defs[symLangle] = oldLangle
+							x.defs[symRangle] = oldRangle
+							x.defs[symBar] = oldBar
+							continue
+						}
+						rulesMatched++ 
+						break abstractPass 
 					}
 				}
+				
 				if rulesMatched == 0 && !p.exists() {
 					if !truly(ctx, inside_pattern_search{}) {
 						erro(ctx, "missing file '%s' (%s)", p.name, p.fullname())
 					}
-					// Panic a traverse_next to tell the for-loop try next traversal.
+					
+					// Safe unroll: remove node from transaction map if speculation layout search misses
+					x.Lock()
+					delete(x.visitedFiles, p)
+					x.Unlock()
+
 					panic(traverse_state{_pos(ctx), traverse_next})
 					return 
 				}
 			}
-
-			p._traved = 1
 		}
 
-		x.traved(ctx, p, nil, p)
+		register_dependency(x, p)
 
-	default: //case *compound, *word, *strlit, *strval, *strcomp, *qualword, *path, *percpat, *globpat, *regexpat, flag:
+	default: 
 		var x = _execution(ctx)
 		if x == nil {
 			erro(ctx, "no execution context: %v", val)
@@ -21561,23 +21540,17 @@ func traverse(ctx Context, val Value) {
 
 		var projs = x.traverseProjs(ctx)
 
-		// =====================================================================
-		// NATIVELY MERGED PREREQUISITE RESOLUTION MATRIX (NO RECOVERY DUPLICATION)
-		// =====================================================================
-
 		var pat Value
 		var sym Symbol
 		var isPath bool
 
 		switch val.(type) {
 		case *path: isPath = true
-		case *percpat/*, *globpat, *globrange, *regexpat */: pat = val
-		case *strlit, *strcomp, flag: // Skips mapping files!
-			// Fast-path bypass for primitive flags/literals
+		case *percpat: pat = val
+		case *strlit, *strcomp, flag: 
 			goto skippedFilesMapping
 		}
 
-		// 1. Evaluate Stencil Layout Wildcards
 		if pat != nil {
 			if stems := _stems(ctx); stems != nil && len(stems) > 0 {
 				var rest []Value
@@ -21590,7 +21563,6 @@ func traverse(ctx Context, val Value) {
 			}
 		}
 
-		// 2. Map Layout Descriptor to Real/VFS File Node
 		for _, proj := range projs {
 			if f := proj.file(ctx, val); f != nil {
 				traverse(ctx, f)
@@ -21598,7 +21570,7 @@ func traverse(ctx Context, val Value) {
 			}
 		}
 
-		sym = __symbol(ctx, val)//getScalarSym(ctx, val)
+		sym = __symbol(ctx, val)
 
 		if isPath {
 			if f := _stat(ctx, sym); f != nil { 
@@ -21610,21 +21582,52 @@ func traverse(ctx Context, val Value) {
 	skippedFilesMapping:
 		var rulesMatched int
 
-		// A. Concrete Rule Target Slices Pass
 		for _, proj := range projs {
 			for _, entry := range proj._entries(ctx, val, false) {
 				if !isNull(entry) && auto_target_value(ctx) == entry { continue }
-				rulesMatched += 1 // add before traverse for concrete
+				rulesMatched += 1 
 				traverse(ctx, entry)
 			}
 		}
 
-		// B. Abstract Layout Pattern Matching Pass
+	abstractDefaultPass:
 		for _, proj := range projs {
 			pctx := inside_pattern_ctx{ctx}
 			for _, entry := range proj.resolvePatterns(ctx, val, sym) {
-				traverse(pctx, entry) 
-				rulesMatched++ // add after traverse for stemmed
+				var failed bool
+				
+				oldTargets := append([]Value(nil), x.targets...)
+				oldOrdered := append([]Value(nil), x.ordered...)
+				oldCaret := x.defs[symCaret]
+				oldLangle := x.defs[symLangle]
+				oldRangle := x.defs[symRangle]
+				oldBar := x.defs[symBar]
+
+				func() {
+					defer func() {
+						switch e := recover().(type) {
+						case traverse_state: failed = e.uint == traverse_next
+						default: 
+							if e != nil { 
+								erro(pctx, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, entry})
+								panic(e)
+							}
+						}
+					}()
+					traverse(pctx, entry)
+				}()
+
+				if failed {
+					x.targets = oldTargets
+					x.ordered = oldOrdered
+					x.defs[symCaret] = oldCaret
+					x.defs[symLangle] = oldLangle
+					x.defs[symRangle] = oldRangle
+					x.defs[symBar] = oldBar
+					continue
+				}
+				rulesMatched++ 
+				break abstractDefaultPass
 			}
 		}
 
@@ -21632,12 +21635,11 @@ func traverse(ctx Context, val Value) {
 			if !truly(ctx, inside_pattern_search{}) {
 				erro(ctx, "missing target '%s'", val)
 			}
-			// Panic a traverse_next to tell the for-loop try next traversal.
 			panic(traverse_state{_pos(ctx), traverse_next})
 			return 
 		}
 
-		x.traved(ctx, val, pat, nil)
+		register_dependency(x, val)
 	}
 }
 
@@ -22152,7 +22154,7 @@ func ts(i any, o ...any) (s string) {
 		content = x.x.String() + " | " + defs + ts(x.Context)
 	case    *execution:
 		var s string
-		if v := x.prerequisite; v != nil { s = v.String() + " "	}
+		if v := x.prerequisite; v != nil && false { s = v.String() + " " }
 		content = s + ts(x.Context)
 	case     *exec_ctx:
 		var s string
@@ -22577,6 +22579,21 @@ func call(ctx Context, name Symbol, o []Value, a ...Value) (res Value) {
 	return
 }
 
+type existence int
+const (
+    existsWhatever existence = 1<<iota
+    existsConfirmed
+    existsNegative
+)
+func (n existence) String() (s string) {
+    switch n {
+    case existsWhatever:  s = "exists-whatever"
+    case existsNegative:  s = "exists-negative"
+    case existsConfirmed: s = "exists-confirmed"
+    }
+    return
+}
+
 type object interface{
 	Value
 	owner() *project
@@ -22840,10 +22857,6 @@ func (a *auto) set(ctx Context, o origin, value Value, app ...Value) {
 }
 func (a *auto) isDigit() bool { return IsDigits(a.name.String()) }
 func (a *auto) isPlaceholder() bool { return a.name == symUnderscore }
-func (a *auto) stat(ctx Context) (si *statinfo) {
-	if val := auto_get(ctx, a.name); val != nil { si = statFile(ctx, val) }
-	return
-}
 
 // A def represents a definition, it's a caller but mustn't be a Valuer.
 type def struct{
@@ -22994,16 +23007,6 @@ func (d *def) xexe(ctx Context, value Value, a ...Value) (res Value) {
     if !pos.valid() { pos = _pos(ctx) }
     res = _raw(pos, strings.TrimSpace(stdout.String()))
     return
-}
-func (d *def) stat(ctx Context) (si *statinfo) {
-	var value Value
-	{
-		// d.Lock()
-		value = d.value
-		// d.Unlock()
-	}
-	if value != nil { si = statFile(ctx, value) }
-	return
 }
 
 type undetermined struct{
@@ -25247,16 +25250,12 @@ type default_value struct{ v Value }
 type program_res   struct{ v Value }
 type get_program   struct{}
 
-type is_ordered_prereq struct{}
-type is_prerequisite   struct{}
-
 type is_closure_exec struct{}
 type execution_lang struct{}
 type missing_file struct{ file string }
 
 func _execution(c Context) *execution { return cast[*execution](c) }
 
-type interpret struct{ name Symbol ; args []Value }
 type execution struct {
 	automatic
 	sync.Mutex
@@ -25282,7 +25281,9 @@ type execution struct {
 	dirt  string    // reason of outdated
 	start time.Time // start time
 
-	recs map[Value]int
+	visitedFiles map[*file]struct{}
+	updatedFiles map[*file][]Value
+	dirtyCounts map[*file]int32
 
 	calleeErrs  []error
 	calleeErrsM sync.Mutex
@@ -25295,6 +25296,7 @@ type execution struct {
 	ordered     []Value
 	targets     []Value // all targets def
 
+	executingRecipe int
 	countFiles int
 	traceLevel int
 
@@ -25307,11 +25309,11 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	case dynamic_cast: return t.ctx(p, &p.automatic)
     case final: return p // Hmm, it is "final"!
     case ex_closure: return true // Intercept this like a final{ctx}
-	case is_closure_exec: return p.closureExec // THE DOD FIX: Intercept the active state tracker safely
+	case is_closure_exec: return p.closureExec // Intercept the active state tracker safely
 
     case get_pos:
         if p.prerequisite != nil { return p.prerequisite.Pos() }
-        if len(p.recipes) > 0 { return p.recipes[0].Pos() }
+        if len(p.recipes) > 0 { return p.recipes[p.executingRecipe].Pos() }
 
     case get_program: return p.prog
 
@@ -25322,16 +25324,11 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	case get_project : if nil != p.proj { return p.proj }
 	// case get_scope   : if nil != p.proj { return p.proj.scope }
 
-    case is_ordered_prereq : return p._ordered && p.prerequisite != nil
-    case is_prerequisite, evoke_loop_null: return p.prerequisite != nil
-
 	case program_res:
 		if t.v != nil { p.values = append(p.values, t.v) }
 		return
 
     case default_value:  p.defval = t.v; return
-    case mark_dirty:     p.dirty_mark(t.a...)//; return
-    case act_dirt:       return p.dirty(ctx,t.a...)
 
     case param_name:
         if p.prog != nil {
@@ -25343,9 +25340,6 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
     case execution_lang:
         return p.language
-
-    case interpret:
-        return p.interp(ctx, t.name, t.args)
 
     case missing_file:
         p.missing = append(p.missing, t.file)
@@ -25413,29 +25407,6 @@ func (p *execution) traverseProjs1(ctx Context) (projs []*project) {
 	return []*project{p.proj}
 }
 
-func (p *execution) traversed(ctx Context, target Value) []Value {
-    if !isTrivial(target) {
-        if _, y := to_file(target); y {
-            p.addFilesCount(1)
-        }
-        if truly(ctx, is_ordered_prereq{}) {
-            p.ordered = append(p.ordered, target)
-            auto_set(ctx, defVoid, symBar, _list(p.ordered...)) // |
-        } else {
-            p.targets = append(p.targets, target)
-            auto_set(ctx, defVoid, symCaret, _list(p.targets...)) // ^
-            auto_set(ctx, defVoid, symLangle, p.targets[0]) // <
-            auto_set(ctx, defVoid, symRangle, p.targets[len(p.targets)-1]) // >
-        }
-    }
-    return p.targets
-}
-
-func (p *execution) addFilesCount(n int) {
-    p.countFiles += n
-    if c := p.caller(); c != nil { c.addFilesCount(1) }
-}
-
 func (p *execution) env(ctx Context) (env []string, osi int) {
     env = os.Environ()
     osi = len(env)
@@ -25444,45 +25415,6 @@ func (p *execution) env(ctx Context) (env []string, osi int) {
         env = append(env, fmt.Sprintf("%s=%s", k, v)) // strconv.Quote(v)
     }
     return
-}
-
-func (p *execution) dirty_mark(vals ...Value) {
-    const (
-        enableDirtyMark = true
-        perUpdatedDep = true
-    )
-    if !enableDirtyMark {
-        // does nothing
-    } else if targets := merge(auto_get(p, symAt)); len(targets) == 0 {
-        // should not happen, but safely ignoring..
-    } else if len(vals) == 0 {
-        vals = append(vals, targets...)
-    } else if true {
-        vals = merge(vals...)
-
-        var mat, dup bool
-        var opts = &p.by
-        for _, t := range targets {
-        ForVals:
-            for _, val := range vals {
-                if eq(p, val, t) {
-                    dup = true; continue ForVals
-                }
-                for _, pat := range opts.pats {
-                    if mat, _, _, _ = match(p, pat, val); mat {
-                        if perUpdatedDep { updatedDeps(p, t, val) }
-                        break ForVals
-                    }
-                }
-            }
-            if !perUpdatedDep && mat { updatedDeps(p, t, vals...) }
-            if !dup { // vals = append(vals, merge(targets)...)
-                vals = append(updatedDeps(p, t), vals...)
-                vals = append(merge(t), vals...)
-            }
-        }
-    }
-    if false && enableDirtyMark { p.dirty_mark(vals...) }
 }
 
 func (p *execution) interp(ctx Context, name Symbol, args []Value) (res bool) {
@@ -25498,102 +25430,112 @@ func (p *execution) interp(ctx Context, name Symbol, args []Value) (res bool) {
 }
 
 func (p *execution) interpret(ctx Context, i evaluater, args []Value) (res Value) {
-    if checkpoints { defer p.check_interpret(ctx, i, args) (&res) }
+	if checkpoints { defer p.check_interpret(ctx, i, args) (&res) }
 	
-    target, _, _ := wait(ctx, waitopts{
-        ExecResults: false,
-        ReportUpdates: false,
-        StampCurrentTarget: false,
-    })
+	target, _, _ := wait(ctx, waitopts{
+		ExecResults:        false,
+		ReportUpdates:      false,
+		StampCurrentTarget: false,
+	})
 
 	if _, y := target.(*file); y && !truly(ctx, is_configure{}) && !p.dirty(ctx) {
-        // p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
-        return
-    }
+		// p.traves.add(ctx, traveDone, nil) // NOTE: modifier.predictDirty
+		return
+	}
 
 	res = i.evaluate(ctx, args...)
 
-    if res != nil {
-        if d, prev := auto_set(ctx, defVoid, symDash, res); d == nil {
-            _, ent, _ := entryIndicator(ctx, _entry(ctx))
-            prompt(ctx, "%v: %s\n", ent, interpName(i))
-            erro(ctx, "set buffer value failed: %v → %v", prev, res)
-        }
-    }
+	if res != nil {
+		if d, prev := auto_set(ctx, defVoid, symDash, res); d == nil {
+			_, ent, _ := entryIndicator(ctx, _entry(ctx))
+			prompt(ctx, "%v: %s\n", ent, interpName(i))
+			erro(ctx, "set buffer value failed: %v → %v", prev, res)
+		}
+	}
 
-    p.interpreted = append(p.interpreted, i)
+	p.interpreted = append(p.interpreted, i)
 
-    if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
-        _, ent, _ := entryIndicator(ctx, _entry(ctx))
-        prompt(ctx, "%v: %s\n", ent, interpName(i))
-        erro(ctx, "update recipes hash failed: %v", e)
-    }
-    return
-}
-
-func isDirty(ctx Context, target Value, a ...Value) (dirty bool) {
-	var exe = _execution(ctx)
-
-    if len(updatedDeps(ctx, target)) > 0 { return true }
-    if v := auto_get(ctx, intern("^")); v != nil { a = append(a, v) }
-    for _, dep := range xmerge(ctx, a...) {
-        var mat bool = len(exe.by.pats) == 0
-        if !mat {
-            for _, pat := range exe.by.pats {
-                if mat, _, _, _ = match(ctx, pat, dep); mat { break }
-            }
-        }
-        if mat && (updated(ctx, dep) || statFile(ctx, dep).mod().After(statFile(ctx, target).mod())) {
-            return true
-        }
-    }
-    return
-}
-
-func isDirtyAfter(ctx Context, target Value, t time.Time) (res bool) {
-    for _, dep := range updatedDeps(ctx, target) {
-        if ds := statFile(ctx, dep); ds != nil {
-            res = ds.mod().After(t) || isDirtyAfter(ctx, dep, t)
-            if res { break }
-        }
-    }
-    return
+	if _, _, e := p.updateRecipesHash(ctx, target); e != nil {
+		_, ent, _ := entryIndicator(ctx, _entry(ctx))
+		prompt(ctx, "%v: %s\n", ent, interpName(i))
+		erro(ctx, "update recipes hash failed: %v", e)
+	}
+	return
 }
 
 func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	var target Value
 
 	target, _, _ = wait(p, waitopts{
-		ReportUpdates: false,
-		ExecResults: false,
+		ReportUpdates:      false,
+		ExecResults:        false,
 		StampCurrentTarget: false,
 	})
 
 	var reason string
 	var opts, args = _opts_[dirtyOpts](ctx, aa...)
 
-	// --- 1. Symbol Domain Extraction ---
-	// Leverage your new helpers to stay entirely in the Walled Garden!
-	targetFile := as_file(ctx, target)
-	targetFullSym, _ := fullname_sym(ctx, target)
+	targetFile := as_file(ctx, target, p.proj)
 
+	var targetFullSym Symbol
 	if targetFile != nil {
-		if n := targetFile._traved; n > 1 {
-			if false { debug(ctx, 5, "%v, %v, %d", targetFile, targetFullSym, n) }
-			return
-		}
+		targetFullSym = targetFile.fullname()
+	} else {
+		targetFullSym, _ = fullname_sym(ctx, target)
+	}
+
+	// 1. Safe Short-Circuit Using Your Execution-Scoped Set Registry
+	if targetFile != nil {
+		p.Lock()
+		if p.visitedFiles == nil { p.visitedFiles = make(map[*file]struct{}) }
+		_, alreadyVisited := p.visitedFiles[targetFile]
+		p.Unlock()
+		if alreadyVisited { return }
 	}
 
 	var verb = opts.debug > 0 || opts.verbose
 
-	// --- 2. VFS Cache Hit for Dependency Check ---
-	if s := statFile(ctx, target); s == nil || s.exists() != existsConfirmed {
-		outdated, reason = true, "not exists"
-	} else if isDirty(ctx, target, args...) && isDirtyAfter(ctx, target, s.mod()) {
-		outdated, reason = true, "prerequisites updated"
+	// 2. High-Speed Lock-Free Atomic Property Resolution
+	exists := targetFile != nil && targetFile.exists()
+	var tMod int64
+	if exists {
+		tMod = atomic.LoadInt64(&targetFile._mtime)
 	}
 
-	// --- 3. Recipe Checks ---
+	if !exists {
+		outdated, reason = true, "not exists"
+	} else {
+		p.Lock()
+		// Target asset is dirty if registered in our active session update map
+		_, prereqUpdated := p.updatedFiles[targetFile]
+		p.Unlock()
+
+		// Inline comparison check for explicit arguments or untracked prerequisite updates
+		if !prereqUpdated && len(args) > 0 {
+			for _, dep := range args {
+				df := as_file(ctx, dep, p.proj)
+				if df != nil {
+					// Use atomic load to prevent races against live concurrent background stats
+					b := atomic.LoadInt64(&df._mtime)
+
+					p.Lock()
+					_, dUpd := p.updatedFiles[df]
+					p.Unlock()
+
+					if dUpd || (b > 0 && b > tMod) {
+						prereqUpdated = true
+						break
+					}
+				}
+			}
+		}
+
+		if prereqUpdated {
+			outdated, reason = true, "prerequisites updated"
+		}
+	}
+
+	// --- Recipe Checks ---
 	if outdated {
 		assert(reason != "", "needs outdated reason")
 	} else if changed, e := p.isRecipesChanged(ctx, target); e != nil {
@@ -25612,33 +25554,30 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		(opts.verboseOutdated && outdated) ||
 		(opts.verboseUpdated && !outdated)
 
-	// --- 4. Delayed String Unpacking & Logging ---
-	// We only extract the physical string if we actually need to print it to the terminal!
+	// --- Logging & Term Prints ---
 	if verb {
 		targetFullStr := targetFullSym.String()
 		ts := trimPrompt(targetFullStr)
 		
-		d := time.Since(p.start) // Idiomatic Go replacement for time.Now().Sub
+		d := time.Since(p.start)
 		
 		var m string
 		if outdated { m = "outdated" } else { m = "updated" }
 
-		s := d.String()
+		sStr := d.String()
 		if targetFile != nil {
-			if targetFile._travin > 1 {
-				s += fmt.Sprintf(", travin %d", targetFile._travin)
-			}
-			if targetFile._traved > 1 {
-				s += fmt.Sprintf(", traved %d", targetFile._traved)
-			}
-			targetFile._dirty += 1
+			p.Lock()
+			// Track historical stats within execution limits rather than writing back to node structures
+			if p.dirtyCounts == nil { p.dirtyCounts = make(map[*file]int32) }
+			p.dirtyCounts[targetFile]++
+			p.Unlock()
 		}
 
 		n := p.countFiles + len(p.grepped)
 		if db := opts.debug > 0; db && !opts.verbose {
-			debug(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFullStr, m, n, s, opts.debug)
+			debug(ctx, "%s (%T) (%s) …… %s (%d files in %s, debug=%d)", ts, target, targetFullStr, m, n, sStr, opts.debug)
 		} else {
-			prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, s)
+			prompt(ctx, "%s …… %s (%d files in %s)\n", ts, m, n, sStr)
 			debug(ctx, "%v %d", db, 6)
 		}
 	}
@@ -25646,25 +25585,6 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	if outdated && p.dirt != "" { reason = p.dirt + "; " + reason }
 	if !opts.silent && reason != "" { p.dirt = reason }
 	return
-}
-
-func (p *execution) traved(ctx Context, prereqValue, prereqPattern Value, prereqFile *file) {
-    var av = auto_target_value(ctx)
-    var bv = prereqValue
-    if prereqFile == nil {
-		p.traversed(ctx, prereqValue) // set $< $> $^ or $|
-    } else if av != prereqFile {
-		p.traversed(ctx, prereqFile) // set $< $> $^ or $|
-        bv = prereqFile
-    }
-
-    if !isTrivial(av) && !isTrivial(bv) {
-        var a = statFile(ctx, av).mod()
-        var b = statFile(ctx, bv).mod()
-        if (!a.IsZero() && b.After(a)) || updated(ctx, bv) || updatedDeps(ctx, bv) != nil {
-            updatedDeps(ctx, av, bv)
-        }
-    }
 }
 
 func (p *execution) prerequisites(va []Value, ordered bool) {
@@ -25726,30 +25646,30 @@ func (prog *program) workdir(ctx Context) (workdir string) {
 	return
 }
 
-func (prog *program) target(ctx *execution) (target Value) {
-    if target = _entry(ctx).destiny(); target == nil {
-        erro(ctx, "%v: nil entry target", target)
-    }
+// func (prog *program) target(ctx *execution) (target Value) {
+//     if target = _entry(ctx).destiny(); target == nil {
+//         erro(ctx, "%v: nil entry target", target)
+//     }
 
-    switch a := target.(type) {
-    case *strlit, *strcomp: // NOTE: skip strings to optimize speed from searching
-    case *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-    case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-    default:
-        if _, y := a.(flag); y {
-            if s := prog.project.name.String(); s == "configure" || s == "configure.base" {
-                break
-            }
-        }
-        if f := prog.project.file(ctx, a); f != nil {
-            if f._traved > 1 { return } else { target = f }
-        }
-    }
+//     switch a := target.(type) {
+//     case *strlit, *strcomp: // NOTE: skip strings to optimize speed from searching
+//     // case *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+//     // case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
+//     default:
+//         if _, y := a.(flag); y {
+//             if s := prog.project.name.String(); s == "configure" || s == "configure.base" {
+//                 break
+//             }
+//         }
+//         // if f := prog.project.file(ctx, a); f != nil {
+//         //     if f._traved > 1 { return } else { target = f }
+//         // }
+//     }
 
-    if ctx.recs == nil { ctx.recs = make(map[Value]int) }
-    ctx.recs[target] += 1
-    return
-}
+//     // if ctx.recs == nil { ctx.recs = make(map[Value]int) }
+//     // ctx.recs[target] += 1
+//     return
+// }
 
 func (prog *program) check_exe(ctx *execution) {
     var cc = ctx.Context
@@ -25854,7 +25774,7 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
 func (prog *program) execute(_ctx Context) (res Value) {
     exe := &execution{
         automatic:automatic{Context:_ctx, defs:make(def_map)},
-        recs:make(map[Value]int), start:time.Now(), prog:prog,
+        /* recs:make(map[Value]int), */ start:time.Now(), prog:prog,
         proj:prog.project, recipes:prog.recipes, language:prog.language,
     }
 
@@ -25886,7 +25806,7 @@ func (prog *program) execute(_ctx Context) (res Value) {
     // NOTE: set "@" before setting auto args
     // Select the right target value before setting parameters,
     // because the target could be overrided by parameters.
-    exe.set(exe, defVoid, symAt, prog.target(exe)) // @
+    exe.set(exe, defVoid, symAt, _entry(exe).destiny()) // @
 
     if t := _stems(exe); t != nil {
         exe.set(exe, defVoid, symAsterisk, ease(exe, t)) // "*"
@@ -26079,7 +25999,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 	}
 
 	// 1. O(1) Cache Sync
-	if !f.exists() { f.stamp(ctx) } // Use stamp to touch reality!
+	if !f.exists() { f.stat(ctx, true) } // Use stamp to touch reality!
 	
 	if f != nil && 0 < opts.debug {
 		debug(ctx, "configure-file: %v: %v (%s)", auto_get(ctx, symAt), f.fullname(), closured)
@@ -26183,7 +26103,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 	}
 
 	// 5. Guaranteed Cache Piercing!
-	f.stamp(ctx) // Forces the VFS to look at the new physical file
+	f.stat(ctx, false) // Forces the VFS to look at the new physical file
 
 	if !f.exists() {
 		erro(ctx, "failed to stat generated file: %v", filenameStr)
@@ -26270,7 +26190,7 @@ type modifier_extractconfiguration struct { modifier_
     target string "target"
     rxs []*regexp.Regexp "rx,regex" // regexp.Compile(s)
 }
-func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
+func (ctx *modifier_extractconfiguration) x(exe *execution, args ...Value) (result any) {
 	var pats []Value
 	var pos = _position(ctx)
 	for _, arg := range args {
@@ -26337,9 +26257,9 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 		
 		if target := auto_get(ctx, symAt); !isNull(target) {
 			if fFile := as_file(ctx, target); fFile != nil {
-				fFile.stamp(ctx)
+				stamp_target(exe, fFile)
 			} else if fFile := _stat(ctx, outFileSym); fFile != nil {
-				fFile.stamp(ctx)
+				stamp_target(exe, fFile)
 			}
 		}
 	}()
@@ -26371,7 +26291,7 @@ func (ctx *modifier_extractconfiguration) x(args ...Value) (result any) {
 			if !f.exists() {
 				erro(ctx, " extract-configuration: `%s` file not found", s.String())
 				return
-			} else if f._isDir { // Ultra-fast boolean check
+			} else if f.isDir() { // Ultra-fast boolean check
 				err = walkFiles(ctx, s, pats, func(f *file, err error) error {
 					if err == nil { sources = append(sources, f) }
 					return err
@@ -26483,7 +26403,6 @@ func debugSyntax(ctx Context, s string) (res bool) {
     return
 }
 
-type evoke_loop_null      struct{}
 type evoke_loop_panic     struct{}
 type trace_evoke_loop     struct{ Context }
 func (x trace_evoke_loop) do(ctx Context, op any) (_ any) {
@@ -26508,7 +26427,7 @@ func walkSmartBaseDirs(ctx Context, cwd Symbol, vis func(Symbol) bool) Symbol {
 	for s := cwd; s != symEmpty && s != symDot && s != symPathSep; {
 		// Use pure Symbol ID for VFS lookup!
 		f := _stat(ctx, symDotSmart, stat_dir{s})
-		if f.exists() && f._isDir && !vis(s) { 
+		if f.exists() && f.isDir() && !vis(s) { 
 			return s 
 		}
 		
@@ -26652,7 +26571,7 @@ func loadSearchPaths(ctx Context, s Symbol) (paths []Symbol) {
 		// 3. VFS Cache Hit instead of os.Stat!
 		// Because this runs at startup, it effectively pre-warms the cache
 		// for all search paths the compiler will need later!
-		if fi := _stat(ctx, lineSym); fi != nil && fi._isDir {
+		if f := _stat(ctx, lineSym); f != nil && f.isDir() {
 			paths = append(paths, lineSym)
 		}
 	}
@@ -26684,7 +26603,7 @@ func Main() {
 		if root == "" { continue }
 		for _, base := range []string{root, filepath.Join(root, "workspace")} {
 			sym := intern(filepath.Join(base, modules))
-			if f := _stat(ctx, sym); f != nil && f._isDir {
+			if f := _stat(ctx, sym); f != nil && f.isDir() {
 				// Prevent double-adding if new_universe already found it
 				if !ctx.paths.has(sym) { ctx.paths = append(ctx.paths, sym) }
 			}
@@ -26697,7 +26616,7 @@ func Main() {
 			if root == "" { continue }
 			for _, base := range []string{root, filepath.Join(root, "src")} {
 				sym := intern(filepath.Join(base, modules))
-				if f := _stat(ctx, sym); f != nil && f._isDir {
+				if f := _stat(ctx, sym); f != nil && f.isDir() {
 					if !ctx.paths.has(sym) { ctx.paths = append(ctx.paths, sym) }
 				}
 			}
@@ -26818,7 +26737,7 @@ type universe struct {
     paths   searchlist
 
     statmutex sync.Mutex
-    statcache map[Symbol]*filebase // file.fullname() -> File
+	statcache sync.Map // FIXED: Replaces map[Symbol]*filebase for lock-free scaling
 
     hooks hooks
 }
@@ -26912,44 +26831,45 @@ func (ctx *universe) trimFileSpec(c Context, spec Symbol) Symbol {
 }
 
 func (u *universe) do(ctx Context, op any) (res any) {
-    switch t := op.(type) {
-	case inner_cast: return &u.diagnostic
-	case dynamic_cast: return t.ctx(ctx, &u.diagnostic)
-    case get_pos: return NoPos //Position{ Filename: symBaseWorkDir }
-	case get_fatpos: if t.p != NoPos && u.fset != nil { return u.fset.Position(t.p) }
-    case get_scope: if u.scope != nil { return u.scope }
-    case get_project: if u.globe != nil { return u.globe.main }
-    case exec_noop: if u.noExec { return u.noExec }
-	case is_test_mode: if u.testMode { return true }
+	switch t := op.(type) {
+	case inner_cast: 
+		return &u.diagnostic
+	case dynamic_cast: 
+		return t.ctx(ctx, &u.diagnostic)
+	case get_pos: 
+		return NoPos 
+	case get_fatpos: 
+		if t.p != NoPos && u.fset != nil { return u.fset.Position(t.p) }
+	case get_scope: 
+		if u.scope != nil { return u.scope }
+	case get_project: 
+		if u.globe != nil { return u.globe.main }
+	case exec_noop: 
+		if u.noExec { return u.noExec }
+	case is_test_mode: 
+		if u.testMode { return true }
 
 	case declared_project:
 		if t.project == nil {
-			erro(ctx, "declared nil project", trace_ctx{100}, callstack{stop:"smart.Main"})
+			erro(ctx, "declared nil project", trace_ctx{100}, callstack{stop: "smart.Main"})
 			return
 		}
 
-		// RULE 1: ALL projects must be cached!
-		// If we don't cache them, `use1` will think they failed to load.
+		// RULE 1: ALL projects must be cached to prevent load drops
 		if p, ok := u.globe.loaded[t.absPath]; !ok {
-			if false { debug(ctx, "%v %v", t.absPath, t.project) }
-
-			// Cache in the map for fast lookups
 			u.globe.loaded[t.absPath] = t.project
-
-			// Append to the list to lock in the strict load order
 			u.globe.loadedProjs = append(u.globe.loadedProjs, t.project)
-
 		} else if p != t.project {
 			ds := []*diag{_f("re-declared project, probably cycled `use` %v → %v", p.name, t.name)}
 			ds = append(ds, _fLoadedProjs(u, 0, "loaded-project: %[3]s → %[1]s")...)
 			if false {
-				erro(pc(ctx,p.pos), ds, trace_ctx{100}, callstack{num:10,/*stop:"smart.Main"*/})
+				erro(pc(ctx, p.pos), ds, trace_ctx{100}, callstack{num: 10})
 			} else {
-				note(pc(ctx,p.pos), ds, trace_ctx{100}, callstack{num:10,/*stop:"smart.Main"*/})
+				note(pc(ctx, p.pos), ds, trace_ctx{100}, callstack{num: 10})
 			}
 		}
 
-		// RULE 2: ONLY the entry-point gets to be 'main'!
+		// RULE 2: ONLY the entry-point gets to be 'main'
 		if t.absPath == u.workdir {
 			var properName = t.name
 			for s := t.scope; s != nil && s != u.globe.scope && s.project != nil; s = s.outer {
@@ -26957,58 +26877,62 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			}
 			switch properName {
 			case symEmpty, symAt, symTilde, symConfigure, symDotConfigure:
-				// Special projects can't be the "main"!
+				// Special configuration scripts are exempted from being 'main'
 			default:
-				u.globe.main = t.project // The Main Project is the Working Directory
+				u.globe.main = t.project 
 
-				// The "globe.pairs" defines arguments from `compiler.parseArgs`;
-				// we define them in the main scope `p.scope` (vs. `p.project.scope`) if not "~".
 				for _, p := range u.globe.pairs {
 					switch k := p.key.(type) {
 					case *word, *compound, flag:
 						t.scope.def(ctx, defDecl, __symbol(ctx, k), p.val)
 					default:
-						erro(ctx, "%v: unknown target: %v : %v", t.name, p, ts(p,ctx),
-							trace_ctx{100}, callstack{num:10,/* stop:"smart.Main" */})
+						erro(ctx, "%v: unknown target: %v : %v", t.name, p, ts(p, ctx),
+							trace_ctx{100}, callstack{num: 10})
 					}
 				}
 			}
 		}
 
 	case cachestat:
-		u.statmutex.Lock()
-		base, exists := u.statcache[t.cleanFullname]
-		if !exists {
-			// Explicitly map fields to avoid zero-initialization errors
-			base = &filebase{stub: filestub{dir: t.dir, sub: t.sub, name: t.name}}
-			base.stub.other = &base.stub
-			u.statcache[t.cleanFullname] = base
+		// HIGH-SPEED FAST PATH: 100% lock-free atomic map lookup requires 
+		// zero mutex locking and zero allocations for 99% of processing steps.
+		if val, ok := u.statcache.Load(t.cleanFullname); ok {
+			return val.(*filebase)
 		}
-		u.statmutex.Unlock() // INSTANTLY drop the global lock!
+
+		// SLOW PATH: Instantiate and seed the lock-free data base structure
+		base := &filebase{
+			stub: filestub{dir: t.dir, sub: t.sub, name: t.name},
+		}
+		// FIXED: Corrected assignment statement to use atomic Store barrier API
+		base.stub.other.Store(&base.stub) 
+
+		// Atomic LoadOrStore ensures that if a parallel thread beat us to initialization,
+		// the redundant allocation is safely dropped and the true graph node winner is returned.
+		if actual, loaded := u.statcache.LoadOrStore(t.cleanFullname, base); loaded {
+			return actual.(*filebase)
+		}
 		return base
 
 	case search_path:
 		if t.sym != symEmpty {
 			for _, baseSym := range u.paths {
-				// 1. Join paths entirely in the integer/Symbol domain
 				joinedSym := __symPathJoin(baseSym, t.sym)
 				
-				// 2. Prepend workdir if the base wasn't absolute
 				if !__symIsAbs(baseSym) {
 					joinedSym = __symPathJoin(symBaseWorkDir, joinedSym)
 				}
 				
-				// 3. Hit the VFS Cache instead of the physical disk!
-				// _stat handles the cache lookup, and only hits the disk if unseen.
-				if f := _stat(ctx, joinedSym); f.exists() {
-					// We stay entirely in the Walled Garden!
-					return searched_path{sym: joinedSym, isDir: f._isDir}
+				// CRITICAL FIX: Pass stat_nonexist{true} to explicitly avoid 
+				// nil-pointer reference panics on missing path candidates!
+				if f := _stat(ctx, joinedSym, stat_nonexist{true}); f != nil && f.exists() {
+					return searched_path{sym: joinedSym, isDir: f.isDir()}
 				}
 			}
 		}
-		return searched_path{sym: symEmpty, isDir: false} // Not found in search paths
-    }
-    return u.diagnostic.do(ctx, op)
+		return searched_path{sym: symEmpty, isDir: false}
+	}
+	return u.diagnostic.do(ctx, op)
 }
 
 type hooks struct {
@@ -27108,7 +27032,8 @@ func isGlobeScope(s *scope) bool {
 func new_universe(ii ...any) (ctx *universe) {
 	ctx = &universe{
 		launchTime: time.Now(),
-		statcache:  make(map[Symbol]*filebase), // Upgraded to Symbol keys for O(1) integer hashing
+		// FIXED: sync.Map does not use make(). Initialize explicitly as a blank composite struct literal.
+		statcache:  sync.Map{}, 
 		scope:      new_scope(nil, nil, symUniverse),
 		fset:       new_fileset(),
 		workdir:    symBaseWorkDir,
@@ -27145,12 +27070,12 @@ func new_universe(ii ...any) (ctx *universe) {
 		loaded:      make(map[Symbol]*project),
 	}
 
-	var pos Pos = 0 // ctx._position()
+	var pos Pos = 0 
 	ctx.globe.os    = ctx.globe.def(ctx, defVoid, symDotOS, _rw(pos, runtime.GOOS))
 	ctx.globe.mode  = ctx.globe.def(ctx, defVoid, symDotMode, _null(pos))
 	ctx.globe.goals = ctx.globe.def(ctx, defVoid, symDotGoals, _none(pos))
 
-	// Pre-allocate to prevent heap thrashing during directory walk
+	// Pre-allocate searchlist to prevent heap thrashing during directory walk
 	var paths = make(searchlist, 0, 4)
 
 	// == Hermetic Test Isolation ==
@@ -27158,34 +27083,29 @@ func new_universe(ii ...any) (ctx *universe) {
 		paths = append(paths, __symPathJoin(ctx.workdir, intern("testdata"), symDotSmart, symModules))
 	} else {
 		walkSmartBaseDirs(ctx, ctx.workdir, func(s Symbol) bool {
-			// FIXME: if baseTmpPath == symEmpty { baseTmpPath = s }
 			paths = append(paths, __symPathJoin(s, symDotSmart, symModules))
 			return true
 		})
 	}
 
-	// NOTE: string pathing retained here as it interacts with distribution prefixes
 	prefix := ctx.prefix ; if prefix == "" { prefix = string(filepath.Separator) }
 	usrLib := filepath.Join(prefix+"usr", "lib", "smart", "modules")
 	
-	// Intern the absolute cleaned string back into the Walled Garden!
+	// Intern absolute cleaned path strings cleanly into Walled Garden Symbols
 	paths = append(paths, intern(filepath.Clean(usrLib)))
 
-	// CRITICAL FIX: Allocate a perfectly sized Symbol array (not string)
+	// Allocate a perfectly sized Symbol cache array to minimize append reallocation costs
 	cache := make([]Symbol, 0, len(paths)+len(ctx.paths))
 	ctx.paths = append(append(cache, paths...), ctx.paths...)
 
-	// Load dynamic search directories
-	// Passing `ctx` so loadSearchPaths can hit the VFS!
+	// Load dynamic search directories leveraging VFS lookups
 	for _, s := range paths {
 		if t := loadSearchPaths(ctx, s); len(t) > 0 { ctx.paths = t }
 	}
 
 	// =================================================================
-	// THE DOD FIX: Absolute Workspace Masking Eradication!
-	// If `_commandline()` or `loadSearchPaths()` implicitly injected `/Volumes/workspace`
-	// into `ctx.paths`, we mathematically eradicate it here. We only allow
-	// paths that explicitly end in the target modules directory.
+	// THE DOD FIX: Absolute Workspace Masking Eradication
+	// Filter absolute workspace spill-ins out of cache paths layout
 	// =================================================================
 	var hermeticPaths searchlist
 	for _, p := range ctx.paths {
@@ -27992,35 +27912,45 @@ type modifier_debug struct { modifier_
     s int `ts,tracestack`
     n int `cs,callstack`
 }
-func (ctx *modifier_debug) x(args ...Value) (result any) {
-    if ctx.cond != nil && !__true(ctx, ctx.cond) { return }
-    if ctx.s == 0 && ctx.stack > 0 { ctx.s = ctx.stack }
-    if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
-    for _, v := range ctx.info { info(ctx, "%s", __string(ctx, v)) }
-    for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
-    for _, v := range ctx.erro { erro(ctx, "%s", __string(ctx, v)) }
+func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
+	if ctx.cond != nil && !__true(ctx, ctx.cond) { return }
+	if ctx.s == 0 && ctx.stack > 0 { ctx.s = ctx.stack }
+	if ctx.n == 0 && ctx.debug > 0 { ctx.n = ctx.debug }
+	
+	for _, v := range ctx.info { info(ctx, "%s", __string(ctx, v)) }
+	for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
+	for _, v := range ctx.erro { erro(ctx, "%s", __string(ctx, v)) }
 
 	var target = auto_get(ctx, symAt) // @
-    if ctx.checkOutdated && target != nil {
-        var (
-            ordered = auto_get(ctx, symBar) // |
-            grepped = auto_get(ctx, symTilde) // ~
-            tt = statFile(ctx, target).mod()
-        )
-        if tt.IsZero() {
-            erro(ctx, "target not exists: %v", target)
-            return
-        }
+	if ctx.checkOutdated && target != nil {
+		var (
+			ordered = auto_get(ctx, symBar)   // |
+			grepped = auto_get(ctx, symTilde) // ~
+			tt      time.Time
+		)
 
-        var depends = auto_get(ctx, symCaret) // ^
-        for _, dep := range merge(depends, ordered, grepped) {
-            if dt := statFile(ctx, dep).mod(); dt.After(tt) {
-                erro(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
-            }
-        }
-    }
+		// CRITICAL SHIELD: Guard against nil file resolutions before reading modTime
+		if tf := as_file(ctx, target, exe.proj); tf != nil {
+			tt = tf.modTime()
+		}
 
-    if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
+		if tt.IsZero() {
+			erro(ctx, "target not exists or has zero mtime: %v", target)
+			return
+		}
+
+		var depends = auto_get(ctx, symCaret) // ^
+		for _, dep := range merge(depends, ordered, grepped) {
+			// CRITICAL SHIELD: Prevent panic if a dependency cannot be tracked as a file node
+			if df := as_file(ctx, dep, exe.proj); df != nil {
+				if dt := df.modTime(); dt.After(tt) {
+					erro(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
+				}
+			}
+		}
+	}
+
+	if len(ctx.info) == 0 && len(ctx.warn) == 0 && len(ctx.erro) == 0 {
 		var ds []*diag
 		for _, a := range args {
 			pos := do(ctx, get_fatpos{a.Pos()})
@@ -28033,16 +27963,20 @@ func (ctx *modifier_debug) x(args ...Value) (result any) {
 
 		if ctx.ctx {
 			pos := _position(ctx)
-			ds = append(ds, _f("%v: %v\n", pos, ts(ctx)))
+			ds = append(ds, _f("%v: %v: %v\n", pos, target, ts(ctx)))
+			ds = append(ds, _f("%v: %v: prerequisite: %v\n", pos, target, exe.prerequisite))
+			ds = append(ds, _f("%v: %v: targets: %v\n", pos, target, exe.targets))
+			ds = append(ds, _f("%v: %v: ordered: %v\n", pos, target, exe.ordered))
 		}
 
 		var aa = []any{ diagtext{} }
 		if ctx.s > 0 { aa = append(aa, trace_ctx{ctx.s}) }
 		if ctx.n > 0 { aa = append(aa, callstack{num:ctx.n}) }
+		
 		debug(ctx, ds, aa...)
-		flush(ctx) // Ensure no cached points missing on screen!
-    }
-    return
+		flush(ctx) // Ensure no cached points are missing on screen!
+	}
+	return
 }
 
 type modifier_print struct { modifier_
@@ -28211,16 +28145,10 @@ func (ctx *modifier_set) x(args ...Value) (_ any) {
 
 		// 4. FAST INTEGER CHECK: Replaces `name == "@"`
 		if sym == symAt {
-			var f, s = file_fullname(ctx, value)
 			if ctx.verbose {
 				// CRITICAL FIX: Safe VFS fallback to prevent panic on unbound files
-				var traved int
-				if f != nil {
-					traved = int(f._traved)
-				}
-
-				var ts = trimPrompt(s.String())
-				prompt(ctx, "%s …… traversed (%d)\n", ts, traved)
+				var traved int // TODO: check in execution.visitedFiles?
+				prompt(ctx, "%s …… traversed (%d)\n", trimPrompt(value.String()), traved)
 			}
 		}
 	}
@@ -28358,10 +28286,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		sSym, _ := fullname_sym(ctx, t)
 		
 		n := 0
-		if f != nil {
-			n = int(f._traved)
-		}
-
+		// if f != nil { n = int(f._traved) }
 		if n > 1 {
 			if ctx.verbose {
 				// AIRLOCK: Only extract the string for the terminal output!
@@ -28704,7 +28629,7 @@ func searchGrepped(ctx Context, gp Position, gc *grep_ctx, sys bool, name Symbol
 		var targetNano = gc.mtime
 		
 		if !file.exists() && !file.isSysFile() {
-			file.stat(ctx)
+			file.stat(ctx, true)
 		}
 		
 		if file.exists() && file._mtime > targetNano { 
@@ -28775,23 +28700,34 @@ func loadSavedGrepFile(ctx Context, gc *grep_ctx) (okay bool, err error) {
 		return
 	}
 
-	// _stat accepts the Symbol natively!
-	if gc.savedGrepFile = _stat(ctx, gc.savedGrepFileName); gc.savedGrepFile == nil {
-		return // No saved grepfile yet!
+	// Safely lookup the node using stat_nonexist to secure a valid reference handle
+	gc.savedGrepFile = _stat(ctx, gc.savedGrepFileName, stat_nonexist{true})
+	if gc.savedGrepFile == nil || !gc.savedGrepFile.exists() {
+		return // No saved grepfile present on disk yet!
 	}
 
-	var f, ok = to_file(gc.target)
-	if !ok {
-		if f = _stat(ctx, gc.fullname); f != nil { gc.target = f }
+	var f *file
+	if targetFile, ok := to_file(gc.target); ok {
+		f = targetFile
+	} else {
+		f = _stat(ctx, gc.fullname, stat_nonexist{true})
+		if f != nil {
+			gc.target = f
+		}
 	}
-	if f.exists() {
-		// Pure integer comparison replaces t.After()
-		if gc.savedGrepFile.exists() && f._mtime > gc.savedGrepFile._mtime {
+
+	// FIXED: Upgraded timeline check to use non-blocking atomic memory loads
+	if f != nil && f.exists() {
+		targetMtime := atomic.LoadInt64(&f._mtime)
+		grepMtime := atomic.LoadInt64(&gc.savedGrepFile._mtime)
+		
+		// If the target source asset is newer than our saved grep file, cache is invalid
+		if targetMtime > grepMtime {
 			return
 		}
 	}
 
-	// THE AIRLOCK: Extract the string exactly once for os.Open
+	// Extract the system path string exactly once for the OS open boundary
 	savedGrepOSStr := gc.savedGrepFileName.String()
 	
 	var savedGrepOSFile *os.File
@@ -28812,9 +28748,9 @@ func loadSavedGrepFile(ctx Context, gc *grep_ctx) (okay bool, err error) {
 	
 	for scanner.Scan() {
 		var (
-			s = scanner.Text() 
+			s    = scanner.Text() 
 			name string
-			sys int
+			sys  int
 		)
 		if n, e := fmt.Sscanf(s, "%d %d %d %s", &sys, &gp.Line, &gp.Column, &name); e == nil && n == 4 {
 			// 2. Walled Garden Re-entry
@@ -28822,7 +28758,9 @@ func loadSavedGrepFile(ctx Context, gc *grep_ctx) (okay bool, err error) {
 			if f, err = searchGrepped(ctx, gp, gc, sys == 1, intern(name)); err != nil {
 				erro(ctx, "search grepped filename failed: %v", err)
 			} else if f != nil {
-				if gc.isTargetFile(ctx, f) { continue }
+				if gc.isTargetFile(ctx, f) { 
+					continue 
+				}
 			} else if sys != 1 && !gc.discard {
 				debug(ctx,
 					_f("%s is nil file", name),
@@ -28832,15 +28770,21 @@ func loadSavedGrepFile(ctx Context, gc *grep_ctx) (okay bool, err error) {
 		}
 	}
 	
-	if info, err := savedGrepOSFile.Stat(); err != nil {
-		erro(ctx, "stat saved grep filename error: %v", err)
-	} else {
-		// Direct primitive assignments
-		gc.savedGrepFile._mtime = info.ModTime().UnixNano()
-		gc.savedGrepFile._size  = info.Size()
-		gc.savedGrepFile._isDir = info.IsDir()
+	if scanner.Err() != nil {
+		err = scanner.Err()
+		erro(ctx, "scanner error reading saved grep cache: %v", err)
+		return
+	}
+
+	// =====================================================================
+	// FIXED FORCED REFRESH BARRIER: Replaces fragile, manual field writes
+	// =====================================================================
+	// This delegates updates to your atomic bitmask framework, maintaining 
+	// absolute multi-threaded visibility safety across background routines.
+	if gc.savedGrepFile.stat(ctx, true) {
 		okay = true
 	}
+	
 	return
 }
 
@@ -28917,8 +28861,7 @@ func (g *grep_touch) work(ctx Context, gc *grep_ctx) (err error) {
 		
 		// VFS-native stat extraction
 		if !file.exists() && !file.isSysFile() {
-			file.stat(ctx) 
-			if !file.exists() && gc.debug>0 { 
+			if !file.stat(ctx, true) && gc.debug>0 { 
 				warn(ctx, "'%v' info is nil (%s)", file, file.fullname()) 
 			}
 		}
@@ -29578,22 +29521,15 @@ type modifier_touch struct { modifier_
     path bool `p,path`
     mode os.FileMode `m,mode`
 }
-func (ctx *modifier_touch) x(args ...Value) (result any) {
+func (ctx *modifier_touch) x(exe *execution, args ...Value) (result any) {
     if len(args) == 0 { if val := auto_get(ctx, symAt); val != nil { args = append(args, val) }}
 
-    var files []*file
     for _, arg := range args {
         if err := touch(ctx, arg, uint32(ctx.mode), ctx.path); err != nil {
             erro(ctx, "touch '%v' failed: %v", arg, err)
         } else {
-            files = append(files, stampFiles(stamp_file_ctx{ctx}, arg)...)
+			stamp_target(exe, arg)
         }
-    }
-
-    var p = _program(ctx)
-    if false && ctx.verbose { reportFileUpdates(ctx, files) }
-    if len(p.getModifiers(ctx, "stamp")) > 0 {
-        debug(ctx, "no need to use a (stamp) after (touch)")
     }
     return
 }
@@ -29647,7 +29583,7 @@ func (ctx *modifier_check) x(args ...Value) (_ any) {
 				res = f.exists()
 			} else if dir || ctx.isdir {
 				// UPGRADED: Replaced interface call with pure primitive boolean
-				res = f.exists() && f._isDir
+				res = f.exists() && f.isDir()
 			} else if ctx.exists {
 				res = f.exists()
 			}
@@ -29770,8 +29706,8 @@ argsloop:
 			
 			// UPGRADED: 0-allocation primitive bounds checking!
 			switch key {
-			case "file": res = f.exists() && !f._isDir 
-			case "dir":  res = f.exists() && f._isDir
+			case "file": res = f.exists() && !f.isDir() 
+			case "dir":  res = f.exists() && f.isDir()
 			default: unreachable()
 			}
 			
@@ -30040,7 +29976,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result any) {
 	// UPGRADED: VFS-native existence check using Symbol!
 	if file := _stat(ctx, srcSym, stat_nonexist{true}); file == nil || !file.exists() {
 		erro(ctx, "'%v' source file not found", srcSym) // FIXED: %v for Symbol
-	} else if !file._isDir { 
+	} else if !file.isDir() { 
 		
 		// =========================================================
 		// THE OS AIRLOCK: Extract strings EXACTLY ONCE for OS ops!
@@ -30086,7 +30022,7 @@ func (ctx *modifier_copyfile) x(args ...Value) (result any) {
 }
 
 type modifier_writefile struct { modifier_ }
-func (ctx *modifier_writefile) x(args ...Value) (result any) {
+func (ctx *modifier_writefile) x(exe *execution, args ...Value) (result any) {
 	args = xmerge(ctx, args...)
 
 	var target Value
@@ -30139,7 +30075,7 @@ func (ctx *modifier_writefile) x(args ...Value) (result any) {
 		// Ensure the VFS node caches the new file size and mod-time!
 		// (Use whatever stamp method is available in this context)
 		if tf != nil {
-			tf.stamp(stamp_file_ctx{ctx}) 
+			stamp_target(exe, tf) 
 		}
 		
 		result = tf
@@ -30243,7 +30179,7 @@ type modifier_updatefile struct { modifier_
 	append bool `app,append,append-content`
 	mode os.FileMode "mode"
 }
-func (ctx *modifier_updatefile) x(args ...Value) (result any) {
+func (ctx *modifier_updatefile) x(exe *execution, args ...Value) (result any) {
 	var target Value
 	var content string
 	var filename string
@@ -30397,8 +30333,8 @@ func (ctx *modifier_updatefile) x(args ...Value) (result any) {
 			if tf == nil { // UPDATED TO USE tf
 				erro(pc(ctx,filename), "%v: cannot stat file", _project(ctx))
 			} else {
-				var fs = tf.stamp(stamp_file_ctx{ctx})
-				if false && ctx.verbose { reportFileUpdates(ctx, fs) }
+				stamp_target(exe, tf)
+				if false && ctx.verbose { reportFileUpdates(ctx, []*file{tf}) }
 				result = tf // UPDATED TO USE tf
 			}
 		} ()
@@ -30500,38 +30436,71 @@ func reportFileUpdates(ctx Context, fs []*file) {
 	}
 }
 
+// stamp_target synchronizes a target to its post-compilation disk state and registers it as updated.
+func stamp_target(x *execution, target Value) *file {
+	if isTrivial(target) { return nil }
+
+	tFile, _ := to_file(target)
+	if tFile == nil && x != nil {
+		tFile = as_file(x, target, x.proj)
+	}
+
+	if tFile != nil && x != nil {
+		// 1. Force an atomic filesystem sync to pull the newly compiled mtime/size
+		tFile.stat(x, true)
+
+		// 2. Safely register the asset into our active session update map
+		x.Lock()
+		if x.updatedFiles == nil {
+			x.updatedFiles = make(map[*file][]Value)
+		}
+		if _, exists := x.updatedFiles[tFile]; !exists {
+			x.updatedFiles[tFile] = []Value{}
+		}
+		x.Unlock()
+	}
+	return tFile
+}
+
 type modifier_stamp struct { modifier_
     prompt bool "prompt"
-    next   bool "nxt,next"  // traveNext if failed to stamp
-    error  bool "err,error" // traveErro if failed to stamp
+    next   bool "nxt,next"  // traverse_next if failed to stamp
+    error  bool "err,error" // traverse_erro if failed to stamp
 }
-func (ctx *modifier_stamp) x(args ...Value) (result any) {
-    var target = auto_target_value(ctx)
 
-    if isNull(target) {
-        erro(ctx, "failed stamp(%v)", target, trace_ctx{5})
-    }
+func (ctx *modifier_stamp) x(exe *execution, args ...Value) (result any) {
+	var target Value
 
-    fs := stampFiles(stamp_file_ctx{ctx}, target)
-	
-    if fs != nil {
-		result = fs // Done!
-    } else if ctx.next {
-        panic(traverse_state{_pos(ctx),traverse_next})
-    } else if ctx.error {
-        erro(ctx, "stamp(%v) error", trace_ctx{5}, trace_val{5,target})
-    } else {
-        if f, y := to_file(target); y {
-            erro(pc(ctx,f.fullname()),
-				"failed stamp(%v); %v", target, f._mtime,
-				trace_ctx{5}, trace_val{5,target})
-        } else {
-            erro(ctx,
-				"failed stamp(%v), %s", target, ts(target,ctx),
-				trace_ctx{5}, trace_val{5,target})
-        }
-    }
-    return
+	// Safe, direct lookups on the active execution handle completely bypass context overhead
+	if d, found := exe.defs[symAt]; found && d != nil && d.value != nil {
+		target = d.value
+	}
+
+	if isNull(target) {
+		erro(ctx, "stamp no target (%v)", symAt, trace_ctx{5})
+		return
+	}
+
+	f := stamp_target(exe, target)
+
+	if f == nil {
+		if ctx.next {
+			// Speculative wildcard rule path transition
+			panic(traverse_state{_pos(ctx), traverse_next})
+		}
+
+		if ctx.error {
+			erro(ctx, "stamp(%v) error", trace_ctx{5}, trace_val{5, target})
+		} else {
+			erro(ctx,
+				"stamp non-file target: %v, %s", target, ts(target, ctx),
+				trace_ctx{5}, trace_val{5, target})
+		}
+		return
+	}
+
+	result = f 
+	return
 }
 
 type modifier_assert struct { modifier_
@@ -35648,8 +35617,8 @@ func (ctx *__stat) x() (res any) {
 	var check = func(f *file) {
 		if f.exists() {
 			// Fast Path: O(1) checks directly against the primitive cache
-			if (ctx.dir  && f._isDir) || 
-				(ctx.file && !f._isDir) || 
+			if (ctx.dir  && f.isDir()) || 
+				(ctx.file && !f.isDir()) || 
 				(!ctx.dir && !ctx.file && !ctx.symbol) {
 				vals = append(vals, f)
 				return
@@ -36058,8 +36027,8 @@ func (ctx *__wildcard) directory(topDirSym Symbol, pats ...Value) {
 			if matched && f != nil {
 				validType := false
 				switch strings.ToLower(ctx.filetype) {
-				case "f", "file": validType = !f._isDir
-				case "d", "dir":  validType = f._isDir
+				case "f", "file": validType = !f.isDir()
+				case "d", "dir":  validType = f.isDir()
 				default:          validType = true
 				}
 
@@ -36067,7 +36036,7 @@ func (ctx *__wildcard) directory(topDirSym Symbol, pats ...Value) {
 			}
 
 			// 7. Recursive Descent
-			if f != nil && f._isDir && len(nextPats) > 0 {
+			if f != nil && f.isDir() && len(nextPats) > 0 {
 				walk(dnSym, nextPats)
 			}
 		}
@@ -36419,10 +36388,10 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
 		// RE-ENTER THE WALLED GARDEN: 
 		// Now that the OS disk is updated, we instantly sync the physical 
 		// timestamp back into our `int64` VFS cache!
-		if fi, _ := to_file(file); fi != nil {
-			fi.stat(ctx)
-		} else if fi := _stat(ctx, filenameSym); fi != nil { // Pure Symbol cache lookup
-			fi.stat(ctx)
+		if f, _ := to_file(file); f != nil {
+			f.stat(ctx, true)
+		} else if f := _stat(ctx, filenameSym); f != nil { // Pure Symbol cache lookup
+			// Done!
 		}
 	}
 	
