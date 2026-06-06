@@ -17762,6 +17762,7 @@ var (
 	rxExitStatus    = regexp.MustCompile(`^exit status (\-?[0-9]+)\r?\n?$`)
 	rxFileNotFound  = regexp.MustCompile(`'(.+?)' file not found$`)
 	rxCodeLinePanic = regexp.MustCompile(`^([^:]+?):(\d+):(\d+): *((?:fatal )?error|warning): *(.+)\r?\n?$`)
+	rxNErrorsGenerated = regexp.MustCompile(`^(\d+) errors? generated\.\r?\n?$`)
 
 	rxIgnoringDirectory = regexp.MustCompile(`^(ignoring (?:duplicate|nonexistent) directory) "(.*?)"`)
 	rxLdManyMinVersions = regexp.MustCompile(`^(?:[^:]+?: )+(passed two min versions \((.+?)\) for platform macOS\. Using (.+)\.)`)
@@ -17870,6 +17871,10 @@ var (
 
 			rxLdManyMinVersions: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				debug(pc(ctx, p.logPos(0)), 5, _f("multiple min versions {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
+			},
+
+			rxNErrorsGenerated: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
+				// NOTE: Ignored, no extra debug prompts!
 			},
 
 			regexp.MustCompile(` +"([^"]+?)", referenced from:`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
@@ -18173,6 +18178,8 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
 				for _, s := range []string{
 					"error: no such file or directory:",
 					"fatal error:",
+					"1 error generated.",
+					" errors generated.",
 				} {
 					if missed = bytes.Contains(line, []byte(s)); missed { break }
 				}
