@@ -17753,48 +17753,50 @@ type exitstatus struct { int }
 func (p *exitstatus) Error() string { return fmt.Sprintf(fmtExitStatus, p.int) }
 
 var (
-    defaultShell = "bash"
+	defaultShell = "bash"
 
-    stdout = &std_writer{io:os.Stdout}
-    stderr = &std_writer{io:os.Stderr}
+	stdout = &std_writer{io: os.Stdout}
+	stderr = &std_writer{io: os.Stderr}
 
-    rxExitStatus        = regexp.MustCompile(`^exit status (\-?[0-9]+)$`)
-    rxFileNotFound      = regexp.MustCompile(`'(.+?)' file not found$`)
-    rxCodeLinePanic     = regexp.MustCompile(`^([^:]+?):(\d+):(\d+): *((?:fatal )?error|warning): *(.+)$`)
-    rxIgnoringDirectory = regexp.MustCompile(`^(ignoring (?:duplicate|nonexistent) directory) "(.*?)"`)
-    rxLdManyMinVersions = regexp.MustCompile(`^(?:[^:]+?: )+(passed two min versions \((.+?)\) for platform macOS\. Using (.+)\.)`)
+	// FIXED: Added \r?\n? to prevent trailing newline characters from breaking strict end anchors
+	rxExitStatus    = regexp.MustCompile(`^exit status (\-?[0-9]+)\r?\n?$`)
+	rxFileNotFound  = regexp.MustCompile(`'(.+?)' file not found$`)
+	rxCodeLinePanic = regexp.MustCompile(`^([^:]+?):(\d+):(\d+): *((?:fatal )?error|warning): *(.+)\r?\n?$`)
 
-    rxArNoMembers     = regexp.MustCompile(`ar: no archive members specified`)
-    rxArNoSuchFileDir = regexp.MustCompile(`ar: (.+?): No such file or directory`)
+	rxIgnoringDirectory = regexp.MustCompile(`^(ignoring (?:duplicate|nonexistent) directory) "(.*?)"`)
+	rxLdManyMinVersions = regexp.MustCompile(`^(?:[^:]+?: )+(passed two min versions \((.+?)\) for platform macOS\. Using (.+)\.)`)
 
-    rxShellNoSuchFileDir = regexp.MustCompile(`^bash:(?: line ([0-9]+?):)? (.+?): No such file or directory`)
+	rxArNoMembers     = regexp.MustCompile(`ar: no archive members specified`)
+	rxArNoSuchFileDir = regexp.MustCompile(`ar: (.+?): No such file or directory`)
 
-    rxGitNotRepo = regexp.MustCompile(`^fatal: (not a git repository): '(.+?)'`)
+	rxShellNoSuchFileDir = regexp.MustCompile(`^bash:(?: line ([0-9]+?):)? (.+?): No such file or directory`)
 
-    rxDockerCannotConnect   = regexp.MustCompile(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
-    rxDockerConNotRunning   = regexp.MustCompile(`Error response from daemon: (Container (.+?) is not running)`)
-    rxDockerNoSuchContainer = regexp.MustCompile(`Error.*: No such container: (.*)`)
-    rxDockerNetworkNotFound = regexp.MustCompile(`Error.*: (network (.*) not found)\.`)
+	rxGitNotRepo = regexp.MustCompile(`^fatal: (not a git repository): '(.+?)'`)
 
-    rxIncludedFrom     = regexp.MustCompile(`In file included from (.+?):(\d+):(?:(\d+):)?`)
-    rxPyFileLineIn     = regexp.MustCompile(`^\s*File "(.+?)", line (\d+), in (.+)`)
-    rxPyFileNotFound   = regexp.MustCompile(`FileNotFoundError: \[Errno (\d+)\] No such file or directory: '(.*?)'`)
-    rxPyModuleNotFound = regexp.MustCompile(`ModuleNotFoundError: No module named '(.*?)'`)
+	rxDockerCannotConnect   = regexp.MustCompile(`Cannot connect to the Docker daemon at (.*?)\. Is the docker daemon running\?`)
+	rxDockerConNotRunning   = regexp.MustCompile(`Error response from daemon: (Container (.+?) is not running)`)
+	rxDockerNoSuchContainer = regexp.MustCompile(`Error.*: No such container: (.*)`)
+	rxDockerNetworkNotFound = regexp.MustCompile(`Error.*: (network (.*) not found)\.`)
 
-    // ld: warning: passed two min versions (15.0, 23.2) for platform macOS. Using 23.2.
-    rxNoticeLines = []*regexp.Regexp{
-        regexp.MustCompile(`ld: library '[^']+' not found`),
-    }
+	rxIncludedFrom     = regexp.MustCompile(`In file included from (.+?):(\d+):(?:(\d+):)?`)
+	rxPyFileLineIn     = regexp.MustCompile(`^\s*File "(.+?)", line (\d+), in (.+)`)
+	rxPyFileNotFound   = regexp.MustCompile(`FileNotFoundError: \[Errno (\d+)\] No such file or directory: '(.*?)'`)
+	rxPyModuleNotFound = regexp.MustCompile(`ModuleNotFoundError: No module named '(.*?)'`)
 
-    rxZeroStatusErrors = map[*regexp.Regexp]struct{}{
-        rxShellNoSuchFileDir:struct{}{},
-    }
+	// ld: warning: passed two min versions (15.0, 23.2) for platform macOS. Using 23.2.
+	rxNoticeLines = []*regexp.Regexp{
+		regexp.MustCompile(`ld: library '[^']+' not found`),
+	}
 
-    matchcontexts = map[*regexp.Regexp]func(*exec_buffer, []byte, [][]byte) Position {
-        rxCodeLinePanic: func(p *exec_buffer, line []byte, sm [][]byte) Position {
+	rxZeroStatusErrors = map[*regexp.Regexp]struct{}{
+		rxShellNoSuchFileDir: struct{}{},
+	}
+
+	matchcontexts = map[*regexp.Regexp]func(*exec_buffer, []byte, [][]byte) Position {
+		rxCodeLinePanic: func(p *exec_buffer, line []byte, sm [][]byte) Position {
 			return p.makePos(string(sm[1]), string(sm[2]), string(sm[3]))
-        },
-    }
+		},
+	}
 
 	commonerrors = map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 		rxExitStatus: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
@@ -17815,27 +17817,49 @@ var (
 		},
 	}
 
-	// `(?P<first>\d+)\.(\d+).(?P<second>\d+)`
 	knownerrors = map[*regexp.Regexp]map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 
 		// 1. Clang / LLVM Family (Safely routes clang, clang++, wasm-ld, ld, lld)
 		regexp.MustCompile(`(?:^|/|\s)(?:[^\s/]*?)(?:clang(?:\+\+)?|wasm|l?ld)(?:-\d+(?:\.\d+)?)?(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
 			
 			rxCodeLinePanic: func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
-				ctx = pc(ctx, p.logPos(0))
-				t := string(sm[4])
-				s := string(sm[5])
+				// FIXED: Removed the hardcoded log file tracking assignment 'ctx = pc(ctx, p.logPos(0))'
+				// to allow the precise source file Position matched by 'matchcontexts' to govern downstream prints.
+				srcPath := string(sm[1])
+				kind := string(sm[4])
+				msg := string(sm[5])
 
-				fact := fmt.Sprintf("code %s", t)
-				if m := rxFileNotFound.FindStringSubmatch(s); m != nil {
-					fact = fmt.Sprintf("missing file '%s'", m[1])
-					do(ctx, missing_file{m[1]})
+				fact := fmt.Sprintf("code %s", kind)
+				if m := rxFileNotFound.FindStringSubmatch(msg); m != nil {
+					missingHeader := m[1]
+					fact = fmt.Sprintf("missing file '%s'", missingHeader)
+
+					// FIXED: Resolve the active source file via VFS to extract its directory anchor sequence.
+					// This translates relative include lookups into absolute references for deterministic tracking.
+					var missingTarget string
+					if srcFile := _stat(ctx, srcPath, stat_nonexist{true}); srcFile != nil {
+						fullDir := __symPathJoin(srcFile.dir, srcFile.sub)
+						if fullDir != symEmpty {
+							missingTarget = __symPathJoin(fullDir, intern(missingHeader)).String()
+						}
+					}
+					if missingTarget == "" {
+						missingTarget = missingHeader
+					}
+
+					do(ctx, missing_file{missingTarget})
 				}
 
-				if t == "warning" {
-					debug(ctx, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
+				s := string(sm[0])
+				if strings.HasSuffix(s, "\n") {
+					s = sf(" {\n%s} ← End of %s.", s, fact)
 				} else {
-					erro(ctx, _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
+					s = sf(" {%s}", s)
+				}
+				if kind == "warning" {
+					warn(ctx, _f("%s%s", fact, s), trace_ctx{50}, callstack{num: 3})
+				} else {
+					erro(ctx, _f("%s%s", fact, s), trace_ctx{50}, callstack{num: 3})
 				}
 			},
 
@@ -17855,9 +17879,6 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("undefined symbol '%s' {\n%s\n}", sm[1], sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 
-			// ====================================================================
-			// THE DOD FIX: Consolidated & Deterministic Clang Diagnostics 
-			// ====================================================================
 			regexp.MustCompile(`((?:clang(?:\+\+)?|wasm|(?:[^\.]+\.)?l?ld)(?:\-.+?)?): (error|warning|fatal error): *(.+)`): func(ctx Context, p *exec_buffer, line []byte, sm [][]byte) {
 				if truly(ctx, is_configure{}) && string(sm[2]) == "warning" {
 					return
@@ -17868,7 +17889,6 @@ var (
 				msg := string(sm[3])
 
 				if tag := "no such file or directory:"; strings.HasPrefix(msg, tag) {
-					// 1. Missing File Trap (Deterministically caught here now!)
 					file := strings.Trim(strings.TrimPrefix(msg, tag), ` '`)
 
 					col := bytes.Index(line, []byte(file))
@@ -17878,11 +17898,8 @@ var (
 					do(ctx, missing_file{file})
 
 				} else if msg == "no input files" {
-					// 2. No Input Files Trap
 					erro(pc(ctx, p.logPos(0)), _f("missing input files {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
-
 				} else {
-					// 3. Generic Error/Warning Fallback
 					fact := fmt.Sprintf("%s %s", tool, kind)
 					debug(pc(ctx, p.logPos(0)), _f("%s {\n%s\n}", fact, sm[0]), trace_ctx{50}, callstack{num: 3})
 				}
@@ -17898,7 +17915,6 @@ var (
 				debug(pc(ctx, p.logPos(0)), _f("too many arguments {\n%s\n}", sm[0]), trace_ctx{50}, callstack{num: 3})
 			},
 		},
-
 
 		// 2. Archiver (Safely routes ar, aarch64-ar, etc.)
 		regexp.MustCompile(`(?:^|/|\s)(?:[^\s/]*?)ar(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
@@ -17964,8 +17980,7 @@ var (
 		},
 
 		// 7. Echo
-		regexp.MustCompile(`(?:^|/|\s)echo(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){
-		},
+		regexp.MustCompile(`(?:^|/|\s)echo(?:\s|$)`): map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte){},
 	}
 )
 
@@ -18154,10 +18169,17 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
             for rx, f := range p.xc.known { k(rx, f) }
 
 			if checkpoints && knownErrs == 0 {
-				if bytes.Contains(line, []byte("error: no such file or directory:")) {
+				var missed bool
+				for _, s := range []string{
+					"error: no such file or directory:",
+					"fatal error:",
+				} {
+					if missed = bytes.Contains(line, []byte(s)); missed { break }
+				}
+				if missed {
 					var ds = []*diag{}
 					for rx, _ := range p.xc.known { ds = append(ds, _f("knows: %v", rx)) }
-					debug(p.xc, _f("missed known error\n%s", string(line)), ds, trace_ctx{3})
+					erro(p.xc, _f("Missed Known Error {\n%s}", string(line)), ds, trace_ctx{3})
 				}
 			}
 
