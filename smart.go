@@ -559,8 +559,11 @@ const (
 	symWorkspace
 	symModified
 	symTest
+
 	symBugs
+	symBug
 	symDev
+	symSilent
 
 	symSrc // src
 	symBin // bin
@@ -606,6 +609,14 @@ const (
 	symMD
 	symMV
 	symMP
+	symINFO
+	symMESSAGE
+	symMSG
+	symTARGET
+	symVALUE
+	symVAL
+	symLANGUAGE
+	symLANG
 
 	symPACKAGE
 	symNAME
@@ -784,7 +795,7 @@ var coreSymbols = []string{
 	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
 
 	"app", "ahead", "shared", "static", "inlines", "hidden", "work", "workspace", "modified", "test",
-	"bugs", "dev",
+	"bugs", "bug", "dev", "silent",
 
 	"src", "bin", "bit", "log", "exe", "dyn", "llc", "cpp", "cxx",
 	"c", "cc", "c++", "o", "O", "Os", "m", "mm", "s", "S", "so", "h", "hh",
@@ -793,7 +804,7 @@ var coreSymbols = []string{
 
 	"fPIC", "fcxx", "fmodules", "fvisibility",
 
-	"M", "MM", "MG", "MD", "MV", "MP",
+	"M", "MM", "MG", "MD", "MV", "MP", "INFO", "MESSAGE", "MSG", "TARGET", "VALUE", "VAL", "LANGUAGE", "LANG",
 	"PACKAGE", "NAME", "VERSION", "VENDOR", "STRING", "URL", "BUGREPORT", "TARNAME", "HAVE", "H",
 	"FUN", "SYM", "EXIT", "STDLIB",
 
@@ -3842,6 +3853,11 @@ func closure_with(ctx Context, a ...any) Context {
 		case *project: ctx = &term{ctx, t.scope}
 		case   *scope: ctx = &term{ctx, t}
 		case []*scope: for _, s := range t {  ctx = &term{ctx, s}  }
+		case *universe:
+			if t != nil {
+				if t.scope != nil       { ctx = &term{ctx, t.scope}       }
+				if t.globe.scope != nil { ctx = &term{ctx, t.globe.scope} }
+			}
 		case interface{ declscope() *scope }: ctx = &term{ctx, t.declscope()}
 		}
 	}
@@ -11263,8 +11279,8 @@ func (p *compiler) include(ctx Context, doc *commentgroup, g *clause_opts, _ int
 	// If the file dependency is bound to a generator rule, execute it 
 	// immediately during the parse phase to output the required source bytes.
 	if x, ok := val.(*rule); ok && x != nil {
-		// Evaluates programs via rule_ctx, entirely independent of the execution frame
-		_ = x.execute(ctx) 
+		// Directly execute the rule via our centralized engine traversal loop
+		traverse(ctx, x)
 
 		// Promote val to the newly generated physical file target output
 		val = x.target
@@ -12044,429 +12060,6 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 	return
 }
 
-func (p *compiler) configure_par(ctx Context, _op Value) (op Value, par map[Symbol]Value) {
-	var args []Value
-
-	op, par = _op, make(map[Symbol]Value)
-
-	if x, y := op.(*argumented); y {
-		if f, y := x.Value.(flag); y {
-			op = f.Value
-		} else {
-			erro(pc(ctx,x.Value), "wrong configure word: %v", ts(x.Value,ctx))
-		}
-		args = xmerge(final{ctx}, x.args...)
-	}
-
-	for _, arg := range args {
-		switch t := arg.(type) {
-		case *pair:
-			// 1. Fast-path extraction for the pair's key!
-			sym := __symbol(ctx, t.key)
-			if sym == symEmpty {
-				erro(pc(ctx, t.key), "empty parameter key: %v", ts(t.key, ctx))
-			}
-			par[sym] = t
-
-		case *raw, *strlit, *strval, *strcomp:
-			// 2. Synthesize the "INFO" key completely in the integer domain!
-			// (If you use this often, consider adding symInfo to your constants)
-			sym := intern("INFO")
-			par[sym] = &pair{_word(t.Pos(), sym), t}
-
-		default:
-			if !isTrivial(arg) {
-				erro(pc(ctx,arg), "wrong arg: %s", ts(arg,ctx))
-			}
-		}
-	}
-	return
-}
-
-type is_configure struct{}
-type is_configure_ignore struct{ rx *regexp.Regexp ; s [][]byte }
-type configure_val_ctx struct{ Context ; res *[]Value }
-func (p configure_val_ctx) do(ctx Context, op any) (_ any) {
-	switch t := op.(type) {
-	case inner_cast: return p.Context
-	case dynamic_cast: return t.ctx(p, p.Context)
-	case is_configure: return true
-	case is_configure_ignore:
-		if configure_ignore(ctx, t.rx, t.s) { return true }
-	case program_res:
-		if !isTrivial(t.v) { *p.res = append(*p.res, t.v) }
-		return
-	}
-	return p.Context.do(ctx, op)
-}
-
-func (p *compiler) configure_val(ctx *execution, _op, op, val Value, par map[Symbol]Value) (res Value) {
-	opSym := __symbol(ctx, op)
-	if opSym == symEmpty {
-		erro(pc(ctx,_op), "wrong configure word: %v %v %v", ts(_op,ctx), ts(op,ctx), ts(val,ctx))
-	}
-
-	switch opSym {
-	case symAnswer:
-		if val == nil { return _answer(op.Pos(), false) }
-		return _answer(val.Pos(), __true(ctx, val))
-	case symBool, symBoolean: 
-		if val == nil { return _boolean(op.Pos(), false) }
-		return _boolean(val.Pos(), __true(ctx, val))
-	case symValue:
-		if val == nil { return _null(op.Pos()) }
-		return expand(final{ctx}, val)
-	}
-
-	if p.project.configure == nil {
-		erro(pc(ctx,op), "wrong configure: %v %v", ts(op,ctx), ts(val,ctx))
-	}
-
-	ops := p.project.configure._entries(ctx, _op, false)
-	if ops == nil {
-		erro(pc(ctx,_op), "no configure ops: %v", _op)
-	}
-
-	var vals []Value
-	for _, ent := range ops {
-		var params []Value
-		for _, prog := range ent.programs() {
-			for _, p := range prog.params {
-				sym := __symbol(ctx, p)
-				w := _word(p.Pos(), sym)
-
-				if x, ok := par[sym]; ok {
-					params = append(params, x)
-				} else {
-					switch sym {
-					case intern("TARGET"):
-						targetVal := expand(ctx, auto_get(ctx, symAt))
-						params = append(params, &pair{w, targetVal})
-					case intern("VALUE"):
-						params = append(params, &pair{w, val})
-					case intern("LANG"), intern("LANGUAGE"):
-						if ctx.language != symEmpty {
-							params = append(params, &pair{w, _word(w.Pos(), ctx.language)})
-						}
-					}
-				}
-			}
-		}
-
-		func() {
-			defer func() {
-				if e := recover(); e != nil {
-					if _, ok := e.(traverse_state); !ok {
-						erro(ctx, "%v", e, unwind{})
-					}
-				}
-			}()
-			traverse(configure_val_ctx{ctx, &vals}, &argumented{Value: ent, args: params})
-		}()
-	}
-	return ease(ctx, vals)
-}
-
-func (p *compiler) configure_set(ctx Context, name string, vals ...Value) (d *def, isNew bool) {
-	if d, isNew = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
-		p.project.configs = append(p.project.configs, d)
-	}
-	return
-}
-
-func (p *compiler) configure1(ctx Context) {
-	ids := []Value{}
-	for _, v := range merge(p.expr(ctx)) {
-		// Protect LHS configuration variables from early evaluation
-		forids(ctx, expand(def_name_ctx{project_ctx{final{ctx},p.project}}, v),
-			func(v Value, _ []Value) { ids = append(ids, v) })
-	}
-
-	p.spaces(ctx)
-
-	var _op Value
-	var _no_cond bool
-minusloop:
-	for p.tok == MINUS {
-		t := p.expr(ctx)
-		p.spaces(ctx)
-
-		switch t := t.(type) {
-		case *argumented:
-			if x, y := t.Value.(flag); y {
-				switch x.Value.String() {
-				case "cond":
-					for _, a := range xmerge(final{ctx}, t.args...) {
-						if !__true(ctx, a) {
-							_no_cond = true
-							break
-						}
-					}
-					continue minusloop
-				}
-			}
-		case flag:
-			if t.Value.String() == "cond" {
-				erro(pc(ctx,t), "needs cond value")
-			}
-		}
-
-		if _op != nil {
-			erro(pc(ctx,t), "configure op already defined: %v", _op)
-		}
-
-		_op = t
-		break
-	}
-
-	op, par := p.configure_par(ctx, _op)
-	exe := execution{
-		automatic:automatic{Context:pc(ctx,op), defs:make(def_map)},
-		start:time.Now(), proj:p.project,
-	}
-
-	if p.tok == ASSIGN || p.tok == SEMICOLON {
-		p.next(ctx, true) // skips the '=' or ';' token
-
-		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
-		for _, id := range ids {
-			d, _ := exe.set(&exe, defVoid, symAt, id)
-			d.pos = id.Pos()
-
-			d, isNew := p.configure_set(ctx, __string(ctx, id)) // aka. p.project.set
-			d.pos = id.Pos()
-
-			isCached := !isNew && d.value != nil
-			if isCached && isTrivial(d.value) {
-				isCached = false // Force the engine to re-execute the recipe.
-				d.value = nil // Safe override! Clear the failed state.
-			}
-
-			cc := &def_value_ctx{original{closure_with(&exe,p.scope), defConfig|defExpand1}, d}
-			p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
-			p.dialect = symEmpty
-
-			newVal := ease(ctx, p.values(cc))
-
-			// =========================================================
-			// CRITICAL FIX: Safe Cache Bypass!
-			// =========================================================
-			if isCached && equal(ctx, d.value, newVal) {
-				if p.promptCachedConfigs(ctx) {
-					prompt(ctx, "%v:info: cached %v\n", do(ctx, get_fatpos{d.pos}), d)
-					flush(ctx)
-				}
-				p.lineComment = nil
-				continue // Match found! Bypass prompt and execution completely.
-			}
-
-			if x, y := par[intern("INFO")]; y {
-				if !p.promptEnteringDirectory {
-					p.promptEnteringDirectory = true
-					promptEnteringDirectory(ctx, p.project.absPath.String()) // FIXED 1
-				}
-
-				var s string
-				if p, y := x.(*pair); y {
-					s = __string(ctx, p.val)
-				} else {
-					s = __string(ctx, x)
-				}
-
-				a := prompt(pc(ctx,op), "%s …", s)
-				defer func(i int) {
-					if diagCount(ctx, diagInfo, diagWarn, diagError) <= i {
-						s = __string(ctx, newVal)
-						s = strings.Replace(s, "\n", "\\n", -1)
-
-						b := prompt(ctx, "… %s\n", s)
-						flush(ctx)
-
-						if checkpoints { p.check_configure_val(&exe, d.name, op, merge(newVal), a, b) }
-					}
-				} (diagCount(ctx, diagInfo, diagWarn, diagError))
-			}
-
-			// Collapse values if NOT cached configuration.
-			if !truly(ctx, is_cached_configuration{}) { newVal = expand(cc, newVal) }
-
-			// Force type conversion before caching check (e.g. {true} -> {yes})
-			if op != nil { newVal = p.configure_val(&exe, _op, op, newVal, par) }
-
-			// Empty the config value before setting to avoid panic on stale cache overwrite!
-			d.value = nil
-			d.set(ctx, newVal)
-
-			if false { debug(pc(ctx,d.pos), "%v", d) }
-
-			p.project.configuration_sm(ctx)
-
-			p.lineComment = nil
-		}
-		return
-	} else if p.tok == COLON || p.is_end_of_line() {
-		if p.tok == COLON { p.next(ctx, true) }
-
-		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
-		for _, id := range ids {
-			d, _ := exe.set(&exe, defVoid, symAt, id)
-			d.pos = id.Pos()
-
-			d, isNew := p.configure_set(ctx, __string(ctx, id)) // aka. p.project.set
-			d.pos = id.Pos()
-
-			isCached := !isNew && d.value != nil
-			if isCached && isTrivial(d.value) {
-				isCached = false // Force the engine to re-execute the recipe.
-				d.value = nil // Safe override! Clear the failed state.
-			}
-
-			cc := &def_value_ctx{original{closure_with(&exe,p.scope), defConfig|defExpand1}, d}
-			p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
-			p.dialect = symEmpty
-
-			var deps, vals []Value
-
-		depsloop:
-			for {
-				switch p.tok { case SEMICOLON, LINEND, EOF: break depsloop }
-				deps = append(deps, p.expr(cc)) ; p.spaces(ctx)
-				exe.set(&exe, defVoid, symLangle, deps[0])
-				exe.set(&exe, defVoid, symRangle, deps[len(deps)-1])
-				exe.set(&exe, defVoid, symCaret, ease(ctx, deps))
-			}
-
-			exe.language = p.dialect
-
-			if p.tok == SEMICOLON { // ;
-				exe.recipes = append(exe.recipes, p.recipe(cc)...)
-			} else {
-				p.scanner.recipes(true) // turn on recipes before LINEND.
-				if p.linend(ctx) { // take the new line.
-					for p.recipe_start() {
-						exe.recipes = append(exe.recipes, p.recipe(cc)...)
-					}
-				}
-				p.scanner.recipes(false)
-			}
-
-			// Bypass Prompt & Recipes if valid cached value exists
-			if isCached {
-				if p.promptCachedConfigs(ctx) {
-					prompt(ctx, "%v:info: cached %v\n", do(ctx, get_fatpos{d.pos}), d)
-					flush(ctx)
-				}
-				continue
-			}
-
-			if x, y := par[intern("INFO")]; y {
-				if !p.promptEnteringDirectory {
-					p.promptEnteringDirectory = true
-					promptEnteringDirectory(ctx, p.project.absPath.String()) // FIXED 2
-				}
-
-				var s string
-				if p, y := x.(*pair); y {
-					s = __string(ctx, p.val)
-				} else {
-					s = __string(ctx, x)
-				}
-
-				a := prompt(pc(ctx,op), "%s …", s)
-				defer func(i int) {
-					if diagCount(ctx, diagInfo, diagWarn, diagError) <= i {
-						s = __string(ctx, ease(ctx, vals))
-						s = strings.Replace(s, "\n", "\\n", -1)
-
-						b := prompt(ctx, "… %s\n", s)
-						flush(ctx)
-
-						if checkpoints { p.check_configure_val(&exe, d.name, op, vals, a, b) }
-					}
-				} (diagCount(ctx, diagInfo, diagWarn, diagError))
-			}
-
-			if _no_cond {
-				d.set(cc, _null(id.Pos()))
-				continue
-			}
-
-			for _, exe.prerequisite = range deps { traverse(&exe, exe.prerequisite) }
-
-			var val = auto_get(&exe, symDash)
-			if val == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
-				if x, y := dialects[symEmpty]; y && x != nil {
-					val = exe.interpret(cc, x, nil)
-				}
-			}
-
-			if op != nil { val = p.configure_val(&exe, _op, op, val, par) }
-			if val != nil { vals = append(vals, val) }
-
-			for _, a := range exe.defers {
-				if x, y := a.(*group); y {
-					modify(ctx, x, true)
-				} else {
-					erro(pc(ctx,a), "defer: not a modifier: %s", ts(a))
-				}
-			}
-
-			// Empty the config value before setting to avoid panic on stale cache overwrite!
-			d.value = nil
-			d.set(cc, ease(ctx, vals))
-
-			p.project.configuration_sm(ctx)
-		}
-		return
-	} else {
-		erro(pc(ctx,p), "%v: wrong configure", op)
-	}
-}
-
-func (p *compiler) configure(ctx Context) {
-	p.expect(ctx, CONFIGURE) // p.next(ctx, true)
-	p.spaces(ctx)
-	if p.tok == LPAREN {
-		p.next(ctx, true)
-
-		for p.tok != EOF {
-			p.spaces(ctx)
-
-			for p.tok == LINEND || p.lineComment != nil {
-				p.linend(ctx)
-				p.spaces(ctx)
-			}
-
-			if p.tok == RPAREN {
-				p.next(ctx, true)
-				break
-			}
-
-			p.configure1(ctx)
-
-			p.spaces(ctx)
-			if p.tok == RPAREN {
-				p.next(ctx, true)
-				break
-			}
-
-			if p.tok == LINEND || p.lineComment != nil {
-				p.linend(ctx)
-			}
-		}
-	} else {
-		p.configure1(ctx)
-	}
-}
-
-func promptEnteringDirectory(ctx Context, s string) *diagpoint {
-	return prompt(ctx, "smart: Entering directory '%s'\n", s)
-}
-
-func promptLeavingDirectory(ctx Context, s string) *diagpoint {
-	return prompt(ctx, "smart: Leaving directory '%s'\n", s)
-}
-
 var rxConfigRuleHeaders  = regexp.MustCompile(`^\-headers\-`)
 var rxConfigRuleFunction = regexp.MustCompile(`^\-function\-`)
 var rxConfigRuleSymbol   = regexp.MustCompile(`^\-symbol\-`)
@@ -12490,6 +12083,504 @@ func configure_ignore(ctx Context, rx *regexp.Regexp, s [][]byte) (_ bool) {
 		debug(ctx, "%s %s", rx, s[0])
 	}
 	return
+}
+
+type configure_handler struct {
+	opSym Symbol  // Type-safe fast-path matching query identifier
+	args  []Value // Embedded parameters sequence
+}
+
+type is_configure struct{}
+type is_configure_ignore struct { rx *regexp.Regexp; s [][]byte }
+
+type configure_ctx struct{
+	Context
+	project *project // Anchor reference to the compile-time loading module (e.g., 'app')
+}
+func (c configure_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case inner_cast: return c.Context
+	case dynamic_cast: return t.ctx(c, c.Context)
+	case is_configure_ignore: return false
+	case is_configure: return true
+
+	// FIXED AIRLOCK: Symmetrically protect root-level parse checks during
+	// included macro resolution phases from runtime stack contamination.
+	case get_closure_scopes:
+		var res []*scope
+		if c.project != nil && c.project.scope != nil {
+			res = append(res, c.project.scope)
+		}
+
+		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
+
+		// PERFECT SHORT CIRCUIT: Walk the static lexical parent chain
+		// to jump straight to the clean universe parsing layer.
+		if uni := _universe(c.Context); uni != nil {
+			nextOp := t
+			if t.n > 0 { nextOp.n = t.n - len(res) }
+
+			if x, y := uni.do(ctx, nextOp).([]*scope); y && x != nil {
+				res = append(res, x...)
+			}
+		}
+
+		if t.n > 0 && len(res) > t.n { return res[:t.n] }
+		return res
+
+	case get_project: return c.project
+	case get_rule:    return nil
+	}
+	return c.Context.do(ctx, op)
+}
+
+type configure_handle_ctx struct { Context; res *[]Value }
+func (p configure_handle_ctx) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
+	case is_configure_ignore:
+		if configure_ignore(ctx, t.rx, t.s) { return true }
+	case program_res:
+		if !isTrivial(t.v) { *p.res = append(*p.res, t.v) }
+		return
+	}
+	return p.Context.do(ctx, op)
+}
+
+func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args []Value, silent bool, pos Pos) (res Value) {
+	if op == symEmpty {
+		erro(pc(ctx, pos), "wrong configure word: %v", ts(val, ctx))
+		return val
+	}
+
+	// 1. Extract or build the contextual prompt string text uniformly
+	var infoStr string
+	for _, arg := range args {
+		uArg := unloc(arg)
+		if kv, ok := uArg.(*pair); ok && __symbol(ctx, kv.key) == symINFO {
+			infoStr = __string(ctx, kv.val)
+			break
+		} else {
+			switch uArg.(type) {
+			case *raw, *strlit, *strval, *strcomp:
+				infoStr = __string(ctx, uArg)
+				break
+			}
+		}
+	}
+	if infoStr == "" {
+		infoStr = "checking for " + op.String()
+	}
+
+	// 2. Setup the unified Prompt Lifecycle Closure airlift
+	var finalRes Value
+	func() {
+		var a *diagpoint
+		var startDiag int
+
+		if !silent {
+			if !p.promptEnteringDirectory {
+				p.promptEnteringDirectory = true
+				promptEnteringDirectory(ctx, p.project.absPath.String())
+			}
+			
+			// STEP 1: Execute Before-Traverse Prompt
+			a = prompt(pc(ctx, pos), "%s …", infoStr)
+			startDiag = diagCount(ctx, diagInfo, diagWarn, diagError)
+
+			// STEP 3: Deferred After-Traverse Prompt Completion
+			defer func() {
+				if diagCount(ctx, diagInfo, diagWarn, diagError) <= startDiag {
+					var outStr string
+					if finalRes != nil {
+						outStr = __string(ctx, finalRes)
+					} else if len(ctx.values) > 0 {
+						outStr = __string(ctx, ctx.values[0])
+					}
+					outStr = strings.Replace(outStr, "\n", "\\n", -1)
+
+					b := prompt(ctx, "… %s\n", outStr)
+					flush(ctx)
+
+					if checkpoints {
+						var valsSlice []Value
+						if finalRes != nil { valsSlice = merge(finalRes) }
+						p.check_configure_val(ctx, __symbol(ctx, auto_get(ctx, symAt)), _word(pos, op), valsSlice, a, b)
+					}
+				}
+			}()
+		}
+
+		// =====================================================================
+		// FIXED: CORE KEYWORD BRANCHES ROUTED INSIDE LIFECYCLE CLOSURE
+		// =====================================================================
+		switch op {
+		case symAnswer:
+			if val == nil { finalRes = _answer(pos, false); return }
+			finalRes = _answer(val.Pos(), __true(ctx, val))
+			return
+		case symBool, symBoolean:
+			if val == nil { finalRes = _boolean(pos, false); return }
+			finalRes = _boolean(val.Pos(), __true(ctx, val))
+			return
+		case symValue:
+			if val == nil { finalRes = _null(pos); return }
+			finalRes = expand(final{ctx}, val)
+			return
+		}
+
+		if p.project.configure == nil {
+			erro(pc(ctx, pos), "wrong configure: %v", ts(val, ctx))
+			return
+		}
+
+		// Zero-allocation path query construction
+		fullQuerySym := __symJoin(symDash, op)
+		ops := p.project.configure._entries(ctx, fullQuerySym, false)
+		if ops == nil {
+			erro(pc(ctx, pos), "no configure ops: %v", fullQuerySym)
+			return
+		}
+
+		var vals []Value
+		for _, ent := range ops {
+			var params []Value
+			for _, prog := range ent.programs() {
+				for _, param := range prog.params {
+					sym := __symbol(ctx, param)
+					w := _word(param.Pos(), sym)
+
+					var matchedArg Value
+					for _, arg := range args {
+						if kv, ok := unloc(arg).(*pair); ok {
+							if __symbol(ctx, kv.key) == sym {
+								matchedArg = kv
+								break
+							}
+						} else if sym == symINFO {
+							switch unloc(arg).(type) {
+							case *raw, *strlit, *strval, *strcomp:
+								matchedArg = &pair{_word(arg.Pos(), symINFO), arg}
+							}
+						}
+					}
+
+					if matchedArg != nil {
+						params = append(params, matchedArg)
+					} else {
+						switch sym {
+						case symTARGET:
+							targetVal := expand(ctx, auto_get(ctx, symAt))
+							params = append(params, &pair{w, targetVal})
+						case symVALUE, symVAL:
+							params = append(params, &pair{w, val})
+						case symLANGUAGE, symLANG:
+							if ctx.language != symEmpty {
+								params = append(params, &pair{w, _word(w.Pos(), ctx.language)})
+							}
+						}
+					}
+				}
+			}
+
+			// STEP 2: Execute Handler Pass
+			func() {
+				defer func() {
+					if e := recover(); e != nil {
+						if _, ok := e.(traverse_state); !ok {
+							erro(ctx, "%v", e, unwind{})
+						}
+					}
+				}()
+				traverse(configure_handle_ctx{ctx, &vals}, &argumented{Value: ent, args: params})
+			}()
+		}
+		finalRes = ease(ctx, vals)
+	}()
+
+	return finalRes
+}
+
+func (p *compiler) configure_def(ctx Context, name Symbol, vals ...Value) (d *def, isNew bool) {
+	if d, isNew = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
+		p.project.configs = append(p.project.configs, d)
+	}
+	return
+}
+
+func (p *compiler) configure_clause(exe *execution, ids []Value) {
+	var handlers []configure_handler
+	var _no_cond bool 
+	var silent bool 
+
+minusloop:
+	for p.tok == MINUS {
+		v := p.expr(exe)
+		p.spaces(exe)
+
+		switch t := v.(type) {
+		case *argumented: 
+			switch x := t.Value.(type) {
+			case flag:
+				sym := __symbol(exe, x.Value)
+				if sym == symCond || sym == symIf {
+					if !__all_true(exe, xmerge(final{exe}, t.args...)...) { _no_cond = true }
+					continue minusloop
+				} else if sym == symSilent {
+					if len(t.args) > 0 {
+						silent = __any_true(exe, t.args...)
+					} else {
+						silent = true
+					}
+					continue minusloop
+				}
+				// FIXED: Populate the clean integer Symbol property directly at parsing time
+				handlers = append(handlers, configure_handler{
+					opSym: sym, args: merge(t.args...),
+				})
+			default:
+				erro(pc(exe, x), "unknown configure handler: %s", ts(x, exe), callstack{num:5})
+			}
+
+		case flag:
+			sym := __symbol(exe, t.Value)
+			if sym == symCond || sym == symIf {
+				erro(pc(exe, t.Pos()), "configure cond without value", callstack{num:5})
+			} else if sym == symSilent {
+				silent = true
+			} else {
+				handlers = append(handlers, configure_handler{opSym: sym})
+			}
+
+		default:
+			erro(pc(exe, v.Pos()), "unknown configure handler: %v", ts(v, exe), callstack{num:5})
+		}
+	}
+
+	if p.tok == ASSIGN || p.tok == SEMICOLON {
+		p.next(exe, true) 
+
+		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
+		for _, id := range ids {
+			exe.values = nil
+			exe.recipes = nil
+
+			d, _ := exe.set(exe, defVoid, symAt, id)
+			d.pos = id.Pos()
+
+			d, isNew := p.configure_def(exe, __symbol(exe, id))
+			d.pos = id.Pos()
+
+			isCached := !isNew && d.value != nil
+			if isCached && isTrivial(d.value) {
+				isCached = false 
+				d.value = nil 
+			}
+
+			cc := &def_value_ctx{original{closure_with(exe, p.scope), defConfig|defExpand1}, d}
+			p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
+			p.dialect = symEmpty
+
+			newVal := ease(exe, p.values(cc))
+
+			if isCached && equal(exe, d.value, newVal) {
+				if p.promptCachedConfigs(exe) {
+					prompt(exe, "%v:info: cached %v\n", do(exe, get_fatpos{d.pos}), d)
+					flush(exe)
+				}
+				p.lineComment = nil
+				continue 
+			}
+
+			if _no_cond {
+				d.set(exe, _null(id.Pos()))
+				continue
+			}
+
+			if !truly(exe, is_cached_configuration{}) { newVal = expand(cc, newVal) }
+
+			var currentVal = newVal
+			for _, h := range handlers {
+				// FIXED: Passes the optimized h.opSym and precise variable identifier line anchors
+				currentVal = p.configure_handle(exe, h.opSym, currentVal, h.args, silent, id.Pos())
+			}
+
+			exe.values = []Value{currentVal}
+
+			d.value = nil
+			d.set(exe, currentVal)
+			p.lineComment = nil
+		}
+		return
+	} else if p.tok == COLON || p.is_end_of_line() {
+		if p.tok == COLON { p.next(exe, true) }
+
+		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
+		for _, id := range ids {
+			exe.values = nil
+			exe.recipes = nil
+
+			d, _ := exe.set(exe, defVoid, symAt, id)
+			d.pos = id.Pos()
+
+			d, isNew := p.configure_def(exe, __symbol(exe, id))
+			d.pos = id.Pos()
+
+			isCached := !isNew && d.value != nil
+			if isCached && isTrivial(d.value) {
+				isCached = false 
+				d.value = nil 
+			}
+
+			cc := &def_value_ctx{original{closure_with(exe, p.scope), defConfig|defExpand1}, d}
+			p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
+			p.dialect = symEmpty
+
+			var deps []Value
+		depsloop:
+			for {
+				switch p.tok { case SEMICOLON, LINEND, EOF: break depsloop }
+				deps = append(deps, p.expr(cc)) ; p.spaces(exe)
+				exe.set(exe, defVoid, symLangle, deps[0])
+				exe.set(exe, defVoid, symRangle, deps[len(deps)-1])
+				exe.set(exe, defVoid, symCaret, ease(exe, deps))
+			}
+
+			exe.language = p.dialect
+
+			if p.tok == SEMICOLON { 
+				exe.recipes = append(exe.recipes, p.recipe(cc)...)
+			} else {
+				p.scanner.recipes(true) 
+				if p.linend(exe) { 
+					for p.recipe_start() {
+						exe.recipes = append(exe.recipes, p.recipe(cc)...)
+					}
+				}
+				p.scanner.recipes(false)
+			}
+
+			if isCached {
+				if p.promptCachedConfigs(exe) {
+					prompt(exe, "%v:info: cached %v\n", do(exe, get_fatpos{d.pos}), d)
+					flush(exe)
+				}
+				continue
+			}
+
+			if _no_cond {
+				d.set(cc, _null(id.Pos()))
+				continue
+			}
+
+			for _, exe.prerequisite = range deps { traverse(exe, exe.prerequisite) }
+
+			var val = auto_get(exe, symDash)
+			if val == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
+				if x, y := dialects[symEmpty]; y && x != nil {
+					val = exe.interpret(cc, x, nil)
+				}
+			}
+
+			var currentVal = val
+			for _, h := range handlers {
+				// FIXED: Passes the optimized h.opSym and precise variable identifier line anchors
+				currentVal = p.configure_handle(exe, h.opSym, currentVal, h.args, silent, id.Pos())
+			}
+
+			for _, a := range exe.defers {
+				if x, y := a.(*group); y {
+					modify(exe, x, true)
+				} else {
+					erro(pc(exe, a), "defer: not a modifier: %s", ts(a, exe))
+				}
+			}
+
+			exe.values = []Value{currentVal}
+
+			d.value = nil
+			if currentVal != nil {
+				d.set(cc, currentVal)
+			} else {
+				d.set(cc, _null(id.Pos()))
+			}
+		}
+		return
+	} else {
+		erro(pc(exe, p), "wrong configure statement syntax")
+	}
+}
+
+func (p *compiler) configure_names(ctx Context) []Value {
+	var names []Value
+	var cc = def_name_ctx{project_ctx{ctx, p.project}}
+	for _, v := range merge(p.expr(ctx)) {
+		// Protect LHS configuration variables from early evaluation
+		forids(ctx, expand(cc, v), func(v Value, _ []Value) {
+			names = append(names, v)
+		})
+	}
+	p.spaces(ctx)
+	return names
+}
+
+func (p *compiler) configure(ctx Context) {
+	p.expect(ctx, CONFIGURE) 
+	p.spaces(ctx)
+
+	// Ground the configuration context type marker at the root
+	ctx = configure_ctx{ctx, p.project}
+
+	exe := &execution{
+		automatic:  automatic{Context: ctx, defs: make(def_map)},
+		workdir:    p.project.absPath, 
+		session:    newTraverseSession(),
+		start:      time.Now(),
+		configProj: p.project, // FIXED: Locked down to the current loading project at parse-time!
+	}
+
+	if p.tok == LPAREN {
+		p.next(ctx, true)
+
+		for p.tok != EOF {
+			p.spaces(ctx)
+
+			for p.tok == LINEND || p.lineComment != nil {
+				p.linend(ctx)
+				p.spaces(ctx)
+			}
+
+			if p.tok == RPAREN {
+				p.next(ctx, true)
+				break
+			}
+
+			exe.Context = pc(ctx, p.pos)
+			p.configure_clause(exe, p.configure_names(exe))
+
+			p.spaces(ctx)
+			if p.tok == RPAREN {
+				p.next(ctx, true)
+				break
+			}
+
+			if p.tok == LINEND || p.lineComment != nil {
+				p.linend(ctx)
+			}
+		}
+	} else {
+		exe.Context = pc(ctx, p.pos)
+		p.configure_clause(exe, p.configure_names(exe))
+	}
+}
+
+func promptEnteringDirectory(ctx Context, s string) *diagpoint {
+	return prompt(ctx, "smart: Entering directory '%s'\n", s)
+}
+
+func promptLeavingDirectory(ctx Context, s string) *diagpoint {
+	return prompt(ctx, "smart: Leaving directory '%s'\n", s)
 }
 
 type useopts struct {
@@ -13144,67 +13235,78 @@ type waitopts struct{
     StampCurrentTarget bool
 }
 func wait(ctx Context, opts waitopts) (target Value, fs []*file, execRes *exec_result) {
-    var calleeErrs []error
+	var calleeErrs []error
 	var p = _execution(ctx)
-    if p != nil {
-        if false { p.WaitGroup.Wait() } // FIXME: deadlock
+	if p != nil {
+		// FIXED DEADLOCK: One isolated execution instance per rule allows
+		// p.WaitGroup.Wait() to be safely enabled. It cleanly flushes all concurrent
+		// sub-recipes or prerequisites spawned within this specific rule scope
+		// without risking cross-rule cyclical deadlocks
+		p.WaitGroup.Wait()
 
-        p.calleeErrsM.Lock()
-        calleeErrs = p.calleeErrs; p.calleeErrs = nil
-        p.calleeErrsM.Unlock()
-    }
+		// Harvest errors from the centralized cross-rule session tracker
+		if p.session != nil {
+			p.session.Lock()
+			calleeErrs = p.session.calleeErrs
+			p.session.calleeErrs = nil // Atomically consume and clear the error buffer
+			p.session.Unlock()
+		}
+	}
 
-    if target = auto_target_value(ctx); target == nil {
-        erro(ctx, "target is nil")
-    }
+	if target = auto_target_value(ctx); target == nil {
+		erro(ctx, "target is nil")
+		return // Safe exit to prevent nil-pointer panics downstream
+	}
 
-    if isTrivial(target) {
-        erro(ctx, "trivial target : %s", ts(target))
-    }
+	if isTrivial(target) {
+		erro(ctx, "trivial target : %s", ts(target))
+		return
+	}
 
-    if n := len(calleeErrs); n > 0 /*&& t.stems == nil*/ {
-        var numRealErrs = 0
-        for _, err := range calleeErrs {
-            erro(ctx, "%v: %v", target, err)
-            numRealErrs += 1
-        }
-        if numRealErrs == 0 { return } // simply return if no real errors
+	if n := len(calleeErrs); n > 0 {
+		var numRealErrs = 0
+		for _, err := range calleeErrs {
+			erro(ctx, "%v: %v", target, err)
+			numRealErrs += 1
+		}
+		if numRealErrs == 0 { return }
 
-        var ctxPos, targetPos = _pos(ctx), target.Pos()
-        var v = target
-        if l, ok := v.(*list); ok && l.len() == 1 { v = l.elems[0] }
-        if targetPos.valid() && targetPos != ctxPos {
-            if f, y := to_file(v); y && f != nil && f.filemap != nil {
-                debug(ctx,
+		var ctxPos, targetPos = _pos(ctx), target.Pos()
+		var v = target
+		if l, ok := v.(*list); ok && l.len() == 1 { v = l.elems[0] }
+		if targetPos.valid() && targetPos != ctxPos {
+			if f, y := to_file(v); y && f != nil && f.filemap != nil {
+				debug(ctx,
 					_f("waiting for '%v'", target),
 					_f("via pattern '%v' (of %v)", v, f.filemap.project),
 					unwind{})
-            } else {
-                debug(ctx,
+			} else {
+				debug(ctx,
 					_f("waiting for '%v'", target),
 					unwind{})
-            }
-        }
-        if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
-            erro(ctx, "waiting for def '%v': %v", def.name, def.value)
-        }
-        return
-    }
+			}
+		}
+		if def, ok := v.(*def); ok && target != v && target != def.value { // trace source Def in diagnostics
+			erro(ctx, "waiting for def '%v': %v", def.name, def.value)
+		}
+		return
+	}
 
-    if opts.ExecResults {
-        // Waiting for command (shell/python/etc.) exec result
-        if val := auto_get(ctx, symDash); val != nil {
-            var ok bool
-            if execRes, ok = val.(*exec_result); ok {
-                //execRes.wg.Wait()
-            }
-        }
-    }
+	if opts.ExecResults {
+		// Waiting for command (shell/python/etc.) exec result
+		if val := auto_get(ctx, symDash); val != nil {
+			var ok bool
+			if execRes, ok = val.(*exec_result); ok {
+				// If your exec_result tracking contains its own sub-task waitgroup:
+				// execRes.wg.Wait()
+			}
+		}
+	}
 
-    if opts.StampCurrentTarget {
+	if opts.StampCurrentTarget && p != nil {
 		stamp_target(p, target)
-    }
-    return
+	}
+	return
 }
 
 func rebuildQualwordParts(ctx Context, parts []Value) Value {
@@ -16683,6 +16785,20 @@ func __string(ctx Context, v any) (res string) {
 	return
 }
 
+// __any_true executes short-circuiting logical OR over a variadic slice of values.
+// Returns true as soon as a single truthy element is encountered.
+func __any_true(ctx Context, v ...Value) bool { // or-true
+	for _, val := range v { if __true(ctx, val) { return true } }
+	return false
+}
+
+// __all_true executes short-circuiting logical AND over a variadic slice of values.
+// Returns false as soon as a single falsy element is encountered.
+func __all_true(ctx Context, v ...Value) bool { // and-true
+	for _, val := range v { if !__true(ctx, val) { return false } }
+	return true
+}
+
 func __true(ctx Context, v Value) (res bool) {
 	switch t := v.(type) {
 	case *answer: return t.bool
@@ -17558,6 +17674,30 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 	}
 	return c.evocation.do(ctx, op)
 }
+
+// capture_ctx provides a reusable evaluation airlock to feed specialized arguments 
+// down into a traverse pass and dynamically capture streaming program_res elements.
+type capture_ctx struct {
+	Context
+	args   []Value
+	result *[]Value
+}
+
+func (p *capture_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
+	case get_arguments: return p.args
+	case program_res:
+		if t.v != nil {
+			*p.result = append(*p.result, t.v)
+		}
+		// Continue bubbling down the remaining context chain fallback safely
+		return p.Context.do(ctx, op)
+	}
+	return p.Context.do(ctx, op)
+}
+
 func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	switch t := x.(type) {
 	case *project, self: return x
@@ -17593,7 +17733,14 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
 			return _null(x.Pos())
 		}
-		return ease(ctx, t.execute(ctx, a...))
+
+		var values []Value
+
+		cc := &capture_ctx{Context: ctx, args: a, result: &values}
+
+		traverse(cc, t)
+
+		return ease(ctx, values)
 
 	case *builtin:
 		if truly(ctx, evoke_detect_loop{x}) {
@@ -17612,7 +17759,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
 			b.evocation = ctx
 		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
-			erro(ctx, "no such field: %s.evocation", _v.Elem().Type())
+			erro(ctx, "cannot set field: %s.evocation", _v.Elem().Type())
 		} else if f.CanSet() {
 			f.Set(reflect.ValueOf(ctx))
 		} else if f.CanAddr() && f.Addr().CanSet() {
@@ -17746,7 +17893,6 @@ type exec_opts struct {
     note        bool `note`
     cmd         string `cmd`
     tie         string `tie` // all, both, stdout, stderr, out, err
-    workdir    string `cd,dir,workdir,work-dir,work-directory`
 }
 
 type exitstatus struct { int }
@@ -17853,7 +17999,7 @@ var (
 
 				s := string(sm[0])
 				if strings.HasSuffix(s, "\n") {
-					s = sf(" {\n%s} ← End of %s.", s, fact)
+					s = sf(" {\n%s} ← End of %s error.", s, fact)
 				} else {
 					s = sf(" {%s}", s)
 				}
@@ -18065,7 +18211,7 @@ func (p *exec_log) Write(b []byte) (n int, err error) {
 	}
     return
 }
-func (p *exec_log) createWriter(file *os.File, dir, cmd string) {
+func (p *exec_log) newWriter(file *os.File, dir, cmd string) {
     p.writer = bufio.NewWriter(file)
     fmt.Fprintf(p, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
     fmt.Fprintf(p, "Compilation started at %v\n\n", time.Now())
@@ -18196,7 +18342,10 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
     return
 }
 func (p *exec_buffer) filepath(s string) string {
-    if p.xc.workdir != "" && !filepath.IsAbs(s) { s = filepath.Join(p.xc.workdir, s) }
+	sym := _execution(p.xc).workdir
+    if sym != symEmpty && !filepath.IsAbs(s) {
+		s = filepath.Join(sym.String(), s)
+	}
     return s
 }
 func (p *exec_buffer) makePos(s1, s2, s3 string) Position {
@@ -18308,9 +18457,7 @@ func (p *exec_ctx) runContainerAndRetry(exe *execution) (err error) {
 
     fmt.Fprintf(sh.Stderr, "\n---- Run container '%s'\n", name)
     if entries := p.container._entries(p.Context, "run", false); entries != nil {
-        for _, run := range entries {
-            run.execute(p.Context, nil)
-        }
+        for _, run := range entries { traverse(p, run) }
     } else {
         erro(p.Context, "%s⇒run undefined", p.container)
     }
@@ -18380,9 +18527,7 @@ func (p *exec_ctx) DEPRECATED_ensureContainerRunning(containerName string) (err 
 
     if err = cmd.Run(); err == nil && foundID == "" {
         if entries := p.container._entries(p.Context, "run", false); entries != nil {
-            for _, run := range entries {
-                run.execute(p.Context, nil)
-            }
+            for _, run := range entries { traverse(p, run) }
         } else {
             erro(p.Context, "%s⇒run undefined", p.container)
         }
@@ -18651,7 +18796,6 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     for i, s := range env[sep:] {
         if i > 0 { envs += " && " }
         if k := strings.Index(s, "="); k > 0 {
-            // FIXED TYPO: Changed s[k+2:] to s[k+1:] to prevent stripping the first character of env values
             envs += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+1:]))
         }
     }
@@ -18674,7 +18818,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
             ctx.sh = nil
         }
 
-        if !ctx.silent && !is_configure_ctx(ctx) && ctx.target != nil {
+        if !ctx.silent && !truly(ctx, is_configure{}) && ctx.target != nil {
             stamp_target(exe, ctx.target)
         }
 
@@ -18698,7 +18842,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         ac := automatic{Context:ctx.Context, defs:make(def_map)}
         ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
         if x, y := ac.defs[sym_1]; y {
-            ac.defs[symUnderscore] = x // alias
+            ac.defs[symUnderscore] = x
         } else {
             erro(ctx, "wrong args: %v", ac.defs)
         }
@@ -18710,24 +18854,32 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     if ctx.stdoutTie { ctx.stdout.Tie = stdout }
     if ctx.stderrTie { ctx.stderr.Tie = stderr }
 
-    if ctx.logname != nil { 
-        logPathStr := __string(ctx, *ctx.logname)
-        if sym := intern(logPathStr); sym != symEmpty {
-            if __symIsAbs(sym) {
-                ctx.log = &exec_log{ filename: sym } 
-            } else {
-                // FIXED: Explicitly anchor log files to the active build project's path
-                var baseDir Symbol
-                if exe != nil && exe.proj != nil {
-                    baseDir = exe.proj.absPath
-                } else if p := _project(ctx); p != nil {
-                    baseDir = p.absPath
-                }
-                if baseDir != symEmpty {
-                    ctx.log = &exec_log{ filename: __symPathJoin(baseDir, sym) }
-                }
-            }
-        }
+    if ctx.logname != nil { // i.e., -log=<logname>
+		logName := *ctx.logname
+        logPathStr := __string(ctx, logName)
+		sym := intern(logPathStr)
+		if sym == symEmpty {
+			erro(ctx, "empty symbol: %s", logPathStr, trace_ctx{5}, callstack{num:10})
+			return
+		} else if !__symIsAbs(sym) {
+			sym = __symPathJoin(exe.workdir, sym)
+		}
+
+		if false && checkpoints { f, _ := to_file(logName); debug(ctx,
+			_f("%v", auto_get(ctx, symAt)),
+			_f("%v", auto_get(ctx, intern("a"))),
+			_f("%v", logPathStr),
+			_f("%v", sym),
+			_f("%v %v %v", f.dir, f.sub, f.name),
+			_f("%v", exe.workdir),
+			_f("%v", exe.configProj),
+			_f("%v", _project(ctx)),
+			_f("%v", __string(closure_with(ctx, exe.configProj), logName)),
+			_f("%v", __string(&term{ctx, exe.configProj.scope}, logName)),
+			_f("%v", ts(ctx)),
+		)}
+
+		ctx.log = &exec_log{ filename: sym }
     }
 
     var srcs = ctx.sources(exe.recipes)
@@ -18740,7 +18892,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         erro(ctx, "%v", err)
     } else {
         cmdline := joinraws("\n", srcs...)
-        ctx.log.createWriter(logFile, ctx.workdir, cmdline)
+        ctx.log.newWriter(logFile, exe.workdir.String(), cmdline)
     }
 
     ctx.stdout.xc = ctx
@@ -18770,7 +18922,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
 
         ctx.sh = exec.Command(cmd, ctx.args...)
         ctx.sh.Env = env
-        ctx.sh.Dir = ctx.workdir 
+        ctx.sh.Dir = exe.workdir.String() 
         ctx.sh.Stdout = &ctx.stdout
         ctx.sh.Stderr = &ctx.stderr
         if ctx.stdin {
@@ -18791,11 +18943,6 @@ type dialect_exec struct {
     contained bool
 }
 func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
-	var prog = _program(ctx)
-	if prog == nil {
-		erro(ctx, "needs program context to exec: %v", ctx)
-	}
-
 	var cmd = p.cmd
 	var ec = exec_ctx{Context: ctx}
 
@@ -18919,16 +19066,7 @@ func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
 		cmd = "docker"
 	}
 
-	// --- 6. Working Directory & Path Management ---
-	if ec.workdir == "" {
-		workdirSym := prog.workdir(ctx)
-		if workdirSym == symEmpty {
-			erro(ctx, "empty workdir")
-			return &ec.exec_result
-		}
-		ec.workdir = workdirSym.String()
-	}
-
+	// --- Path Management ---
 	if ec.path {
 		// FIXED: Create the directory of the target's absolute fullname if it's a *file node
 		var targetDirSym Symbol
@@ -21347,6 +21485,51 @@ func (c *traverse_ctx) do(ctx Context, op any) any {
 	return curr.Context.do(ctx, op)
 }
 
+// resolveWorkdir statefully evaluates the active directory boundaries for this
+// specific transaction frame against macro targets and sequential layout paths.
+func (x *execution) resolveWorkdir(ctx Context, proj *project) Symbol {
+	if proj == nil {
+		return symEmpty
+	}
+
+	// 1. Stateful Manual Overrides Check (e.g. nested cd modifications)
+	if x.changedWD != symEmpty {
+		if __symIsAbs(x.changedWD) {
+			return x.changedWD
+		}
+		return __symPathJoin(proj.absPath, x.changedWD)
+	}
+
+	// 2. Walled Garden Closure Project Search Pass
+	var o object
+	var closure []*project
+	if x.closureExec {
+		closure = closure_projects(ctx)
+	}
+
+	if len(closure) > 0 {
+		for _, p := range closure {
+			if o = p.resolve(ctx, symCWD);   !isTrivial(o) { break }
+			if o = p.resolve(ctx, symSlash); !isTrivial(o) { break }
+		}
+		if isTrivial(o) {
+			return proj.absPath
+		}
+	} else {
+		if o = proj.resolve(ctx, symCWD); isTrivial(o) {
+			if o = proj.resolve(ctx, symSlash); isTrivial(o) {
+				return proj.absPath
+			}
+		}
+	}
+
+	if v := expand(ctx, o); v == nil {
+		return proj.absPath
+	} else {
+		return __symbol(ctx, v)
+	}
+}
+
 // register_dependency maps dependency file counts, array registers, and timeline checks natively on the execution handle.
 func (x *execution) register_dependency(dep Value) {
 	if isTrivial(dep) { return }
@@ -21356,7 +21539,7 @@ func (x *execution) register_dependency(dep Value) {
 		x.set(x, defVoid, symBar, _list(x.ordered...))
 	} else {
 		x.Lock()
-		// If traverse successfully resolved it to a file, count it towards metrics
+		// If traverse successfully resolved it to a file, count it towards rule metrics
 		if _, isFile := to_file(dep); isFile {
 			x.countFiles++
 		}
@@ -21380,22 +21563,24 @@ func (x *execution) register_dependency(dep Value) {
 
 			// If either is nil, it means it's an abstract flag/token/string destination,
 			// or a malformed dependency that failed to be resolved by traverse.
-			if tFile != nil && dFile != nil {
+			if tFile != nil && dFile != nil && x.session != nil {
 				a := atomic.LoadInt64(&tFile._mtime)
 				b := atomic.LoadInt64(&dFile._mtime)
 
-				x.Lock()
-				// Query our centralized build graph map to see if the dependency was updated
-				_, depWasUpdated := x.updatedFiles[dFile]
+				// FIXED: Protect centralized cross-rule state with the global session mutex.
+				// This guarantees transaction isolation across heavily concurrent thread runners.
+				x.session.Lock()
+				if x.session.updatedFiles == nil {
+					x.session.updatedFiles = make(map[*file][]Value)
+				}
+
+				_, depWasUpdated := x.session.updatedFiles[dFile]
 
 				// If target exists on disk (a > 0) and dependency is newer, or dependency was updated in this run
 				if (a > 0 && b > a) || depWasUpdated {
-					if x.updatedFiles == nil {
-						x.updatedFiles = make(map[*file][]Value)
-					}
-					x.updatedFiles[tFile] = append(x.updatedFiles[tFile], dep)
+					x.session.updatedFiles[tFile] = append(x.session.updatedFiles[tFile], dep)
 				}
-				x.Unlock()
+				x.session.Unlock()
 			}
 		}
 	}
@@ -21460,71 +21645,52 @@ func traverse(ctx Context, val Value) {
 		}
 
 	case *rule:
-		var x = _execution(ctx)
-		if x == nil {
-			erro(ctx, "no execution context: %v", p, callstack{num:10})
-			return
-		}
+		parentExe := _execution(ctx)
 
 		target := auto_get(ctx, symAt)
+		if target == nil && parentExe == nil {
+			target = p.target
+		}
 		if target == nil {
 			erro(ctx, "$@ is not defined")
 			return
 		}
 
-		if _entry(ctx) == p {
-			if c := cast[*term](ctx); c != nil {
-				if t := auto_get(c, symAt); t != nil && eq(ctx, t, target) {
-					warn(ctx, "%v: %v: %v\n", _project(ctx), p, t)
-					return
-				}
-			}
-			warn(ctx, "%v: %v: %v", _project(ctx), p, target)
-		} else {
-			ctx = &rule_ctx{ctx, p, nil}
+		x := &execution{
+			automatic: automatic{Context: ctx, defs: make(def_map)},
+			start: time.Now(), rule: p,
 		}
 
+		x.args, _ = do(ctx, get_arguments{}).([]Value)
+
+		if parentExe != nil {
+			// Path A: Standard Sub-Target Execution Rule Frame
+			if proj := parentExe.configProj; proj != nil {
+				x.configProj = proj
+				x.workdir = proj.absPath
+			} else {
+				x.workdir = parentExe.workdir
+			}
+			x.session = parentExe.session
+		} else {
+			// Path B: Top-Level Parse-Time Generator Rule
+			var activeProj = _project(ctx)
+			if activeProj == nil { activeProj = p.owner() }
+			x.workdir = x.resolveWorkdir(ctx, activeProj)
+			x.session = newTraverseSession()
+		}
+
+		if false && checkpoints { debug(ctx,
+			_f("%v", p),
+			_f("%s", x.workdir),
+		)}
+
 		func() {
-			oldAt := x.defs[symAt]
-			oldCaret := x.defs[symCaret]
-			oldLangle := x.defs[symLangle]
-			oldRangle := x.defs[symRangle]
-			oldBar := x.defs[symBar]
-
-			oldTargets := x.targets
-			oldOrdered := x.ordered
-
-			oldOrderedFlag := x._ordered
-			oldPrerequisite := x.prerequisite
-
 			dAt := &def{o: defVoid, value: target}
-			dAt.pos, dAt.scope, dAt.name = p.Pos(), _scope(ctx), symAt
+			dAt.pos, dAt.scope, dAt.name = p.Pos(), _scope(x), symAt
 			x.defs[symAt] = dAt
 
-			delete(x.defs, symCaret)
-			delete(x.defs, symLangle)
-			delete(x.defs, symRangle)
-			delete(x.defs, symBar)
-
-			x.targets = nil
-			x.ordered = nil
-
-			x._ordered = false
 			x.prerequisite = target 
-
-			defer func() {
-				x.defs[symAt] = oldAt
-				x.defs[symCaret] = oldCaret
-				x.defs[symLangle] = oldLangle
-				x.defs[symRangle] = oldRangle
-				x.defs[symBar] = oldBar
-
-				x.targets = oldTargets
-				x.ordered = oldOrdered
-
-				x._ordered = oldOrderedFlag
-				x.prerequisite = oldPrerequisite
-			}()
 
 			for _, prog := range p.program {
 				var state uint
@@ -21534,16 +21700,16 @@ func traverse(ctx Context, val Value) {
 						case traverse_state: state = e.uint
 						default: 
 							if e != nil { 
-								erro(ctx, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, target})
+								erro(x, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, target})
 								panic(e) 
 							}
 						}
 					}()
-					do(ctx, program_res{prog.execute(ctx)})
+					do(x, program_res{prog.execute(x)})
 				}()
 
 				if state == traverse_next {
-					panic(traverse_state{_pos(ctx), traverse_next})
+					panic(traverse_state{_pos(x), traverse_next})
 				}
 				if state == traverse_done {
 					return
@@ -21585,10 +21751,13 @@ func traverse(ctx Context, val Value) {
 		}
 
 		var alreadyCompleted bool
-		x.Lock()
-		if x.completedFiles == nil { x.completedFiles = make(map[*file]struct{}) }
-		_, alreadyCompleted = x.completedFiles[p]
-		x.Unlock()
+		if x.session != nil {
+			x.session.RLock()
+			if x.session.completedFiles != nil {
+				_, alreadyCompleted = x.session.completedFiles[p]
+			}
+			x.session.RUnlock()
+		}
 
 		if !alreadyCompleted && !p.isSysFile() {
 			ctx = &traverse_ctx{ctx, p}
@@ -21612,14 +21781,6 @@ func traverse(ctx Context, val Value) {
 					pctx := inside_pattern_ctx{ctx}
 					for _, stemmed := range proj.resolvePatterns(ctx, p, p.name) { 
 						var failed bool
-						
-						oldTargets := append([]Value(nil), x.targets...)
-						oldOrdered := append([]Value(nil), x.ordered...)
-						oldCaret := x.defs[symCaret]
-						oldLangle := x.defs[symLangle]
-						oldRangle := x.defs[symRangle]
-						oldBar := x.defs[symBar]
-
 						func() {
 							defer func() {
 								switch e := recover().(type) {
@@ -21635,12 +21796,6 @@ func traverse(ctx Context, val Value) {
 						}()
 
 						if failed {
-							x.targets = oldTargets
-							x.ordered = oldOrdered
-							x.defs[symCaret] = oldCaret
-							x.defs[symLangle] = oldLangle
-							x.defs[symRangle] = oldRangle
-							x.defs[symBar] = oldBar
 							continue
 						}
 						rulesMatched++ 
@@ -21657,9 +21812,14 @@ func traverse(ctx Context, val Value) {
 				}
 			}
 
-			x.Lock()
-			x.completedFiles[p] = struct{}{}
-			x.Unlock()
+			if x.session != nil {
+				x.session.Lock()
+				if x.session.completedFiles == nil {
+					x.session.completedFiles = make(map[*file]struct{})
+				}
+				x.session.completedFiles[p] = struct{}{}
+				x.session.Unlock()
+			}
 		}
 
 		x.register_dependency(p)
@@ -21730,14 +21890,6 @@ func traverse(ctx Context, val Value) {
 			pctx := inside_pattern_ctx{ctx}
 			for _, entry := range proj.resolvePatterns(ctx, val, sym) {
 				var failed bool
-				
-				oldTargets := append([]Value(nil), x.targets...)
-				oldOrdered := append([]Value(nil), x.ordered...)
-				oldCaret := x.defs[symCaret]
-				oldLangle := x.defs[symLangle]
-				oldRangle := x.defs[symRangle]
-				oldBar := x.defs[symBar]
-
 				func() {
 					defer func() {
 						switch e := recover().(type) {
@@ -21753,12 +21905,6 @@ func traverse(ctx Context, val Value) {
 				}()
 
 				if failed {
-					x.targets = oldTargets
-					x.ordered = oldOrdered
-					x.defs[symCaret] = oldCaret
-					x.defs[symLangle] = oldLangle
-					x.defs[symRangle] = oldRangle
-					x.defs[symBar] = oldBar
 					continue
 				}
 				rulesMatched++ 
@@ -23194,49 +23340,6 @@ func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
 	}
 }
 
-type get_rule struct{}
-type is_rule struct{ x *regexp.Regexp }
-
-type rule_ctx struct{ Context ; rule *rule ; args []Value }
-func (p *rule_ctx) Pos() Pos { return p.rule.Pos() }
-func (p *rule_ctx) do(ctx Context, op any) (_ any) {
-	switch t := op.(type) {
-	case inner_cast: return p.Context
-	case dynamic_cast: return t.ctx(p, p.Context)
-	case init_args: if p.args != nil { t.args(ctx, p.args); return }
-	case get_arguments: if p.args != nil { return p.args }
-	case get_rule: return p.rule
-	case is_rule:
-		if v := t.x.MatchString(p.rule.target.String()); v {
-			if false { debug(ctx, "%v %v", t.x, p.rule.target) }
-			return true
-		}
-	}
-	return p.Context.do(ctx, op)
-}
-func (p *rule_ctx) ts(t string) (s string) {
-	s = "{"+t+" "+p.rule.String()
-	if p.args != nil {
-		s += "("
-		for i, a := range p.args {
-			if 0 < i { s += "," }
-			s += a.String()
-		}
-		s += ")"
-	}
-	s += " "+ts(p.Context)+"}"
-	return
-}
-
-func _entry(ctx Context) entry { e, _ := do(ctx, get_rule{}).(entry); return e }
-
-type entry interface {
-	destiny() Value // aka target
-	programs(...*program) []*program
-	executer
-	object
-}
-
 func hasRecipes(e entry) (_ bool) {
 	for _, p := range e.programs() {
 		if 0 < len(p.recipes) { return true }
@@ -23288,23 +23391,6 @@ func (p *rule) programs(a ...*program) []*program {
 func (p *rule) String() string {
 	if p.target == nil { return "<nil entry>" }
 	return p.target.String()
-}
-func (p *rule) execute(ctx Context, a ...Value) (res []Value) {
-	if patterned(ctx, p.target) {
-		erro(pc(ctx, p.Pos()),
-			_f("execute pattern entry: %v", p.target),
-			trace_ctx{2}, unwind{})
-		return nil
-	}
-
-	if checkpoints { defer check_rule_execute(ctx, p, a) (&res) }
-
-    ctx = &rule_ctx{ctx, p, a}
-
-    for _, prog := range p.program {
-        if v := prog.execute(ctx); v != nil { res = append(res, v) }
-    }
-    return
 }
 func (p *rule) recipes() (res []Value) {
 	for _, prog := range p.program {
@@ -25065,7 +25151,7 @@ func (p *project) cacheResolution(name Symbol, obj object) {
 func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
     entries = unmap_entries(ctx, p, name, nil)
 
-    if false && p.configure != nil && is_configure_ctx(ctx) {
+    if false && p.configure != nil && truly(ctx, is_configure{}) {
         entries = append(entries, p.configure._entries(ctx, name, true)...)
     }
 
@@ -25204,7 +25290,7 @@ func (p *project) resolvePatterns2(ctx Context, val Value, s string) (res []*ste
         var a, _, _ = base.resolvePatterns123(ctx, val, s)
         res = append(res, a...)
     }
-    if p.configure != nil && is_configure_ctx(ctx) {
+    if p.configure != nil && truly(ctx, is_configure{}) {
         var a, _, _ = p.configure.resolvePatterns123(ctx, val, s)
         res = append(res, a...)
     }
@@ -25387,12 +25473,39 @@ type dirtyOpts struct {
 type default_value struct{ v Value }
 type program_res   struct{ v Value }
 type get_program   struct{}
-
+type get_rule      struct{}
+type is_rule       struct{ x *regexp.Regexp }
 type is_closure_exec struct{}
-type execution_lang struct{}
+type execution_lang  struct{}
 type missing_file struct{ file string }
+type entry interface {
+	destiny() Value // aka target
+	programs(...*program) []*program
+	object
+}
 
 func _execution(c Context) *execution { return cast[*execution](c) }
+func _entry(ctx Context) entry { e, _ := do(ctx, get_rule{}).(entry); return e }
+
+// traverseSession encapsulates the global transactional states, VFS caches,
+// and cross-rule error tracking pipelines across a unified graph traversal run.
+type traverseSession struct {
+	sync.RWMutex // Protects parallel file status lookups and thread-safe error routing
+
+	completedFiles map[*file]struct{}
+	updatedFiles   map[*file][]Value
+	dirtyCounts    map[*file]int32
+	calleeErrs     []error
+}
+
+// newTraverseSession instantiates a clean transaction tracking matrix.
+func newTraverseSession() *traverseSession {
+	return &traverseSession{
+		completedFiles: make(map[*file]struct{}),
+		updatedFiles:   make(map[*file][]Value),
+		dirtyCounts:    make(map[*file]int32),
+	}
+}
 
 type execution struct {
 	automatic
@@ -25401,12 +25514,16 @@ type execution struct {
 
 	by dirtyOpts
 
-	proj     *project
-	prog     *program
-	recipes  []Value
+	// Stateful Directory State: Inherited at startup, modified locally by (cd)
+	workdir Symbol 
+
+	rule      *rule
+	args      []Value
+	prog      *program
+	recipes   []Value
 	language Symbol
 
-	defval Value // Singular polymorphic item!
+	defval Value 
 	defers []Value
 	values []Value
 
@@ -25416,78 +25533,109 @@ type execution struct {
 	_env      []*pair
 	changedWD Symbol
 
-	dirt  string    // reason of outdated
-	start time.Time // start time
+	dirt  string    
+	start time.Time 
 
-	// =====================================================================
-	// CENTRALIZED STATE TRANSACTION REGISTRY (STATELESS FILE ARCHITECTURE)
-	// =====================================================================
-	// completedFiles replaces the old visitedFiles entrance map to enforce
-	// post-traversal validation, natively rendering speculativeHistory dead/obsolete.
-	completedFiles map[*file]struct{}
-	updatedFiles   map[*file][]Value
-	dirtyCounts    map[*file]int32
-
-	calleeErrs  []error
-	calleeErrsM sync.Mutex
+	session *traverseSession
 
 	missing []string
 
-	closureExec bool // Tracks active closure sandbox execution state!
+	closureExec bool 
 	grepping    bool
 	grepped     []Value
 	ordered     []Value
-	targets     []Value // all targets def
+	targets     []Value 
 
 	executingRecipe int
 	countFiles      int
 	traceLevel      int
 
 	interpreted []evaluater
+
+	// FIXED STATIC BINDING: Explicitly stores the current loading project (p.project) 
+	// at parse time to insulate macro expansions from runtime context pollution.
+	configProj *project 
 }
 
 func (p *execution) do(ctx Context, op any) (res any) {
-    switch t := op.(type) {
+	switch t := op.(type) {
 	case inner_cast: return p.automatic
 	case dynamic_cast: return t.ctx(p, &p.automatic)
-    case final: return p // Hmm, it is "final"!
-    case ex_closure: return true // Intercept this like a final{ctx}
-	case is_closure_exec: return p.closureExec // Intercept the active state tracker safely
+	case final: return p 
+	case ex_closure: return true 
+	case is_closure_exec: return p.closureExec 
 
-    case get_pos:
-        if p.prerequisite != nil { return p.prerequisite.Pos() }
-        if len(p.recipes) > 0 { return p.recipes[p.executingRecipe].Pos() }
+	// =====================================================================
+	// CENTRALIZED PROJECT CONTEXT RESOLUTION
+	// =====================================================================
+	case get_project:
+		// FIXED: Return the static parse-time project context immediately if present.
+		// This guarantees macros like &(outtmp) expand relative to 'app' instead 
+		// of dynamically climbing into the master project space.
+		if p.configProj != nil { return p.configProj   }
+		if p.rule != nil       { return p.rule.owner() }
 
-    case get_program: return p.prog
+	// FIXED AIRLOCK: Intercept scope lookups to restrict visibility exclusively
+	// to the active compiling module's definition boundaries and global roots.
+	case get_closure_scopes:
+		var res []*scope
+		if p.configProj != nil && p.configProj.scope != nil {
+			res = append(res, p.configProj.scope)
+		}
 
-	// We ONLY keep `get_project` for the fast-path extraction.
-	// `get_scope` and `get_closure_scopes` are DELETED so they natively 
-	// fall through to `p.automatic.do`, which perfectly traverses:
-	// Dynamic Closure -> Rule -> Project -> Globe!
-	case get_project : if nil != p.proj { return p.proj }
-	// case get_scope   : if nil != p.proj { return p.proj.scope }
+		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
+
+		// PERFECT SHORT CIRCUIT: Walk the static lexical parent chain
+		// to jump straight to the clean universe parsing layer.
+		if uni := _universe(p.Context); uni != nil {
+			nextOp := t
+			if t.n > 0 { nextOp.n = t.n - len(res) }
+
+			if x, y := uni.do(ctx, nextOp).([]*scope); y && x != nil {
+				res = append(res, x...)
+			}
+		}
+
+		if t.n > 0 && len(res) > t.n { return res[:t.n] }
+		return res
+
+	case init_args: if p.args != nil { t.args(ctx, p.args); return }
+	case get_arguments: if p.args != nil { return p.args }
+	case get_rule: return p.rule
+	case is_rule:
+		if p.rule != nil && p.rule.target != nil {
+			if v := t.x.MatchString(p.rule.target.String()); v {
+				if false { debug(ctx, "%v %v", t.x, p.rule.target) }
+				return true
+			}
+		}
 
 	case program_res:
 		if t.v != nil { p.values = append(p.values, t.v) }
+		p.automatic.do(ctx, op) 
 		return
 
-    case default_value:  p.defval = t.v; return
+	case default_value:  p.defval = t.v; return
 
-    case param_name:
-        if p.prog != nil {
-            if t.i < len(p.prog.params) {
-                res = p.prog.params[t.i].name
-            }
-        }
-        return
+	case get_pos:
+		if p.prerequisite != nil { return p.prerequisite.Pos() }
+		if len(p.recipes) > 0 { return p.recipes[p.executingRecipe].Pos() }
 
-    case execution_lang:
-        return p.language
+	case param_name:
+		if p.prog != nil {
+			if t.i < len(p.prog.params) {
+				res = p.prog.params[t.i].name
+			}
+		}
+		return
 
-    case missing_file:
-        p.missing = append(p.missing, t.file)
-    }
-    return p.automatic.do(ctx, op)
+	case execution_lang:
+		return p.language
+
+	case missing_file:
+		p.missing = append(p.missing, t.file)
+	}
+	return p.automatic.do(ctx, op)
 }
 
 func (p *execution) caller() *execution { return _execution(p.Context) }
@@ -25495,13 +25643,6 @@ func (p *execution) caller() *execution { return _execution(p.Context) }
 func (p *execution) depth() (res int) {
     for c := p.caller(); c != nil; c = c.caller() { res += 1 }
     return
-}
-func (p *execution) calleeError(err error) {
-    if err != nil {
-        p.calleeErrsM.Lock()
-        p.calleeErrs = append(p.calleeErrs, err)
-        p.calleeErrsM.Unlock()
-    }
 }
 
 // traverse_context is a single thread traverse context, for traversing in a new goroutine,
@@ -25535,9 +25676,10 @@ func (p *execution) traverseProjs(ctx Context) (projs []*project) {
 		for _, proj := range closure_projects(ctx) { add(proj) }
 	}
 
-	if p.proj != nil { add(p.proj) }
-
 	if proj := _project(ctx); proj != nil { add(proj) }
+	if p.prog != nil {
+		if proj := p.prog.project; proj != nil { add(proj) }
+	}
 	return
 }
 
@@ -25600,6 +25742,7 @@ func (p *execution) interpret(ctx Context, i evaluater, args []Value) (res Value
 func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	var target Value
 
+	// wait returns the targeted node context under this isolated execution boundary
 	target, _, _ = wait(p, waitopts{
 		ReportUpdates:      false,
 		ExecResults:        false,
@@ -25609,7 +25752,14 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	var reason string
 	var opts, args = _opts_[dirtyOpts](ctx, aa...)
 
-	targetFile := as_file(ctx, target, p.proj)
+	// =====================================================================
+	// VFS PROJECT LINEAGE RESOLUTION
+	// =====================================================================
+	// Extract the complete set of valid active projects for file matching
+	// instead of using the obsolete single 'x.prog.project'.
+	projs := p.traverseProjs(ctx)
+
+	targetFile := as_file(ctx, target, projs...)
 
 	var targetFullSym Symbol
 	if targetFile != nil {
@@ -25618,13 +25768,17 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		targetFullSym, _ = fullname_sym(ctx, target)
 	}
 
-	// FIXED: Only short-circuit if this target has fully completed a successful pass in a prior branch
-	if targetFile != nil {
-		p.Lock()
-		if p.completedFiles == nil { p.completedFiles = make(map[*file]struct{}) }
-		_, alreadyCompleted := p.completedFiles[targetFile]
-		p.Unlock()
-		if alreadyCompleted { return }
+	// FIXED: Query completion statuses against the global cross-rule session registry
+	if targetFile != nil && p.session != nil {
+		p.session.RLock()
+		var alreadyCompleted bool
+		if p.session.completedFiles != nil {
+			_, alreadyCompleted = p.session.completedFiles[targetFile]
+		}
+		p.session.RUnlock()
+		if alreadyCompleted { 
+			return outdated // Safe, clean short-circuit exit
+		}
 	}
 
 	var verb = opts.debug > 0 || opts.verbose
@@ -25639,20 +25793,31 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	if !exists {
 		outdated, reason = true, "not exists"
 	} else {
-		p.Lock()
-		_, prereqUpdated := p.updatedFiles[targetFile]
-		p.Unlock()
+		// FIXED: Check timeline updates inside the centralized thread-safe map
+		var prereqUpdated bool
+		if p.session != nil {
+			p.session.RLock()
+			if p.session.updatedFiles != nil {
+				_, prereqUpdated = p.session.updatedFiles[targetFile]
+			}
+			p.session.RUnlock()
+		}
 
-		// Inline comparison check for explicit arguments or untracked prerequisite updates
+		// Inline check for explicit arguments or untracked prerequisite updates
 		if !prereqUpdated && len(args) > 0 {
 			for _, dep := range args {
-				df := as_file(ctx, dep, p.proj)
+				df := as_file(ctx, dep, projs...)
 				if df != nil {
 					b := atomic.LoadInt64(&df._mtime)
 
-					p.Lock()
-					_, dUpd := p.updatedFiles[df]
-					p.Unlock()
+					var dUpd bool
+					if p.session != nil {
+						p.session.RLock()
+						if p.session.updatedFiles != nil {
+							_, dUpd = p.session.updatedFiles[df]
+						}
+						p.session.RUnlock()
+					}
 
 					if dUpd || (b > 0 && b > tMod) {
 						prereqUpdated = true
@@ -25667,7 +25832,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		}
 	}
 
-	// --- Recipe Checks ---
+	// --- Recipe Change Pass ---
 	if outdated {
 		assert(reason != "", "needs outdated reason")
 	} else if changed, e := p.isRecipesChanged(ctx, target); e != nil {
@@ -25676,7 +25841,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	} else if changed {
 		outdated, reason = true, "recipes changed"
 	} else if !opts.checksum {
-		// does nothing
+		// noop block
 	} else {
 		erro(ctx, "FIXME: check prerequisites against the saved checksums")
 		return
@@ -25697,11 +25862,15 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		if outdated { m = "outdated" } else { m = "updated" }
 
 		sStr := d.String()
-		if targetFile != nil {
-			p.Lock()
-			if p.dirtyCounts == nil { p.dirtyCounts = make(map[*file]int32) }
-			p.dirtyCounts[targetFile]++
-			p.Unlock()
+
+		// FIXED: Record dirty occurrences inside the synchronized session ledger
+		if targetFile != nil && p.session != nil {
+			p.session.Lock()
+			if p.session.dirtyCounts == nil { 
+				p.session.dirtyCounts = make(map[*file]int32) 
+			}
+			p.session.dirtyCounts[targetFile]++
+			p.session.Unlock()
 		}
 
 		n := p.countFiles + len(p.grepped)
@@ -25739,46 +25908,7 @@ type program struct {
     ordered  []Value // order-only
     recipes  []Value
     language  Symbol
-}
-
-func (prog *program) workdir(ctx Context) (workdir Symbol) {
-	var proj = prog.project
-	if proj == nil {
-		return symEmpty
-	}
-
-	var exe = _execution(ctx)
-	if exe == nil {
-		return proj.absPath
-	}
-
-	// Direct assignment from the type-safe Symbol register
-	changedWD := exe.changedWD
-
-	if changedWD == symEmpty {
-		var o object
-		if o = proj.resolve(ctx, symCWD); isTrivial(o) {
-			if o = proj.resolve(ctx, symSlash); isTrivial(o) {
-				erro(ctx, "both $(CWD) and $/ are trivial", callstack{num: 5})
-				return proj.absPath
-			}
-		}
-
-		if checkpoints { assert(truly(ctx, ex_closure{}), "non-final context: %s", ts(ctx)) }
-
-		if v := expand(ctx, o); v == nil {
-			erro(ctx, "trivial %v", ts(o, ctx), callstack{num: 5})
-			return proj.absPath
-		} else {
-			workdir = __symbol(ctx, v)
-		}
-	} else if __symIsAbs(changedWD) {
-		workdir = changedWD
-	} else {
-		// High-speed O(1) memory seq-join with zero heap allocations
-		workdir = __symPathJoin(proj.absPath, changedWD)
-	}
-	return
+	// isConfigure bool // OPTIMIZATION: Statically tracks configure-time probe rules
 }
 
 func (prog *program) check_exe(ctx *execution) {
@@ -25881,154 +26011,55 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
     return
 }
 
-func (prog *program) execute(_ctx Context) (res Value) {
-    exe := &execution{
-        automatic:automatic{Context:_ctx, defs:make(def_map)},
-        /* recs:make(map[Value]int), */ start:time.Now(), prog:prog,
-        proj:prog.project, recipes:prog.recipes, language:prog.language,
-    }
+// execute runs the structural components of the program within a pre-allocated, 
+// stateful execution transaction frame.
+func (prog *program) execute(exe *execution) (res Value) {
+	// 1. Synchronize the program definition configuration data onto the live frame
+	exe.prog = prog
+	exe.recipes = prog.recipes
+	exe.language = prog.language
 
-    prog.check_exe(exe)
+	prog.check_exe(exe)
 
-    defer func() {
-        for _, a := range exe.defers {
-            if x, y := a.(*group); y {
-                modify(exe, x, true)
-            } else {
-                erro(exe, "defer: not a modifier: %s", ts(a))
-            }
-        }
-
-        if res == nil { res = auto_get(exe, symDash) }
-        if res == nil { res = exe.defval }
-        if res != nil { do(exe.Context, default_value{res}) }
-
-        exe.defval = nil
-    } ()
-
-    for _, param := range prog.params {
-        if  exe.params == nil  {
-            exe.params = make(map[Symbol]*auto, len(prog.params))
-        }
-        exe.params[param.name] = param
-    }
-
-    // NOTE: set "@" before setting auto args
-    // Select the right target value before setting parameters,
-    // because the target could be overrided by parameters.
-    exe.set(exe, defVoid, symAt, _entry(exe).destiny()) // @
-
-    if t := _stems(exe); t != nil {
-        exe.set(exe, defVoid, symAsterisk, ease(exe, t)) // "*"
-    }
-
-    exe.do(exe, init_args{&exe.automatic})
-    exe.prerequisites(prog.depends, false)
-    exe.prerequisites(prog.ordered, true)
-
-    if len(prog.recipes) == 0  { return }
-    return prog.result_or_default_interpret(exe)
-}
-
-func _configure_ctx(c Context) *configure_ctx { return cast[*configure_ctx](c) }
-func is_configure_ctx(ctx Context) bool { return _configure_ctx(ctx) != nil }
-
-type silent_configure struct {}
-
-type configure_ctx struct {
-    Context
-    current *project
-    silent bool
-    file *os.File
-    writer *bufio.Writer
-    defs map[Symbol]struct{}
-    done map[*def]struct{}
-}
-func (cc *configure_ctx) do(ctx Context, op any) (_ any) {
-    switch t := op.(type) {
-	case inner_cast: return cc.Context
-	case dynamic_cast: return t.ctx(cc, cc.Context)
-    case silent_configure: if cc.silent { return true }
-    }
-    return cc.Context.do(ctx, op)
-}
-func (cc *configure_ctx) execute(ctx *execution, e entry) {
-	var d *def
-	var sym Symbol // CRITICAL FIX: Upgraded from string to Symbol
-	var p = e.owner()
-
-	// if checkpoints { defer cc.execute_check(ctx, e, p, &sym, &d) }
-
-	if p != cc.current && p != nil {
-		cc.defs = make(map[Symbol]struct{}) // CRITICAL FIX: Upgrade map to use Symbol!
-
-		// NOTE: configuration.sm is created for every project
-		var f *os.File
-		if _f := p.configuration_sm(ctx); _f == nil {
-			erro(ctx, "%p: nil configuration file", p)
-		} else if s := _f.fullname().String(); s == "" {
-			erro(ctx, "empty configuration file name: %v", f)
-		} else if e := os.MkdirAll(filepath.Dir(s), os.FileMode(0755)); e != nil {
-			erro(ctx, "make path %s failed: %v", s, e)
-		} else {
-			f, e = os.OpenFile(s, os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(0600))
-			if e != nil { erro(ctx, "%v", e, callstack{num:10}, unwind{}) }
-		}
-
-		if f != nil {
-			if cc.writer != nil {
-				if e := cc.writer.Flush(); e != nil {
-					erro(ctx, "%v", e)
-				}
-			}
-			if cc.file != nil {
-				if e := cc.file.Close(); e != nil {
-					erro(ctx, "%v", e)
-				}
+	// 2. Queue deferred modifiers to process safely when the scope closes
+	defer func() {
+		for _, a := range exe.defers {
+			if x, y := a.(*group); y {
+				modify(exe, x, true)
+			} else {
+				erro(exe, "defer: not a modifier: %s", ts(a))
 			}
 		}
 
-		cc.file, cc.writer = f, bufio.NewWriter(f)
-		fmt.Fprintf(cc.writer, "# %s (%s) configuration\n", p.spec, p.name)
+		if res == nil { res = auto_get(exe, symDash) }
+		if res == nil { res = exe.defval }
+		if res != nil { do(exe.Context, default_value{res}) }
 
-		if !cc.silent {
-			s := _universe(ctx).trimFileSpec(ctx, p.spec)
-			prompt(ctx, "configure %s …… (%s)\n", p.name, s)
-			if true { flush(ctx) }
+		exe.defval = nil
+	}()
+
+	// 3. Map rule arguments and sandboxed environment parameters
+	for _, param := range prog.params {
+		if exe.params == nil {
+			exe.params = make(map[Symbol]*auto, len(prog.params))
 		}
-
-		cc.current = p
+		exe.params[param.name] = param
 	}
 
-	e.execute(ctx)
+	// Native target mapping updates
+	exe.set(exe, defVoid, symAt, _entry(exe).destiny()) 
 
-	// 1. Evaluate the AST node to its final string.
-	// 2. Intern it immediately into the fast integer domain!
-	sym = intern(__string(ctx, e.destiny()))
-
-	if _, y := cc.defs[sym]; y { return } // O(1) integer hash check
-
-	if d = cc.current.finddef(sym); d == nil {
-		// %s works perfectly here because Symbol satisfies the Stringer interface!
-		erro(ctx, "%v: `%s` not configured", cc.current, sym)
-		return
+	if t := _stems(exe); t != nil {
+		exe.set(exe, defVoid, symAsterisk, ease(exe, t)) 
 	}
 
-	cc.defs[sym] = struct{}{}
+	// 4. Initialize parameters and resolve prerequisite trees
+	exe.do(exe, init_args{&exe.automatic})
+	exe.prerequisites(prog.depends, false)
+	exe.prerequisites(prog.ordered, true)
 
-	// d.name is already a Symbol, so we can use it natively
-	if nameSym := d.name; d.value == nil {
-		// Set <nil> value with exec-assign ('!=') to a None value.
-		fmt.Fprintf(cc.writer, "%s !=\n", nameSym)
-	} else {
-		// Because d.value is an AST Value, d.value.String() is correct here.
-		fmt.Fprintf(cc.writer, "%s = %v\n", nameSym, d.value.String())
-	}
-	return
-}
-func (cc *configure_ctx) close() {
-    if cc.writer != nil { if e := cc.writer.Flush(); e != nil {} }
-    if cc.file != nil   { if e := cc.file.Close();   e != nil {} }
+	if len(prog.recipes) == 0 { return }
+	return prog.result_or_default_interpret(exe)
 }
 
 func scanExitStatts(err error) (n, status int) {
@@ -26115,15 +26146,15 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 		debug(ctx, "configure-file: %v: %v (%s)", auto_get(ctx, symAt), f.fullname(), closured)
 	}
 
-	if len(ctx.proj.configs) == 0 {
+	if len(ctx.prog.project.configs) == 0 {
 		// no need to check configuration
-	} else if cfg := ctx.proj.configuration_sm(ctx); cfg == nil || !cfg.exists() {
+	} else if cfg := ctx.prog.project.configuration_sm(ctx); cfg == nil || !cfg.exists() {
 		prompt(ctx, "%v\n", filenameSym.String())
 		if opts.mustConf {
 			var d = opts.debug; if d == 0 { d = 1 }
-			erro(ctx, "no configuration (%v), try -conf first, in %v", cfg, ctx.proj)
+			erro(ctx, "no configuration (%v), try -conf first, in %v", cfg, ctx.prog.project)
 		} else {
-			debug(ctx, "no configuration (%v), try -conf first, in %v", cfg, ctx.proj)
+			debug(ctx, "no configuration (%v), try -conf first, in %v", cfg, ctx.prog.project)
 		}
 	}
 
@@ -26154,7 +26185,7 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 	if data.Len() == 0 {
 		erro(ctx, "empty configuration data",
 			_f("%v: %v %v", filenameStr, auto_get(ctx, symAt), auto_get(ctx, symRangle)))
-	} else if cfg := ctx.proj.configuration_sm(ctx); (cfg == nil || !cfg.exists()) && opts.debug > 0 {
+	} else if cfg := ctx.prog.project.configuration_sm(ctx); (cfg == nil || !cfg.exists()) && opts.debug > 0 {
 		// NOTE: TrimSpace to ease emacs *compilation* parse errors
 		debug(ctx, "%v: %v\n%s\n", filenameStr, auto_get(ctx, symAt), strings.TrimSpace(data.String()))
 	}
@@ -26959,6 +26990,25 @@ func (u *universe) do(ctx Context, op any) (res any) {
 	case is_test_mode: 
 		if u.testMode { return true }
 
+	case get_closure_scopes:
+		var res []*scope
+		if u.scope != nil       { res = append(res, u.scope)       }
+		if u.globe.scope != nil { res = append(res, u.globe.scope) }
+
+		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
+
+		if cc := u.Context; cc != nil {
+			nextOp := t
+			if t.n > 0 { nextOp.n = t.n - len(res) }
+
+			if x, y := do(cc, nextOp).([]*scope); y && x != nil {
+				res = append(res, x...)
+			}
+		}
+
+		if t.n > 0 && len(res) > t.n { return res[:t.n] }
+		return res
+
 	case declared_project:
 		if t.project == nil {
 			erro(ctx, "declared nil project", trace_ctx{100}, callstack{stop: "smart.Main"})
@@ -27410,8 +27460,13 @@ func (u *universe) run(ctx Context) (result []Value) {
 		for _, entry := range entries {
 			if u.verboseExecFlags { info(ctx, "%v", entry); flush(ctx) }
 
-			res := entry.execute(ctx, args...)
-			result = append(result, res...)
+			// Unified Context Airlock activation
+			var flagValues []Value
+			cc := &capture_ctx{Context: ctx, args: args, result: &flagValues}
+
+			traverse(cc, entry)
+
+			result = append(result, flagValues...)
 			done = true
 		}
 	}
@@ -27430,7 +27485,6 @@ func (u *universe) run(ctx Context) (result []Value) {
 			switch t := goal.(type) {
 			case *null, *none: // Just ignore
 			case *word:
-				// REFINED: Pass the Symbol integer directly to avoid unnecessary string allocations
 				if entries := proj._entries(ctx, t.s, true); entries == nil {
 					erro(ctx, "no such entry `%s`", t.s)
 					return false
@@ -27457,7 +27511,7 @@ func (u *universe) run(ctx Context) (result []Value) {
 				{
 					var (
 						sStr = __string(ctx, t.Value)
-						sSym = intern(sStr) // Pure O(1) integer domain boundary re-entry
+						sSym = intern(sStr) 
 						args = merge(t.args...)
 						found int
 					)
@@ -27491,11 +27545,12 @@ func (u *universe) run(ctx Context) (result []Value) {
 		}
 
 		if len(goals) > 0 {
-			// 1. Instantiate the centralized, lock-free transaction execution handle exactly once
+			// 1. Instantiate the master execution anchor with a fresh cross-rule session registry
 			exe := &execution{
 				automatic: automatic{Context: ctx, defs: make(def_map)},
 				start:     time.Now(),
-				proj:      main,
+				workdir:   u.workdir,
+				session:   newTraverseSession(), // CRITICAL FIX: Safe VFS memory ledger initialization
 			}
 
 			// Inject the session executor directly into the call-stack context tree
@@ -28048,6 +28103,7 @@ func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
 	for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
 	for _, v := range ctx.erro { erro(ctx, "%s", __string(ctx, v)) }
 
+	var projs = exe.traverseProjs(ctx)
 	var target = auto_get(ctx, symAt) // @
 	if ctx.checkOutdated && target != nil {
 		var (
@@ -28057,7 +28113,7 @@ func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
 		)
 
 		// CRITICAL SHIELD: Guard against nil file resolutions before reading modTime
-		if tf := as_file(ctx, target, exe.proj); tf != nil {
+		if tf := as_file(ctx, target, projs...); tf != nil {
 			tt = tf.modTime()
 		}
 
@@ -28069,7 +28125,7 @@ func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
 		var depends = auto_get(ctx, symCaret) // ^
 		for _, dep := range merge(depends, ordered, grepped) {
 			// CRITICAL SHIELD: Prevent panic if a dependency cannot be tracked as a file node
-			if df := as_file(ctx, dep, exe.proj); df != nil {
+			if df := as_file(ctx, dep, projs...); df != nil {
 				if dt := df.modTime(); dt.After(tt) {
 					erro(ctx, "%v: outdated by %v (%v)", target, dep, dt.Sub(tt))
 				}
@@ -28197,7 +28253,7 @@ func (ctx *modifier_env) x(args ...Value) (result any) {
 }
 
 type modifier_var struct { modifier_ }
-func (ctx *modifier_var) x(args ...Value) any {
+func (ctx *modifier_var) x(exe *execution, args ...Value) any {
 	for _, arg := range args {
 		sym := __symbol(ctx, arg)
 
@@ -28318,7 +28374,11 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		var callerScopes []any
 		var hasBase bool
 
-		baseScope := caller.proj.scope
+		// FIXED: Guard against root/master execution scopes where prog is natively nil
+		var baseScope *scope
+		if caller.prog != nil && caller.prog.project != nil {
+			baseScope = caller.prog.project.scope
+		}
 		
 		if scopes := closure_scopes(caller/*.Context*/); len(scopes) > 0 {
 			for _, s := range scopes {
@@ -28329,7 +28389,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 				
 				callerScopes = append(callerScopes, s)
 
-				if s == baseScope || s.hasOuter(baseScope) {
+				if baseScope != nil && (s == baseScope || s.hasOuter(baseScope)) {
 					hasBase = true
 					break // Perfect boundary!
 				}
@@ -28355,7 +28415,13 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		erro(ctx, "wrong closure_with")
 	}
 
-	var proj = exe.proj //_project(ctx)
+	// =====================================================================
+	// STRUCTURE SCOPE RESOLUTION FIX
+	// =====================================================================
+	// Replaced legacy direct field reading with a defensive check against 
+	// the rule's definition project domain.
+	var proj = _project(ctx)
+	if proj == nil && exe.prog != nil { proj = exe.prog.project }
 	if checkpoints {
 		if _project(ctx) != proj {
 			debug(ctx, "%v != %v", _project(ctx), proj)
@@ -28409,7 +28475,8 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		t := set(symAt, target)
 		
 		// 1. Walled Garden Domain Extraction (Mirrors the `dirty` function!)
-		f := as_file(ctx, t)
+		projs := exe.traverseProjs(ctx)
+		f := as_file(ctx, t, projs...)
 		sSym, _ := fullname_sym(ctx, t)
 		
 		n := 0
@@ -28457,39 +28524,49 @@ type modifier_cd struct{ modifier_
     printEnter bool `print-enter`
     printLeave bool `print-leave`
 }
-func (ctx *modifier_cd) x(args ...Value) (result any) {
+func (ctx *modifier_cd) x(exe *execution, args ...Value) (result any) {
 	if (ctx.printEnter || ctx.printLeave) && len(args) == 0 { return }
-	
+
+	// Safety Barrier: Ensure the execution handle exists
+	if exe == nil {
+		erro(ctx, "nil execution handle inside cd modifier", trace_ctx{5}, callstack{num: 10})
+		return
+	}
+
 	if len(args) == 1 {
-		// 1. Enter the Walled Garden natively
+		// 1. Enter the Walled Garden natively via Symbol domain
 		dirSym := __symbol(ctx, args[0])
-		
 		if dirSym == symEmpty {
-			// TODO: do something special
 			return
 		}
 
-		proj := _project(ctx)
-		
-		// 2. Zero-Allocation Path Math
+		// 2. Progressive Stateful Path Calculations
+		// If the input path is relative, evaluate it against the current live 
+		// runtime working directory boundary rather than jumping back to the project root.
 		if !__symIsAbs(dirSym) { 
-			dirSym = __symPathJoin(proj.absPath, dirSym) 
+			if exe.workdir != symEmpty {
+				dirSym = __symPathJoin(exe.workdir, dirSym)
+			} else {
+				proj := _project(ctx)
+				if proj != nil {
+					dirSym = __symPathJoin(proj.absPath, dirSym)
+				}
+			}
 		}
-		
-		// 3. Fast-path integer boundary checks
+
+		// 3. Optional Virtual Filesystem Lazy Path Initialization
 		if ctx.path && dirSym != symDot && dirSym != symDotDot && dirSym != symPathSep { 
-			// AIRLOCK: Unpack the string exactly once for the OS
+			// Airlock: Unpack the string path exactly once for OS system calls
 			dirStr := dirSym.String()
 			if err := os.MkdirAll(dirStr, 0755); err != nil {
 				debug(ctx, "make path '%s' failed: %v", dirStr, err)
 			}
 		}
-		
-		// 4. Update the OS execution context
-		if exe := _execution(ctx); exe != nil { 
-			// We delay extracting the string until we know the execution context exists!
-			exe.changedWD = dirSym
-		}
+
+		// 4. Update the Stateful Engine Parameters Directly
+		// This sets the new base-path for downstream shell command builders
+		exe.workdir = dirSym
+		exe.changedWD = dirSym
 	} else {
 		erro(ctx, "wrong number of cd args: %v", args)
 	}
@@ -30569,22 +30646,28 @@ func stamp_target(x *execution, target Value) *file {
 
 	tFile, _ := to_file(target)
 	if tFile == nil && x != nil {
-		tFile = as_file(x, target, x.proj)
+		// FIXED: Replaced legacy direct x.prog.project reading with the comprehensive 
+		// multi-project resolution matrix to find out-of-tree artifacts cleanly.
+		projs := x.traverseProjs(x.Context)
+		tFile = as_file(x, target, projs...)
 	}
 
-	if tFile != nil && x != nil {
+	if tFile != nil && x != nil && x.session != nil {
 		// 1. Force an atomic filesystem sync to pull the newly compiled mtime/size
 		tFile.stat(x, true)
 
 		// 2. Safely register the asset into our active session update map
-		x.Lock()
-		if x.updatedFiles == nil {
-			x.updatedFiles = make(map[*file][]Value)
+		// FIXED: Shifted from rule-level x.Lock() to global x.session.Lock().
+		// This ensures parallel compilation workers can append metadata entries 
+		// to the centralized cross-rule session registry without race conditions.
+		x.session.Lock()
+		if x.session.updatedFiles == nil {
+			x.session.updatedFiles = make(map[*file][]Value)
 		}
-		if _, exists := x.updatedFiles[tFile]; !exists {
-			x.updatedFiles[tFile] = []Value{}
+		if _, exists := x.session.updatedFiles[tFile]; !exists {
+			x.session.updatedFiles[tFile] = []Value{}
 		}
-		x.Unlock()
+		x.session.Unlock()
 	}
 	return tFile
 }
@@ -30701,23 +30784,22 @@ func (ctx *modifier_dirty) x(exe *execution, args ...Value) (result any) {
 type modifier_fork struct { modifier_
     wd string `workdir,wd`
 }
-func (ctx *modifier_fork) _x(args ...Value) (result Value) {
+func (ctx *modifier_fork) _x(exe *execution, args ...Value) (result Value) {
     var (
         attr syscall.ProcAttr
         argv []string
-        prog = _program(ctx)
     )
     for _, a := range args { argv = append(argv, __string(ctx, a)) }
 
     if ctx.wd != "" {
         attr.Dir = ctx.wd
-    } else if sym := prog.workdir(ctx); sym == symEmpty {
+    } else if sym := exe.workdir; sym == symEmpty {
         erro(ctx, "empty workdir")
     } else {
 		attr.Dir = sym.String()
 	}
 
-    attr.Env, _ = _execution(ctx).env(ctx)
+    attr.Env, _ = exe.env(ctx)
     attr.Files = []uintptr{ // FIXME: see Cmd.Start() for files pipes
         os.Stdin .Fd(),
         os.Stdout.Fd(),
@@ -30735,7 +30817,7 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value) {
     }
     return
 }
-func (ctx *modifier_fork) x(args ...Value) (result any) {
+func (ctx *modifier_fork) x(exe *execution, args ...Value) (result any) {
     var (
         argv []string
         wd string
@@ -30744,23 +30826,23 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
 
     if ctx.wd != "" {
         wd = ctx.wd
-    } else if sym := _program(ctx).workdir(ctx); sym == symEmpty {
+    } else if sym := exe.workdir; sym == symEmpty {
         erro(ctx, "empty workdir")
     } else {
 		wd = sym.String()
 	}
 
-    var exe, err = os.Executable()
+    var x, err = os.Executable()
     if err != nil {
         erro(ctx, "fork: %v: %v", os.Args[0], err)
     }
 
-    var cmd = exec.Command(exe, argv...)
+    var cmd = exec.Command(x, argv...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = wd, stdout, stderr
-    cmd.Env, _ = _execution(ctx).env(ctx)
+    cmd.Env, _ = exe.env(ctx)
 
     if err = cmd.Run(); err != nil {
-        erro(ctx, "fork: %v: %v", exe, err)
+        erro(ctx, "fork: %v: %v", x, err)
     } else {
         // TODO: status code, etc.
     }
@@ -30770,11 +30852,11 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
 type modifier_gitmodified struct { modifier_
     wd string `workdir,wd`
 }
-func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
+func (ctx *modifier_gitmodified) x(exe *execution, args ...Value) (result any) {
 	var wd string
     if ctx.wd != "" {
         wd = ctx.wd
-    } else if sym := _program(ctx).workdir(ctx); sym == symEmpty {
+    } else if sym := exe.workdir; sym == symEmpty {
         erro(ctx, "empty workdir")
     } else {
 		wd = sym.String()
@@ -30815,11 +30897,11 @@ func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
 type modifier_gitahead struct { modifier_
     wd string `workdir,wd`
 }
-func (ctx *modifier_gitahead) x(args ...Value) (result any) {
+func (ctx *modifier_gitahead) x(exe *execution, args ...Value) (result any) {
 	var wd string
     if ctx.wd != "" {
         wd = ctx.wd
-    } else if sym := _program(ctx).workdir(ctx); sym == symEmpty {
+    } else if sym := exe.workdir; sym == symEmpty {
         erro(ctx, "empty workdir")
     } else {
 		wd = sym.String()
