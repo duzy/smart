@@ -3771,14 +3771,38 @@ func closure_scopes(ctx Context, _n ...int) (s []*scope) {
 
 func closure_projects(ctx Context, _n ...int) (res []*project) {
 	var m = map[*project]struct{}{}
+	var raw []*project
+
+	// NOTE: closure_scopes puts the derived polymorphic context at Index 0.
 	for _, s := range closure_scopes(ctx, _n...) {
-		// NOTE: the globe scope has nil project; closure_scopes already
-		//       puts the derived polymorphic context at Index 0.
 		if s.project != nil {
-			if _, ok := m[s.project]; !ok {
-				for _, p := range s.project.family() { m[p] = struct{}{} }
-				res = append(res, s.project)
+			if _, tried := m[s.project]; !tried {
+				// OPTIMIZED PASS: Populate the central tracking map directly
+				// via high-speed in-place recursion, bypassing slice thrashing.
+				s.project.collectFamily(m)
+
+				raw = append(raw, s.project)
 			}
+		}
+	}
+
+	// Apply hierarchical dominance ordering to eliminate base template nodes
+	for _, proj := range raw {
+		var added = false
+		for i, existing := range res {
+			if existing == proj || existing.has_base(proj) {
+				added = true
+				break // Already covered by an equal or more specific derived project
+			}
+			if proj.has_base(existing) {
+				// The incoming project is derived from the existing base entry; swap it inline
+				res[i] = proj
+				added = true
+				break
+			}
+		}
+		if !added {
+			res = append(res, proj)
 		}
 	}
 	return
@@ -11212,70 +11236,73 @@ func (p *compiler) include(ctx Context, doc *commentgroup, g *clause_opts, _ int
 
 	var opts = include_opts{ clause_opts: g }
 	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
-		erro(ctx, "unknown opts: %v", va[0], callstack{num:5})
+		erro(ctx, "unknown opts: %v", va[0], callstack{num: 5})
 	}
 	if len(g.spec) < 1 {
-		erro(ctx, "expect include file: %v", g.spec, callstack{num:5})
+		erro(ctx, "expect include file: %v", g.spec, callstack{num: 5})
 	}
 
 	var val = expand(final{ctx}, g.spec[0])
 
 	if p.spaces(ctx); p.tok == COLON {
 		switch val.(type) {
-		case *file, *strlit, *strcomp: // escape from file searching
-		default: if f := p.project.file(ctx, val); f != nil { val = f }
+		case *file, *strlit, *strcomp: // Escape from file searching
+		default:
+			if f := p.project.file(ctx, val); f != nil { val = f }
 		}
-		val = p.rule(ctx, []Value{val}) // this should return a Rule
+		val = p.rule(ctx, []Value{val}) // This returns a *rule
 	}
 
-    if g.skip { return }
+	if g.skip { return }
 
-    ctx = pc(ctx, g.spec[0])
+	ctx = pc(ctx, g.spec[0])
 
-    // Execute the rule entry to update include source.
-    if x, y := val.(*rule); y && x != nil {
-        if v, ok := execute_entry(ctx, x); !ok {
-            erro(ctx, "%v: include entry failed : %s", x, ts(v,ctx))
-        }
+	// =====================================================================
+	// COMPILE-TIME ISOLATED RULE EXECUTION GATE
+	// =====================================================================
+	// If the file dependency is bound to a generator rule, execute it 
+	// immediately during the parse phase to output the required source bytes.
+	if x, ok := val.(*rule); ok && x != nil {
+		// Evaluates programs via rule_ctx, entirely independent of the execution frame
+		_ = x.execute(ctx) 
 
-        val = x.target
-    }
+		// Promote val to the newly generated physical file target output
+		val = x.target
+	}
 
-    f := p.stat_file(ctx, val)
+	f := p.stat_file(ctx, val)
 
-    if f == nil || !f.exists()  {
-		if opts.ifExists { return } // done if explicit "-if-exists"
+	if f == nil || !f.exists() {
+		if opts.ifExists { return } // Safe exit if explicit "-if-exists" flag is active
 		if f != nil && f.name == symEmpty {
-			erro(ctx, "empty file spec: %v : %s", val, ts(val,ctx))
+			erro(ctx, "empty file spec: %v : %s", val, ts(val, ctx))
 		} else {
-			erro(ctx, "no such file: %v : %s", val, ts(val,ctx))
+			erro(ctx, "no such file: %v : %s", val, ts(val, ctx))
 		}
-    }
+		return
+	}
 
 	s := _universe(ctx).trimFileSpec(ctx, f.name)
 
-	// 1. THE DOD FIX: Load the actual file bytes!
+	// Load the physical file bytes from the newly updated VFS location
 	text := load_source_bytes(ctx, f.fullname().String())
 	if len(text) == 0 {
 		return
 	}
 
-	// 2. THE DOD FIX: State Protection!
-	// We use the inline closure to safely back up and restore the parent's 
-	// scanner and compilestate so `include` doesn't corrupt the AST stream.
-	func () {
+	// State Protection Barrier: Isolate the parent compiler's scanning registers
+	func() {
 		_scanner, _state := p.scanner, p.compilestate
-		defer func() { p.scanner, p.compilestate = _scanner, _state } ()
+		defer func() { p.scanner, p.compilestate = _scanner, _state }()
 
-		// Retain the current project so the included AST splices natively
 		p.compilestate = compilestate{
 			project: _state.project,
 		}
 
-		// 3. Pass the loaded text to the source parser!
 		p.source(&include_ctx{ctx, opts, s, val.Pos()}, f.fullname(), text)
-	} ()
-    return
+	}()
+
+	return
 }
 
 func (p *compiler) file(ctx Context, spec, filename Symbol) {
@@ -13439,12 +13466,13 @@ func pc(ctx Context, a any, n ...int) Context {
 	var p any
 	if a != nil {
 		switch t := a.(type) {
+		case *loc : return &pos_ctx{pc(ctx,t.Value), t.pos}
+		case *xloc: return &pos_ctx{pc(ctx,t.Value), t.pos} // CRITICAL FIX: Extract fat Position
 		case []byte: a = string(t)
 		case  *file: a = t.fullname()
+		case  *exec_log: if t != nil { a = t.filename }
 		}
 		switch t := a.(type) {
-		case *loc: return &pos_ctx{pc(ctx,t.Value), t.pos}
-		case *xloc: return &pos_ctx{pc(ctx,t.Value), t.pos} // CRITICAL FIX: Extract fat Position
 		case  *scanner   : p = t.offsetPos(n...)
 		case  *compiler  : p = t.pos
 		case   Pos       : if t.valid() { p = t }
@@ -15484,7 +15512,26 @@ type file struct {
 	*filestub
 }
 
-func (p *file) String() string { return "{file " + p.name.String() + "}" }
+// String satisfies the core Value interface and command line compilers
+// by natively yielding the clean, unbraced VFS path string.
+func (p *file) String() string {
+	if p == nil || p.filestub == nil { return "<nil-file>" }
+	return p.name.String() //p.fullname().String()
+}
+
+// GoString provides structural diagnostic dumps for deep context logging
+// without contaminating hot-path shell expansions.
+func (p *file) GoString() string {
+	if p == nil || p.filestub == nil {
+		return "{file <nil>}"
+	}
+	return fmt.Sprintf("{file %s mtime=%d flags=%08b}",
+		p.name.String(),
+		atomic.LoadInt64(&p._mtime),
+		atomic.LoadInt32(&p._flag),
+	)
+}
+
 func (p *file) basename() Symbol { return __symBase(p.name) }
 func (p *file) fullname() Symbol  { return __symPathJoin(p.dir, p.sub, p.name) }
 
@@ -15663,14 +15710,10 @@ func _stat(ctx Context, a0 any, aa ...any) *file {
 
 	// 1. Instantly enter the high-speed Symbol Domain
 	switch t := a0.(type) {
-	case Symbol: 
-		name = t
-	case Value:  
-		name = __symbol(ctx, t)
-	case string: 
-		name = intern(t)
-	default:     
-		name = intern(__string(ctx, a0))
+	case Symbol: name = t
+	case Value:  name = __symbol(ctx, t)
+	case string: name = intern(t)
+	default:     name = intern(__string(ctx, a0))
 	}
 
 	// Fulfill Condition 1: Fast-path return on empty input identifiers
@@ -15686,19 +15729,12 @@ func _stat(ctx Context, a0 any, aa ...any) *file {
 	// Parse parameters cleanly
 	for _, a := range aa {
 		switch t := a.(type) {
-		case *project:       
-			dir = t.absPath
-		case stat_dir:       
-			dir = t.Symbol 
-		case stat_sub:       
-			sub = t.Symbol 
-		case stat_fileinfo:  
-			fileInfo = t.FileInfo
-		case stat_nonexist:  
-			nonexist = t.bool
-		case stat_justcache: 
-			nonexist = true
-			skipIO = true 
+		case *project:       dir = t.absPath
+		case stat_dir:       dir = t.Symbol
+		case stat_sub:       sub = t.Symbol
+		case stat_fileinfo:  fileInfo = t.FileInfo
+		case stat_nonexist:  nonexist = t.bool
+		case stat_justcache: nonexist, skipIO = true, true
 		default:
 			erro(ctx, "stat: invalid argument: %v", ts(a, ctx))
 		}
@@ -15708,59 +15744,53 @@ func _stat(ctx Context, a0 any, aa ...any) *file {
 		if strings.Contains(name.String(), "//") || strings.Contains(sub.String(), "//") || strings.Contains(dir.String(), "//") {
 			erro(ctx, "concatenated absolute paths detected: name=%v, sub=%v, dir=%v", name, sub, dir, callstack{num:10})
 		}
+		if false && name.String() == "a.o" {
+			debug(ctx, "%v, %v, %v (%v)", dir, sub, name, nonexist, callstack{num:5})
+		}
 	}
 
 	var fullname Symbol
 
-	// 2. Pure Sequence Domain Path Resolution
+	// =====================================================================
+	// 2. FIXED CANONICAL PATH RESOLUTION (PURE SEQUENCE DOMAIN)
+	// =====================================================================
 	if __symIsAbs(name) {
 		fullname = name
-		fullSeq := __symSeq(fullname)
-		dirSeq  := __symSeq(dir)
+		fullStr := fullname.String()
+		lastSlash := strings.LastIndex(fullStr, "/")
 
-		if dir != symEmpty && isSeqPrefix(fullSeq, dirSeq) && len(fullSeq) > len(dirSeq) && fullSeq[len(dirSeq)] == symSlash {
-			tailSeq := fullSeq[len(dirSeq)+1:]
-			if sub == symEmpty {
-				name = internSeq(tailSeq)
-			} else {
-				subSeq := __symSeq(sub)
-				if isSeqPrefix(tailSeq, subSeq) && len(tailSeq) > len(subSeq) && tailSeq[len(subSeq)] == symSlash {
-					name = internSeq(tailSeq[len(subSeq)+1:])
-				}
-			}
+		// Absolute filename paths are decomposed to enforce that dir remains empty, pushing the full path to sub.
+		if lastSlash >= 0 {
+			dir = symEmpty
+			sub = intern(fullStr[:lastSlash])
+			name = intern(fullStr[lastSlash+1:])
 		} else {
 			dir = symEmpty
+			sub = symEmpty
+			name = fullname
 		}
 	} else if __symIsAbs(sub) {
+		dir = symEmpty //If sub is absolute, clearn/discard dir!
 		fullname = __symPathJoin(sub, name)
-		if dir == symEmpty {
-			dir = sub
-			sub = symEmpty
-		} else if sub == dir {
-			sub = symEmpty
-		} else {
-			if __symHasPrefix(sub, dir) {
-				dirSeq := __symSeq(dir)
-				subSeq := __symSeq(sub)
-
-				if len(subSeq) > len(dirSeq) && subSeq[len(dirSeq)] == symSlash {
-					sub = internSeq(subSeq[len(dirSeq)+1:])
-				} else {
-					sub = internSeq(subSeq[len(dirSeq):])
-				}
-			} else {
-				debug(ctx,
-					_f("conflicted sub/dir: %s", fullname.String()),
-					_f("sub=%v", sub),
-					_f("dir=%v", dir),
-					callstack{num:16}, unwind{})
-			}
-		}
-	} else if __symIsAbs(dir) {
-		fullname = __symPathJoin(dir, sub, name)
 	} else {
-		dir = __symPathJoin(symBaseWorkDir, dir)
-		fullname = __symPathJoin(dir, sub, name)
+		var base Symbol
+		if proj := _project(ctx); proj == nil {
+			base = symBaseWorkDir
+		} else {
+			base = proj.absPath
+		}
+
+		if dir == symEmpty {
+			dir = base
+		} else if !__symIsAbs(dir) {
+			dir = __symPathJoin(base, dir)
+		}
+
+		if sub == symEmpty {
+			fullname = __symPathJoin(dir, name)
+		} else {
+			fullname = __symPathJoin(dir, sub, name)
+		}
 	}
 
 	// 3. Delegate central graph cache lookup to the Universe
@@ -16493,6 +16523,7 @@ func __string(ctx Context, v any) (res string) {
 		if v := t.Value; v != nil {
 			// Flatten any nested collections or list structures cleanly
 			items := merge(v)
+			cc := fullfile_ctx{ctx} // Force truly(wants_fullfile).
 
 			// FAST PATH: Single structural scalar item (Bypass Builder allocations)
 			if len(items) == 1 && items[0] == v {
@@ -16505,7 +16536,7 @@ func __string(ctx Context, v any) (res string) {
 						return x.fullname().String()
 					}
 				}
-				return __string(ctx, v)
+				return __string(cc, v)
 			}
 
 			// COLD PATH: Distributed collection stringification
@@ -16521,7 +16552,7 @@ func __string(ctx Context, v any) (res string) {
 						s = x.fullname().String()
 					}
 				} else {
-					s = __string(ctx, item)
+					s = __string(cc, item)
 				}
 				if s != "" {
 					if sb.Len() > 0 { sb.WriteByte(' ') }
@@ -18159,7 +18190,7 @@ func (p *exec_buffer) logPos(column int) (pos Position) {
     return
 }
 func (p *exec_buffer) startDockerDaemon(pos Position, ctx Context, container *project, sock string) (err error) {
-    var c = exec.Command("dockerd") //c.Stdout, c.Stderr = stdout, stderr
+    var c = exec.Command("dockerd") //c.Dir, c.Stdout, c.Stderr = p.xc.changedWD, stdout, stderr
     if err = c.Run(); err != nil {
         if p.xc.report {
             erro(ctx, "dokcer daemon not running (at %s)", sock)
@@ -18459,6 +18490,58 @@ func (p *exec_ctx) check() (err error) {
     return
 }
 
+func validateExecShellArg(ctx Context, sh, arg string, v Value) bool {
+	if arg == "" {
+		return false
+	}
+
+	// Positional parameters or script arguments (not starting with "-")
+	// are always natively valid.
+	if !strings.HasPrefix(arg, "-") {
+		return true
+	}
+
+	baseSh := filepath.Base(sh)
+	switch baseSh {
+	case "bash", "sh", "zsh", "dash", "ksh":
+		// Matrix validation pass for explicit standard shell switches
+		switch arg {
+		case "-c", "-i", "-l", "-r", "-s", "-v", "-x", "-e", "-u", "-o",
+			"--norc", "--noprofile", "--posix", "--login", "--verbose", "--version":
+			return true
+		default:
+			// Support short composite flag clusters smoothly (e.g., -il, -exv)
+			if !strings.HasPrefix(arg, "--") && len(arg) > 1 {
+				validComposite := true
+				for _, ch := range arg[1:] {
+					switch ch {
+					case 'c', 'i', 'l', 'r', 's', 'v', 'x', 'e', 'u':
+						// Known valid single-letter option characters
+					default:
+						validComposite = false
+					}
+				}
+				if validComposite {
+					return true
+				}
+			}
+
+			// Catch unconsumed rogue compiler options (e.g., -m=c) cleanly
+			erro(pc(ctx, v), "Leaking or unrecognized argument for shell %s: %s", sh, arg, trace_ctx{3}, callstack{num: 6})
+			return false
+		}
+
+	default:
+		// Fallback generic prefix protection for custom utility binaries
+		if strings.HasPrefix(arg, "-m=") {
+			erro(pc(ctx, v), "Leaking toolchain option flag for sh=%s: %s", sh, arg, trace_ctx{3}, callstack{num: 6})
+			return false
+		}
+	}
+
+	return true
+}
+
 func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
 	var a1 *strlit
 	var a2 *decimal
@@ -18539,7 +18622,8 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     for i, s := range env[sep:] {
         if i > 0 { envs += " && " }
         if k := strings.Index(s, "="); k > 0 {
-            envs += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+2:]))
+            // FIXED TYPO: Changed s[k+2:] to s[k+1:] to prevent stripping the first character of env values
+            envs += fmt.Sprintf(`%s%s`, s[:k+1], strconv.Quote(s[k+1:]))
         }
     }
 
@@ -18548,21 +18632,21 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         if logFile != nil { logFile.Close() }
         if false && ctx.log != nil && ctx.log.filename != symEmpty {
             if ctx.stdout.wrote == 0 && ctx.stderr.wrote == 0 {
-				if !(checkpoints && keepTempfileForDebugging) {
-					os.Remove(ctx.log.filename.String())
-				}
+                if !(checkpoints && keepTempfileForDebugging) {
+                    os.Remove(ctx.log.filename.String())
+                }
             }
         }
 
-		if !(checkpoints && keepExecContextForDebugging) {
-			ctx.stdout.xc = nil
-			ctx.stderr.xc = nil
-			ctx.container = nil
-			ctx.sh = nil
-		}
+        if !(checkpoints && keepExecContextForDebugging) {
+            ctx.stdout.xc = nil
+            ctx.stderr.xc = nil
+            ctx.container = nil
+            ctx.sh = nil
+        }
 
         if !ctx.silent && !is_configure_ctx(ctx) && ctx.target != nil {
-			stamp_target(exe, ctx.target)
+            stamp_target(exe, ctx.target)
         }
 
         if !ctx.silent && ctx.prompt {
@@ -18596,13 +18680,25 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
     if ctx.stderrBuf { ctx.stderr.Buf = new(bytes.Buffer) }
     if ctx.stdoutTie { ctx.stdout.Tie = stdout }
     if ctx.stderrTie { ctx.stderr.Tie = stderr }
-    if ctx.logname != nil { // NOTE: logname is pointer to a fullname, decoded by parseOpts!
-		// THE DOD FIX: Use fullname_sym to guarantee absolute out-of-tree paths!
-		// THE DOD FIX: Pass the dereferenced struct to avoid pointer-interface wrapping!
-        if sym, _ := fullname_sym(ctx, *ctx.logname); sym != symEmpty {
-            ctx.log = &exec_log{ filename: sym } 
+
+    if ctx.logname != nil { 
+        logPathStr := __string(ctx, *ctx.logname)
+        if sym := intern(logPathStr); sym != symEmpty {
+            if __symIsAbs(sym) {
+                ctx.log = &exec_log{ filename: sym } 
+            } else {
+                // FIXED: Explicitly anchor log files to the active build project's path
+                var baseDir Symbol
+                if exe != nil && exe.proj != nil {
+                    baseDir = exe.proj.absPath
+                } else if p := _project(ctx); p != nil {
+                    baseDir = p.absPath
+                }
+                if baseDir != symEmpty {
+                    ctx.log = &exec_log{ filename: __symPathJoin(baseDir, sym) }
+                }
+            }
         }
-		if false { debug(pc(ctx,ctx.log.filename), "log set", callstack{num:10}) }
     }
 
     var srcs = ctx.sources(exe.recipes)
@@ -18645,7 +18741,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
 
         ctx.sh = exec.Command(cmd, ctx.args...)
         ctx.sh.Env = env
-        ctx.sh.Dir = ctx.workdir // always set command work directory
+        ctx.sh.Dir = ctx.workdir 
         ctx.sh.Stdout = &ctx.stdout
         ctx.sh.Stderr = &ctx.stderr
         if ctx.stdin {
@@ -18656,7 +18752,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
         if src.s != "" { ctx.sh.Args = append(ctx.sh.Args, src.s) }
 
         var e = ctx.run(exe)
-        if checkpoints { ctx.exec_check(i, src, e) }
+        if checkpoints { ctx.check_exec(i, src, e) }
         if e != nil || ctx.status != 0 { break }
     }
 }
@@ -18674,16 +18770,22 @@ func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
 	var cmd = p.cmd
 	var ec = exec_ctx{Context: ctx}
 
-	if checkpoints { defer check_exec(&ec, p)(&cmd, &result) }
+	if checkpoints { defer p.check_exec_evaluate(&ec)(&cmd, &result) }
 
 	ec.exec_result.pos = _pos(ctx)
 	ec.scanStderr = true
 
-	// --- ?. Argument Extraction and `cmd` Calculation ---
+	// --- Argument Extraction and `cmd` Calculation ---
 	for i, v := range parseOpts(ctx, &ec.exec_opts, args...) {
-		if i == 0 && p.contained {
-			if s := __string(ctx, v); s == "shell" { cmd = defaultShell }
-		} else if s := strings.TrimSpace(__string(ctx, v)); s != "" {
+		var s = strings.TrimSpace(__string(ctx, v))
+
+		// Unify command resolution order precisely
+		if i == 0 && p.contained && s == "shell" {
+			cmd = defaultShell
+		}
+
+		// Guard option arrays securely using the shell validation contract
+		if validateExecShellArg(ctx, cmd, s, v) {
 			ec.args = append(ec.args, s)
 		}
 	}
@@ -18790,17 +18892,25 @@ func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
 
 	// --- 6. Working Directory & Path Management ---
 	if ec.workdir == "" {
-		ec.workdir = prog.workdir(ctx)
-		if ec.workdir == "" {
+		workdirSym := prog.workdir(ctx)
+		if workdirSym == symEmpty {
 			erro(ctx, "empty workdir")
+			return &ec.exec_result
 		}
+		ec.workdir = workdirSym.String()
 	}
 
 	if ec.path {
-		if s := __symDir(ec.targetName); s != symEmpty && s != symDot && s != symPathSep {
-			strPath := s.String()
-			if e := os.MkdirAll(strPath, 0755); e != nil {
-				erro(ctx, "make path '%s' for target failed: %v", strPath, e)
+		// FIXED: Create the directory of the target's absolute fullname if it's a *file node
+		var targetDirSym Symbol
+		if tf, ok := ec.target.(*file); ok && tf != nil {
+			targetDirSym = __symDir(tf.fullname())
+		} else {
+			targetDirSym = __symDir(ec.targetName)
+		}
+		if s := targetDirSym; s != symEmpty && s != symDot && s != symSlash {
+			if e := os.MkdirAll(s.String(), 0755); e != nil {
+				erro(ctx, "make path '%s' for target failed: %v", targetDirSym, e)
 			}
 		}
 	}
@@ -21209,40 +21319,44 @@ func (c *traverse_ctx) do(ctx Context, op any) any {
 }
 
 // register_dependency maps dependency file counts, array registers, and timeline checks natively on the execution handle.
-func register_dependency(x *execution, dep Value) {
+func (x *execution) register_dependency(dep Value) {
 	if isTrivial(dep) { return }
 
 	if x._ordered && x.prerequisite != nil {
 		x.ordered = append(x.ordered, dep)
 		x.set(x, defVoid, symBar, _list(x.ordered...))
 	} else {
-		if _, y := to_file(dep); y {
-			x.Lock()
-			x.countFiles++ // Centralized metric synchronization with zero allocation
-			x.Unlock()
+		x.Lock()
+		// If traverse successfully resolved it to a file, count it towards metrics
+		if _, isFile := to_file(dep); isFile {
+			x.countFiles++
 		}
+		x.Unlock()
+
 		x.targets = append(x.targets, dep)
 		x.set(x, defVoid, symCaret, _list(x.targets...))
 		x.set(x, defVoid, symLangle, x.targets[0])
 		x.set(x, defVoid, symRangle, x.targets[len(x.targets)-1])
 	}
 
-	// Transaction validation pass via pure O(1) non-blocking atomic reads
+	// =====================================================================
+	// STRICT VFS TIMELINE CHECK: Trusted Type Bounds Verification
+	// =====================================================================
 	if d, found := x.defs[symAt]; found && d != nil && d.value != nil {
 		target := d.value
 		if !isTrivial(target) {
+			// Eager type verification: Rely strictly on traverse's prior mapping passes
 			tFile, _ := to_file(target)
-			if tFile == nil { tFile = as_file(x, target, x.proj) }
 			dFile, _ := to_file(dep)
-			if dFile == nil { dFile = as_file(x, dep, x.proj) }
 
+			// If either is nil, it means it's an abstract flag/token/string destination,
+			// or a malformed dependency that failed to be resolved by traverse.
 			if tFile != nil && dFile != nil {
-				// Lock-free atomic loads prevent CPU cache line bouncing and tearing
 				a := atomic.LoadInt64(&tFile._mtime)
 				b := atomic.LoadInt64(&dFile._mtime)
 
 				x.Lock()
-				// Query the centralized build graph map to check if the dependency was updated
+				// Query our centralized build graph map to see if the dependency was updated
 				_, depWasUpdated := x.updatedFiles[dFile]
 
 				// If target exists on disk (a > 0) and dependency is newer, or dependency was updated in this run
@@ -21250,7 +21364,6 @@ func register_dependency(x *execution, dep Value) {
 					if x.updatedFiles == nil {
 						x.updatedFiles = make(map[*file][]Value)
 					}
-					// Cache the line history without contaminating the read-only file node
 					x.updatedFiles[tFile] = append(x.updatedFiles[tFile], dep)
 				}
 				x.Unlock()
@@ -21320,7 +21433,7 @@ func traverse(ctx Context, val Value) {
 	case *rule:
 		var x = _execution(ctx)
 		if x == nil {
-			erro(ctx, "no execution context: %v", p)
+			erro(ctx, "no execution context: %v", p, callstack{num:10})
 			return
 		}
 
@@ -21342,9 +21455,6 @@ func traverse(ctx Context, val Value) {
 			ctx = &rule_ctx{ctx, p, nil}
 		}
 
-		// =====================================================================
-		// FIXED INLINE CLOSURE: Enforces strict function-scoped defer boundaries
-		// =====================================================================
 		func() {
 			oldAt := x.defs[symAt]
 			oldCaret := x.defs[symCaret]
@@ -21415,7 +21525,7 @@ func traverse(ctx Context, val Value) {
 	case *modification:
 		var x = _execution(ctx)
 		if x == nil {
-			erro(ctx, "no execution context: %v", p)
+			erro(ctx, "no execution context: %v", p, callstack{num:10})
 			return
 		}
 
@@ -21434,28 +21544,24 @@ func traverse(ctx Context, val Value) {
 	case *file:
 		var x = _execution(ctx)
 		if x == nil {
-			erro(ctx, "no execution context: %v", p)
+			erro(ctx, "no execution context: %v", p, callstack{num:10})
 			return
 		}
 
-		// Non-blocking lazy load initializes filesystem attributes if not cached
 		p.stat(ctx, false)
 
-		// A. Context-driven Loop Detection
 		if truly(ctx, detect_traverse_loop{p}) {
 			erro(ctx, "recursion loop identified: self dependency on %v", p)
 			return
 		}
 
-		// B. Execution-scoped Memoization Registry (Fully Lock-Free/Thread-Safe)
+		var alreadyCompleted bool
 		x.Lock()
-		if x.visitedFiles == nil { x.visitedFiles = make(map[*file]struct{}) }
-		_,  alreadyVisited := x.visitedFiles[p]
-		if !alreadyVisited { x.visitedFiles[p] = struct{}{} } // Mark visited for this execution pipeline pass
+		if x.completedFiles == nil { x.completedFiles = make(map[*file]struct{}) }
+		_, alreadyCompleted = x.completedFiles[p]
 		x.Unlock()
 
-		if !alreadyVisited && !p.isSysFile() {
-			// Mount the tracking branch context onto the call chain tree
+		if !alreadyCompleted && !p.isSysFile() {
 			ctx = &traverse_ctx{ctx, p}
 
 			var rulesMatched int
@@ -21515,26 +21621,24 @@ func traverse(ctx Context, val Value) {
 				
 				if rulesMatched == 0 && !p.exists() {
 					if !truly(ctx, inside_pattern_search{}) {
-						erro(ctx, "missing file '%s' (%s)", p.name, p.fullname())
+						erro(ctx, "missing file '%s' (%s)", p.name, p.fullname(), trace_ctx{5}, callstack{num:30})
 					}
-					
-					// Safe unroll: remove node from transaction map if speculation layout search misses
-					x.Lock()
-					delete(x.visitedFiles, p)
-					x.Unlock()
-
 					panic(traverse_state{_pos(ctx), traverse_next})
 					return 
 				}
 			}
+
+			x.Lock()
+			x.completedFiles[p] = struct{}{}
+			x.Unlock()
 		}
 
-		register_dependency(x, p)
+		x.register_dependency(p)
 
 	default: 
 		var x = _execution(ctx)
 		if x == nil {
-			erro(ctx, "no execution context: %v", val)
+			erro(ctx, "no execution context: %v", val, callstack{num:10})
 			return
 		}
 
@@ -21542,6 +21646,7 @@ func traverse(ctx Context, val Value) {
 
 		var pat Value
 		var sym Symbol
+		var stems []Value
 		var isPath bool
 
 		switch val.(type) {
@@ -21552,7 +21657,7 @@ func traverse(ctx Context, val Value) {
 		}
 
 		if pat != nil {
-			if stems := _stems(ctx); stems != nil && len(stems) > 0 {
+			if stems = _stems(ctx); len(stems) > 0 {
 				var rest []Value
 				val, rest = stencil(ctx, pat, stems)
 				if isTrivial(val) {
@@ -21562,6 +21667,7 @@ func traverse(ctx Context, val Value) {
 				}
 			}
 		}
+		if checkpoints { check_traverse_files_mapping(ctx, projs, stems, pat, val) }
 
 		for _, proj := range projs {
 			if f := proj.file(ctx, val); f != nil {
@@ -21633,13 +21739,13 @@ func traverse(ctx Context, val Value) {
 
 		if rulesMatched == 0 {
 			if !truly(ctx, inside_pattern_search{}) {
-				erro(ctx, "missing target '%s'", val)
+				erro(ctx, "missing target '%s'", val, trace_ctx{5}, callstack{num:30})
 			}
 			panic(traverse_state{_pos(ctx), traverse_next})
 			return 
 		}
 
-		register_dependency(x, val)
+		x.register_dependency(val)
 	}
 }
 
@@ -23109,10 +23215,6 @@ func hasRecipes(e entry) (_ bool) {
 	return
 }
 
-func execute_entry(ctx Context, e entry, args ...Value) ([]Value, bool) {
-	return e.execute(ctx, args...), true
-}
-
 const (
 	traverse_noop uint = iota
 	traverse_case // the current program was the case (selected)
@@ -23122,10 +23224,10 @@ const (
 type traverse_state struct{ p any ; uint }
 func (t traverse_state) String() (_ string) {
 	switch t.uint {
-	case traverse_noop: return "noop"
-	case traverse_case: return "case"
-	case traverse_done: return "done"
-	case traverse_next: return "next"
+	case traverse_noop: return "traverse_noop"
+	case traverse_case: return "traverse_case"
+	case traverse_done: return "traverse_done"
+	case traverse_next: return "traverse_next"
 	}
 	return fmt.Sprintf("%v", t.uint)
 }
@@ -24557,79 +24659,80 @@ func findfile(ctx Context, s string, ps ...*project) (_ *file) {
     return
 }
 
-func select_file_1(ctx Context, m matched_filemap) (res *file) {
-    defer func() { if res != nil { res.filemap = &m.filemap } } ()
+func (p *project) select_file_1(ctx Context, m matched_filemap) (res *file) {
+	defer func() { if res != nil { res.filemap = &m.filemap } }()
 
-    if m.paths == nil {
-        if res, _ = m.pattern.(*file); res != nil {
-            return
-        } else {
-            var d = _project(ctx).absPath
-            return _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true})
-        }
-    }
+	if m.paths == nil {
+		if res, _ = m.pattern.(*file); res != nil {
+			return
+		} else {
+			// FIXED: Direct resolution via receiver p instead of context inspection
+			var d = p.absPath 
+			return _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true})
+		}
+	}
 
-    var fs []*file
+	var fs []*file
 
-    for _, v := range m.paths {
-        if t := expand(final{ctx},v); t != nil {
+	for _, v := range m.paths {
+		if t := expand(final{ctx}, v); t != nil {
 			if checkpoints {
 				if strings.Contains(t.String(), "//") {
-					debug(pc(ctx,v.Pos()),
-						_f("concated abs paths: %v {\n  %v\n  %v\n}", v, t, ts(t,ctx)),
-						trace_val{10,v}, /* trace_ctx{5}, */ callstack{num:5})
+					debug(pc(ctx, v.Pos()),
+						_f("concated abs paths: %v {\n  %v\n  %v\n}", v, t, ts(t, ctx)),
+						trace_val{10, v}, callstack{num: 5})
 				}
 			}
-            if d := __symbol(ctx, t); d != symEmpty {
-                if f := _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true}); f != nil {
-                    fs = append(fs, f)
-                } else {
-                    erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
-                }
-            } else if false {
-                erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
-            }
-        } else {
-            erro(ctx, "%s ⇒ %v", m.value, v)
-        }
-    }
+			if d := __symbol(ctx, t); d != symEmpty {
+				// CANONICAL FIXED PASS: Forwards the absolute folder prefix as stat_sub 
+				// coupled with stat_dir{p.absPath} to yield the correct single-space formatting.
+				if f := _stat(ctx, m.value, stat_dir{p.absPath}, stat_sub{d}, stat_nonexist{true}); f != nil {
+					fs = append(fs, f)
+				} else {
+					erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
+				}
+			} else if false {
+				erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
+			}
+		} else {
+			erro(ctx, "%s ⇒ %v", m.value, v)
+		}
+	}
 
-    for _, f := range fs { if f.exists() { return f } }
-    if 0 < len(fs) { res = fs[0] }
-    return
+	for _, f := range fs { if f.exists() { return f } }
+	if 0 < len(fs) { res = fs[0] }
+	return
 }
 
-func select_files(ctx Context, m []matched_filemap) (res []*file) {
-    for _, m := range m {
-        if f := select_file_1(ctx, m); f != nil {
-            res = append(res, f)
-        }
-    }
-    return
+func (p *project) select_files(ctx Context, m []matched_filemap) (res []*file) {
+	for _, item := range m {
+		if f := p.select_file_1(ctx, item); f != nil {
+			res = append(res, f)
+		}
+	}
+	return
 }
 
-func select_file(ctx Context, m []matched_filemap) (res *file) {
-    if a := select_files(ctx, m); 0 < len(a) {
-        if res = a[0] ; !res.exists() {
-            for _, f := range a { if f.exists() { return f } }
-        }
-    }
-    return
+func (p *project) select_file(ctx Context, m []matched_filemap) (res *file) {
+	if a := p.select_files(ctx, m); 0 < len(a) {
+		if res = a[0]; !res.exists() {
+			for _, f := range a { if f.exists() { return f } }
+		}
+	}
+	return
 }
 
 func (p *project) file(ctx Context, a any) *file {
-    return select_file(ctx, unmap_files(ctx, p, a, nil))
+	return p.select_file(ctx, unmap_files(ctx, p, a, nil))
 }
 
 func (p *project) file1(ctx Context, a any) *file {
 	// 1. Try to resolve via project file mappings
-	if f := select_file(ctx, unmap_files(ctx, p, a, nil)); f != nil {
+	if f := p.select_file(ctx, unmap_files(ctx, p, a, nil)); f != nil {
 		return f
 	}
 	
-	// 2. THE DOD FIX: Unmapped Fallback!
-	// If the file is not mapped to any specific directory via globs, 
-	// forcefully create/retrieve its VFS node relative to the project root!
+	// 2. Unmapped Fallback: Forcefully initialize VFS node anchored directly to the project root
 	if sym := __symbol(ctx, a.(Value)); sym != symEmpty {
 		return _stat(ctx, sym, stat_dir{p.absPath}, stat_nonexist{true})
 	}
@@ -25087,12 +25190,18 @@ func (p *project) resolvePatterns3(ctx Context, val Value, s string) (res []*ste
     return
 }
 
-func (p *project) family() (res []*project) {
-    res = append(res, p)
-    for _, base := range p.bases {
-        res = append(res, base.family()...)
-    }
-    return
+// collectFamily populates the provided map with this project and all its base lines
+// using zero-allocation in-place graph recursion with automatic cycle protection.
+func (p *project) collectFamily(m map[*project]struct{}) {
+	if p == nil { return }
+
+	// If this node has already been mapped through a parallel sibling branch, 
+	// short-circuit instantly to avoid redundant tree-walking.
+	if _, seen := m[p]; seen { return }
+
+	m[p] = struct{}{}
+
+	for _, base := range p.bases { base.collectFamily(m) }
 }
 
 func (p *project) _isa(s Symbol) (_ bool) {
@@ -25268,7 +25377,7 @@ type execution struct {
 	recipes  []Value
 	language Symbol
 
-	defval   Value // Singular polymorphic item!
+	defval Value // Singular polymorphic item!
 	defers []Value
 	values []Value
 
@@ -25276,14 +25385,19 @@ type execution struct {
 	_ordered     bool
 
 	_env      []*pair
-	changedWD string
+	changedWD Symbol
 
 	dirt  string    // reason of outdated
 	start time.Time // start time
 
-	visitedFiles map[*file]struct{}
-	updatedFiles map[*file][]Value
-	dirtyCounts map[*file]int32
+	// =====================================================================
+	// CENTRALIZED STATE TRANSACTION REGISTRY (STATELESS FILE ARCHITECTURE)
+	// =====================================================================
+	// completedFiles replaces the old visitedFiles entrance map to enforce
+	// post-traversal validation, natively rendering speculativeHistory dead/obsolete.
+	completedFiles map[*file]struct{}
+	updatedFiles   map[*file][]Value
+	dirtyCounts    map[*file]int32
 
 	calleeErrs  []error
 	calleeErrsM sync.Mutex
@@ -25297,8 +25411,8 @@ type execution struct {
 	targets     []Value // all targets def
 
 	executingRecipe int
-	countFiles int
-	traceLevel int
+	countFiles      int
+	traceLevel      int
 
 	interpreted []evaluater
 }
@@ -25368,43 +25482,34 @@ func (p *execution) trace(a ...any) { printIndentDots(p.traceLevel, a...) }
 func (p *execution) tracef(s string, a ...any) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
 
 func (p *execution) traverseProjs(ctx Context) (projs []*project) {
-	// 1. Always prioritize the context-local active project module space
-	if activeProj := _project(ctx); activeProj != nil {
-		projs = append(projs, activeProj)
-	}
-
-	// 2. If closure execution is active, accumulate closure-bound environment tables
-	if p.closureExec {
-		for _, cp := range closure_projects(ctx) {
-			if cp == nil { continue }
-			found := false
-			for _, pj := range projs {
-				if pj == cp { found = true; break }
+	// Centralized high-fidelity structural filter block
+	add := func(proj *project) {
+		// 1. If 'proj' is already covered by a more specific derived project, skip it
+		for _, t := range projs {
+			if t == proj || t.has_base(proj) {
+				return
 			}
-			if !found { projs = append(projs, cp) }
 		}
+
+		// 2. If 'proj' is a specialized derived project of an existing entry, overwrite it
+		for i, t := range projs {
+			if proj.has_base(t) {
+				projs[i] = proj
+				return
+			}
+		}
+
+		projs = append(projs, proj)
 	}
 
-	// 3. Always ensure the root execution project context acts as a foundational fallback
-	if p.proj != nil {
-		found := false
-		for _, pj := range projs {
-			if pj == p.proj { found = true; break }
-		}
-		if !found { projs = append(projs, p.proj) }
-	}	
+	if p.closureExec {
+		for _, proj := range closure_projects(ctx) { add(proj) }
+	}
+
+	if p.proj != nil { add(p.proj) }
+
+	if proj := _project(ctx); proj != nil { add(proj) }
 	return
-}
-func (p *execution) traverseProjs1(ctx Context) (projs []*project) {
-	// 1. Isolate configuration checks to preserve module-local pattern validation
-	if truly(ctx, is_configure{}) {
-		if activeProj := _project(ctx); activeProj != nil {
-			return []*project{activeProj}
-		}
-	}
-
-	// 2. Fall back strictly to the native execution project context for standard builds
-	return []*project{p.proj}
 }
 
 func (p *execution) env(ctx Context) (env []string, osi int) {
@@ -25417,14 +25522,14 @@ func (p *execution) env(ctx Context) (env []string, osi int) {
     return
 }
 
-func (p *execution) interp(ctx Context, name Symbol, args []Value) (res bool) {
+func (p *execution) interp(ctx Context, name Symbol, args []Value) bool {
     if len(p.interpreted) == 0 && 0 < len(p.recipes) && name == symConfigure {
         if x, y := dialects[symEval]; y && x != nil {
             p.interpret(ctx, x, args)
         }
     } else if x, y := dialects[name]; y && x != nil {
         p.interpret(ctx, x, args)
-        return
+        return false
     }
     return true
 }
@@ -25484,18 +25589,18 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		targetFullSym, _ = fullname_sym(ctx, target)
 	}
 
-	// 1. Safe Short-Circuit Using Your Execution-Scoped Set Registry
+	// FIXED: Only short-circuit if this target has fully completed a successful pass in a prior branch
 	if targetFile != nil {
 		p.Lock()
-		if p.visitedFiles == nil { p.visitedFiles = make(map[*file]struct{}) }
-		_, alreadyVisited := p.visitedFiles[targetFile]
+		if p.completedFiles == nil { p.completedFiles = make(map[*file]struct{}) }
+		_, alreadyCompleted := p.completedFiles[targetFile]
 		p.Unlock()
-		if alreadyVisited { return }
+		if alreadyCompleted { return }
 	}
 
 	var verb = opts.debug > 0 || opts.verbose
 
-	// 2. High-Speed Lock-Free Atomic Property Resolution
+	// --- High-Speed In-Memory Node Properties Read ---
 	exists := targetFile != nil && targetFile.exists()
 	var tMod int64
 	if exists {
@@ -25506,7 +25611,6 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		outdated, reason = true, "not exists"
 	} else {
 		p.Lock()
-		// Target asset is dirty if registered in our active session update map
 		_, prereqUpdated := p.updatedFiles[targetFile]
 		p.Unlock()
 
@@ -25515,7 +25619,6 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 			for _, dep := range args {
 				df := as_file(ctx, dep, p.proj)
 				if df != nil {
-					// Use atomic load to prevent races against live concurrent background stats
 					b := atomic.LoadInt64(&df._mtime)
 
 					p.Lock()
@@ -25567,7 +25670,6 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		sStr := d.String()
 		if targetFile != nil {
 			p.Lock()
-			// Track historical stats within execution limits rather than writing back to node structures
 			if p.dirtyCounts == nil { p.dirtyCounts = make(map[*file]int32) }
 			p.dirtyCounts[targetFile]++
 			p.Unlock()
@@ -25610,66 +25712,45 @@ type program struct {
     language  Symbol
 }
 
-func (prog *program) getModifiers(ctx Context, name string) (ms []*modifier) {
-    for _, d := range prog.depends {
-        if g, y := d.(*modification); y {
-            for _, m := range g.list {
-                if __string(ctx, m.elems[0]) == name { ms = append(ms, m) }
-            }
-        }
-    }
-    return
-}
-
-func (prog *program) workdir(ctx Context) (workdir string) {
+func (prog *program) workdir(ctx Context) (workdir Symbol) {
 	var proj = prog.project
-	if p := _execution(ctx); p == nil {
-		workdir = proj.absPath.String() // FIXED: Symbol to string mapping
-	} else if p.changedWD == "" {
+	if proj == nil {
+		return symEmpty
+	}
+
+	var exe = _execution(ctx)
+	if exe == nil {
+		return proj.absPath
+	}
+
+	// Direct assignment from the type-safe Symbol register
+	changedWD := exe.changedWD
+
+	if changedWD == symEmpty {
 		var o object
 		if o = proj.resolve(ctx, symCWD); isTrivial(o) {
 			if o = proj.resolve(ctx, symSlash); isTrivial(o) {
-				erro(ctx, "both $(CWD) and $/ are trivial")
+				erro(ctx, "both $(CWD) and $/ are trivial", callstack{num: 5})
+				return proj.absPath
 			}
 		}
-		if v := expand(final{ctx},o); v == nil {
-			erro(ctx, "trivial %v", ts(o,ctx))
+
+		if checkpoints { assert(truly(ctx, ex_closure{}), "non-final context: %s", ts(ctx)) }
+
+		if v := expand(ctx, o); v == nil {
+			erro(ctx, "trivial %v", ts(o, ctx), callstack{num: 5})
+			return proj.absPath
 		} else {
-			workdir = __string(ctx, v)
+			workdir = __symbol(ctx, v)
 		}
-	} else if filepath.IsAbs(p.changedWD) {
-		workdir = p.changedWD
+	} else if __symIsAbs(changedWD) {
+		workdir = changedWD
 	} else {
-		// FIXED: Symbol to string mapping for OS path math
-		workdir = filepath.Join(proj.absPath.String(), p.changedWD)
+		// High-speed O(1) memory seq-join with zero heap allocations
+		workdir = __symPathJoin(proj.absPath, changedWD)
 	}
 	return
 }
-
-// func (prog *program) target(ctx *execution) (target Value) {
-//     if target = _entry(ctx).destiny(); target == nil {
-//         erro(ctx, "%v: nil entry target", target)
-//     }
-
-//     switch a := target.(type) {
-//     case *strlit, *strcomp: // NOTE: skip strings to optimize speed from searching
-//     // case *file: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-//     // case fullfile: if a._traved > 1 { return } // alreadyUpdated = a.info != nil && a.updated
-//     default:
-//         if _, y := a.(flag); y {
-//             if s := prog.project.name.String(); s == "configure" || s == "configure.base" {
-//                 break
-//             }
-//         }
-//         // if f := prog.project.file(ctx, a); f != nil {
-//         //     if f._traved > 1 { return } else { target = f }
-//         // }
-//     }
-
-//     // if ctx.recs == nil { ctx.recs = make(map[Value]int) }
-//     // ctx.recs[target] += 1
-//     return
-// }
 
 func (prog *program) check_exe(ctx *execution) {
     var cc = ctx.Context
@@ -27177,19 +27258,6 @@ func heap_profile(ctx Context, name string) func() {
     }}
 }
 
-func updateGoal(ctx Context, goal Value, args []Value) (result []Value) {
-    switch g := goal.(type) {
-    case *rule:
-        var ok bool
-        if result, ok = execute_entry(ctx, g, args...); !ok {
-            erro(ctx, "update '%v' failed", g)
-        }
-    default:
-        erro(ctx, "not an entry: %v", ts(goal, ctx))
-    }
-    return
-}
-
 func (u *universe) load(ctx Context) {
 	if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
@@ -27320,7 +27388,6 @@ func (u *universe) run(ctx Context) (result []Value) {
 	}
 	if done { return }
 
-	var updated int
 	var goals []Value
 	var collect func(proj *project, vals []Value) bool
 	collect = func(proj *project, vals []Value) bool {
@@ -27332,11 +27399,10 @@ func (u *universe) run(ctx Context) (result []Value) {
 		}
 		for _, goal := range vals {
 			switch t := goal.(type) {
-			case *null, *none: // just ignore
+			case *null, *none: // Just ignore
 			case *word:
-				// NOTE: t.s is now a Symbol. If _entries expects a string, use t.s.String()
-				// If _entries takes any/Value, t.s can be passed directly.
-				if entries := proj._entries(ctx, t.s.String(), true); entries == nil {
+				// REFINED: Pass the Symbol integer directly to avoid unnecessary string allocations
+				if entries := proj._entries(ctx, t.s, true); entries == nil {
 					erro(ctx, "no such entry `%s`", t.s)
 					return false
 				} else {
@@ -27362,12 +27428,11 @@ func (u *universe) run(ctx Context) (result []Value) {
 				{
 					var (
 						sStr = __string(ctx, t.Value)
-						sSym = intern(sStr) // CRITICAL FIX: Cross into integer domain!
+						sSym = intern(sStr) // Pure O(1) integer domain boundary re-entry
 						args = merge(t.args...)
 						found int
 					)
 					for _, p := range u.globe.loaded {
-						// Fast O(1) integer matching!
 						if p.name == sSym || p.spec == sSym {
 							found += 1
 							if !collect(p, args) { return false }
@@ -27386,16 +27451,49 @@ func (u *universe) run(ctx Context) (result []Value) {
 		return true
 	}
 
+	// =====================================================================
+	// MASTER EXECUTOR ACTIVATION GATE
+	// =====================================================================
 	if collect(main, merge(u.globe.goals.value)) {
 		if len(goals) == 0 {
 			if entry := main.main; entry != nil {
 				goals = append(goals, entry)
 			}
 		}
-		for _, goal := range goals {
-			args, _ := u.globe.args[goal]
-			result = append(result, updateGoal(ctx, goal, args)...)
-			updated += 1
+
+		if len(goals) > 0 {
+			// 1. Instantiate the centralized, lock-free transaction execution handle exactly once
+			exe := &execution{
+				automatic: automatic{Context: ctx, defs: make(def_map)},
+				start:     time.Now(),
+				proj:      main,
+			}
+
+			// Inject the session executor directly into the call-stack context tree
+			masterCtx := Context(exe)
+
+			// 2. Stream all targeted goals sequentially into the core traversal pipeline
+			for _, goal := range goals {
+				args, _ := u.globe.args[goal]
+				if len(args) > 0 {
+					exe.values = append(exe.values, args...)
+				}
+
+				// Seed automatic goal tracking variables so first-contact lookups anchor correctly
+				exe.prerequisite = goal
+				exe.set(exe, defVoid, symAt, goal)
+
+				// Launch the lock-free graph evaluation walk natively
+				traverse(masterCtx, goal)
+			}
+
+			// 3. Synchronization Barrier: Wait securely for any parallel background routines to finalize
+			exe.Wait()
+
+			// 4. Harvest accumulated evaluation metrics and outputs cleanly from the handle
+			if len(exe.values) > 0 {
+				result = append(result, exe.values...)
+			}
 		}
 	}
 	return
@@ -28319,7 +28417,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 			erro(ctx, "&/ is relative")
 		} else /* if err := enter(ctx, dirSym.String()); err == nil */ {
 			// 3. Final OS Airlock!
-			exe.changedWD = dirSym.String()
+			exe.changedWD = dirSym
 		}
 	}
 	return
@@ -28361,7 +28459,7 @@ func (ctx *modifier_cd) x(args ...Value) (result any) {
 		// 4. Update the OS execution context
 		if exe := _execution(ctx); exe != nil { 
 			// We delay extracting the string until we know the execution context exists!
-			exe.changedWD = dirSym.String() 
+			exe.changedWD = dirSym
 		}
 	} else {
 		erro(ctx, "wrong number of cd args: %v", args)
@@ -30572,7 +30670,7 @@ func (ctx *modifier_dirty) x(exe *execution, args ...Value) (result any) {
 }
 
 type modifier_fork struct { modifier_
-    wd string `workdir,work-dir`
+    wd string `workdir,wd`
 }
 func (ctx *modifier_fork) _x(args ...Value) (result Value) {
     var (
@@ -30584,9 +30682,11 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value) {
 
     if ctx.wd != "" {
         attr.Dir = ctx.wd
-    } else if attr.Dir = prog.workdir(ctx); attr.Dir == "" {
+    } else if sym := prog.workdir(ctx); sym == symEmpty {
         erro(ctx, "empty workdir")
-    }
+    } else {
+		attr.Dir = sym.String()
+	}
 
     attr.Env, _ = _execution(ctx).env(ctx)
     attr.Files = []uintptr{ // FIXME: see Cmd.Start() for files pipes
@@ -30608,7 +30708,6 @@ func (ctx *modifier_fork) _x(args ...Value) (result Value) {
 }
 func (ctx *modifier_fork) x(args ...Value) (result any) {
     var (
-        prog = _program(ctx)
         argv []string
         wd string
     )
@@ -30616,9 +30715,11 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
 
     if ctx.wd != "" {
         wd = ctx.wd
-    } else if wd = prog.workdir(ctx); wd == "" {
+    } else if sym := _program(ctx).workdir(ctx); sym == symEmpty {
         erro(ctx, "empty workdir")
-    }
+    } else {
+		wd = sym.String()
+	}
 
     var exe, err = os.Executable()
     if err != nil {
@@ -30626,7 +30727,7 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
     }
 
     var cmd = exec.Command(exe, argv...)
-    cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Dir, cmd.Stdout, cmd.Stderr = wd, stdout, stderr
     cmd.Env, _ = _execution(ctx).env(ctx)
 
     if err = cmd.Run(); err != nil {
@@ -30637,11 +30738,22 @@ func (ctx *modifier_fork) x(args ...Value) (result any) {
     return
 }
 
-type modifier_gitmodified struct { modifier_ }
+type modifier_gitmodified struct { modifier_
+    wd string `workdir,wd`
+}
 func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
+	var wd string
+    if ctx.wd != "" {
+        wd = ctx.wd
+    } else if sym := _program(ctx).workdir(ctx); sym == symEmpty {
+        erro(ctx, "empty workdir")
+    } else {
+		wd = sym.String()
+	}
+
     var out = new(bytes.Buffer)
     var git = exec.Command("git", "status")
-    git.Stdout, git.Stderr = out, os.Stderr
+    git.Dir, git.Stdout, git.Stderr = wd, out, os.Stderr
     if err := git.Run(); err != nil {
         erro(ctx, "git failed: %v", err)
     }
@@ -30671,11 +30783,22 @@ func (ctx *modifier_gitmodified) x(args ...Value) (result any) {
     return
 }
 
-type modifier_gitahead struct { modifier_ }
+type modifier_gitahead struct { modifier_
+    wd string `workdir,wd`
+}
 func (ctx *modifier_gitahead) x(args ...Value) (result any) {
+	var wd string
+    if ctx.wd != "" {
+        wd = ctx.wd
+    } else if sym := _program(ctx).workdir(ctx); sym == symEmpty {
+        erro(ctx, "empty workdir")
+    } else {
+		wd = sym.String()
+	}
+
     var out = new(bytes.Buffer)
     var git = exec.Command("git", "status")
-    git.Stdout, git.Stderr = out, os.Stderr
+    git.Dir, git.Stdout, git.Stderr = wd, out, os.Stderr
     if err := git.Run(); err != nil {
         erro(ctx, "git: %v", err)
     }
@@ -32306,7 +32429,9 @@ func (ctx *__plain) x() (res any) {
     return
 }
 
-type __shell struct { builtinbase }
+type __shell struct { builtinbase
+	base bool `base`
+}
 func (ctx *__shell) do(c Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return &ctx.builtinbase
@@ -32317,6 +32442,13 @@ func (ctx *__shell) do(c Context, op any) any {
 func (ctx *__shell) x() (res any) {
     var vals []Value
     var pos = _pos(ctx)
+	var wd string
+
+	if ctx.base {
+		wd = symBaseWorkDir.String()
+	} else {
+		wd = _project(ctx).absPath.String()
+	}
 
 	// Hoist the buffers outside the loop
 	var bufout, buferr bytes.Buffer
@@ -32340,7 +32472,7 @@ func (ctx *__shell) x() (res any) {
 		buferr.Reset()
 
         sh := exec.Command("sh", "-c", __string(ctx, a))
-        sh.Stdout, sh.Stderr = &bufout, &buferr
+        sh.Dir, sh.Stdout, sh.Stderr = wd, &bufout, &buferr
         if er := sh.Run(); er != nil {
 			var ds []*diag
 			if s := strings.TrimSpace(buferr.String()); s != "" {
@@ -35683,7 +35815,7 @@ func (ctx *__file) x() any {
 			continue
 		}
 
-		for _, f := range select_files(ctx, unmap_files(ctx, proj, a, nil)) {
+		for _, f := range proj.select_files(ctx, unmap_files(ctx, proj, a, nil)) {
 			if !ctx.exists || f.exists() {
 				res = append(res, fullfile_if_wanted(ctx, f))
 			} else if ctx.ignore {
@@ -36874,7 +37006,7 @@ Basic:
 Issues:
 
     * https://github.com/extbit/smart/issues
-    * https://bugs.extbit.io/smart/report (not ready yet)
+    * https://extbit.io/smart/bugreport
 
 `)
 }
