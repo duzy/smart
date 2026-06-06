@@ -5610,12 +5610,27 @@ func (p *compiler) do(ctx Context, op any) any {
 	case get_pos: return p.pos // Return compact Pos!
 	case get_scope: if false { return p.project.scope }
 	case get_closure_scopes:
-		// THE DOD FIX: Propagate the 'n' depth limit down to the term engine
+		// 1. Gather file-internal/term-level local block scopes (e.g., foreach loops, local terms)
 		var s, _ = p.term.do(ctx, t).([]*scope)
 		if t.n > 0 && len(s) >= t.n { return s[:t.n] }
 
+		// 2. Append the static compile-time project scope tracker
 		res := append(s, p.project.scope)
-		if t.n > 0 && len(res) > t.n { return res[:t.n] }
+		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
+
+		// 3. LEXICAL CONTEXT CHAIN BUBBLE
+		// Cleanly bubble up to p.Context. This ensures loading bases (app.base)
+		// can inherit parent project macro matrices and variants natively.
+		// If this load was triggered by an active configure block, the upstream
+		// execution/configure_ctx firewalls will catch it and detour to the universe instantly.
+		if false && p.Context != nil { // EXPERIMENTAL!
+			nextOp := t
+			if t.n > 0 { nextOp.n = t.n - len(res) }
+
+			if x, y := p.Context.do(ctx, nextOp).([]*scope); y && x != nil {
+				res = append(res, x...)
+			}
+		}
 		return res
 
 	case check_compile_cycle:
@@ -12134,6 +12149,11 @@ func (c configure_ctx) do(ctx Context, op any) any {
 	return c.Context.do(ctx, op)
 }
 
+const (
+	configure_handle_overwrite_res int = iota
+	configure_handle_accumulate_res
+	configure_handle_policy = configure_handle_overwrite_res
+)
 type configure_handle_ctx struct { Context; res *[]Value }
 func (p configure_handle_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
@@ -12142,7 +12162,19 @@ func (p configure_handle_ctx) do(ctx Context, op any) (_ any) {
 	case is_configure_ignore:
 		if configure_ignore(ctx, t.rx, t.s) { return true }
 	case program_res:
-		if !isTrivial(t.v) { *p.res = append(*p.res, t.v) }
+		if false { debug(ctx, "%v", t.v, callstack{num:10}) }
+		if !isTrivial(t.v) {
+			switch configure_handle_policy {
+			case configure_handle_overwrite_res:
+				// OVERWRITE POLICY: Continuously assign the latest evaluated terminal outcome.
+				// Intermediate sub-task assets are cleanly overwritten by the final text outcome.
+				*p.res = []Value{t.v}
+			case configure_handle_accumulate_res:
+				*p.res = append(*p.res, t.v)
+			default:
+				debug(ctx, "discard result: %v", t.v, callstack{num:5})
+			}
+		}
 		return
 	}
 	return p.Context.do(ctx, op)
