@@ -15742,7 +15742,7 @@ type filestub struct {
 	dir     Symbol
 	sub     Symbol
 	name    Symbol
-	filemap *filemap
+	filemap *filemap // This representation file mapping
 	other   atomic.Pointer[filestub] // Lock-free circular linked-list pointer
 }
 
@@ -21908,7 +21908,9 @@ func traverse(ctx Context, val Value) {
 			ctx = &traverse_ctx{ctx, p}
 
 			var rulesMatched int
-			var projs = x.traverseProjs(ctx)
+			var projs = x.traverseProjs()
+
+			if checkpoints { check_traverse_files_mapping(ctx, nil, nil, val) }
 
 			// 1. Concrete File Target Slices Pass
 			for _, proj := range projs {
@@ -21976,7 +21978,7 @@ func traverse(ctx Context, val Value) {
 			return
 		}
 
-		var projs = x.traverseProjs(ctx)
+		var projs = x.traverseProjs()
 
 		var pat Value
 		var sym Symbol
@@ -22001,7 +22003,9 @@ func traverse(ctx Context, val Value) {
 				}
 			}
 		}
-		if checkpoints { check_traverse_files_mapping(ctx, projs, stems, pat, val) }
+		if checkpoints { check_traverse_files_mapping(ctx, stems, pat, val) }
+
+		ctx = &traverse_ctx{ctx, p}
 
 		for _, proj := range projs {
 			if f := proj.file(ctx, val); f != nil {
@@ -25524,7 +25528,11 @@ type execution struct {
 
 	// FIXED STATIC BINDING: Explicitly stores the current loading project (p.project) 
 	// at parse time to insulate macro expansions from runtime context pollution.
-	configProj *project 
+	configProj *project
+
+	// FIXED: Clean symmetry with traverseProjs() method
+	cachedTraverseProjs []*project
+	hasTraverseCached   bool
 }
 
 func (p *execution) do(ctx Context, op any) (res any) {
@@ -25539,14 +25547,13 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	// CENTRALIZED PROJECT CONTEXT RESOLUTION
 	// =====================================================================
 	case get_project:
-		// FIXED: Return the static parse-time project context immediately if present.
-		// This guarantees macros like &(outtmp) expand relative to 'app' instead 
-		// of dynamically climbing into the master project space.
-		if p.configProj != nil { return p.configProj   }
-		if p.rule != nil       { return p.rule.owner() }
+		if p.configProj != nil { return p.configProj }
+		if proj := _project(p.Context); proj != nil { return proj }
+		if p.rule != nil { return p.rule.owner() }
 
-	// FIXED AIRLOCK: Intercept scope lookups to restrict visibility exclusively
-	// to the active compiling module's definition boundaries and global roots.
+	// RESTORED LEXICAL AIRLOCK: Walks the static parent chain to jump
+	// straight to the clean universe layer, preventing execution scopes
+	// from polluting definition lookups and causing dependency loops.
 	case get_closure_scopes:
 		var res []*scope
 		if p.configProj != nil && p.configProj.scope != nil {
@@ -25555,8 +25562,6 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
 
-		// PERFECT SHORT CIRCUIT: Walk the static lexical parent chain
-		// to jump straight to the clean universe parsing layer.
 		if uni := _universe(p.Context); uni != nil {
 			nextOp := t
 			if t.n > 0 { nextOp.n = t.n - len(res) }
@@ -25621,17 +25626,24 @@ func (p *execution) level(n int) { p.traceLevel += n }
 func (p *execution) trace(a ...any) { printIndentDots(p.traceLevel, a...) }
 func (p *execution) tracef(s string, a ...any) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
 
-func (p *execution) traverseProjs(ctx Context) (projs []*project) {
-	// Centralized high-fidelity structural filter block
+// traverseProjs executes a hybrid evaluation pass to gather active projects.
+// Safely isolates closure matching scopes while protecting base project lines.
+func (p *execution) traverseProjs() []*project {
+	// 1. O(1) Fast-Path: Instant readout if already frozen
+	if p.hasTraverseCached {
+		return p.cachedTraverseProjs
+	}
+
+	var projs []*project
 	add := func(proj *project) {
-		// 1. If 'proj' is already covered by a more specific derived project, skip it
+		if proj == nil { return }
+
+		// A. If 'proj' is already covered by a more specific derived project, skip it
 		for _, t := range projs {
-			if t == proj || t.has_base(proj) {
-				return
-			}
+			if t == proj || t.has_base(proj) { return }
 		}
 
-		// 2. If 'proj' is a specialized derived project of an existing entry, overwrite it
+		// B. If 'proj' is a specialized derived project of an existing entry, overwrite it
 		for i, t := range projs {
 			if proj.has_base(t) {
 				projs[i] = proj
@@ -25642,15 +25654,27 @@ func (p *execution) traverseProjs(ctx Context) (projs []*project) {
 		projs = append(projs, proj)
 	}
 
+	// 2. Cascade accumulation sequence using hybrid scope targets
 	if p.closureExec {
-		for _, proj := range closure_projects(ctx) { add(proj) }
+		// Read closure projects from the live execution context (p.Context)
+		// to fully respect dynamic scopes injected by (closure) modifiers.
+		for _, proj := range closure_projects(p.Context) { add(proj) }
 	}
 
-	if proj := _project(ctx); proj != nil { add(proj) }
+	// GROUNDING PROTECTION: Resolve base projects using the clean automatic
+	// context layer. This prevents definition lookups from bleeding into
+	// active execution tracks, entirely preventing self-dependency loops.
+	autoCtx := Context(&p.automatic)
+	if proj := _project(autoCtx); proj != nil { add(proj) }
+
 	if p.prog != nil {
 		if proj := p.prog.project; proj != nil { add(proj) }
 	}
-	return
+
+	// 3. Freeze cache states symmetrically
+	p.cachedTraverseProjs = projs
+	p.hasTraverseCached = true
+	return projs
 }
 
 func (p *execution) env(ctx Context) (env []string, osi int) {
@@ -25727,7 +25751,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 	// =====================================================================
 	// Extract the complete set of valid active projects for file matching
 	// instead of using the obsolete single 'x.prog.project'.
-	projs := p.traverseProjs(ctx)
+	projs := p.traverseProjs()
 
 	targetFile := as_file(ctx, target, projs...)
 
@@ -28073,7 +28097,7 @@ func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
 	for _, v := range ctx.warn { warn(ctx, "%s", __string(ctx, v)) }
 	for _, v := range ctx.erro { erro(ctx, "%s", __string(ctx, v)) }
 
-	var projs = exe.traverseProjs(ctx)
+	var projs = exe.traverseProjs()
 	var target = auto_get(ctx, symAt) // @
 	if ctx.checkOutdated && target != nil {
 		var (
@@ -28445,7 +28469,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		t := set(symAt, target)
 		
 		// 1. Walled Garden Domain Extraction (Mirrors the `dirty` function!)
-		projs := exe.traverseProjs(ctx)
+		projs := exe.traverseProjs()
 		f := as_file(ctx, t, projs...)
 		sSym, _ := fullname_sym(ctx, t)
 		
@@ -30618,7 +30642,7 @@ func stamp_target(x *execution, target Value) *file {
 	if tFile == nil && x != nil {
 		// FIXED: Replaced legacy direct x.prog.project reading with the comprehensive 
 		// multi-project resolution matrix to find out-of-tree artifacts cleanly.
-		projs := x.traverseProjs(x.Context)
+		projs := x.traverseProjs()
 		tFile = as_file(x, target, projs...)
 	}
 
