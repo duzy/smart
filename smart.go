@@ -3809,22 +3809,19 @@ func (s *scope) alias(ctx Context, o object, alias ...Symbol) {
 	for _, a := range alias { s.elems[a] = o }
 }
 
-func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNew bool) {
-	var name string
-	switch t := id.(type) {
-	case  Value: name = ident(ctx, t)
-	case Symbol: name = t.String()
-	case string: name = t
-	}
-	if name == "" {
-		erro(ctx, "empty name: %s: `%v`", typeof(id), id, callstack{num:16})
+func (s *scope) _def(ctx Context, o origin, sym Symbol, vals ...Value) (d *def, isNew bool, old Value) {
+	if sym == symEmpty {
+		erro(ctx, "empty symbol name, cannot define variable", callstack{num:16})
+		return nil, false, nil
 	}
 
-	if checkpoints { defer s.check_def(ctx, o, id, vals, name)(&d) }
+	if checkpoints { defer s.check_def(ctx, o, sym, vals, sym.String())(&d) }
 
 	s.Lock()
 
-	var sym = intern(name)
+	// Safety check to ensure element storage map is initialized
+	if s.elems == nil { s.elems = make(map[Symbol]object) }
+
 	if a, ok := s.elems[sym]; !ok || a == nil {
 		d = new(def)
 		d.name, d.pos, d.scope = sym, _pos(ctx), s
@@ -3842,15 +3839,21 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 
 			// Safely catch other collisions (like *rule) and unwind!
 			erro(ctx, "symbol '%s' is already defined as %T, cannot redefine as a variable", sym, a)
-			return nil, false
+			return nil, false, nil
 		}
+	}
+
+	// Capture the existing value before applying overrides if this is an update pass (!isNew)
+	// This directly supplies the old snapshot to satisfy the set_auto else-block requirement.
+	if !isNew && d != nil {
+		old = d.value
 	}
 
 	s.Unlock()
 
 	if o != defInvalid && o != d.o {
 		if d.o == defInvalid { d.o = o } else {
-			erro(pc(ctx, d), "%v: conflicts origin: %v <> %v", id, d.o, o)
+			erro(pc(ctx, d), "%v: conflicts origin: %v <> %v", sym, d.o, o)
 		}
 	}
 
@@ -3858,8 +3861,8 @@ func (s *scope) _def(ctx Context, o origin, id any, vals ...Value) (d *def, isNe
 	return
 }
 
-func (s *scope) def(ctx Context, o origin, ident any, vals ...Value) (d *def) {
-	d, _ = s._def(ctx, o, ident, vals...)
+func (s *scope) def(ctx Context, o origin, sym Symbol, vals ...Value) (d *def) {
+	d, _, _ = s._def(ctx, o, sym, vals...)
 	return
 }
 
@@ -10246,7 +10249,7 @@ func (p *compiler) pre_project_set(ctx Context, args ...Value) {
 	for _, a := range args {
 		switch t := a.(type) {
 		case *pair:
-			p.scope.def(ctx, defVoid, t.key, t.val)
+			p.scope.def(ctx, defVoid, __symbol(ctx, t.key), t.val)
 		default:
 			erro(ctx, "unknown set: %v", ts(a,ctx))
 		}
@@ -12084,7 +12087,7 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 
 			var isNew bool
 			// _def must be upgraded to accept sym Symbol instead of a string!
-			d, isNew = p.project._def(ctx, defInvalid, sym)
+			d, isNew, _ = p.project._def(ctx, defInvalid, sym)
 			if isNew { d.pos = pos // ensure def pos is correct
 				// Or add this logic inside project._def?
 				if nameStr := sym.String(); strings.HasPrefix(nameStr, "use.") {
@@ -12511,7 +12514,7 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 }
 
 func (p *compiler) configure_def(ctx Context, name Symbol, vals ...Value) (d *def, isNew bool) {
-	if d, isNew = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
+	if d, isNew, _ = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
 		p.project.configs = append(p.project.configs, d)
 	}
 	return
@@ -12571,13 +12574,19 @@ minusloop:
 
 		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
 		for _, id := range ids {
+			sym := __symbol(exe, id)
+
+			// FIXED: Update the runtime scope mark thread-safely for the active target.
+			// This accurately synchronizes the execution scope name (e.g., STDLIB_H)
+			// across sequential multi-target loops.
+			exe.setScopeMark(sym)
 			exe.values = nil
 			exe.recipes = nil
 
 			d, _ := exe.set(exe, defVoid, symAt, id)
 			d.pos = id.Pos()
 
-			d, isNew := p.configure_def(exe, __symbol(exe, id))
+			d, isNew := p.configure_def(exe, sym)
 			d.pos = id.Pos()
 
 			isCached := !isNew && d.value != nil
@@ -12626,13 +12635,16 @@ minusloop:
 
 		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
 		for _, id := range ids {
+			sym := __symbol(exe, id)
+
+			exe.setScopeMark(sym)
 			exe.values = nil
 			exe.recipes = nil
 
 			d, _ := exe.set(exe, defVoid, symAt, id)
 			d.pos = id.Pos()
 
-			d, isNew := p.configure_def(exe, __symbol(exe, id))
+			d, isNew := p.configure_def(exe, sym)
 			d.pos = id.Pos()
 
 			isCached := !isNew && d.value != nil
@@ -12741,7 +12753,8 @@ func (p *compiler) configure(ctx Context) {
 	ctx = configure_ctx{ctx, p.project}
 
 	exe := &execution{
-		automatic:  automatic{Context: ctx, defs: make(def_map)},
+		Context: ctx,
+		scope: new_scope(ctx, p.project.scope, p.project, symConfigure),
 		workdir:    p.project.absPath, 
 		session:    newTraverseSession(),
 		start:      time.Now(),
@@ -12872,7 +12885,7 @@ func (p *compiler) usevars(ctx Context, user, usee *project) {
 
 		// 3. Export downstream: use.XXX += $(use.XXX)
 		{
-			d, isNewDef := user._def(ctx, defVoid, lookupSym)
+			d, isNewDef, _ := user._def(ctx, defVoid, lookupSym)
 			if isNewDef || isTrivial(d.value) {
 				dd = append(dd, nonTrivialDefsFromBase(ctx, user, lookupSym)...)
 			}
@@ -12881,7 +12894,7 @@ func (p *compiler) usevars(ctx Context, user, usee *project) {
 
 		// 4. Apply locally: XXX += $(use.XXX)
 		{
-			d, isNewDef := user._def(ctx, defVoid, targetSym)
+			d, isNewDef, _ := user._def(ctx, defVoid, targetSym)
 			if isNewDef && false {
 				if dd == nil {
 					dd = append(dd, nonTrivialDefsFromBase(ctx, user, lookupSym)...)
@@ -21710,15 +21723,15 @@ func (x *execution) resolveWorkdir(ctx Context, proj *project) Symbol {
 
 	// 2. Walled Garden Closure Project Search Pass
 	var o object
-	var closure []*project
-	if x.closureExec {
-		closure = closure_projects(ctx)
-	}
-
-	if len(closure) > 0 {
-		for _, p := range closure {
-			if o = p.resolve(ctx, symCWD);   !isTrivial(o) { break }
-			if o = p.resolve(ctx, symSlash); !isTrivial(o) { break }
+	if x.closure != nil {
+		for {
+			if o = x.closure.resolve(symCWD);   !isTrivial(o) { break }
+			if o = x.closure.resolve(symSlash); !isTrivial(o) { break }
+			if p := x.closure.project; p != nil {
+				if o = p.resolve(ctx, symCWD);   !isTrivial(o) { break }
+				if o = p.resolve(ctx, symSlash); !isTrivial(o) { break }
+			}
+			break
 		}
 		if isTrivial(o) {
 			return proj.absPath
@@ -21762,33 +21775,37 @@ func (x *execution) register_dependency(dep Value) {
 	// =====================================================================
 	// STRICT VFS TIMELINE CHECK: Trusted Type Bounds Verification
 	// =====================================================================
-	if d, found := x.defs[symAt]; found && d != nil && d.value != nil {
-		target := d.value
-		if !isTrivial(target) {
-			// Eager type verification: Rely strictly on traverse's prior mapping passes
-			tFile, _ := to_file(target)
-			dFile, _ := to_file(dep)
+	// FIXED: Replaced the legacy map access 'x.defs[symAt]' with 'x.lookup(symAt)' 
+	// to adapt cleanly to the un-embedded unified runtime scope refactor.
+	if obj := x.lookup(symAt); obj != nil {
+		if d, ok := obj.(*def); ok && d.value != nil {
+			target := d.value
+			if !isTrivial(target) {
+				// Eager type verification: Rely strictly on traverse's prior mapping passes
+				tFile, _ := to_file(target)
+				dFile, _ := to_file(dep)
 
-			// If either is nil, it means it's an abstract flag/token/string destination,
-			// or a malformed dependency that failed to be resolved by traverse.
-			if tFile != nil && dFile != nil && x.session != nil {
-				a := atomic.LoadInt64(&tFile._mtime)
-				b := atomic.LoadInt64(&dFile._mtime)
+				// If either is nil, it means it's an abstract flag/token/string destination,
+				// or a malformed dependency that failed to be resolved by traverse.
+				if tFile != nil && dFile != nil && x.session != nil {
+					a := atomic.LoadInt64(&tFile._mtime)
+					b := atomic.LoadInt64(&dFile._mtime)
 
-				// FIXED: Protect centralized cross-rule state with the global session mutex.
-				// This guarantees transaction isolation across heavily concurrent thread runners.
-				x.session.Lock()
-				if x.session.updatedFiles == nil {
-					x.session.updatedFiles = make(map[*file][]Value)
+					// FIXED: Protect centralized cross-rule state with the global session mutex.
+					// This guarantees transaction isolation across heavily concurrent thread runners.
+					x.session.Lock()
+					if x.session.updatedFiles == nil {
+						x.session.updatedFiles = make(map[*file][]Value)
+					}
+
+					_, depWasUpdated := x.session.updatedFiles[dFile]
+
+					// If target exists on disk (a > 0) and dependency is newer, or dependency was updated in this run
+					if (a > 0 && b > a) || depWasUpdated {
+						x.session.updatedFiles[tFile] = append(x.session.updatedFiles[tFile], dep)
+					}
+					x.session.Unlock()
 				}
-
-				_, depWasUpdated := x.session.updatedFiles[dFile]
-
-				// If target exists on disk (a > 0) and dependency is newer, or dependency was updated in this run
-				if (a > 0 && b > a) || depWasUpdated {
-					x.session.updatedFiles[tFile] = append(x.session.updatedFiles[tFile], dep)
-				}
-				x.session.Unlock()
 			}
 		}
 	}
@@ -21853,33 +21870,25 @@ func traverse(ctx Context, val Value) {
 		}
 
 	case *rule:
-		parentExe := _execution(ctx)
-
-		target := auto_get(ctx, symAt)
-		if target == nil && parentExe == nil {
-			target = p.target
-		}
-		if target == nil {
-			erro(ctx, "$@ is not defined")
-			return
-		}
+		debug(ctx, "%v %v", p.target, auto_get(ctx, symAt))
 
 		x := &execution{
-			automatic: automatic{Context: ctx, defs: make(def_map)},
-			start: time.Now(), rule: p,
+			Context: ctx,
+			scope:   new_scope(ctx, p.owner().scope, p.owner(), __symbol(ctx, p.target)),
+			start:   time.Now(), rule: p,
 		}
 
-		x.args, _ = do(ctx, get_arguments{}).([]Value)
+		x.set(x, defVoid, symAt, p.target)
 
-		if parentExe != nil {
+		if caller := x.caller(); caller != nil {
 			// Path A: Standard Sub-Target Execution Rule Frame
-			if proj := parentExe.configProj; proj != nil {
+			if proj := caller.configProj; proj != nil {
 				x.configProj = proj
 				x.workdir = proj.absPath
 			} else {
-				x.workdir = parentExe.workdir
+				x.workdir = caller.workdir
 			}
-			x.session = parentExe.session
+			x.session = caller.session
 		} else {
 			// Path B: Top-Level Parse-Time Generator Rule
 			var activeProj = _project(ctx)
@@ -21894,11 +21903,9 @@ func traverse(ctx Context, val Value) {
 		)}
 
 		func() {
-			dAt := &def{o: defVoid, value: target}
-			dAt.pos, dAt.scope, dAt.name = p.Pos(), _scope(x), symAt
-			x.defs[symAt] = dAt
-
-			x.prerequisite = target 
+			// FIXED: Completely removed the broken legacy 'dAt' construct and the 'x.defs[symAt]' 
+			// map assignment. The target variable is already cleanly tracked via 'x.set' above.
+			// x.prerequisite = target 
 
 			for _, prog := range p.program {
 				var state uint
@@ -21907,8 +21914,8 @@ func traverse(ctx Context, val Value) {
 						switch e := recover().(type) {
 						case traverse_state: state = e.uint
 						default: 
-							if e != nil { 
-								erro(x, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, target})
+							if e != nil {
+								erro(x, "%v", e, callstack{num: 20}, trace_ctx{5}, trace_val{5, p.target})
 								panic(e) 
 							}
 						}
@@ -23192,10 +23199,7 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return ac.Context
 	case dynamic_cast: return t.ctx(ac, ac.Context)
-	case init_args:
-		if t.automatic == nil {
-			panic("automatic.init_args")
-		}
+	// case init_args: if t == ac { panic("automatic.args") }
 	case get_auto:
 		if d, _ := ac.defs[t.s]; d != nil {
 			return d
@@ -25546,18 +25550,22 @@ func newTraverseSession() *traverseSession {
 }
 
 type execution struct {
-	automatic
+	// automatic
 	sync.Mutex
 	sync.WaitGroup
+
+	Context // The parent context pipeline passed from traverse
+	*scope  // The dynamic runtime execution scope
+	closure *scope // The dynamic closure scope via `(closure)` modifier
 
 	by dirtyOpts
 
 	// Stateful Directory State: Inherited at startup, modified locally by (cd)
 	workdir Symbol 
 
-	rule      *rule
-	args      []Value
-	prog      *program
+	rule      *rule       // The underlying rule compiling this frame
+    prog      *program    // The active program block running
+	// args      []Value
 	recipes   []Value
 	language Symbol
 
@@ -25578,7 +25586,6 @@ type execution struct {
 
 	missing []string
 
-	closureExec bool 
 	grepping    bool
 	grepped     []Value
 	ordered     []Value
@@ -25601,19 +25608,21 @@ type execution struct {
 
 func (p *execution) do(ctx Context, op any) (res any) {
 	switch t := op.(type) {
-	case inner_cast: return p.automatic
-	case dynamic_cast: return t.ctx(p, &p.automatic)
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
 	case final: return p 
 	case ex_closure: return true 
-	case is_closure_exec: return p.closureExec 
+	case is_closure_exec: return p.closure != nil
 
-	// FIXED: Direct lookup interception for get_scope commands.
-	// Routes the probe dynamically through the active execution context pipeline (p.Context)
-	// so that runtime assertions discover the true active dynamic scope instead
-	// of dropping back prematurely to the static fallback universe.
+	// =====================================================================
+	// CENTRALIZED RUNTIME SCOPE RESOLUTION
+	// =====================================================================
 	case get_scope:
-		if p.prog != nil {
-			// FIXME: return p.prog.scope
+		// FIXED: Removed the restrictive 'p.prog != nil' guard. 
+		// If this execution frame has an active runtime scope, it must ALWAYS 
+		// be returned—unmasking (-headers-c) during the prerequisite phase.
+		if p.scope != nil {
+			return p.scope
 		}
 		if p.rule != nil {
 			return p.rule.owner().scope
@@ -25626,13 +25635,7 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	// CENTRALIZED PROJECT CONTEXT RESOLUTION
 	// =====================================================================
 	case get_project:
-		// 1. Prioritize centralized parse-time configuration overrides
 		if p.configProj != nil { return p.configProj }
-
-		// 2. FIXED: Hierarchical Wrapper Check.
-		// Ensures top-level main targets tightly retain their owner variables
-		// while seamlessly allowing derived sub-projects to override
-		// inherited template boundaries dynamically.
 		if p.rule != nil {
 			owner := p.rule.owner()
 			if ctxProj := _project(p.Context); ctxProj != nil {
@@ -25643,34 +25646,39 @@ func (p *execution) do(ctx Context, op any) (res any) {
 			return owner
 		}
 
-		// 3. Fall back cleanly to context inspection
-		if proj := _project(p.Context); proj != nil { return proj }
-
-	// FIXED: Safely delegates upstream to capture active cross-module closures
+	// =====================================================================
+	// CENTRALIZED CLOSURE TRACEROUTE
+	// =====================================================================
 	case get_closure_scopes:
 		var res []*scope
+
+		if p.closure != nil {
+			res = append(res, p.closure)
+		}
 		if p.configProj != nil && p.configProj.scope != nil {
 			res = append(res, p.configProj.scope)
 		}
-
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
 
-		// FIXED: Restored delegation path to p.Context to let closure mapping
-		// utilities inspect dynamic blocks without configuration starvation.
+		// Delegate upstream to harvest parent execution closures dynamically
 		if p.Context != nil {
 			nextOp := t
 			if t.n > 0 { nextOp.n = t.n - len(res) }
-
 			if x, y := p.Context.do(ctx, nextOp).([]*scope); y && x != nil {
 				res = append(res, x...)
 			}
 		}
-
-		if t.n > 0 && len(res) > t.n { return res[:t.n] }
 		return res
 
-	case init_args: if p.args != nil { t.args(ctx, p.args); return }
-	case get_arguments: if p.args != nil { return p.args }
+	case get_auto:
+		if d, found := p.lookup(t.s).(*def); found && d != nil { return d }
+	case set_auto:
+		if d, isNew, old := p._def(ctx, t.o, t.s, t.v); isNew {
+			return res_auto{ d, nil }
+		} else {
+			return res_auto{ d, old }
+		}
+
 	case get_rule: return p.rule
 	case is_rule:
 		if p.rule != nil && p.rule.target != nil {
@@ -25682,7 +25690,7 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
 	case program_res:
 		if t.v != nil { p.values = append(p.values, t.v) }
-		p.automatic.do(ctx, op) 
+		p.Context.do(ctx, op)
 		return
 
 	case default_value:  p.defval = t.v; return
@@ -25705,7 +25713,7 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	case missing_file:
 		p.missing = append(p.missing, t.file)
 	}
-	return p.automatic.do(ctx, op)
+	return p.Context.do(ctx, op)
 }
 
 func (p *execution) caller() *execution { return _execution(p.Context) }
@@ -25753,9 +25761,7 @@ func (p *execution) traverseProjs() []*project {
 	}
 
 	// 2. Cascade accumulation sequence using the active closure scope chain
-	if p.closureExec {
-		for _, proj := range closure_projects(ctx) { add(proj) }
-	}
+	if p.closure != nil { add(p.closure.project) }
 
 	if proj := _project(ctx); proj != nil { add(proj) }
 
@@ -25767,6 +25773,89 @@ func (p *execution) traverseProjs() []*project {
 	p.cachedTraverseProjs = projs
 	p.hasTraverseCached = true
 	return projs
+}
+
+func (p *execution) setScopeMark(sym Symbol) {
+	if  p.scope != nil {
+		p.scope.Lock()
+		p.scope.mark = sym
+		p.scope.Unlock()
+	}
+}
+func (p *execution) set(ctx Context, o origin, name Symbol, val Value) (out *def, old Value) {
+	var isNew bool
+	if out, isNew, old = p._def(ctx, o, name, val); isNew { old = nil }
+	return
+}
+
+func (p *execution) args(ctx Context, vals []Value) {
+	type arg struct {
+		id, name Symbol
+		value    Value
+	}
+
+	if vals == nil { return }
+
+	var argn int                                // Setup named/number parameters ($1, $2, etc.)
+	var args = make(map[Symbol]*arg, len(vals)) // Compact args: combine duplicated pairs
+
+	for i, val := range vals {
+		a := &arg{ id: intern(strconv.Itoa(argn+1)) }
+
+		if pair, y := val.(*pair); y {
+			if a.name = __symbol(ctx, pair.key); a.name == symEmpty {
+				erro(pc(ctx, val), "empty name: %v", pair.key)
+				return
+			}
+
+			// OPTIMIZED & ENCAPSULATED: Clean encapsulation barrier check.
+			// The dirty slice-iteration mechanics and error-string allocations
+			// are completely offloaded to the program struct.
+			if p.prog != nil && !p.prog.hasParam(a.name) {
+				erro(pc(ctx, val), "unknown arg#%d: %v ; known: %v", i, pair, p.prog.paramNames())
+				return
+			}
+
+			if t, y := args[a.name]; y {
+				// THE DOD FIX: Flawless duplicate parameter compaction!
+				if x, y := t.value.(*list); y {
+					x.elems = append(x.elems, merge(pair.val)...)
+				} else {
+					t.value = _list(t.value, pair.val) // Correctly update existing value
+				}
+
+				if obj := p.lookup(a.name); obj != nil {
+					if d, ok := obj.(*def); ok && d != nil {
+						p.scope.Lock()
+						d.value = t.value
+						p.scope.Unlock()
+					}
+				}
+				continue
+			}
+
+			a.value = pair.val
+		} else {
+			a.name, a.value = paramName(ctx, argn), scalarize(val)
+			if a.name == symEmpty { a.name = a.id }
+		}
+
+		args[a.name] = a
+		argn += 1
+
+		d, _ := p.set(ctx, defParam, a.name, a.value)
+		if d == nil {
+			erro(p, "arg '%s' not set", a.name)
+			return
+		}
+
+		if a.id != symEmpty && a.id != a.name {
+			p.scope.Lock()
+			p.scope.elems[a.id] = d // Register high-speed structural alias
+			p.scope.Unlock()
+		}
+	}
+	return
 }
 
 func (p *execution) env(ctx Context) (env []string, osi int) {
@@ -25998,90 +26087,45 @@ type program struct {
 }
 
 func (prog *program) check_exe(ctx *execution) {
-    var cc = ctx.Context
-    var a = []Value{ auto_get(cc, symAt) }
-    var depth, loop int = 0, -1
+	// 1. Extract the current frame's authentic target name directly from our unified scope
+	targetObj := ctx.lookup(symAt)
+	if targetObj == nil { return }
 
-callerloop:
-    for c := ctx.caller(); c != nil; c = c.caller() {
-        if _program(c) == prog {
-            if depth += 1; depth == maxCallRecursion { break callerloop }
-            var t = auto_get(c, symAt)
-            for i, v := range a {
-                if eq(ctx, t, v) { loop = i; break callerloop }
-            }
-            if loop < 0 { a = append(a, t) }
-        }
-    }
+	var targetVal Value
+	if d, ok := targetObj.(*def); ok {
+		targetVal = d.value
+	}
+	if isTrivial(targetVal) { return }
 
-    if 0 <= loop {
-        var o = cast[*term](cc)
-        var v = auto_get(o, symAt)
-        var t = auto_get(cc, symAt)
-        if o != nil {
-            if v != nil && eq(cc, v, t) {
-                if true { debug(ctx, "skip closure loop: %v %v", o, t) }
-                // FIXES: skip execution as it's closure, for example:
-                //
-                //   %.h($(headers)): $(srcinc)/%.h update-file
-                //
-                // where the 'update-file' is like:
-                //
-                //   update-file: [((in)) (closure) (set @=&@)] $(in) \
-                //       [(read-file $>) (update-file -p)]
-                //
-                // see also Rule.traverse for the same skip.
-                return
-            }
-        }
+	var depth int = 0
+	
+	// 2. Walk the execution caller stack to detect cyclic macro execution paths
+	for c := ctx.caller(); c != nil; c = c.caller() {
+		if _program(c) == prog {
+			depth++
+			if depth >= maxCallRecursion {
+				erro(ctx, "max recursion call depth reached (%d) for target: %v", depth, targetVal)
+				return
+			}
 
-        prompt(ctx, "%v: %v: %v, %v\n", a[0], v, cc, o)
-        for i, t := range a { erro(ctx, "loop: %v: %v", i, t) }
-        erro(ctx, "loop, (depth=%d, %v, %v)\n", depth, a[loop], a)
-    }
+			// Fetch the caller's target variable using the clean lookup pipeline
+			if callerTargetObj := c.lookup(symAt); callerTargetObj != nil {
+				if callerDef, ok := callerTargetObj.(*def); ok {
+					// FIXED: Found an execution cycle! Check if it's a safe closure loop bypass
+					if eq(ctx, callerDef.value, targetVal) {
+						if _, isTerm := ctx.Context.(*term); isTerm {
+							// Safe closure bypass handler: skip execution gracefully
+							return
+						}
 
-    if depth < maxCallRecursion {
-        // continues
-    } else if c := ctx.caller(); c != nil {
-        ctx.traceLevel = c.traceLevel
-
-        var tt = auto_get(c, symAt)
-        var s, _ = fullname_sym(ctx, tt)
-        prompt(ctx, "%v: max recursion call (%d)\n", s, depth)
-        debug(ctx, "max recursion call (%d)\n", depth)
-
-        const collapse = false
-
-        for ; c != nil; c = c.caller() {
-            var n int
-
-            if collapse {
-                for next := c.caller(); next != nil; next = next.caller() {
-                    if d := auto_get(next, symAt); d == nil { continue } else
-                    if t := d; t != nil && eq(ctx, t, tt) { n += 1;  continue }
-                    if _program(next) == _program(c) { n += 1; c = next } else { break }
-                }
-            }
-
-            if prog, t := _program(c), auto_get(c, symAt); prog == nil {
-                erro(ctx, "%v (@=%v)", _entry(ctx), tt)
-                break
-            } else if n > 0 {
-                erro(ctx, "%v (repeated %d times)", t, n)
-            } else if !collapse {
-                erro(ctx, "%v : %v", t, auto_get(c, intern(">")))
-            } else if depth -= 1; maxCallRecursion - depth > 5 {
-                erro(ctx, "%v ... (%d)", t, maxCallRecursion - depth)
-                break
-            } else {
-                erro(ctx, "%v : %v", t, auto_get(c, intern(">")))
-            }
-
-            flush(ctx) // dump immediately
-        }
-
-        erro(ctx, depth, "#>", _entry(ctx))
-    }
+						// Hard cycle detected: break and throw a execution loop error
+						erro(ctx, "infinite execution loop identified on target: %v", targetVal)
+						return
+					}
+				}
+			}
+		}
+	}
 }
 
 func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
@@ -26095,6 +26139,29 @@ func (prog *program) result_or_default_interpret(ctx *execution) (res Value) {
         erro(ctx, "no default dialect")
     }
     return
+}
+
+// hasParam checks if a given symbol matches any declared parameter name.
+// For small slices (typically macro params N <= 10), this contiguous linear 
+// scan is extremely hardware cache-friendly and faster than a map lookup.
+func (prog *program) hasParam(name Symbol) bool {
+	if prog == nil { return false }
+	for _, param := range prog.params {
+		if param.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// paramNames lazily aggregates parameter names for diagnostic error tracking.
+func (prog *program) paramNames() []Symbol {
+	if prog == nil || len(prog.params) == 0 { return nil }
+	names := make([]Symbol, len(prog.params))
+	for i, param := range prog.params {
+		names[i] = param.name
+	}
+	return names
 }
 
 // execute runs the structural components of the program within a pre-allocated, 
@@ -26126,21 +26193,19 @@ func (prog *program) execute(exe *execution) (res Value) {
 
 	// 3. Map rule arguments and sandboxed environment parameters
 	for _, param := range prog.params {
-		if exe.params == nil {
-			exe.params = make(map[Symbol]*auto, len(prog.params))
-		}
-		exe.params[param.name] = param
+		exe.set(exe, defParam, param.name, nil)
 	}
 
-	// Native target mapping updates
-	exe.set(exe, defVoid, symAt, _entry(exe).destiny()) 
+	// FIXED: Removed the redundant 'symAt' ($@) assignment block.
+	// The target identity is already reliably assigned once per execution frame
+	// inside the 'traverse' rule selector, making this secondary pass unnecessary.
 
 	if t := _stems(exe); t != nil {
 		exe.set(exe, defVoid, symAsterisk, ease(exe, t)) 
 	}
 
 	// 4. Initialize parameters and resolve prerequisite trees
-	exe.do(exe, init_args{&exe.automatic})
+	exe.do(exe, init_args(exe))
 	exe.prerequisites(prog.depends, false)
 	exe.prerequisites(prog.ordered, true)
 
@@ -26590,7 +26655,7 @@ type (
     mark_dirty     struct{ a []Value }
     act_dirt       struct{ a []Value }
     act_count_dia  struct{ t []diagtype }
-    init_args      struct{ *automatic }
+    init_args      interface{ args(Context, []Value) } //struct{ *automatic }
 	get_fatpos     struct{ p Pos }
     get_pos        struct{}
     get_project    struct{}
@@ -27633,7 +27698,7 @@ func (u *universe) run(ctx Context) (result []Value) {
 		if len(goals) > 0 {
 			// 1. Instantiate the master execution anchor with a fresh cross-rule session registry
 			exe := &execution{
-				automatic: automatic{Context: ctx, defs: make(def_map)},
+				Context: ctx,//automatic: automatic{Context: ctx, defs: make(def_map)},
 				start:     time.Now(),
 				workdir:   u.workdir,
 				session:   newTraverseSession(), // CRITICAL FIX: Safe VFS memory ledger initialization
@@ -28452,48 +28517,14 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 	// Closure the caller program, the context will be restored when execution is finished.
 	var cc = exe.Context
 
-	// THE DOD FIX: Scope Candidate Reduction (The Boundary Slice)
-	// We dynamically extract the caller's closure scopes using the helper!
-	// We slice the array EXACTLY at the caller's project scope, keeping all 
-	// intermediate local closures while safely discarding duplicate globals.
+	if exe.closure != nil {
+		warn(ctx, "already closure: %v", exe.closure, trace_ctx{5}, callstack{num:5})
+	}
 	if caller := exe.caller(); caller != nil {
-		var callerScopes []any
-		var hasBase bool
-
-		// FIXED: Guard against root/master execution scopes where prog is natively nil
-		var baseScope *scope
-		if caller.prog != nil && caller.prog.project != nil {
-			baseScope = caller.prog.project.scope
-		}
-		
-		if scopes := closure_scopes(caller/*.Context*/); len(scopes) > 0 {
-			for _, s := range scopes {
-				// THE DOD FIX: The Global Airlock!
-				// We must never wrap the globe into a new closure `term`.
-				// Once we hit it, we stop collecting completely.
-				if isGlobeScope(s) { break }
-				
-				callerScopes = append(callerScopes, s)
-
-				if baseScope != nil && (s == baseScope || s.hasOuter(baseScope)) {
-					hasBase = true
-					break // Perfect boundary!
-				}
-			}
-		}
-
-		// THE DOD FIX: The Explicit Project Floor!
-		// Because `get_scope` is no longer intercepted, `closure_scopes` won't automatically 
-		// find the project scope unless it was explicitly wrapped in a `term`. 
-		// We must guarantee the caller's project acts as the floor of the closure!
-		if !hasBase && baseScope != nil {
-			callerScopes = append(callerScopes, baseScope)
-		}
-
-		// Only chain if we actually collected scopes
-		if len(callerScopes) > 0 {
-			exe.Context = closure_with(cc, callerScopes...)
-			exe.closureExec = true // Arm the closure-exec flag!
+		if caller.closure == nil {
+			exe.closure = caller.scope
+		} else {
+			exe.closure = caller.closure
 		}
 	}
 
@@ -30767,9 +30798,12 @@ type modifier_stamp struct { modifier_
 func (ctx *modifier_stamp) x(exe *execution, args ...Value) (result any) {
 	var target Value
 
-	// Safe, direct lookups on the active execution handle completely bypass context overhead
-	if d, found := exe.defs[symAt]; found && d != nil && d.value != nil {
-		target = d.value
+	// FIXED: Replaced legacy direct map access 'exe.defs[symAt]' with 'exe.lookup(symAt)'
+	// to adapt cleanly to the unified runtime execution scope architecture.
+	if obj := exe.lookup(symAt); obj != nil {
+		if d, ok := obj.(*def); ok && d.value != nil {
+			target = d.value
+		}
 	}
 
 	if isNull(target) {
