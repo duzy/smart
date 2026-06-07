@@ -57,6 +57,7 @@ type hashbytes [sha256.Size]byte
 
 const (
 	debug_new_scopes = false && checkpoints
+	chain_new_scopes_with_compiling_project = false
 	project_resolve_cache = false
 
 	// In the architecture of modern build systems, package managers, and
@@ -11035,12 +11036,6 @@ func (p *compiler) parse(ctx Context) bool {
 
 							if true { p.project = nil } 
 
-							// FIXED: Break the loader chaining here! Ground the sub-compiler's
-							// scope context register to the clean globe scope layer. This ensures
-							// the incoming metaclass or base project compiles within a pristine
-							// environment, completely unpolluted by the host project's private variables.
-							if false { p.scope = _universe(ctx).globe.scope }
-
 							if cc.Context = closure_with(cc.Context, hostScope); cc.isDir {
 								p.directory(&cc, cc.configure, cc.absPath)
 							} else {
@@ -11114,20 +11109,6 @@ func (p *compiler) parse(ctx Context) bool {
 			// THE DOD FIX: ONE single call guarantees the 1-2-3 load sequence
 			// and completely prevents multiple evaluations of implicitBase!
 			p.bases(cc0, implicitBase, explicitBases...)
-
-			// FIXED: Wire up the dynamic lexical inheritance coordinates!
-			// Once the project's configurations and base modules are fully resolved,
-			// we link the active file scope's 'outer' field directly to the primary
-			// base project's scope. This builds the structured, layered hierarchy
-			// expected by the test assertion checkpoint suite:
-			// {app project} -> {app file} -> {base project} -> {base file} -> globe
-			if false {
-				if p.project != nil && p.project.configure != nil && p.project.configure.scope != nil {
-					if fileScope := p.project.scope.outer; fileScope != nil {
-						fileScope.outer = p.project.configure.scope
-					}
-				}
-			}
 
 			if p.spaces(ctx) ; p.tok != EOF { p.linend(ctx) }
 
@@ -11526,14 +11507,19 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 	// =========================================================
 	// STATE PROTECTION
 	// =========================================================
-	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state } ()
+	_proj, _scope, _scanner, _state := p.project, p.scope, p.scanner, p.compilestate
+	defer func() { p.project, p.scope, p.scanner, p.compilestate = _proj, _scope, _scanner, _state } ()
 
 	// FIXED: Break the chronological loader file chaining sequence!
 	// Ground the baseline scope register to the structural project scope boundary
 	// (or the global scope level if initializing) before creating the directory scope.
-	if p.project != nil {
-		p.scope = p.project.scope
+	if _proj != nil {
+		if chain_new_scopes_with_compiling_project {
+			p.scope = _proj.scope // This could be a base.
+		} else {
+			p.scope = u.globe.scope
+		}
+		p.project = nil // clear to let new_scope not owned by this project
 	} else {
 		p.scope = u.globe.scope
 	}
@@ -11598,14 +11584,19 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	// =========================================================
 	// STATE PROTECTION
 	// =========================================================
-	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state } () // Executes LAST
+	_proj, _scope, _scanner, _state := p.project, p.scope, p.scanner, p.compilestate
+	defer func() { p.project, p.scope, p.scanner, p.compilestate = _proj, _scope, _scanner, _state } ()
 
 	// FIXED: Break the chronological loader file chaining sequence!
 	// Ground the baseline scope register to the structural project scope boundary
 	// (or the global scope level if initializing) before creating the directory scope.
-	if p.project != nil {
-		p.scope = p.project.scope
+	if _proj != nil {
+		if chain_new_scopes_with_compiling_project {
+			p.scope = _proj.scope // This could be a base.
+		} else {
+			p.scope = u.globe.scope
+		}
+		p.project = nil // clear to let new_scope not owned by this project
 	} else {
 		p.scope = u.globe.scope
 	}
