@@ -23501,10 +23501,10 @@ const (
 type traverse_state struct{ p any ; uint }
 func (t traverse_state) String() (_ string) {
 	switch t.uint {
-	case traverse_noop: return "traverse_noop"
-	case traverse_case: return "traverse_case"
-	case traverse_done: return "traverse_done"
-	case traverse_next: return "traverse_next"
+	case traverse_noop: return "traverse none"
+	case traverse_case: return "traverse case"
+	case traverse_done: return "traverse done"
+	case traverse_next: return "traverse next"
 	}
 	return fmt.Sprintf("%v", t.uint)
 }
@@ -23909,7 +23909,7 @@ func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
 func cache(ctx Context, c *valcache, ss [][]Symbol) *valcache {
 	for _, segment := range ss {
 		for _, token := range segment {
-			c = c.add(token) // token is now a Symbol!
+			c = c.add(token) // token is a pure Symbol identifier
 		}
 	}
 	return c
@@ -24013,7 +24013,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 		}
 		if priorDynamicClosureShadowing { doDynamicClosureShadowing() }
 
-		// Matrix Query Wildcard Stream Matching Branches
+		// 1. Matrix Query Wildcard Stream Matching Branches
 		switch s {
 		case symAsterisk: 
 			for _, entry := range c.o {
@@ -24050,7 +24050,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			return found
 		}
 
-		// A. Compressed Node Match via Type-Safe Symbol Slicing
+		// 2. Compressed Node Match via Type-Safe Symbol Slicing
 		if k == 0 && (len(ss[i])-j > 1 || s == symQues) {
 			for _, entry := range c.o {
 				if isWildcardMeta(entry.k) || entry.k == s { continue }
@@ -24060,7 +24060,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			}
 		}
 
-		// B. Literal / Prefix Match
+		// 3. Literal / Prefix Match
 		if k == 0 {
 			if x, y := c.get(s); y && !isWildcardMeta(s) && s != symQues {
 				if f0(x, ss, i, j+1, 0) { found = true }
@@ -24087,7 +24087,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			}
 		}
 
-		// D. Trie Suffix Tree Edge Wildcards
+		// 4. Trie Suffix Tree Edge Wildcards
 		if x, y := c.get(symQues); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
@@ -24134,7 +24134,6 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 	return
 }
 
-// Helper to instantly and safely identify ALL meta symbols inside the unified Symbol Domain
 func isWildcardMeta(sym Symbol) bool {
 	return sym == symAsteriskAst || sym == symAsterisk || sym == symAsteriskQues || sym == symQues
 }
@@ -24143,13 +24142,10 @@ func isCharSet(str string) bool {
 	return len(str) >= 3 && str[0] == '[' && str[len(str)-1] == ']'
 }
 
-// consumeSymbols matches a multi-token Trie edge against the matrix array slice.
-// Operates exclusively via Symbol ID equivalence and zero-allocation prefix slicing.
 func consumeSymbols(nodeKey Symbol, tokens []Symbol) (int, bool) {
 	keyStr := nodeKey.String()
 	if len(keyStr) == 0 || len(tokens) == 0 { return 0, false }
 
-	// Fast-path lookup: Exact match for the entire edge key primitive
 	if tokens[0] == nodeKey {
 		return 1, true
 	}
@@ -24159,21 +24155,16 @@ func consumeSymbols(nodeKey Symbol, tokens []Symbol) (int, bool) {
 		if tokIdx >= len(tokens) { return 0, false } 
 
 		tSym := tokens[tokIdx]
-		
-		// Safely handle hardware wildcards embedded in the query
 		if isWildcardMeta(tSym) {
-			if tSym == symQues { // "?" consumes exactly 1 byte/character inside the literal edge
+			if tSym == symQues { 
 				keyIdx++ 
 				tokIdx++ 
 				continue
 			}
-			// Complex wildcards (**, *) cannot be consumed as compressed literals
 			return 0, false 
 		}
 
 		tStr := tSym.String()
-
-		// Optimization: Instantly fail if token is larger than the remaining Trie edge string segment
 		if len(tStr) > len(keyStr)-keyIdx { return 0, false }
 
 		if keyStr[keyIdx:keyIdx+len(tStr)] == tStr {
@@ -24186,28 +24177,22 @@ func consumeSymbols(nodeKey Symbol, tokens []Symbol) (int, bool) {
 	return tokIdx, true
 }
 
-// canStartMatch natively handles atomics, unrolls compressed edges, 
-// and perfectly bridges unlexed dynamic query strings via prefix matching.
 func canStartMatch(c *valcache, segment []Symbol) bool {
 	if len(segment) == 0 { return false }
 
 	firstToken := segment[0]
 	if isWildcardMeta(firstToken) { return true }
 
-	// 1. Exact Token Match
 	if _, ok := c.get(firstToken); ok { return true }
 
-	// 2. Hardware Wildcards
 	if _, ok := c.get(symQues);        ok { return true }
 	if _, ok := c.get(symAsterisk);    ok { return true }
 	if _, ok := c.get(symAsteriskAst); ok { return true }
 
-	// Safely extract the string and first byte for character-level matching matrices
 	firstStr := firstToken.String()
 	if len(firstStr) == 0 { return false }
 	firstByte := firstStr[0]
 
-	// 3. Scan edges for unrolled partials, sets, and prefixes
 	for _, entry := range c.o {
 		str := entry.k.String()
 		if isCharSet(str) && matchCharSet(str, firstByte) {
@@ -24509,18 +24494,29 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	var u = &uncache_t{ctx, nil}
 	var k Value
 
-	if v, isValue := key.(Value); isValue {
-		k = v
-	} else {
-		// THE DOD FIX: Native Symbol-Domain Repacking!
-		// `key` is not an AST Value (likely a raw string). Extract it, intern it 
-		// to jump into the Symbol Domain, and let __symPath unroll it flawlessly!
-		s, pos := __string(ctx, key), _pos(ctx)
-		if s != "" {
-			k = __symPath(pos, intern(s))
+	switch t := key.(type) {
+	case Value:
+		k = t
+	case Symbol:
+		pos := _pos(ctx)
+		if t != symEmpty {
+			k = __symPath(pos, t)
 		} else {
 			k = &valbase{pos}
 		}
+	case string:
+		pos := _pos(ctx)
+		if t != "" {
+			k = __symPath(pos, intern(t))
+		} else {
+			k = &valbase{pos}
+		}
+	default:
+		// ARCHITECTURAL INVARIANT GATING: Fail-fast type enforcement.
+		// If a key is not an AST node, Symbol, or string, it represents a developer
+		// error or an invalid lookup tracking path. Prevent silent performance leakage.
+		erro(ctx, "invalid cache unmap key type: %v", ts(key,ctx), callstack{num: 10})
+		return nil
 	}
 
 	var x = hit(u, c, k)
