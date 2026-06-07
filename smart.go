@@ -3866,6 +3866,27 @@ func (s *scope) def(ctx Context, o origin, sym Symbol, vals ...Value) (d *def) {
 	return
 }
 
+// FIXED: High-performance deduplication filter leveraging lexical lineage bounds.
+// If an outer scope (s) is already an ancestor of an existing narrow local scope
+// in the array (existing.hasOuter(s)), it is skipped to prevent scope chain pollution.
+func add_closure_scopes(res []*scope, scopes ...*scope) []*scope {
+	for _, s := range scopes {
+		if s != nil {
+			duplicated := false
+			for _, existing := range res {
+				if existing == s || existing.hasOuter(s) {
+					duplicated = true
+					break
+				}
+			}
+			if !duplicated {
+				res = append(res, s)
+			}
+		}
+	}
+	return res
+}
+
 type term_unloop struct{ *term }
 type term struct{ Context ; *scope }
 func (c *term) do(ctx Context, op any) any {
@@ -3881,7 +3902,7 @@ func (c *term) do(ctx Context, op any) any {
 	case get_scope: return c.scope
 	case get_closure_scopes:
 		var res []*scope
-		if c.scope != nil { res = append(res, c.scope) }
+		if c.scope != nil { res = add_closure_scopes(res, c.scope) }
 
 		// THE DOD FIX: Early exit if depth limit 'n' is reached
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
@@ -3891,7 +3912,7 @@ func (c *term) do(ctx Context, op any) any {
 			if t.n > 0 { nextOp.n = t.n - len(res) }
 
 			if x, y := do(cc, nextOp).([]*scope); y && x != nil {
-				res = append(res, x...)
+				res = add_closure_scopes(res, x...)
 			}
 		}
 
@@ -5755,7 +5776,7 @@ func (p *compiler) do(ctx Context, op any) any {
 		if t.n > 0 && len(s) >= t.n { return s[:t.n] }
 
 		// 2. Append the static compile-time project scope tracker
-		res := append(s, p.project.scope)
+		res := add_closure_scopes(s, p.project.scope)
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
 
 		// 3. LEXICAL CONTEXT CHAIN BUBBLE
@@ -5768,7 +5789,7 @@ func (p *compiler) do(ctx Context, op any) any {
 			if t.n > 0 { nextOp.n = t.n - len(res) }
 
 			if x, y := p.Context.do(ctx, nextOp).([]*scope); y && x != nil {
-				res = append(res, x...)
+				res = add_closure_scopes(res, x...)
 			}
 		}
 		return res
@@ -12306,7 +12327,7 @@ func (c configure_ctx) do(ctx Context, op any) any {
 		// included macro resolution phases from runtime stack contamination.
 		var res []*scope
 		if c.project != nil && c.project.scope != nil {
-			res = append(res, c.project.scope)
+			res = add_closure_scopes(res, c.project.scope)
 		}
 
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
@@ -12318,7 +12339,7 @@ func (c configure_ctx) do(ctx Context, op any) any {
 			if t.n > 0 { nextOp.n = t.n - len(res) }
 
 			if x, y := uni.do(ctx, nextOp).([]*scope); y && x != nil {
-				res = append(res, x...)
+				res = add_closure_scopes(res, x...)
 			}
 		}
 
@@ -21870,8 +21891,6 @@ func traverse(ctx Context, val Value) {
 		}
 
 	case *rule:
-		debug(ctx, "%v %v", p.target, auto_get(ctx, symAt))
-
 		x := &execution{
 			Context: ctx,
 			scope:   new_scope(ctx, p.owner().scope, p.owner(), __symbol(ctx, p.target)),
@@ -25652,20 +25671,21 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	case get_closure_scopes:
 		var res []*scope
 
+		// Natively integrate the optimized execution.closure scope field
 		if p.closure != nil {
-			res = append(res, p.closure)
+			res = add_closure_scopes(res, p.closure)
 		}
 		if p.configProj != nil && p.configProj.scope != nil {
-			res = append(res, p.configProj.scope)
+			res = add_closure_scopes(res, p.configProj.scope)
 		}
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
 
-		// Delegate upstream to harvest parent execution closures dynamically
+		// Harvest upstream scopes from the context pipeline and pass through the filter
 		if p.Context != nil {
 			nextOp := t
 			if t.n > 0 { nextOp.n = t.n - len(res) }
 			if x, y := p.Context.do(ctx, nextOp).([]*scope); y && x != nil {
-				res = append(res, x...)
+				for _, s := range x { res = add_closure_scopes(res, s) }
 			}
 		}
 		return res
@@ -27143,8 +27163,8 @@ func (u *universe) do(ctx Context, op any) (res any) {
 
 	case get_closure_scopes:
 		var res []*scope
-		if u.scope != nil       { res = append(res, u.scope)       }
-		if u.globe.scope != nil { res = append(res, u.globe.scope) }
+		if u.scope != nil       { res = add_closure_scopes(res, u.scope)       }
+		if u.globe.scope != nil { res = add_closure_scopes(res, u.globe.scope) }
 
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
 
@@ -27153,7 +27173,7 @@ func (u *universe) do(ctx Context, op any) (res any) {
 			if t.n > 0 { nextOp.n = t.n - len(res) }
 
 			if x, y := do(cc, nextOp).([]*scope); y && x != nil {
-				res = append(res, x...)
+				res = add_closure_scopes(res, x...)
 			}
 		}
 
