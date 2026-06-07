@@ -23747,6 +23747,48 @@ func (c *valcache) add(sym Symbol) *valcache {
 	return child
 }
 
+type matched_filemap struct{ filemap ; value Value }
+type matched_rule struct{ *rule ; value Value }
+func (t matched_filemap) String() string {
+	s1, s2 := t.filemap.String(), t.value.String()
+	if s1 == s2 { return "{matched_filemap "+s1+"}" }
+	return "{matched_filemap "+s1+" name="+s2+"}"
+}
+func (t matched_rule) String() string {
+	s1, s2 := t.rule.String(), t.value.String()
+	if s1 == s2 { return "{matched_rule "+s1+"}" }
+	return "{matched_rule "+s1+" name="+s2+"}"
+}
+func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
+	for _, a := range p.a {
+		switch a := a.(type) {
+		case filemap:
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.pattern, fullvalue); matched && rem == nil {
+				var a = filemap{a._filemap, a.pattern}
+				if 0 < do(ctx, matched_filemap{a, res}).(int) {
+					ok = true
+				} else {
+					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
+				}
+			}
+		case *rule:
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.target, fullvalue); matched && rem == nil {
+				var a = &rule{a.target, a.arged, a.program}
+				if 0 < do(ctx, matched_rule{a, res}).(int) {
+					ok = true
+				} else {
+					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
+				}
+			}
+		default:
+			erro(ctx, "%v", ts(a), callstack{num:10})
+		}
+	}
+	return
+}
+
 // =============================================================================
 // 3. Path Processing
 // =============================================================================
@@ -24251,52 +24293,7 @@ func canStartMatch(c *valcache, segment []Symbol) bool {
 	return false
 }
 
-// =============================================================================
-
-type matched_filemap struct{ filemap ; value Value }
-type matched_rule struct{ *rule ; value Value }
-func (t matched_filemap) String() string {
-	s1, s2 := t.filemap.String(), t.value.String()
-	if s1 == s2 { return "{matched_filemap "+s1+"}" }
-	return "{matched_filemap "+s1+" name="+s2+"}"
-}
-func (t matched_rule) String() string {
-	s1, s2 := t.rule.String(), t.value.String()
-	if s1 == s2 { return "{matched_rule "+s1+"}" }
-	return "{matched_rule "+s1+" name="+s2+"}"
-}
-
-func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
-	for _, a := range p.a {
-		switch a := a.(type) {
-		case filemap:
-			// Ensure matched == true AND there is no unconsumed remainder
-			if matched, res, rem, _ := match(ctx, a.pattern, fullvalue); matched && rem == nil {
-				var a = filemap{a._filemap, a.pattern}
-				if 0 < do(ctx, matched_filemap{a, res}).(int) {
-					ok = true
-				} else {
-					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
-				}
-			}
-		case *rule:
-			// Ensure matched == true AND there is no unconsumed remainder
-			if matched, res, rem, _ := match(ctx, a.target, fullvalue); matched && rem == nil {
-				var a = &rule{a.target, a.arged, a.program}
-				if 0 < do(ctx, matched_rule{a, res}).(int) {
-					ok = true
-				} else {
-					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
-				}
-			}
-		default:
-			erro(ctx, "%v", ts(a), callstack{num:10})
-		}
-	}
-	return
-}
-
-type hit_segs struct{ *valcache ; s [][]Symbol }
+type hit_matrix struct{ *valcache ; s [][]Symbol }
 type fullvalue struct{}
 type fullctx struct{ Context ; any }
 func (p *fullctx) do(ctx Context, op any) any {
@@ -24309,7 +24306,7 @@ func (p *fullctx) do(ctx Context, op any) any {
 }
 
 // tokc aggregates symbols up to a closure, then builds the matrix natively.
-func tokc(ctx Context, c *valcache, comp *compound) hit_segs {
+func tokc(ctx Context, c *valcache, comp *compound) hit_matrix {
 	var seq []Symbol
 	for _, e := range comp.elems {
 		if _, isClosure := unbox(e).(*closure); isClosure {
@@ -24318,18 +24315,18 @@ func tokc(ctx Context, c *valcache, comp *compound) hit_segs {
 				matrix = __symMatrix(internSeq(seq), false)
 			}
 			matrix = append(matrix, []Symbol{symAmpersand}) // Native closure injection!
-			return hit_segs{c, matrix}
+			return hit_matrix{c, matrix}
 		}
 		seq = append(seq, __symbol(ctx, e))
 	}
 	if len(seq) > 0 {
-		return hit_segs{c, __symMatrix(internSeq(seq), false)}
+		return hit_matrix{c, __symMatrix(internSeq(seq), false)}
 	}
-	return hit_segs{c, nil}
+	return hit_matrix{c, nil}
 }
 
 // tokg aggregates symbols and natively applies glob normalizations.
-func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
+func tokg(ctx Context, c *valcache, g *globpat) hit_matrix {
 	var seq []Symbol
 	for _, e := range g.elems {
 		if _, isClosure := unbox(e).(*closure); isClosure {
@@ -24338,7 +24335,7 @@ func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
 				matrix = __symMatrix(internSeq(seq), true) // isGlob = true!
 			}
 			matrix = append(matrix, []Symbol{symAmpersand})
-			return hit_segs{c, matrix}
+			return hit_matrix{c, matrix}
 		}
 		
 		// By appending to the sequence and letting __symMatrix handle the dot-splits,
@@ -24346,33 +24343,33 @@ func tokg(ctx Context, c *valcache, g *globpat) hit_segs {
 		seq = append(seq, __symbol(ctx, e))
 	}
 	if len(seq) > 0 {
-		return hit_segs{c, __symMatrix(internSeq(seq), true)}
+		return hit_matrix{c, __symMatrix(internSeq(seq), true)}
 	}
-	return hit_segs{c, nil}
+	return hit_matrix{c, nil}
 }
 
 // tokp natively delegates to tokc/tokg, and handles generic elements via __symMatrix.
-func tokp(ctx Context, c *valcache, p *path) hit_segs {
+func tokp(ctx Context, c *valcache, p *path) hit_matrix {
 	var ss [][]Symbol
 
 	for _, e := range p.elems {
 		switch t := unbox(e).(type) {
 		case *closure:
 			ss = append(ss, []Symbol{symAmpersand})
-			return hit_segs{c, ss}
+			return hit_matrix{c, ss}
 
 		case *compound:
 			res := tokc(ctx, c, t)
 			ss = append(ss, res.s...)
 			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == symAmpersand {
-				return hit_segs{c, ss}
+				return hit_matrix{c, ss}
 			}
 
 		case *globpat:
 			res := tokg(ctx, c, t)
 			ss = append(ss, res.s...)
 			if len(res.s) > 0 && len(res.s[len(res.s)-1]) == 1 && res.s[len(res.s)-1][0] == symAmpersand {
-				return hit_segs{c, ss}
+				return hit_matrix{c, ss}
 			}
 
 		default:
@@ -24381,10 +24378,10 @@ func tokp(ctx Context, c *valcache, p *path) hit_segs {
 			ss = append(ss, matrix...)
 		}
 	}
-	return hit_segs{c, ss}
+	return hit_matrix{c, ss}
 }
 
-func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
+func hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	if checkpoints { defer func(s string) {
 		if  truly(ctx, propCache)   { check_cache(ctx, k, s, c, r) }
 		if  truly(ctx, propUncache) { check_uncache(ctx, k, s, c, r) }
@@ -24394,17 +24391,17 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 	var fallbackSemantic bool
 
 	switch t := k.(type) {
-	case *argumented: return _hit(ctx, c, t.Value)
-	case *loc       : return _hit(ctx, c, t.Value)
-	case *rule      : return _hit(ctx, c, t.target)
+	case *argumented: return hit(ctx, c, t.Value)
+	case *loc       : return hit(ctx, c, t.Value)
+	case *rule      : return hit(ctx, c, t.target)
 	case *compound  : r = do_hit(&fullctx{ctx,t}, tokc(ctx, c, t))
 	case *path      : r = do_hit(&fullctx{ctx,t}, tokp(ctx, c, t))
 	case *globpat   : r = do_hit(&fullctx{ctx,t}, tokg(ctx, c, t))
-	case *percpat   : r = do_hit(&fullctx{ctx,t}, hit_segs{c, nil})
-	case *regexpat  : r = do_hit(&fullctx{ctx,t}, hit_segs{c, nil})
+	case *percpat   : r = do_hit(&fullctx{ctx,t}, hit_matrix{c, nil})
+	case *regexpat  : r = do_hit(&fullctx{ctx,t}, hit_matrix{c, nil})
 	
 	case *closure:
-		return do_hit(&fullctx{ctx,t}, hit_segs{c, [][]Symbol{{symAmpersand}}})
+		return do_hit(&fullctx{ctx,t}, hit_matrix{c, [][]Symbol{{symAmpersand}}})
 	
 	default:
 		fallbackSemantic = true
@@ -24415,7 +24412,8 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 			// THE DOD FIX: Selective AST Repacking!
 			// Blindly overwriting `k` destroys the exact pointer and Pos fields of static
 			// nodes (*word, *raw), causing valcache.matchPayload to reject perfect trie hits!
-			// We MUST only repack messy dynamic composites (like *qualword) that the cache doesn't understand.
+			// We MUST only repack messy dynamic composites (like *qualword) that the cache
+			// doesn't understand.
 			switch k.(type) {
 			case *strlit, *strcomp, *strval:
 				// Leave strings completely untouched!
@@ -24427,28 +24425,28 @@ func _hit(ctx Context, c *valcache, k Value) (r []*valcache) {
 				if unpacked := __symPath(k.Pos(), sym); unpacked != nil {
 					if _, isWord := unpacked.(*word); !isWord {
 						k = unpacked
+						return hit(ctx, c, k) // FIXED: Re-route to get proper structural tokp/tokg matrix!
 					}
 				}
 			default:
-				// Messy dynamic composites (*qualword, *strcomp) are always fully repacked
 				if unpacked := __symPath(k.Pos(), sym); unpacked != nil {
 					k = unpacked
+					return hit(ctx, c, k) // FIXED: Re-route to get proper structural tokp/tokg matrix!
 				}
 			}
 
 			// Effortlessly routes pure paths through the exact same matrix builder
-			r = do_hit(&fullctx{ctx, k}, hit_segs{c, __symMatrix(sym, false)})
+			r = do_hit(&fullctx{ctx, k}, hit_matrix{c, __symMatrix(sym, false)})
 		}
 	}
 
 	if false { 
-		r = append(r, do_hit(&fullctx{ctx, k}, hit_segs{c, [][]Symbol{{symAmpersand}}})...) 
+		r = append(r, do_hit(&fullctx{ctx, k}, hit_matrix{c, [][]Symbol{{symAmpersand}}})...)
 	}
 	return r
 }
 
 func do_hit(c Context, a any) (r []*valcache) { r, _ = do(c,a).([]*valcache); return }
-func hit(ctx Context, c *valcache, k Value) []*valcache { return _hit(ctx, c, k) }
 
 type   cache_t struct{ Context }
 type uncache_t struct{ Context ; a []any }
@@ -24458,7 +24456,7 @@ func (c cache_t) do(ctx Context, op any) any {
 	case inner_cast: return c.Context
 	case dynamic_cast: return t.ctx(c, c.Context)
 	case property: if t&propCache != 0 { return true }
-	case hit_segs: return []*valcache{cache(ctx, t.valcache, t.s)}
+	case hit_matrix: return []*valcache{cache(ctx, t.valcache, t.s)}
 	}
 	return c.Context.do(ctx, op)
 }
@@ -24468,7 +24466,7 @@ func (u *uncache_t) do(ctx Context, op any) (res any) {
 	case inner_cast: return u.Context
 	case dynamic_cast: return t.ctx(u, u.Context)
 	case property: if t&propUncache != 0 { return true }
-	case hit_segs: return uncache(ctx, t.valcache, t.s)
+	case hit_matrix: return uncache(ctx, t.valcache, t.s)
 	case matched_filemap, matched_rule:
 		u.a = append(u.a, t); return len(u.a)
 	}
