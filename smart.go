@@ -75,7 +75,6 @@ const (
 
     fmtExitStatus = "exit status %d"
 	hexChars = "0123456789abcdef"
-	shredderChars = `:./\-+#~_*?⌜⌟⌞⌝` // ' ' \t \n \r
 	escaperChars = "\"\r\n"
 
     mainFileName = "do.smart"
@@ -217,20 +216,20 @@ const (
 	symSlashSlash   // //
 	symBackslash    // \
 	symBackslash2   // \\
-	symLparen       // (
-	symRparen       // )
-	symLbrace       // {
-	symRbrace       // }
-	symLbrack       // [
-	symRbrack       // ]
-	symLtopcorner   // ⌜
-	symLbotcorner   // ⌞
-	symLsingguil    // ‹
-	symLguillemet   // «
-	symRguillemet   // »
-	symRsingguil    // ›
-	symRbotcorner   // ⌟
-	symRtopcorner   // ⌝
+	symLparen       // (    symLeftParen
+	symRparen       // )    symRightParen
+	symLbrace       // {    symLeftBrace
+	symRbrace       // }    symRightBrace
+	symLbrack       // [    symLeftBracket
+	symRbrack       // ]    symRightBracket
+	symCornerTL     // ⌜    symLtopcorner
+	symCornerBL     // ⌞    symLbotcorner
+	symLsingguil    // ‹    symAngleQuoteSingleL
+	symLguillemet   // «    symAngleQuoteDoubleL
+	symRguillemet   // »    symAngleQuoteDoubleR
+	symRsingguil    // ›    symAngleQuoteSingleR
+	symCornerBR     // ⌟    symRbotcorner
+	symCornerTR     // ⌝    symRtopcorner
 	symHash         // #
 	symEqualSign    //  =   ASSIGN
 	symUnshiSign    //  =+  ASSIGN_USH
@@ -730,6 +729,36 @@ const (
 	symWildcardChar  = symQues     // ?
 	symWildcardAny   = symAsteriskAst  // **
 	symWildcardShort = symAsteriskQues // *?
+	symLeftBrace     = symLbrace
+	symRightBrace    = symRbrace
+	symLeftBracket   = symLbrack
+	symRightBracket  = symRbrack
+	symLtopcorner    = symCornerTL
+	symLbotcorner    = symCornerBL
+	symRbotcorner    = symCornerBR
+	symRtopcorner    = symCornerTR
+	symAngleQuoteSingleL = symLsingguil
+	symAngleQuoteSingleR = symRsingguil
+	symAngleQuoteDoubleL = symLguillemet
+	symAngleQuoteDoubleR = symRguillemet
+	symAtQuote = symAtA
+	symBarQuote = symBarA
+	symCaretQuote = symCaretA
+	symLangleQuote = symLangleA
+	symRangleQuote = symRangleA
+	symPercentQuote = symPercentA
+	symAsteriskQuote = symAsteriskA
+	symQuesQuote = symQuesA
+	symPlusQuote = symPlusA
+	symBackslashBackslash = symBackslash2
+	symAssign      = symEqualSign
+	symAssignPlus  = symUnshiSign
+	symPlusAssign  = symAddeqSign
+	symDollar      = symDollarSign
+	symSingleQuote = symApostrophe
+	symDoubleQuote = symQuotation
+	symLeftParen   = symLparen
+	symRightParen  = symRparen
 )
 
 // WARNING: The order of this slice is strictly mapped to the integer consts above.
@@ -956,74 +985,147 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 			if split {
 				didShred = true
 				if i > start {
-					// FIXED: Provide the pre-computed hash for the substring!
 					part := s[start:i]
 					seq = append(seq, internLocked(part, hashStr(part)))
 				}
 				if isPunct {
-					// --- COMPOSITE PUNCTUATION/WILDCARD LOOKAHEAD ---
-					if i+1 < len(s) {
-						switch nc := s[i+1]; ch {
-						case '.':
-							if nc == '.' {
-								seq = append(seq, symDotDot)
-								i++
-								start = i + 1
-								continue
+					// =====================================================================
+					// PHASE 1: MULTI-BYTE UTF-8 COMPOSITE LOOKAHEAD
+					// =====================================================================
+					if ch == 0xE2 && i+1 < len(s) {
+						// A. Corner Bracket Metas (3-Byte Sequences: 0xE2 0x8C 0x9C-0x9F)
+						if s[i+1] == 0x8C && i+2 < len(s) {
+							switch s[i+2] {
+							case 0x9C: seq = append(seq, symCornerTL); i += 2; start = i + 1; continue
+							case 0x9D: seq = append(seq, symCornerTR); i += 2; start = i + 1; continue
+							case 0x9E: seq = append(seq, symCornerBL); i += 2; start = i + 1; continue
+							case 0x9F: seq = append(seq, symCornerBR); i += 2; start = i + 1; continue
 							}
-						case '-':
-							if nc == '-' {
-								seq = append(seq, symDashDash)
-								i++
-								start = i + 1
-								continue
-							}
-						case '+':
-							if nc == '+' {
-								seq = append(seq, symPlusPlus)
-								i++
-								start = i + 1
-								continue
-							}
-						case '*':
-							if nc == '*' {
-								seq = append(seq, symAsteriskAst)
-								i++
-								start = i + 1
-								continue
-							} else if nc == '?' {
-								seq = append(seq, symAsteriskQues)
-								i++
-								start = i + 1
-								continue
-							}
-						case '/':
-							if nc == '/' {
-								seq = append(seq, symSlashSlash)
-								i++
-								start = i + 1
-								continue
+						}
+						// B. Single Angle Quotes (3-Byte Sequences: 0xE2 0x80 0xB9/0xBA)
+						if s[i+1] == 0x80 && i+2 < len(s) {
+							switch s[i+2] {
+							case 0xB9: seq = append(seq, symAngleQuoteSingleL); i += 2; start = i + 1; continue // ‹
+							case 0xBA: seq = append(seq, symAngleQuoteSingleR); i += 2; start = i + 1; continue // ›
 							}
 						}
 					}
+					// C. Double Angle Quotes (2-Byte Sequences: 0xC2 0xAB/0xBB)
+					if ch == 0xC2 && i+1 < len(s) {
+						switch s[i+1] {
+						case 0xAB: seq = append(seq, symAngleQuoteDoubleL); i++; start = i + 1; continue // «
+						case 0xBB: seq = append(seq, symAngleQuoteDoubleR); i++; start = i + 1; continue // »
+						}
+					}
 
-					// Standard Punctuation/Wildcards
+					// =====================================================================
+					// PHASE 2: ATOMIC BRACKET LOOKAHEAD SHIELD (Character Classes)
+					// =====================================================================
+					if ch == '[' && i+1 < len(s) {
+						end := strings.IndexByte(s[i:], ']')
+						if end != -1 {
+							fullSet := s[i : i+end+1]
+							seq = append(seq, internLocked(fullSet, hashStr(fullSet)))
+							i += end
+							start = i + 1
+							continue
+						}
+					}
+
+					// =====================================================================
+					// PHASE 3: CONTEXTUAL TARGET MODIFIERS PEER-LOOKAHEAD
+					// =====================================================================
+					if i+1 < len(s) {
+						nc := s[i+1]
+						if nc == 'D' || nc == 'F' || nc == '\'' {
+							var modSym Symbol
+
+							// Maps structural macros symmetrically: (@D -> Destination Dir, @F -> Full Path)
+							switch ch {
+							case '@':
+								switch nc { case 'D': modSym = symAtD; case 'F': modSym = symAtF; case '\'': modSym = symAtQuote }
+							case '|':
+								switch nc { case 'D': modSym = symBarD; case 'F': modSym = symBarF; case '\'': modSym = symBarQuote }
+							case '^':
+								switch nc { case 'D': modSym = symCaretD; case 'F': modSym = symCaretF; case '\'': modSym = symCaretQuote }
+							case '<':
+								switch nc { case 'D': modSym = symLangleD; case 'F': modSym = symLangleF; case '\'': modSym = symLangleQuote }
+							case '>':
+								switch nc { case 'D': modSym = symRangleD; case 'F': modSym = symRangleF; case '\'': modSym = symRangleQuote }
+							case '%':
+								switch nc { case 'D': modSym = symPercentD; case 'F': modSym = symPercentF; case '\'': modSym = symPercentQuote }
+							case '*':
+								switch nc { case 'D': modSym = symAsteriskD; case 'F': modSym = symAsteriskF; case '\'': modSym = symAsteriskQuote }
+							case '?':
+								switch nc { case 'D': modSym = symQuesD; case 'F': modSym = symQuesF; case '\'': modSym = symQuesQuote }
+							case '+':
+								switch nc { case 'D': modSym = symPlusD; case 'F': modSym = symPlusF; case '\'': modSym = symPlusQuote }
+							}
+
+							if modSym != 0 {
+								seq = append(seq, modSym)
+								i++
+								start = i + 1
+								// modifierMapped = true
+								continue
+							}
+						}
+
+						// =====================================================================
+						// PHASE 4: ASCII DOUBLE-BYTE OPERATORS / COMPOSITES LOOKAHEAD
+						// =====================================================================
+						switch ch {
+						case '.': if nc == '.' { seq = append(seq, symDotDot); i++; start = i + 1; continue }
+						case '/': if nc == '/' { seq = append(seq, symSlashSlash); i++; start = i + 1; continue }
+						case '\\': if nc == '\\' { seq = append(seq, symBackslashBackslash); i++; start = i + 1; continue }
+						case '=': if nc == '+' { seq = append(seq, symAssignPlus); i++; start = i + 1; continue }
+						case '+':
+							if nc == '=' { seq = append(seq, symPlusAssign); i++; start = i + 1; continue }
+							if nc == '+' { seq = append(seq, symPlusPlus); i++; start = i + 1; continue }
+						case '-': if nc == '-' { seq = append(seq, symDashDash); i++; start = i + 1; continue }
+						case '*':
+							if nc == '*' { seq = append(seq, symAsteriskAst); i++; start = i + 1; continue }
+							if nc == '?' { seq = append(seq, symAsteriskQues); i++; start = i + 1; continue }
+						}
+					}
+
+					// =====================================================================
+					// PHASE 5: ASCII SINGLE-BYTE BOUNDARY FALLBACKS
+					// =====================================================================
 					switch ch {
+					case '&': seq = append(seq, symAmpersand)
+					case '$': seq = append(seq, symDollar)
+					case '-': seq = append(seq, symDash)
+					case '_': seq = append(seq, symUnderscore)
+					case '\'': seq = append(seq, symSingleQuote)
+					case '"': seq = append(seq, symDoubleQuote)
 					case ':': seq = append(seq, symColon)
+					case ',': seq = append(seq, symComma)
 					case '~': seq = append(seq, symTilde)
 					case '.': seq = append(seq, symDot)
-					case '-': seq = append(seq, symDash)
-					case '+': seq = append(seq, symPlus)
 					case '/': seq = append(seq, symSlash)
-					case '\\': seq = append(seq, symBackslash) 
+					case '\\': seq = append(seq, symBackslash)
+					case '(': seq = append(seq, symLeftParen)
+					case ')': seq = append(seq, symRightParen)
+					case '{': seq = append(seq, symLeftBrace)
+					case '}': seq = append(seq, symRightBrace)
+					case '[': seq = append(seq, symLeftBracket)
+					case ']': seq = append(seq, symRightBracket)
 					case '#': seq = append(seq, symHash)
+					case '=': seq = append(seq, symAssign)
+					case '|': seq = append(seq, symBar)
+					case '^': seq = append(seq, symCaret)
+					case '<': seq = append(seq, symLangle)
+					case '>': seq = append(seq, symRangle)
+					case '%': seq = append(seq, symPercent)
 					case '*': seq = append(seq, symAsterisk)
 					case '?': seq = append(seq, symQues)
-					case '_': seq = append(seq, symUnderscore)
+					case '+': seq = append(seq, symPlus)
+					case '@': seq = append(seq, symAt)
 					}
 					start = i + 1
 				} else {
-					start = i 
+					start = i
 				}
 			}
 		}
@@ -1687,14 +1789,25 @@ func isSymKind(s Symbol, ns ...uint8) bool {
 	return false
 }
 
+const shredderChars = `&$-_'":,~./\(){}[]#=|^<>%*?+@⌜⌟⌞⌝‹›«»` // ' ' \t \n \r
 func isShredderChar0(ch byte) bool { return strings.IndexByte(shredderChars, ch) >= 0 }
 
-// INLINEABLE: Blazing fast ASCII comparison with zero function overhead, the explicit
-// OR-chain above is the fastest instruction sequence the Go compiler can generate.
-// Using switch can be faster than "strings.IndexByte".
+// isShredderChar executes a blazing fast atomic check. Intercepts 0xE2
+// to support multi-byte wildcard corner brackets without rune-decoding overhead.
 func isShredderChar(ch byte) bool {
+	// CRITICAL NOTE:
+	// The scanning loop in makeSymMetaLocked processes the string character-by-character
+	// as raw bytes (ch byte). The corner brackets are multi-byte UTF-8 characters,
+	// not single-byte ASCII:
+	//   ⌜ (U+231C) $\rightarrow$ Bytes: 0xE2 0x8C 0x9C
+	//   ⌝ (U+231D) $\rightarrow$ Bytes: 0xE2 0x8C 0x9D
+	//   ⌞ (U+231E) $\rightarrow$ Bytes: 0xE2 0x8C 0x9E
+	//   ⌟ (U+231F) $\rightarrow$ Bytes: 0xE2 0x8C 0x9F
 	switch ch {
-	case ':', '~', '.', '-', '+', '/', '\\', '#', '_', '*', '?'/* , '⌜', '⌝', '⌞', '⌟' */:
+	case '&', '$', '-', '_', '\'', '"', ':', ',', '~', '.', '/', '\\',
+		'(', ')', '{', '}', '[', ']', '#', '=', '|', '^', '<', '>', 
+		'%', '*', '?', '+', '@',
+		0xE2, 0xC2: // Multi-byte UTF-8 lead bytes
 		return true
 	}
 	return false
@@ -23860,7 +23973,6 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 				var proj *project
 				if isClosure, _ := do(ctx, ex_closure{}).(bool); isClosure {
 					if longest_path_selection {
-						// Path Selection Rule: Hierarchically specific nested leaf validation
 						if projs := closure_projects(ctx); len(projs) > 0 {
 							bestProj := projs[0]
 							for _, cp := range projs[1:] {
@@ -23877,7 +23989,6 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 							proj = bestProj
 						}
 					} else {
-						// Standard Rule Parity: Deterministically fetch exactly 1 active caller closure project
 						if projs := closure_projects(ctx, 1); len(projs) > 0 {
 							proj = projs[0]
 						}
@@ -23902,30 +24013,30 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 		}
 		if priorDynamicClosureShadowing { doDynamicClosureShadowing() }
 
-		// Wildcards bypass strings completely
+		// Matrix Query Wildcard Stream Matching Branches
 		switch s {
-		case symWildcardOne: 
+		case symAsterisk: 
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true } 
 			}
 			if f0(c, ss, i, j+1, 0) { found = true } 
 			return found
 
-		case symWildcardShort: 
+		case symAsteriskQues: 
 			if f0(c, ss, i, j+1, 0) { found = true } 
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true } 
 			}
 			return found
 
-		case symWildcardAny: 
+		case symAsteriskAst: 
 			for _, entry := range c.o {
 				if f0(entry.v, ss, i, j, 0) { found = true } 
 			}
 			if f0(c, ss, i, j+1, 0) { found = true } 
 			return found
 
-		case symWildcardChar: 
+		case symQues: 
 			for _, entry := range c.o {
 				keyStr := entry.k.String()
 				if (len(keyStr) == 1 && !isWildcardMeta(entry.k)) || (len(keyStr) > 2 && keyStr[0] == '[') {
@@ -23939,11 +24050,11 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			return found
 		}
 
-		// A. Compressed Node Match (z? vs zz)
-		if k == 0 && (len(ss[i])-j > 1 || s == symWildcardChar) {
+		// A. Compressed Node Match via Type-Safe Symbol Slicing
+		if k == 0 && (len(ss[i])-j > 1 || s == symQues) {
 			for _, entry := range c.o {
 				if isWildcardMeta(entry.k) || entry.k == s { continue }
-				if n, ok := consumeCompressed(entry.k, ss[i][j:]); ok {
+				if n, ok := consumeSymbols(entry.k, ss[i][j:]); ok {
 					if f0(entry.v, ss, i, j+n, 0) { found = true }
 				}
 			}
@@ -23951,7 +24062,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 
 		// B. Literal / Prefix Match
 		if k == 0 {
-			if x, y := c.get(s); y && !isWildcardMeta(s) && s != symWildcardChar {
+			if x, y := c.get(s); y && !isWildcardMeta(s) && s != symQues {
 				if f0(x, ss, i, j+1, 0) { found = true }
 			}
 		}
@@ -23960,7 +24071,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			str := getSStr()
 			for _, entry := range c.o {
 				key := entry.k
-				if isWildcardMeta(key) || key == symWildcardChar { continue }
+				if isWildcardMeta(key) || key == symQues { continue }
 				if k == 0 && key == s { continue }
 
 				keyStr := key.String()
@@ -23976,12 +24087,12 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			}
 		}
 
-		// D. Trie Wildcards
-		if x, y := c.get(symWildcardChar); y {
+		// D. Trie Suffix Tree Edge Wildcards
+		if x, y := c.get(symQues); y {
 			if f0(x, ss, i, j, k+1) { found = true }
 		}
 
-		if x, y := c.get(symWildcardOne); y {
+		if x, y := c.get(symAsterisk); y {
 			if f0(x, ss, i, j, k) { found = true }          
 
 			nextJ, nextK := j, k+1
@@ -23994,7 +24105,7 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			}
 		}
 
-		if x, y := c.get(symWildcardShort); y {
+		if x, y := c.get(symAsteriskQues); y {
 			if f0(x, ss, i, j, k) { found = true }          
 
 			nextJ, nextK := j, k+1
@@ -24003,9 +24114,11 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 			if f0(c, ss, i, nextJ, nextK) { found = true }  
 		}
 
-		if x, y := c.get(symWildcardAny); y {
-			if f0(x, ss, i+1, 0, 0) { found = true }
+		if x, y := c.get(symAsteriskAst); y {
 			if f0(x, ss, i, j, k) { found = true }
+			for nextI := i + 1; nextI <= len(ss); nextI++ {
+				if f0(x, ss, nextI, 0, 0) { found = true }
+			}
 		}
 
 		if !priorDynamicClosureShadowing { doDynamicClosureShadowing() }
@@ -24021,22 +24134,27 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 	return
 }
 
-// Helper to instantly and safely identify ALL meta symbols
+// Helper to instantly and safely identify ALL meta symbols inside the unified Symbol Domain
 func isWildcardMeta(sym Symbol) bool {
-	return sym == symWildcardAny || sym == symWildcardOne || sym == symWildcardShort || sym == symWildcardChar
+	return sym == symAsteriskAst || sym == symAsterisk || sym == symAsteriskQues || sym == symQues
 }
 
 func isCharSet(str string) bool {
-	// Fast heuristic check for [a-z] format
 	return len(str) >= 3 && str[0] == '[' && str[len(str)-1] == ']'
 }
 
-// consumeCompressed perfectly matches a multi-token Trie edge against the matrix array.
+// consumeSymbols matches a multi-token Trie edge against the matrix array slice.
 // Operates exclusively via Symbol ID equivalence and zero-allocation prefix slicing.
-func consumeCompressed(nodeKey Symbol, tokens []Symbol) (int, bool) {
+func consumeSymbols(nodeKey Symbol, tokens []Symbol) (int, bool) {
 	keyStr := nodeKey.String()
-	keyIdx, tokIdx := 0, 0
+	if len(keyStr) == 0 || len(tokens) == 0 { return 0, false }
 
+	// Fast-path lookup: Exact match for the entire edge key primitive
+	if tokens[0] == nodeKey {
+		return 1, true
+	}
+
+	keyIdx, tokIdx := 0, 0
 	for keyIdx < len(keyStr) {
 		if tokIdx >= len(tokens) { return 0, false } 
 
@@ -24044,7 +24162,7 @@ func consumeCompressed(nodeKey Symbol, tokens []Symbol) (int, bool) {
 		
 		// Safely handle hardware wildcards embedded in the query
 		if isWildcardMeta(tSym) {
-			if tSym == symWildcardChar { // "?" consumes exactly 1 byte
+			if tSym == symQues { // "?" consumes exactly 1 byte/character inside the literal edge
 				keyIdx++ 
 				tokIdx++ 
 				continue
@@ -24055,10 +24173,10 @@ func consumeCompressed(nodeKey Symbol, tokens []Symbol) (int, bool) {
 
 		tStr := tSym.String()
 
-		// Optimization: Instantly fail if token is larger than the remaining Trie edge
+		// Optimization: Instantly fail if token is larger than the remaining Trie edge string segment
 		if len(tStr) > len(keyStr)-keyIdx { return 0, false }
 
-		if strings.HasPrefix(keyStr[keyIdx:], tStr) {
+		if keyStr[keyIdx:keyIdx+len(tStr)] == tStr {
 			keyIdx += len(tStr)
 			tokIdx++
 		} else {
@@ -24066,20 +24184,6 @@ func consumeCompressed(nodeKey Symbol, tokens []Symbol) (int, bool) {
 		}
 	}
 	return tokIdx, true
-}
-
-func matchCharSet(pattern string, char byte) bool {
-	inner := pattern[1 : len(pattern)-1]
-	for i := 0; i < len(inner); i++ {
-		if i+2 < len(inner) && inner[i+1] == '-' {
-			start, end := inner[i], inner[i+2]
-			if char >= start && char <= end { return true }
-			i += 2
-		} else if inner[i] == char {
-			return true
-		}
-	}
-	return false
 }
 
 // canStartMatch natively handles atomics, unrolls compressed edges, 
@@ -24094,11 +24198,11 @@ func canStartMatch(c *valcache, segment []Symbol) bool {
 	if _, ok := c.get(firstToken); ok { return true }
 
 	// 2. Hardware Wildcards
-	if _, ok := c.get(symWildcardChar); ok { return true }
-	if _, ok := c.get(symWildcardOne); ok { return true }
-	if _, ok := c.get(symWildcardAny); ok { return true }
+	if _, ok := c.get(symQues);        ok { return true }
+	if _, ok := c.get(symAsterisk);    ok { return true }
+	if _, ok := c.get(symAsteriskAst); ok { return true }
 
-	// Safely extract the string and first byte for character-level math
+	// Safely extract the string and first byte for character-level matching matrices
 	firstStr := firstToken.String()
 	if len(firstStr) == 0 { return false }
 	firstByte := firstStr[0]
@@ -24109,12 +24213,6 @@ func canStartMatch(c *valcache, segment []Symbol) bool {
 		if isCharSet(str) && matchCharSet(str, firstByte) {
 			return true
 		}
-		
-		// THE DOD FIX: Allow compressed dynamic query tokens (e.g., ".configure")
-		// to safely start a match against fragmented Trie edges (e.g., ".")!
-		if false { if len(str) > 0 && strings.HasPrefix(firstStr, str) {
-			return true
-		}}
 
 		edgeTokens := __symFlatSeq(entry.k)
 		if len(edgeTokens) > 0 && edgeTokens[0] == firstToken { 
@@ -24122,6 +24220,20 @@ func canStartMatch(c *valcache, segment []Symbol) bool {
 		}
 	}
 
+	return false
+}
+
+func matchCharSet(pattern string, char byte) bool {
+	inner := pattern[1 : len(pattern)-1]
+	for i := 0; i < len(inner); i++ {
+		if i+2 < len(inner) && inner[i+1] == '-' {
+			start, end := inner[i], inner[i+2]
+			if char >= start && char <= end { return true }
+			i += 2
+		} else if inner[i] == char {
+			return true
+		}
+	}
 	return false
 }
 
