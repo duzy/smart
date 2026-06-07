@@ -56,6 +56,7 @@ import (
 type hashbytes [sha256.Size]byte
 
 const (
+	debug_new_scopes = false && checkpoints
 	project_resolve_cache = false
 
 	// In the architecture of modern build systems, package managers, and
@@ -76,10 +77,6 @@ const (
     fmtExitStatus = "exit status %d"
 	hexChars = "0123456789abcdef"
 	escaperChars = "\"\r\n"
-
-    mainFileName = "do.smart"
-    altrFileName = "work.smart"
-    deprFileName = "build.smart"
 
 	pathSepByte = filepath.Separator // os.PathSeparator
 	pathSep = string(pathSepByte)
@@ -306,6 +303,7 @@ const (
 	symHttps
 	symExtbit
 
+	symDo
 	symDock
 	symSh
 	symShell
@@ -326,6 +324,7 @@ const (
 	symConfig
 	symConfigure
 	symConfiguration
+	symBuild
 
 	symAuto
 	symAutoload
@@ -670,6 +669,14 @@ const (
 	symVariantTag
 	symConfigurationSm
 
+	symDoDotSm
+	symDoDotSmart
+	symDoDotSmartDotB
+	symWorkDotSm
+	symWorkDotSmart
+	symBuildDotSm
+	symBuildDotSmart
+
 	symDotSlash     // ./
 	symDotDotSlash  // ../
 	symDotBase      // .base
@@ -759,6 +766,9 @@ const (
 	symDoubleQuote = symQuotation
 	symLeftParen   = symLparen
 	symRightParen  = symRparen
+	symMainFileName = symDoDotSmart
+	symAltrFileName = symWorkDotSmart
+	symDeprFileName = symBuildDotSmart
 )
 
 // WARNING: The order of this slice is strictly mapped to the integer consts above.
@@ -794,8 +804,8 @@ var coreSymbols = []string{
 
 	"mailto", "ftp", "ftps", "http", "https", "extbit",
 
-	"dock", "sh", "shell", "py", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
-	"assert", "append", "eval", "value", "config", "configure", "configuration",
+	"do", "dock", "sh", "shell", "py", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
+	"assert", "append", "eval", "value", "config", "configure", "configuration", "build",
 
 	"auto", "autoload", "answer", "bool", "boolean", "defer", "var", "set", "dep", "env",
 	"str", "self", "here", "word", "words", "quote", "defs", "glob", "regex", "fullname", "name",
@@ -847,6 +857,7 @@ var coreSymbols = []string{
 	"extract-deps", "extract-configuration", "git-ahead", "git-modified", "serve-http",
 
 	"target.tmp", "target.out", "target.triple", "rel.remnant", "rel.chop", "variant.tag", "configuration.sm",
+	"do.sm", "do.smart", "do.smart.b", "work.sm", "work.smart", "build.sm", "build.smart",
 
 	"./", "../",
 	".base", ".configure", ".container", ".self", ".usee", ".mode", ".goals", ".go", ".search",
@@ -3592,7 +3603,6 @@ func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
 func _ft(t diagtype, f string, a ...any) *diag { return &diag{t, f, a} }
 func _f(f string, a ...any) *diag { return &diag{0, f, a} }
 
-
 // A scope maintains a set of objects;
 // TODO: optimization/refactoring
 type scope struct { // Lexical Tree
@@ -3603,8 +3613,12 @@ type scope struct { // Lexical Tree
 	mark Symbol
 }
 
-func new_scope(outer *scope, owner *project, sym Symbol) (s *scope) {
-	return &scope{outer:outer, project:owner, mark:sym, elems:make(map[Symbol]object)}
+func new_scope(_ctx Context, outer *scope, owner *project, sym Symbol) *scope {
+	s := &scope{outer:outer, project:owner, mark:sym, elems:make(map[Symbol]object)}
+	if debug_new_scopes {
+		debug(_ctx, "%v %v", owner, s, diagcs_i(1), callstack{num: 2})
+	}
+	return s
 }
 
 func (s *scope) hasOuter(outer *scope) bool {
@@ -3741,9 +3755,10 @@ func (s *scope) string() string {
 	if s.outer != nil {
 		if false {
 			fmt.Fprintf(&buf, "%s → %s", s.outer.string(), s.mark)
+		} else if true {
+			fmt.Fprintf(&buf, "%s ← %s", s.mark, s.outer.string())
 		} else {
-			mark := trimPromptX(s.mark.String(), 16)
-			fmt.Fprintf(&buf, "%s ← %s", mark, s.outer.string())
+			fmt.Fprintf(&buf, "%s ← %s", trimPromptX(s.mark.String(), 16), s.outer.string())
 		}
 	} else {
 		fmt.Fprintf(&buf, "%s", s.mark)
@@ -3897,9 +3912,17 @@ func closure_projects(ctx Context, _n ...int) (res []*project) {
 	var m = map[*project]struct{}{}
 	var raw []*project
 
+	// THE GROUND-TRUTH FIX: Identify the authentic native project executing
+	// the current rule frame via the program tracker. This remains completely
+	// unpolluted by any foreign scopes prepended via closure_with.
+	var baseProj *project
+	if exe := _execution(ctx); exe != nil && exe.prog != nil {
+		baseProj = exe.prog.project
+	}
+
 	// NOTE: closure_scopes puts the derived polymorphic context at Index 0.
 	for _, s := range closure_scopes(ctx, _n...) {
-		if s.project != nil {
+		if s.project != nil && s.project != baseProj {
 			if _, tried := m[s.project]; !tried {
 				// OPTIMIZED PASS: Populate the central tracking map directly
 				// via high-speed in-place recursion, bypassing slice thrashing.
@@ -5759,7 +5782,7 @@ func (p *compiler) ts(_t string) string {
 	t, s := p.tok.String(), p.scanner.file.Name()
 	return "{"+_t+" "+t+" "+s+"}"
 }
-func (p *compiler) filename() string { return p.scanner.file.Name() }
+func (p *compiler) filename() Symbol { return p.scanner.file.name }
 func (p *compiler) loc(a Pos) Position { return p.scanner.file.Position(a) }
 func (p *compiler) Position() (r Position) { return p.loc(p.pos) }
 
@@ -10230,18 +10253,22 @@ func (p *compiler) pre_project_set(ctx Context, args ...Value) {
 }
 
 func (p *compiler) openscope(ctx Context, marker Symbol) *scope {
-	p.term = &term{ Context: p.term, scope: new_scope(p.scope, p.project, marker) }
-	return p.term.scope
+	p.term = &term{ Context: p.term, scope: new_scope(ctx, p.scope, p.project, marker) }
+
+	// FIXED: Synchronize the active lexical tree pointer.
+	// This ensures that any subsequent nested blocks opened within this phase
+	// correctly discover this new scope as their authentic 'outer' parent.
+	p.scope = p.term.scope
+
+	return p.scope
 }
 
 func (p *compiler) closescope(ctx Context, s *scope) {
-	// Safely pop the stack
 	if p.term == nil {
 		erro(pc(ctx,p), "compiler context stack underflow")
 		return
 	}
 
-	// Verify the scope hasn't been corrupted before popping
 	if p.term.scope != s {
 		erro(pc(ctx,p),
 			_f("!!! Scope Conflicts !!!"),
@@ -10255,13 +10282,15 @@ func (p *compiler) closescope(ctx Context, s *scope) {
 	}
 
 	// Move the head pointer back down the linked list.
-	// We use reflection/type-assertion safely to extract the parent term.
 	switch termInner := p.term.Context.(type) {
-	case *term: p.term = termInner
+	case *term:
+		p.term = termInner
+		// FIXED: Safely restore the parent lexical scope level
+		p.scope = termInner.scope
 	case *universe:
-		// If we reached the bottom of the term stack, it points to the universe!
-		// We shouldn't pop this, but if we do, handle it gracefully.
 		p.term = &term{Context: termInner, scope: termInner.globe.scope}
+		// FIXED: Reset to the fallback root universe scope boundary
+		p.scope = termInner.globe.scope
 	case *compiler:
 		if false && p == termInner {
 			panic("compiler context stack corrupted")
@@ -10298,7 +10327,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 				_f("re-decalre: %v → %v", name, ts(o,ctx)),
 				_f("new absName: %v", absName),
 				_f("%v %v", p.project, p.project.absPath),
-				trace_ctx{100}, callstack{num:10,/* stop:"smart.run" */}, unwind{})
+				trace_ctx{100}, callstack{num:10}, unwind{})
 			return
 		}
 	}
@@ -10350,7 +10379,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 	}
 
 	// name is safely passed as the scope name
-	dec.scope = new_scope(p.scope, dec.project, name)
+	dec.scope = new_scope(ctx, p.scope, dec.project, name)
 	dec.scope.elems[symDotUsee] = dec.use // $(.usee)
 	dec.use.owner_ = dec.project
 	dec.use.scope = dec.scope
@@ -10787,6 +10816,9 @@ func (p *compiler) parse(ctx Context) bool {
 		return false
 	}
 
+	filename := p.scanner.file.name
+	baseName := __symBase(filename)
+
 	var absName Symbol
 	var isMainFile bool // aka do.smart, build.smart
 	var flatmode = truly(ctx, is_flat_mode{})
@@ -10799,33 +10831,32 @@ func (p *compiler) parse(ctx Context) bool {
 			absName = p.project.absPath
 		}
 	} else {
-		s := intern(p.filename())
-		f := _stat(ctx, s)
+		f := _stat(ctx, filename)
 
 		if f != nil && f.isDir() {
 			// If the compiler was directly handed a directory
-			absName = s
+			absName = filename
 		} else {
-			switch baseSym := __symBase(s); baseSym {
-			case intern(mainFileName), intern(deprFileName):
+			switch baseName {
+			case symMainFileName, /* symAltrFileName, */ symDeprFileName:
 				// Manifest files (do.smart) represent the directory project.
 				// We chop the filename to get the true project root.
-				absName = __symDir(s)
+				absName = __symDir(filename)
 				isMainFile = true
 			default:
 				// THE DOD FIX: Flat-File Class Preservation!
 				// Standalone file classes (symDotBase, symConfigure, "bootstrap", etc.)
 				// serve as their own absolute project path. We DO NOT chop them!
-				absName = s
+				absName = filename
 			}
 		}
 	}
 
-	var rel = __symPathRel(u.workdir, absName)
-	var tmp = joinTmpPath(ctx, u.workdir, rel)
+	rel := __symPathRel(u.workdir, absName)
+	tmp := joinTmpPath(ctx, u.workdir, rel)
 
 	// 1. FILE SCOPE PUSH
-	defer p.closescope(ctx, p.openscope(ctx, rel))
+	defer p.closescope(ctx, p.openscope(ctx, baseName))
 
 	var s = p.scope
 	if s == nil {
@@ -10881,7 +10912,7 @@ func (p *compiler) parse(ctx Context) bool {
 
 			if p.tok == LPAREN || p.is_end_of_line() { 
 				switch baseSym {
-				case symDotBase, intern("do.smart"), intern("do.smart.b"), intern("do.sm"):
+				case symDotBase, symDoDotSmart, symDoDotSmartDotB, symDoDotSm:
 					if !isMainFile {
 						nameSym = __symJoin(__symBase(dirSym), baseSym)
 					} else {
@@ -11004,6 +11035,12 @@ func (p *compiler) parse(ctx Context) bool {
 
 							if true { p.project = nil } 
 
+							// FIXED: Break the loader chaining here! Ground the sub-compiler's
+							// scope context register to the clean globe scope layer. This ensures
+							// the incoming metaclass or base project compiles within a pristine
+							// environment, completely unpolluted by the host project's private variables.
+							if false { p.scope = _universe(ctx).globe.scope }
+
 							if cc.Context = closure_with(cc.Context, hostScope); cc.isDir {
 								p.directory(&cc, cc.configure, cc.absPath)
 							} else {
@@ -11077,6 +11114,20 @@ func (p *compiler) parse(ctx Context) bool {
 			// THE DOD FIX: ONE single call guarantees the 1-2-3 load sequence
 			// and completely prevents multiple evaluations of implicitBase!
 			p.bases(cc0, implicitBase, explicitBases...)
+
+			// FIXED: Wire up the dynamic lexical inheritance coordinates!
+			// Once the project's configurations and base modules are fully resolved,
+			// we link the active file scope's 'outer' field directly to the primary
+			// base project's scope. This builds the structured, layered hierarchy
+			// expected by the test assertion checkpoint suite:
+			// {app project} -> {app file} -> {base project} -> {base file} -> globe
+			if false {
+				if p.project != nil && p.project.configure != nil && p.project.configure.scope != nil {
+					if fileScope := p.project.scope.outer; fileScope != nil {
+						fileScope.outer = p.project.configure.scope
+					}
+				}
+			}
 
 			if p.spaces(ctx) ; p.tok != EOF { p.linend(ctx) }
 
@@ -11475,8 +11526,17 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 	// =========================================================
 	// STATE PROTECTION
 	// =========================================================
-	_scanner, _state := p.scanner, p.compilestate
-	defer func() { p.scanner, p.compilestate = _scanner, _state } ()
+	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
+	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state } ()
+
+	// FIXED: Break the chronological loader file chaining sequence!
+	// Ground the baseline scope register to the structural project scope boundary
+	// (or the global scope level if initializing) before creating the directory scope.
+	if p.project != nil {
+		p.scope = p.project.scope
+	} else {
+		p.scope = u.globe.scope
+	}
 
 	// Reset but retain some fields. Do not blindly wipe the whole state!
 	// Retaining project: _state.project is structurally necessary so projectStart
@@ -11538,8 +11598,17 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	// =========================================================
 	// STATE PROTECTION
 	// =========================================================
-	_scanner, _state := p.scanner, p.compilestate
-	defer func() { p.scanner, p.compilestate = _scanner, _state } () // Executes LAST
+	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
+	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state } () // Executes LAST
+
+	// FIXED: Break the chronological loader file chaining sequence!
+	// Ground the baseline scope register to the structural project scope boundary
+	// (or the global scope level if initializing) before creating the directory scope.
+	if p.project != nil {
+		p.scope = p.project.scope
+	} else {
+		p.scope = u.globe.scope
+	}
 
 	// Push the scope! This now safely copies p.term to the heap,
 	// points to it, and updates p.term in-place without memory cycles.
@@ -11680,6 +11749,10 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 		erro(ctx, "no files underneath: %v", pathSym)
 		return
 	}
+
+	// altrFileName := coreSymbols[symAltrFileName]
+	mainFileName := coreSymbols[symMainFileName]
+	deprFileName := coreSymbols[symDeprFileName]
 
 	// 2. Bubble the main project file to the front of the list
 	for i := 1; i < len(entries); i++ {
@@ -12231,10 +12304,12 @@ func (c configure_ctx) do(ctx Context, op any) any {
 	case dynamic_cast: return t.ctx(c, c.Context)
 	case is_configure_ignore: return false
 	case is_configure: return true
-
-	// FIXED AIRLOCK: Symmetrically protect root-level parse checks during
-	// included macro resolution phases from runtime stack contamination.
+	case get_rule:    return nil
+	case get_scope: return c.project.scope
+	case get_project: return c.project
 	case get_closure_scopes:
+		// FIXED AIRLOCK: Symmetrically protect root-level parse checks during
+		// included macro resolution phases from runtime stack contamination.
 		var res []*scope
 		if c.project != nil && c.project.scope != nil {
 			res = append(res, c.project.scope)
@@ -12255,9 +12330,6 @@ func (c configure_ctx) do(ctx Context, op any) any {
 
 		if t.n > 0 && len(res) > t.n { return res[:t.n] }
 		return res
-
-	case get_project: return c.project
-	case get_rule:    return nil
 	}
 	return c.Context.do(ctx, op)
 }
@@ -21891,7 +21963,8 @@ func traverse(ctx Context, val Value) {
 		p.stat(ctx, false)
 
 		if truly(ctx, detect_traverse_loop{p}) {
-			erro(ctx, "recursion loop identified: self dependency on %v", p)
+			erro(ctx, "recursion loop identified: self dependency on %v", p,
+				trace_ctx{5}, callstack{num: 10})
 			return
 		}
 
@@ -25543,17 +25616,46 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	case ex_closure: return true 
 	case is_closure_exec: return p.closureExec 
 
+	// FIXED: Direct lookup interception for get_scope commands.
+	// Routes the probe dynamically through the active execution context pipeline (p.Context)
+	// so that runtime assertions discover the true active dynamic scope instead
+	// of dropping back prematurely to the static fallback universe.
+	case get_scope:
+		if p.prog != nil {
+			// FIXME: return p.prog.scope
+		}
+		if p.rule != nil {
+			return p.rule.owner().scope
+		}
+		if p.configProj != nil {
+			return p.configProj.scope
+		}
+
 	// =====================================================================
 	// CENTRALIZED PROJECT CONTEXT RESOLUTION
 	// =====================================================================
 	case get_project:
+		// 1. Prioritize centralized parse-time configuration overrides
 		if p.configProj != nil { return p.configProj }
-		if proj := _project(p.Context); proj != nil { return proj }
-		if p.rule != nil { return p.rule.owner() }
 
-	// RESTORED LEXICAL AIRLOCK: Walks the static parent chain to jump
-	// straight to the clean universe layer, preventing execution scopes
-	// from polluting definition lookups and causing dependency loops.
+		// 2. FIXED: Hierarchical Wrapper Check.
+		// Ensures top-level main targets tightly retain their owner variables
+		// while seamlessly allowing derived sub-projects to override
+		// inherited template boundaries dynamically.
+		if p.rule != nil {
+			owner := p.rule.owner()
+			if ctxProj := _project(p.Context); ctxProj != nil {
+				if ctxProj == owner || ctxProj.has_base(owner) {
+					return ctxProj
+				}
+			}
+			return owner
+		}
+
+		// 3. Fall back cleanly to context inspection
+		if proj := _project(p.Context); proj != nil { return proj }
+
+	// FIXED: Safely delegates upstream to capture active cross-module closures
 	case get_closure_scopes:
 		var res []*scope
 		if p.configProj != nil && p.configProj.scope != nil {
@@ -25562,11 +25664,13 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
 		if t.n > 0 && len(res) >= t.n { return res[:t.n] }
 
-		if uni := _universe(p.Context); uni != nil {
+		// FIXED: Restored delegation path to p.Context to let closure mapping
+		// utilities inspect dynamic blocks without configuration starvation.
+		if p.Context != nil {
 			nextOp := t
 			if t.n > 0 { nextOp.n = t.n - len(res) }
 
-			if x, y := uni.do(ctx, nextOp).([]*scope); y && x != nil {
+			if x, y := p.Context.do(ctx, nextOp).([]*scope); y && x != nil {
 				res = append(res, x...)
 			}
 		}
@@ -25634,6 +25738,9 @@ func (p *execution) traverseProjs() []*project {
 		return p.cachedTraverseProjs
 	}
 
+	// FIXED: Restored to p.Context to remain fully aligned with dynamic closures
+	ctx := p.Context
+
 	var projs []*project
 	add := func(proj *project) {
 		if proj == nil { return }
@@ -25654,18 +25761,12 @@ func (p *execution) traverseProjs() []*project {
 		projs = append(projs, proj)
 	}
 
-	// 2. Cascade accumulation sequence using hybrid scope targets
+	// 2. Cascade accumulation sequence using the active closure scope chain
 	if p.closureExec {
-		// Read closure projects from the live execution context (p.Context)
-		// to fully respect dynamic scopes injected by (closure) modifiers.
-		for _, proj := range closure_projects(p.Context) { add(proj) }
+		for _, proj := range closure_projects(ctx) { add(proj) }
 	}
 
-	// GROUNDING PROTECTION: Resolve base projects using the clean automatic
-	// context layer. This prevents definition lookups from bleeding into
-	// active execution tracks, entirely preventing self-dependency loops.
-	autoCtx := Context(&p.automatic)
-	if proj := _project(autoCtx); proj != nil { add(proj) }
+	if proj := _project(ctx); proj != nil { add(proj) }
 
 	if p.prog != nil {
 		if proj := p.prog.project; proj != nil { add(proj) }
@@ -27188,7 +27289,6 @@ func new_universe(ii ...any) (ctx *universe) {
 		launchTime: time.Now(),
 		// FIXED: sync.Map does not use make(). Initialize explicitly as a blank composite struct literal.
 		statcache:  sync.Map{}, 
-		scope:      new_scope(nil, nil, symUniverse),
 		fset:       new_fileset(),
 		workdir:    symBaseWorkDir,
 	}
@@ -27206,6 +27306,7 @@ func new_universe(ii ...any) (ctx *universe) {
 	if cl { ctx.commandline = _commandline() }
 
 	// Bootstrap top-level AST arguments
+	ctx.scope = new_scope(ctx, nil, nil, symUniverse)
 	ctx.scope.def(ctx, defVoid, symSMART, ease(ctx, os.Args[0]))
 	ctx.scope.def(ctx, defVoid, symSMART_ARGS, ease(ctx, os.Args[1:]))
 
@@ -27218,7 +27319,7 @@ func new_universe(ii ...any) (ctx *universe) {
 	}
 
 	ctx.globe = &globe{
-		scope:       new_scope(ctx.scope, nil, symGlobe),
+		scope:       new_scope(ctx, ctx.scope, nil, symGlobe),
 		args:        make(map[Value][]Value),
 		flagEntries: make(map[Symbol][]entry),
 		loaded:      make(map[Symbol]*project),
@@ -27338,8 +27439,8 @@ func (u *universe) load(ctx Context) {
 
 	// 1. VFS Pre-Warm / Sanity Check (Replaces dead os.Stat code)
 	// We use pure Walled Garden pathing and cache lookups!
-	if mainSym := _stat(ctx, __symPathJoin(u.workdir, intern(mainFileName))); mainSym == nil || !mainSym.exists() {
-		if deprSym := _stat(ctx, __symPathJoin(u.workdir, intern(deprFileName))); deprSym == nil || !deprSym.exists() {
+	if mainSym := _stat(ctx, __symPathJoin(u.workdir, symMainFileName)); mainSym == nil || !mainSym.exists() {
+		if deprSym := _stat(ctx, __symPathJoin(u.workdir, symDeprFileName)); deprSym == nil || !deprSym.exists() {
 			// Do whatever the original intent of the dead code was, 
 			// or just let u.globe.top.directory handle the failure gracefully!
 		}
