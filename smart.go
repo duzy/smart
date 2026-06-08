@@ -2664,6 +2664,9 @@ func __symbol(ctx Context, val Value) Symbol {
 	case *rule: return __symbol(ctx, v.target)
 	case *stemmed_rule: return __symbol(ctx, v.target)
 	case matched_rule: return __symbol(ctx, v.target)
+	case flag:
+		if isEmpty(v.Value) { return symDash }
+		return __symJoin(symDash, __symbol(ctx, v.Value))
 	case *strlit:
 		return internSeq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
 	case *strval:
@@ -2727,8 +2730,9 @@ func __symbol(ctx Context, val Value) Symbol {
 	// Fallback for dynamically evaluated nodes (e.g. SRC_$(ARCH)_FILES)
 	if truly(ctx, symident{}) {
 		return intern(ident(ctx, val))
+	} else {
+		return intern(__string(ctx, val))
 	}
-	return intern(__string(ctx, val))
 }
 
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
@@ -5746,7 +5750,7 @@ type compilestate struct{
 
 	// THE DOD FIX: `declares` is eradicated!
 
-    promptEnteringDirectory bool
+    promptEnteringDirectory bool // FIXME: move it to bundle with execution
     verpre string // verbose prefix
 	
 	comments  []*commentgroup
@@ -9537,7 +9541,7 @@ func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
 
         if x, y := entry.destiny().(flag); y && x.Value != nil {
 			if prog.project.name != symTilde { // "~"
-				u.globe.addFlagEntry(__symbol(ctx, x.Value), entry)
+				u.globe.addFlagEntry(__symbol(ctx, x), entry)
 			}
         }
     }
@@ -23147,13 +23151,7 @@ type knownobject struct{ // generally named objects
 func (p *knownobject) kind() Kind { return p.objbase.kind()|KindKnownObject }
 func (p *knownobject) String() string { return fmt.Sprintf("{object %s}", p.name) }
 func (p *knownobject) ident(Context) string { return p.name.String() }
-
-// CRITICAL FIX: Directly expose the integer Symbol!
-// Any struct that embeds knownobject will automatically inherit this method.
 func (p *knownobject) sym() Symbol { return p.name }
-
-// FIXME: locking for MT processing
-var usePrepared = make(map[*project]int)
 
 type use struct{
 	valbase
