@@ -12352,6 +12352,26 @@ func (c configure_ctx) do(ctx Context, op any) any {
 	return c.Context.do(ctx, op)
 }
 
+func (p *compiler) configure_def(ctx Context, name Symbol, vals ...Value) (d *def, isNew bool) {
+	if d, isNew, _ = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
+		p.project.configs = append(p.project.configs, d)
+	}
+	return
+}
+
+func (p *compiler) configure_names(ctx Context) []Value {
+	var names []Value
+	var cc = def_name_ctx{project_ctx{ctx, p.project}}
+	for _, v := range merge(p.expr(ctx)) {
+		// Protect LHS configuration variables from early evaluation
+		forids(ctx, expand(cc, v), func(v Value, _ []Value) {
+			names = append(names, v)
+		})
+	}
+	p.spaces(ctx)
+	return names
+}
+
 const (
 	configure_handle_overwrite_res int = iota
 	configure_handle_accumulate_res
@@ -12534,13 +12554,6 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 	return finalRes
 }
 
-func (p *compiler) configure_def(ctx Context, name Symbol, vals ...Value) (d *def, isNew bool) {
-	if d, isNew, _ = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
-		p.project.configs = append(p.project.configs, d)
-	}
-	return
-}
-
 func (p *compiler) configure_clause(exe *execution, ids []Value) {
 	var handlers []configure_handler
 	var _no_cond bool 
@@ -12567,7 +12580,6 @@ minusloop:
 					}
 					continue minusloop
 				}
-				// FIXED: Populate the clean integer Symbol property directly at parsing time
 				handlers = append(handlers, configure_handler{
 					opSym: sym, args: merge(t.args...),
 				})
@@ -12590,36 +12602,53 @@ minusloop:
 		}
 	}
 
-	if p.tok == ASSIGN || p.tok == SEMICOLON {
-		p.next(exe, true) 
+	// Determine matching track state up-front outside the loop
+	isDirectAssignment := p.tok == ASSIGN
 
-		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
-		for _, id := range ids {
-			sym := __symbol(exe, id)
+	// NOTE: Do NOT advance the parser on a SEMICOLON here.
+	// Semicolons introduce single-line recipes (while colons introduce multi-line recipes).
+	// The semicolon must remain unconsumed so that 'depsloop' inside the unified loop
+	// can see it, terminate the dependency scan, and pass it to 'p.recipe(cc)'.
+	if isDirectAssignment || p.tok == COLON {
+		p.next(exe, true)
+	} else if p.tok == SEMICOLON || p.tok == LINEND || p.lineComment != nil {
+		// Semicolons signify single-line recipes; newlines signify multi-line recipes.
+	} else {
+		erro(pc(exe, p), "wrong configure statement syntax (%v)", p.tok)
+		return
+	}
 
-			// FIXED: Update the runtime scope mark thread-safely for the active target.
-			// This accurately synchronizes the execution scope name (e.g., STDLIB_H)
-			// across sequential multi-target loops.
-			exe.setScopeMark(sym)
-			exe.values = nil
-			exe.recipes = nil
+	// Capture the baseline state to rewind parser trackers consistently for each identifier
+	pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
 
-			d, _ := exe.set(exe, defVoid, symAt, id)
-			d.pos = id.Pos()
+	// UNIFIED IDENTIFIER EVALUATION LOOP
+	for _, id := range ids {
+		sym := __symbol(exe, id)
 
-			d, isNew := p.configure_def(exe, sym)
-			d.pos = id.Pos()
+		exe.setScopeMark(sym)
+		exe.values = nil
+		exe.recipes = nil
 
-			isCached := !isNew && d.value != nil
-			if isCached && isTrivial(d.value) {
-				isCached = false 
-				d.value = nil 
-			}
+		d, _ := exe.set(exe, defVoid, symAt, id)
+		d.pos = id.Pos()
 
-			cc := &def_value_ctx{original{closure_with(exe, p.scope), defConfig|defExpand1}, d}
-			p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
-			p.dialect = symEmpty
+		d, isNew := p.configure_def(exe, sym)
+		d.pos = id.Pos()
 
+		isCached := !isNew && d.value != nil
+		if isCached && isTrivial(d.value) {
+			isCached = false 
+			d.value = nil 
+		}
+
+		cc := &def_value_ctx{original{closure_with(exe, p.scope), defConfig|defExpand1}, d}
+		p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
+		p.dialect = symEmpty
+
+		if isDirectAssignment {
+			// =================================================================
+			// TRACK A: Direct Value Assignment Branch
+			// =================================================================
 			newVal := ease(exe, p.values(cc))
 
 			if isCached && equal(exe, d.value, newVal) {
@@ -12640,44 +12669,18 @@ minusloop:
 
 			var currentVal = newVal
 			for _, h := range handlers {
-				// FIXED: Passes the optimized h.opSym and precise variable identifier line anchors
 				currentVal = p.configure_handle(exe, h.opSym, currentVal, h.args, silent, id.Pos())
 			}
 
 			exe.values = []Value{currentVal}
-
 			d.value = nil
 			d.set(exe, currentVal)
 			p.lineComment = nil
-		}
-		return
-	} else if p.tok == COLON || p.is_end_of_line() {
-		if p.tok == COLON { p.next(exe, true) }
 
-		pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
-		for _, id := range ids {
-			sym := __symbol(exe, id)
-
-			exe.setScopeMark(sym)
-			exe.values = nil
-			exe.recipes = nil
-
-			d, _ := exe.set(exe, defVoid, symAt, id)
-			d.pos = id.Pos()
-
-			d, isNew := p.configure_def(exe, sym)
-			d.pos = id.Pos()
-
-			isCached := !isNew && d.value != nil
-			if isCached && isTrivial(d.value) {
-				isCached = false 
-				d.value = nil 
-			}
-
-			cc := &def_value_ctx{original{closure_with(exe, p.scope), defConfig|defExpand1}, d}
-			p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
-			p.dialect = symEmpty
-
+		} else {
+			// =================================================================
+			// TRACK B: Contextual Recipe / Dependency, Colon / Semicolon Branch
+			// =================================================================
 			var deps []Value
 		depsloop:
 			for {
@@ -12702,11 +12705,16 @@ minusloop:
 				p.scanner.recipes(false)
 			}
 
+			// POSITION RECOVERY: Core prerequisite traversal executes BEFORE the cache 
+			// shortcut gate to avoid short-circuiting submodule graph configurations.
+			for _, exe.prerequisite = range deps { traverse(exe, exe.prerequisite) }
+
 			if isCached {
 				if p.promptCachedConfigs(exe) {
 					prompt(exe, "%v:info: cached %v\n", do(exe, get_fatpos{d.pos}), d)
 					flush(exe)
 				}
+				p.lineComment = nil
 				continue
 			}
 
@@ -12714,8 +12722,6 @@ minusloop:
 				d.set(cc, _null(id.Pos()))
 				continue
 			}
-
-			for _, exe.prerequisite = range deps { traverse(exe, exe.prerequisite) }
 
 			var val = auto_get(exe, symDash)
 			if val == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
@@ -12726,7 +12732,6 @@ minusloop:
 
 			var currentVal = val
 			for _, h := range handlers {
-				// FIXED: Passes the optimized h.opSym and precise variable identifier line anchors
 				currentVal = p.configure_handle(exe, h.opSym, currentVal, h.args, silent, id.Pos())
 			}
 
@@ -12746,24 +12751,9 @@ minusloop:
 			} else {
 				d.set(cc, _null(id.Pos()))
 			}
+			p.lineComment = nil
 		}
-		return
-	} else {
-		erro(pc(exe, p), "wrong configure statement syntax")
 	}
-}
-
-func (p *compiler) configure_names(ctx Context) []Value {
-	var names []Value
-	var cc = def_name_ctx{project_ctx{ctx, p.project}}
-	for _, v := range merge(p.expr(ctx)) {
-		// Protect LHS configuration variables from early evaluation
-		forids(ctx, expand(cc, v), func(v Value, _ []Value) {
-			names = append(names, v)
-		})
-	}
-	p.spaces(ctx)
-	return names
 }
 
 func (p *compiler) configure(ctx Context) {
