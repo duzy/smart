@@ -9537,7 +9537,7 @@ func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
 
         if x, y := entry.destiny().(flag); y && x.Value != nil {
 			if prog.project.name != symTilde { // "~"
-				u.globe.AddFlagEntry(__symbol(ctx, x.Value), entry)
+				u.globe.addFlagEntry(__symbol(ctx, x.Value), entry)
 			}
         }
     }
@@ -11901,7 +11901,7 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 }
 
 func (p *compiler) parseArgs(ctx Context, a []string) {
-    var args []Value
+	var args []Value
 
 	u := _universe(ctx)
 	base := symBaseWorkDir
@@ -11921,24 +11921,29 @@ func (p *compiler) parseArgs(ctx Context, a []string) {
 
     var mode = new(word)
 
-    for _, target := range args {
-        switch t := target.(type) {
-        case *pair: u.globe.pairs = append(u.globe.pairs, t)
-        case  flag: u.globe.flags = append(u.globe.flags, t)
-            if s := __string(ctx, t.Value); s == "clean" {
-                mode.pos, mode.s = t.Pos(), symClean
-            }
-        case *argumented:
-            u.globe.args[t.Value] = t.args
-            if f, y := t.Value.(flag); y {
-                u.globe.flags = append(u.globe.flags, f)
-            } else {
-                u.globe.goals.append(u, t/*.Value*/)
-            }
-        default:
-            u.globe.goals.append(u, t)
-        }
-    }
+	for _, target := range args {
+		switch t := target.(type) {
+		case *pair: u.globe.pairs = append(u.globe.pairs, t)
+		case  flag: u.globe.flags = append(u.globe.flags, t)
+			if s := __string(ctx, t.Value); s == "clean" {
+				mode.pos, mode.s = t.Pos(), symClean
+			}
+
+		case *argumented:
+			sym := __symbol(ctx, t.Value)
+			u.globe.args[sym] = t.args
+
+			if f, isFlag := t.Value.(flag); isFlag {
+				u.globe.flags = append(u.globe.flags, f)
+			} else {
+				// FIXME: the root execution already take globe.args and set it, is it duplication?
+				u.globe.goals.append(u, t/*.Value*/)
+			}
+
+		default:
+			u.globe.goals.append(u, t)
+		}
+	}
 
     if mode.s == symEmpty { mode.s = symGoals }
 
@@ -14654,7 +14659,9 @@ func (l *xloc) String() string {
 }
 
 func _loc(v Value, p Pos) Value {
-	if t := v.Pos(); t == p {
+	if v == nil {
+		return nil
+	} else if v.Pos() == p {
 		return v
 	} else {
 		return &loc{v, p}
@@ -23625,7 +23632,8 @@ func (p *rule) programs(a ...*program) []*program {
 	return p.program
 }
 func (p *rule) String() string {
-	if p.target == nil { return "<nil entry>" }
+	if p == nil { return "<nil-rule>" }
+	if p.target == nil { return "<nil-target-rule>" }
 	return p.target.String()
 }
 func (p *rule) recipes() (res []Value) {
@@ -25691,12 +25699,16 @@ func (p *execution) do(ctx Context, op any) (res any) {
 		return res
 
 	case get_auto:
-		if d, found := p.lookup(t.s).(*def); found && d != nil { return d }
+		if p.scope != nil {
+			if d, found := p.lookup(t.s).(*def); found && d != nil { return d }
+		}
 	case set_auto:
-		if d, isNew, old := p._def(ctx, t.o, t.s, t.v); isNew {
-			return res_auto{ d, nil }
-		} else {
-			return res_auto{ d, old }
+		if p.scope != nil {
+			if d, isNew, old := p._def(ctx, t.o, t.s, t.v); isNew {
+				return res_auto{ d, nil }
+			} else {
+				return res_auto{ d, old }
+			}
 		}
 
 	case get_rule: return p.rule
@@ -25803,8 +25815,10 @@ func (p *execution) setScopeMark(sym Symbol) {
 	}
 }
 func (p *execution) set(ctx Context, o origin, name Symbol, val Value) (out *def, old Value) {
-	var isNew bool
-	if out, isNew, old = p._def(ctx, o, name, val); isNew { old = nil }
+	if p.scope != nil {
+		var isNew bool
+		if out, isNew, old = p._def(ctx, o, name, val); isNew { old = nil }
+	}
 	return
 }
 
@@ -27396,7 +27410,7 @@ func new_universe(ii ...any) (ctx *universe) {
 
 	ctx.globe = &globe{
 		scope:       new_scope(ctx, ctx.scope, nil, symGlobe),
-		args:        make(map[Value][]Value),
+		args:        make(map[Symbol][]Value),
 		flagEntries: make(map[Symbol][]entry),
 		loaded:      make(map[Symbol]*project),
 	}
@@ -27625,9 +27639,9 @@ func (u *universe) run(ctx Context) (result []Value) {
 	for _, flag := range u.globe.flags {
 		if u.verboseExecFlags { info(ctx, "%v", flag) }
 
-		var s = __symbol(ctx, flag.Value)
-		var args, _ = u.globe.args[flag]
-		var entries, _ = u.globe.flagEntries[s]
+		var sym = __symbol(ctx, flag)
+		var args, _ = u.globe.args[sym]
+		var entries, _ = u.globe.flagEntries[sym]
 		for _, entry := range entries {
 			if u.verboseExecFlags { info(ctx, "%v", entry); flush(ctx) }
 
@@ -27709,46 +27723,37 @@ func (u *universe) run(ctx Context) (result []Value) {
 	// MASTER EXECUTOR ACTIVATION GATE
 	// =====================================================================
 	if collect(main, merge(u.globe.goals.value)) {
-		if len(goals) == 0 {
-			if entry := main.main; entry != nil {
-				goals = append(goals, entry)
-			}
+		if len(goals) == 0 && main.main != nil {
+			goals = append(goals, main.main)
 		}
 
 		if len(goals) > 0 {
 			// 1. Instantiate the master execution anchor with a fresh cross-rule session registry
-			exe := &execution{
-				Context: ctx,//automatic: automatic{Context: ctx, defs: make(def_map)},
-				start:     time.Now(),
-				workdir:   u.workdir,
-				session:   newTraverseSession(), // CRITICAL FIX: Safe VFS memory ledger initialization
+			exe := execution{ // NOTE: No need to create a scope for the root execution!
+				Context: ctx, // scope: new_scope(ctx, main.scope, main, main.name),
+				start:   time.Now(),
+				workdir: u.workdir,
+				session: newTraverseSession(), // Safe VFS memory ledger initialization
 			}
-
-			// Inject the session executor directly into the call-stack context tree
-			masterCtx := Context(exe)
 
 			// 2. Stream all targeted goals sequentially into the core traversal pipeline
 			for _, goal := range goals {
-				args, _ := u.globe.args[goal]
-				if len(args) > 0 {
-					exe.values = append(exe.values, args...)
-				}
+				sym := __symbol(&exe, goal)
+				args, _ := u.globe.args[sym]
+				exe.args(ctx, args)
+				exe.set(&exe, defVoid, symAt, goal)
 
-				// Seed automatic goal tracking variables so first-contact lookups anchor correctly
 				exe.prerequisite = goal
-				exe.set(exe, defVoid, symAt, goal)
 
 				// Launch the lock-free graph evaluation walk natively
-				traverse(masterCtx, goal)
+				traverse(&exe, goal)
 			}
 
 			// 3. Synchronization Barrier: Wait securely for any parallel background routines to finalize
 			exe.Wait()
 
 			// 4. Harvest accumulated evaluation metrics and outputs cleanly from the handle
-			if len(exe.values) > 0 {
-				result = append(result, exe.values...)
-			}
+			if len(exe.values) > 0 { result = append(result, exe.values...) }
 		}
 	}
 	return
@@ -27764,7 +27769,7 @@ type globe struct {
 	loaded map[Symbol]*project // Fast O(1) lookup: full pathname -> project
 	loadedProjs []*project // Strict presentation order for deterministic iteration
 
-    args map[Value][]Value
+    args map[Symbol][]Value
     flagEntries map[Symbol][]entry
     flags []flag
     pairs []*pair
@@ -27773,7 +27778,7 @@ type globe struct {
 }
 
 func (g *globe) SetScopeOuter(scope *scope) { scope.outer = g.scope }
-func (g *globe) AddFlagEntry(name Symbol, entry entry) {
+func (g *globe) addFlagEntry(name Symbol, entry entry) {
     flags, _ := g.flagEntries[name]
     flags = append(flags, entry)
     g.flagEntries[name] = flags
