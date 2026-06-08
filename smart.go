@@ -3234,8 +3234,8 @@ func (d *diagnostic) do(ctx Context, op any) (_ any) {
 	case inner_cast: return d.Context
 	case dynamic_cast: return t.ctx(d, d.Context)
     case property: if t&propErros != 0 { return d.erros }
-    case diag_flush   : return d.flush(ctx)
-	case diag   : return d.point(ctx, t.t, t.f, t.a...)
+    case diag_flush: return d.flush(ctx)
+	case diag: return d.point(ctx, t.t, t.f, t.a...)
     case act_count_dia: return d.count(t.t...)
     }
     if d.Context == nil { return }
@@ -3399,7 +3399,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 	_debug_m.Lock(); defer _debug_m.Unlock()
 
 	var unwound = false
-	var noCS bool
+	var noCS, doFlush bool
 	var trCtx int // trace context stack positions
 	var trV_i int // trace value ast positions
 	var trV_v Value
@@ -3418,6 +3418,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		case trace_val: trV_i, trV_v = t.int, t.val
 		case diagcs_i: cs_i += int(t)
 		case diagcs_j: cs_j += int(t)
+		case diag_flush: doFlush = true
 		case diagtext: if noCS = true; dt == 0 { dt = diagPrompt }
 		case callstack:
 			if 0 < t.num     { cs.num = t.num }
@@ -3573,7 +3574,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		p, _ = do(ctx, diag{diagPrompt, str+vt+"\n", nil}).(*diagpoint)
 	}
 
-	if noCS { return p }
+	if noCS { if doFlush { flush(ctx) }; return p }
 	if args = []any{}; p == nil { return nil }
 	if cs.num > 0     { args = append(args, cs.num) }
 	if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
@@ -5750,7 +5751,6 @@ type compilestate struct{
 
 	// THE DOD FIX: `declares` is eradicated!
 
-    promptEnteringDirectory bool // FIXME: move it to bundle with execution
     verpre string // verbose prefix
 	
 	comments  []*commentgroup
@@ -11668,12 +11668,6 @@ func (p *compiler) saveConfiguration(ctx Context) {
 	var f = p.project.configuration_sm(ctx)
 	if f == nil || f.filebase == nil { return } // Safety airlock
 
-	if p.promptEnteringDirectory {
-		p.promptEnteringDirectory = false
-		promptLeavingDirectory(ctx, p.project.absPath.String()) // FIXED
-		flush(ctx)
-	}
-
 	var fnSym = f.fullname()
 
 	// 1. DIVERGENCE HANDLING: Discard the difference gracefully, but advise the user!
@@ -12421,10 +12415,7 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 		var startDiag int
 
 		if !silent {
-			if !p.promptEnteringDirectory {
-				p.promptEnteringDirectory = true
-				promptEnteringDirectory(ctx, p.project.absPath.String())
-			}
+			ctx.promptEntering()
 			
 			// STEP 1: Execute Before-Traverse Prompt
 			a = prompt(pc(ctx, pos), "%s …", infoStr)
@@ -12791,6 +12782,9 @@ func (p *compiler) configure(ctx Context) {
 		configProj: p.project, // FIXED: Locked down to the current loading project at parse-time!
 	}
 
+	defer exe.promptLeaving()
+	exe.promptEntering()
+
 	if p.tok == LPAREN {
 		p.next(ctx, true)
 
@@ -12826,12 +12820,12 @@ func (p *compiler) configure(ctx Context) {
 	}
 }
 
-func promptEnteringDirectory(ctx Context, s string) *diagpoint {
-	return prompt(ctx, "smart: Entering directory '%s'\n", s)
+func promptEnteringDirectory(ctx Context, s Symbol) *diagpoint {
+	return prompt(ctx, "smart: Entering directory '%s'\n", s, diag_flush{})
 }
 
-func promptLeavingDirectory(ctx Context, s string) *diagpoint {
-	return prompt(ctx, "smart: Leaving directory '%s'\n", s)
+func promptLeavingDirectory(ctx Context, s Symbol) *diagpoint {
+	return prompt(ctx, "smart: Leaving directory '%s'\n", s, diag_flush{})
 }
 
 type useopts struct {
@@ -21937,6 +21931,9 @@ func traverse(ctx Context, val Value) {
 			// map assignment. The target variable is already cleanly tracked via 'x.set' above.
 			// x.prerequisite = target 
 
+			defer x.promptLeaving()
+			x.promptEntering()
+
 			for _, prog := range p.program {
 				var state uint
 				func() {
@@ -25574,13 +25571,16 @@ func newTraverseSession() *traverseSession {
 	}
 }
 
+type op_prompt_entering struct{ exe *execution }
+type op_prompt_leaving  struct{ exe *execution }
+
 type execution struct {
-	// automatic
+	Context
+
 	sync.Mutex
 	sync.WaitGroup
 
-	Context // The parent context pipeline passed from traverse
-	*scope  // The dynamic runtime execution scope
+	*scope // The dynamic runtime execution scope
 	closure *scope // The dynamic closure scope via `(closure)` modifier
 
 	by dirtyOpts
@@ -25590,7 +25590,6 @@ type execution struct {
 
 	rule      *rule       // The underlying rule compiling this frame
     prog      *program    // The active program block running
-	// args      []Value
 	recipes   []Value
 	language Symbol
 
@@ -25629,6 +25628,10 @@ type execution struct {
 	// FIXED: Clean symmetry with traverseProjs() method
 	cachedTraverseProjs []*project
 	hasTraverseCached   bool
+
+    promptEnteringDirectory bool
+	activePromptedDir Symbol
+	parentPromptedDir Symbol
 }
 
 func (p *execution) do(ctx Context, op any) (res any) {
@@ -25742,6 +25745,46 @@ func (p *execution) do(ctx Context, op any) (res any) {
 
 	case missing_file:
 		p.missing = append(p.missing, t.file)
+
+	case op_prompt_entering:
+		// Bubble up through the context tree until we find the root execution frame
+		if p.caller() != nil {
+			return p.Context.do(ctx, op)
+		}
+
+		// Master Root Execution Layer: Lazy console state synchronization pass
+		p.Lock()
+		defer p.Unlock()
+
+		if p.activePromptedDir == symEmpty {
+			p.activePromptedDir = p.workdir // Ground the baseline to the top workspace floor
+		}
+
+		// Sibling steps or sequential statement loops within the active directory skip prompting completely
+		if t.exe.workdir == p.activePromptedDir {
+			return nil
+		}
+
+		// LAZY TRANSITION BOUNDARY REACHED: A true directory shift is taking place
+		if p.activePromptedDir != p.workdir && p.activePromptedDir != symEmpty {
+			promptLeavingDirectory(t.exe, p.activePromptedDir)
+		}
+
+		if t.exe.workdir != p.workdir && t.exe.workdir != symEmpty {
+			promptEnteringDirectory(t.exe, t.exe.workdir)
+		}
+
+		p.activePromptedDir = t.exe.workdir
+		return nil
+
+	case op_prompt_leaving:
+		// Bubble the operation upstream to the root frame
+		if p.caller() != nil {
+			return p.Context.do(ctx, op)
+		}
+		// The root executor leaves p.activePromptedDir untouched here to lazily maintain 
+		// the console context until a different folder is entered or the workspace run fully winds down.
+		return nil
 	}
 	return p.Context.do(ctx, op)
 }
@@ -25758,6 +25801,18 @@ func (p *execution) depth() (res int) {
 func (p *execution) level(n int) { p.traceLevel += n }
 func (p *execution) trace(a ...any) { printIndentDots(p.traceLevel, a...) }
 func (p *execution) tracef(s string, a ...any) { printIndentDots(p.traceLevel, fmt.Sprintf(s, a...)) }
+
+func (p *execution) promptEntering() {
+	if p.Context != nil {
+		p.Context.do(p, op_prompt_entering{p})
+	}
+}
+
+func (p *execution) promptLeaving() {
+	if p.Context != nil {
+		p.Context.do(p, op_prompt_leaving{p})
+	}
+}
 
 // traverseProjs executes a hybrid evaluation pass to gather active projects.
 // Safely isolates closure matching scopes while protecting base project lines.
@@ -27644,12 +27699,12 @@ func (u *universe) run(ctx Context) (result []Value) {
 			if u.verboseExecFlags { info(ctx, "%v", entry); flush(ctx) }
 
 			// Unified Context Airlock activation
-			var flagValues []Value
-			cc := &capture_ctx{Context: ctx, args: args, result: &flagValues}
+			var values []Value
+			cc := &capture_ctx{Context: ctx, args: args, result: &values}
 
 			traverse(cc, entry)
 
-			result = append(result, flagValues...)
+			result = append(result, values...)
 			done = true
 		}
 	}
@@ -27733,6 +27788,15 @@ func (u *universe) run(ctx Context) (result []Value) {
 				workdir: u.workdir,
 				session: newTraverseSession(), // Safe VFS memory ledger initialization
 			}
+
+			// FIXED: Final Session Exit Guard. If the engine terminates while the console 
+			// tracking memory is still nested inside a module, emit the clean final leaving banner.
+			defer func() {
+				if exe.activePromptedDir != symEmpty && exe.activePromptedDir != exe.workdir {
+					promptLeavingDirectory(&exe, exe.activePromptedDir)
+					flush(ctx)
+				}
+			}()
 
 			// 2. Stream all targeted goals sequentially into the core traversal pipeline
 			for _, goal := range goals {
