@@ -3566,14 +3566,18 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			} else {
 				v = nil; vt = sf("auto:%v",t.name)
 			}
-		case fullname:    pos = t.Value.Pos(); v = t.Value
-		case fullfile:    pos = t.file.pos; v = t.file
+		case fullname:    pos = t.Value.Pos(); v = t.Value; vt = sf("%v: %v", vt, t.Value)
+		case fullfile:    pos = t.file.pos; v = t.file; vt = sf("%v: %v", vt, t.file)
 		case *file:       
 			pos = t.pos
 			if fat, ok := do(ctx, get_fatpos{pos}).(Position); ok {
 				str = sf("%v:file:%v →\n", fat, t.name)
 			}
-			str += sf("%v:1:1:", t.fullname())
+			if t.exists() {
+				str += sf("%v:1:1:", t.fullname())
+			} else {
+				str += sf("%v:0:0: (Absent!)", t.fullname())
+			}
 			v, vt = nil, "" 
 		case *rule:       pos = t.Pos(); v = t.target
 		case matched_rule:pos = t.target.Pos(); v = t.target
@@ -4128,18 +4132,18 @@ func closure_resolve(ctx Context, name Symbol) object {
 	return nil
 }
 
-func closure_entries(ctx Context, name any) []entry {
+func closure_entries(ctx Context, name any) []matched_rule {
 	for _, p := range closure_projects(ctx) {
 		if t := p._entries(ctx, name, false); t != nil { return t }
 	}
 	return nil
 }
 
-func closure_entry(ctx Context, name any, _ ...bool) entry {
+func closure_entry(ctx Context, name any, _ ...bool) matched_rule {
 	for _, p := range closure_projects(ctx) {
 		if t := p._entries(ctx, name, false); t != nil { return t[0] }
 	}
-	return nil
+	return matched_rule{} // nil
 }
 
 func closure_with(ctx Context, a ...any) Context {
@@ -8203,12 +8207,10 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 		if truly(ctx, opt_ident{}) { return name, sym, opts }
 
 	case LBRACE:
-		if e := p.project.entry(ctx, name); e == nil {
+		if e := p.project.entry(ctx, name); !e.valid() {
 			erro(pc(ctx,name), "resolved nil: %s", ts(name,ctx))
-		} else if _, ok := e.(object); !ok {
-			erro(pc(ctx,name), "not an object: %v: %s", name, ts(e,ctx))
 		} else {
-			obj = name
+			obj = e
 			return
 		}
 	}
@@ -9049,48 +9051,94 @@ defsloop:
 	return ease(ctx, vals)
 }
 
+// braced_file evaluates '{=file ...}' natively leveraging the project VFS pipeline.
 func (p *compiler) braced_file(ctx Context) (res Value) {
-	p.next(ctx, true)
+	p.next(ctx, false) // `file` verb, no bypassing spaces for subsequence options group!
 
-	var elems []Value
-
-	for _, elem := range p.braced_elems(ctx) {
-		if f := p.project.file(pc(ctx,elem), elem); f != nil {
-			elems = append(elems, f)
-			continue
-		} else {
-			var s = __string(ctx, elem)
-			var a = []any{stat_nonexist{true}}
-			if !isAbsOrRel(s) {
-				a = append(a, stat_dir{p.project.absPath})
-			}
-			if f = _stat(ctx, s, a...); f != nil {
-				elems = append(elems, f)
-				continue
-			}
-		}
-		erro(pc(ctx,elem), "not a file: %v", ts(elem))
+	var g *group // options group
+	var opts struct{
+		explicitAbsent bool `absent,optional,missing,missed`
+		mustExists bool `present,exists,exist,required`
 	}
 
-	res = ease(ctx, elems)
+	if p.tok == LPAREN {
+		g = p.group(ctx)
+		rest := parseOpts(ctx, &opts, g.elems...)
+		if rest != nil {
+			erro(pc(ctx,rest), "unknown file options: %v", rest, trace_ctx{3})
+		}
+	}
+
+	p.spaces(ctx)
+
+	var elems []Value
+	for _, elem := range p.braced_elems(ctx) {
+		var pos = elem.Pos()
+		if f := p.project.file(ctx, elem); f.exists() { // NOTE: (*file).exists checks for `f != nil`
+			if f.pos != pos {
+				elems = append(elems, &loc{f, pos})
+			} else {
+				elems = append(elems, f)
+			}
+		} else if opts.mustExists {
+			if opts.explicitAbsent {
+				// Guard against nil 'g' references if options are checked out-of-band
+				var optsElems []Value
+				if g != nil { optsElems = g.elems }
+				erro(pc(ctx,pos), "%v: ambiguous semantic: %v", elem, optsElems)
+			} else if f == nil {
+				erro(pc(ctx,pos), "not a file: %v", ts(elem, ctx))
+			} else {
+				erro(pc(ctx,pos), "absent file: %v", f.name)
+			}
+		} else if opts.explicitAbsent && f == nil {
+			if f = _stat(ctx, elem, stat_justcache{}, p.project); f == nil {
+				erro(pc(ctx,pos), "not a file: %v", ts(elem, ctx))
+			} else {
+				elems = append(elems, f) // An absent file! NOTE: No need to fix `f.pos` here!
+			}
+		} else if f != nil {
+			if f.pos != pos {
+				elems = append(elems, &loc{f, pos})
+			} else {
+				elems = append(elems, f)
+			}
+		} else {
+			erro(pc(ctx,pos), "not a file: %v", ts(elem, ctx))
+		}
+	}
 
 	p.spaces(ctx)
 	p.expect(ctx, RBRACE)
-	return
+	return ease(ctx, elems)
 }
 
+// braced_fullname evaluates '{=fullname ...}' wrapping resolved files cleanly.
 func (p *compiler) braced_fullname(ctx Context) (res Value) {
-	p.next(ctx, true) // resumes 'fullname'
-
-	vals := p.braced_elems(ctx)
-
-	p.expect(ctx, RBRACE)
+	pos := p.pos
+	p.next(ctx, true)
 
 	var elems []Value
-	for _, elem := range vals {
-		elems = append(elems, fullname{elem})
+	for _, elem := range p.braced_elems(ctx) {
+		var pos = elem.Pos()
+		if f := p.project.file(ctx, elem); f != nil {
+			if f.pos == pos {
+				elems = append(elems, f)
+			} else {
+				elems = append(elems, &loc{f, pos})
+			}
+		} else {
+			elems = append(elems, elem) // Smooth fallback for unresolvable raw items
+		}
 	}
-	return ease(ctx, elems)
+
+	p.spaces(ctx)
+	p.expect(ctx, RBRACE)
+	if false {
+		return &loc{fullname{ease(ctx, elems)}, pos}
+	} else {
+		return fullname{ease(ctx, elems)}
+	}
 }
 
 func (p *compiler) braced_plain(ctx Context) (elems []Value) {
@@ -12250,8 +12298,6 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 		default: // *word, *compound, *qualword, *path, flag:
 			var sym = __symbol(def_name_ctx{cc}, id)
 
-			if checkpoints { defer p.check_assign(ctx, id, sym)(&d) }
-
 			if sym == symEmpty {
 				erro(pc(ctx,t), "empty name: %s: `%v`", typeof(id), id, callstack{num:32})
 			} else if _, y := builtins[sym]; y { // Assuming builtins map is upgraded to map[Symbol]...
@@ -12264,6 +12310,9 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 			var isNew bool
 			// _def must be upgraded to accept sym Symbol instead of a string!
 			d, isNew, _ = p.project._def(ctx, defInvalid, sym)
+
+			if checkpoints { defer p.check_assign(ctx, id, sym, tok, rhs, d, isNew, len(res))(&res) }
+
 			if isNew { d.pos = pos // ensure def pos is correct
 				// Or add this logic inside project._def?
 				if nameStr := sym.String(); strings.HasPrefix(nameStr, "use.") {
@@ -14835,15 +14884,14 @@ func (_ *none) kind() Kind { return KindNone }
 func (p *none) String() (_ string) { return }
 
 type get_arguments struct{}
+type init_args interface{ args(Context, []Value) }
 type argumented_ctx struct{ Context ; val Value; args []Value }
 func (ac *argumented_ctx) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
 	case inner_cast: return ac.Context
 	case dynamic_cast: return t.ctx(ac, ac.Context)
     case get_arguments: return ac.args
-    case init_args:
-        t.args(ctx, ac.args)
-        return
+    case init_args: t.args(ctx, ac.args); return true
     }
     return ac.Context.do(ctx, op)
 }
@@ -15940,6 +15988,10 @@ func _pathSym_OBSOLETE(pos Pos, sym Symbol) Value { // NOTE: OBSOLETED by __symP
 }
 
 type fullfile struct{ *file }
+func (o fullfile) String() string {
+	return "{fullname "+o.file.String()+"}"
+}
+
 type fullfile_ctx struct{ Context }
 func (c fullfile_ctx) do(ctx Context, op any) any {
     switch t := op.(type) {
@@ -15960,7 +16012,7 @@ type fullname struct{ Value }
 func (o fullname) String() string {
 	if v := o.Value; v == nil {
 		panic("fullname nil value")
-	} else if x, y := v.(*file); y {
+	} else if x, y := unloc(o.Value).(*file); y {
 		if x == nil {
 			panic("fullname nil file")
 		} else if x.filestub == nil {
@@ -16021,12 +16073,15 @@ type file struct {
 // by natively yielding the clean, unbraced VFS path string.
 func (p *file) String() string {
 	if p == nil || p.filestub == nil { return "<nil-file>" }
-	if false && __symContains(p.name, symSlash) { // NOTE: foo/bar/a.o is a `*path` first!
-		return p.name.String()
-	} else {
+	if s := p.name.String(); false && __symContains(p.name, symSlash) {
+		// NOTE: foo/bar/a.o is a `*path` first! So this branch is disabled!
+		return s
+	} else if p.exists() {
 		// If the file name is a plain word without structural path markers,
 		// wrap it cleanly to preserve type identity in canonical mode sweeps.
-		return "{file " + p.name.String() + "}"
+		return "{file " + s + "}"
+	} else {
+		return "{file(-absent) " + s + "}"
 	}
 }
 
@@ -16149,9 +16204,9 @@ func (p *file) isSysFile() bool {
 	return isSys
 }
 
-func (p *file) searchInMatchedPaths(ctx Context, proj *project) (res bool) {
+func (p *file) searchInMatchedPaths_UNUSED(ctx Context, proj *project) (res bool) {
 	if p.filemap != nil {
-		var f = p.filemap.stat(ctx, p.name.String())
+		var f = p.filemap.stat_UNUSED(ctx, p.name.String())
 		if f.exists() {
 			mtime := atomic.LoadInt64(&f._mtime)
 			size := atomic.LoadInt64(&f._size)
@@ -16217,14 +16272,15 @@ func _stat(ctx Context, a0 any, aa ...any) *file {
 	var sub, dir, name Symbol
 	var fileInfo os.FileInfo
 	var nonexist bool
-	var skipIO bool 
+	var skipIO bool
+	var pos Pos
 
 	// 1. Instantly enter the high-speed Symbol Domain
 	switch t := a0.(type) {
-	case Symbol: name = t
-	case Value:  name = __symbol(ctx, t)
-	case string: name = intern(t)
-	default:     name = intern(__string(ctx, a0))
+	case Symbol: name, pos = t, _pos(ctx)
+	case Value:  name, pos = __symbol(ctx, t), t.Pos()
+	case string: name, pos = intern(t), _pos(ctx)
+	default:     name, pos = intern(__string(ctx, a0)), _pos(ctx)
 	}
 
 	// Fulfill Condition 1: Fast-path return on empty input identifiers
@@ -16377,19 +16433,17 @@ func _stat(ctx Context, a0 any, aa ...any) *file {
 	}
 
 	// Instantiate the lock-free reference handle wrapper
-	f := &file{valbase{_pos(ctx)}, base, matchedStub}
+	f := &file{valbase{pos}, base, matchedStub}
 
 	// 6. Non-blocking Lazy Load: Fetch disk metadata safely if not bypassed
-	if !skipIO {
-		f.stat(ctx, false)
-	}
+	if !skipIO { f.stat(ctx, false) }
 
 	// Fulfill Condition 2: Filter non-existent targets safely with memory-barrier precision
-	if !f.exists() && !nonexist { 
+	if f._mtime == 0 && !nonexist { // NOTE: Okay here: direct `p._mtime` without atomic.LoadInt64!
 		return nil 
+	} else {
+		return f
 	}
-
-	return f
 }
 
 type flag struct{ Value }
@@ -17446,7 +17500,7 @@ func (p *delegate) resolve(ctx Context) (res []Value) {
 			}
 			switch p.l {
 			case LBRACE, STRING, STRCOMP: // ${xxx}  $'xxx'  $"xxx",  else/illegal: $(xxx)
-				if t := project_entry(ctx, x); t != nil { x = t }
+				if t := project_entry(ctx, x); !t.valid() { x = t }
 			default:
 				if t := project_resolve(ctx, intern(ident(ctx, x))); t != nil { x = t }
 			}
@@ -17465,7 +17519,7 @@ func (p *closure) resolve(ctx Context) (res []Value) {
 			}
 			switch p.l {
 			case LBRACE, STRING, STRCOMP: // &{xxx}  &'xxx'  &"xxx",  else/illegal: &(xxx)
-				if t := closure_entry(ctx, x); t != nil { x = t }
+				if t := closure_entry(ctx, x); !t.valid() { x = t }
 			default:
 				if t := closure_resolve(ctx, intern(ident(ctx, x))); t != nil { x = t }
 			}
@@ -17508,7 +17562,7 @@ func selobjs(ctx Context, tok token, v Value) (res []Value) {
 			case truly(ctx, closure_t{}):
 				switch tok {
 				case SELECT_PROG1, SELECT_PROG2:
-					if v := closure_entry(ctx, t); v != nil { t = v }
+					if v := closure_entry(ctx, t); !v.valid() { t = v }
 				case SELECT_PROP:
 					if v := closure_resolve(ctx, sym); v != nil { t = v }
 				default:
@@ -17517,7 +17571,7 @@ func selobjs(ctx Context, tok token, v Value) (res []Value) {
 			case truly(ctx, delegate_t{}):
 				switch tok {
 				case SELECT_PROG1, SELECT_PROG2:
-					if v := project_entry(ctx, t); v != nil { t = v }
+					if v := project_entry(ctx, t); !v.valid() { t = v }
 				case SELECT_PROP:
 					if v := project_resolve(ctx, sym); v != nil { t = v }
 				default:
@@ -17957,9 +18011,23 @@ func expand(ctx Context, v Value) (res Value) {
 			v := expand(ctx, t.Value)
 			if !isTrivial(v) {
 				if f := as_file(ctx, v); f != nil {
-					return fullname{f}
+					// NOTE: `{fullname {file foo}}` explicitly indicates `wants_fullfile`!
+					if true || truly(ctx, wants_fullfile{}) {
+						if pos := v.Pos(); f.pos == pos {
+							return fullfile{f}
+						} else {
+							return _loc(fullfile{f}, pos)
+						}
+					} else {
+						if pos := v.Pos(); f.pos == pos {
+							return fullname{f}
+						} else {
+							return _loc(fullname{f}, pos)
+						}
+					}
 				}
 			}
+			if pos := t.Value.Pos(); pos != v.Pos() { v = _loc(v, pos) }
 			return fullname{v}
 		}
 	case negative: return negative{expand(ctx, t.Value)}
@@ -18006,17 +18074,8 @@ func expand(ctx Context, v Value) (res Value) {
 		return ease(ctx, va)
 	case *undetermined:
 		return &undetermined{t.token, expand(ctx, t.identifier), expand(ctx, t.value)}
-	case *defcaps:
-		// Unbox the defcaps to its embedded base Value (the primary capture string)
-		if false { debug(ctx, "%v", t) }
-		return v//expand(ctx, t.Value)
-	case *valbase, *answer, *boolean, *binary, *def, *none, *null, *punct, *word, *globmeta, *octal, *decimal, *hexadecimal, *escaped, *raw, *regexpat, *project, self, undef, nil:
-		if false && v == nil { debug(pc(ctx,v), "%v", v) } //, *modification
-		return v
-	default:
-		if checkpoints { erro(pc(ctx,v), "%v (%T)", ts(v,ctx), v, callstack{stop:"smart.runcase"}) }
-		return v
 	}
+	return v
 }
 
 func expands(ctx Context, v ...Value) (res []Value) {
@@ -18036,12 +18095,51 @@ func expandp(ctx Context, v ...Value) (res []Value) {
 	return
 }
 
-type evoke_def_ctx struct{ evocation ; d *def }
+type evoking_x struct{ name Symbol }
+type evoke_detect_loop struct{ Value }
+type evoke_count struct{}
+type evocation struct{ automatic }
+func (p *evocation) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) { // case keep_autos: return false
+	case inner_cast: return &p.automatic
+	case dynamic_cast: return t.ctx(p, &p.automatic)
+
+    case evoke_count:
+        u, _ := p.Context.do(ctx, t).(uint)
+        return 1 + u
+
+    case evoke_detect_loop:
+		if u, y := do(ctx, evoke_count{}).(uint); y && u > 255 {
+			erro(ctx, "too depth invocation (%d)", u, trace_ctx{5}, callstack{num:10}, unwind{})
+		}
+    }
+    return p.automatic.do(ctx, op)
+}
+
+type evoking_def struct{ name Symbol }
+type evoke_def_ctx struct{ evocation ; x *def }
 func (c *evoke_def_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return &c.evocation
 	case dynamic_cast: return t.ctx(c, &c.evocation)
-	case param_name: return nil // avoids program execution
+	case param_name: return nil // To avoids program execution!
+	case evoking_def: if t.name == symEmpty || t.name == c.x.name { return c.x }
+	case evoking_x  : if t.name == symEmpty || t.name == c.x.name { return c.x }
+    case evoke_detect_loop: if x, isDef := t.Value.(*def); isDef && x == c.x { return true }
+		
+	case get_pos: if c.x != nil && c.x.pos != NoPos { return c.x.pos }
+		
+	// Keep get_scope returning the lexical scope (c.x.scope) so variable inheritance works, 
+	// or change to _scope(c.Context) if variables should also dynamically bind.
+	case get_scope: if false { return _scope(c.Context) } else { return c.x.scope }
+
+	// THE DOD FIX: The Instance Evaluator!
+	// Force project and path queries to resolve against the derived caller
+	// (e.g. app.base) by explicitly extracting them from the caller's context (`c.Context`), 
+	// bypassing `autoload_ctx` and `c.x.scope` entirely!
+	case get_project: return _project(c.Context)
+	case absolute_path: return _project(c.Context).absPath
+	
 	case get_auto: // IsDigits(t.s.String())
 		if isSymKind(t.s, SymInt) {
 			if x, y := c.defs[t.s]; y {
@@ -18069,38 +18167,47 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 			d.value = t.v
 			return res_auto{d, t.v}
 		}
-
-	// THE DOD FIX: The Instance Evaluator!
-	// Force project and path queries to resolve against the derived caller
-	// (e.g. app.base) by explicitly extracting them from the caller's context (`c.Context`), 
-	// bypassing `autoload_ctx` and `c.d.scope` entirely!
-	case get_project: return _project(c.Context)
-	case absolute_path: return _project(c.Context).absPath
-	
-	// Keep get_scope returning the lexical scope (c.d.scope) so variable inheritance works, 
-	// or change to _scope(c.Context) if variables should also dynamically bind.
-	case get_scope: if false { return _scope(c.Context) } else { return c.d.scope }
 	}
 	return c.evocation.do(ctx, op)
 }
 
-// capture_ctx provides a reusable evaluation airlock to feed specialized arguments 
+type evoking_builtin struct{ name Symbol }
+type evoke_builtin_ctx struct{ evocation ; x *builtin ; o, a []Value }
+func (c *evoke_builtin_ctx) do(ctx Context, op any) any {
+	switch t := op.(type) {
+	case inner_cast: return &c.evocation
+	case dynamic_cast: return t.ctx(c, &c.evocation)
+	case evoking_builtin: if t.name == symEmpty || t.name == c.x.name { return c.x }
+	case evoking_x      : if t.name == symEmpty || t.name == c.x.name { return c.x }
+    case evoke_detect_loop:
+		if x, isBuiltin := t.Value.(*builtin); isBuiltin && x == c.x { return true }
+	case get_pos: if c.x != nil && c.x.pos != NoPos { return c.x.pos }
+	}
+	return c.evocation.do(ctx, op)
+}
+
+// evoke_rule_ctx provides a reusable evaluation airlock to feed specialized arguments 
 // down into a traverse pass and dynamically capture streaming program_res elements.
-type capture_ctx struct {
+type evoking_rule struct{ name Symbol }
+type evoke_rule_ctx struct {
 	Context
+	x *rule
 	args   []Value
 	result *[]Value
 }
 
-func (p *capture_ctx) do(ctx Context, op any) any {
+func (p *evoke_rule_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case get_arguments: return p.args
+	case init_args: t.args(ctx, p.args); return true
+	case wait_execution: t.exe.Wait(); return true
+	case evoking_rule: if t.name == symEmpty || t.name == __symbol(ctx, p.x.target) { return p.x }
+	case evoking_x   : if t.name == symEmpty || t.name == __symbol(ctx, p.x.target) { return p.x }
 	case program_res:
-		if t.v != nil {
-			*p.result = append(*p.result, t.v)
-		}
+		if t.v != nil { *p.result = append(*p.result, t.v) }
+		if checkpoints { check_evoke_rule_program_res(ctx, p, t) }
 		// Continue bubbling down the remaining context chain fallback safely
 		return p.Context.do(ctx, op)
 	}
@@ -18129,8 +18236,8 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 			return _null(x.Pos())
 		}
 
-		de := &evoke_def_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}, x, o, a}, t}
-		if de.a != nil { de.args(de, de.a) }
+		de := &evoke_def_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}}, t}
+		if a != nil && len(a) > 0 { de.args(de, a) }
 
 		res = expand(de, t.value)
 
@@ -18144,8 +18251,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		}
 
 		var values []Value
-
-		cc := &capture_ctx{Context: ctx, args: a, result: &values}
+		cc := &evoke_rule_ctx{Context: ctx, x:t, args: a, result: &values}
 
 		traverse(cc, t)
 
@@ -18157,7 +18263,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 			return _null(x.Pos())
 		}
 
-		ctx := &evocation{automatic{Context:ctx, defs:make(def_map)}, x, nil, a}
+		ctx := &evoke_builtin_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}}, t, nil, a}
 		_v := reflect.New(t.t)
 
 		defer t.benchmark(ctx, time.Now(), _v)
@@ -18166,7 +18272,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 			erro(ctx, "no such field: %s.builtinbase", _v.Elem().Type())
 		} else if f.CanAddr() {
 			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
-			b.evocation = ctx
+			b.evoke_builtin_ctx = ctx
 		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
 			erro(ctx, "cannot set field: %s.evocation", _v.Elem().Type())
 		} else if f.CanSet() {
@@ -22275,7 +22381,8 @@ func traverse(ctx Context, val Value) {
 		x := &execution{
 			Context: ctx,
 			scope:   new_scope(ctx, p.owner().scope, p.owner(), __symbol(ctx, p.target)),
-			start:   time.Now(), rule: p,
+			start:   time.Now(),
+			rule:    p,
 		}
 
 		x.set(x, defVoid, symAt, p.target)
@@ -22309,6 +22416,8 @@ func traverse(ctx Context, val Value) {
 
 			defer x.promptLeaving()
 			x.promptEntering()
+
+			defer do(ctx, wait_execution{x})
 
 			for _, prog := range p.program {
 				var state uint
@@ -22625,28 +22734,30 @@ func reverse_unique(ctx Context, values ...Value) []Value {
 	return elems
 }
 
+// ease create proper based on `a` type.
 func ease(ctx Context, a any) (res Value) {
     if a == nil { return }
 
     var elems []Value
 
     switch t := a.(type) {
-    case    Value: elems = append(elems, merge(t   )...)
-    case  []Value: elems = append(elems, merge(t...)...)
-    case    bool : elems = append(elems, _boolean(_pos(ctx),         t ))
-    case    int  : elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case    int16: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case    int32: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case    int64: elems = append(elems, _decimal(_pos(ctx),         t ))
-    case   uint  : elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case   uint16: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case   uint32: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case   uint64: elems = append(elems, _decimal(_pos(ctx),   int64(t)))
-    case  float32: elems = append(elems, _float(  _pos(ctx), float64(t)))
-    case  float64: elems = append(elems, _float(  _pos(ctx),         t ))
-    case   string: elems = append(elems, _strlit( _pos(ctx),         t ))
+	case   Symbol: return _word(_pos(ctx), t)
+    case    bool : return _boolean(_pos(ctx),         t )
+    case    int  : return _decimal(_pos(ctx),   int64(t))
+    case    int16: return _decimal(_pos(ctx),   int64(t))
+    case    int32: return _decimal(_pos(ctx),   int64(t))
+    case    int64: return _decimal(_pos(ctx),         t )
+    case   uint  : return _decimal(_pos(ctx),   int64(t))
+    case   uint16: return _decimal(_pos(ctx),   int64(t))
+    case   uint32: return _decimal(_pos(ctx),   int64(t))
+    case   uint64: return _decimal(_pos(ctx),   int64(t))
+    case  float32: return _float(  _pos(ctx), float64(t))
+    case  float64: return _float(  _pos(ctx),         t )
+    case   string: return _strlit( _pos(ctx),         t )
     case []string: for _, s := range t { elems = append(elems, _strlit(_pos(ctx), s )) }
 	case  []*file: for _, f := range t { elems = append(elems, f) }
+    case  []Value: elems = append(elems, merge(t...)...)
+    case    Value: elems = append(elems, merge(t   )...)
     default: erro(ctx, "unsupported value: %v", ts(t,ctx), callstack{num:16})
     }
 
@@ -23059,7 +23170,7 @@ func ts(i any, o ...any) (s string) {
 	case    *evocation:
 		defs := x.defs.String()
 		if defs != "" { defs += " " }
-		content = x.x.String() + " | " + defs + ts(x.Context)
+		content = defs + ts(x.Context)
 	case    *execution:
 		var s string
 		if v := x.prerequisite; v != nil && false { s = v.String() + " " }
@@ -23416,69 +23527,6 @@ func ParseURL(pos Pos, s string) *url {
 	}
 }
 
-// NOTE: evokeTraceots is for debugging call trace, if this finally goes into a formal
-//       feature, it should need a sync-lock protection.
-var evokeTraceots string
-
-type evoke_x           struct{ name Symbol }
-type evoke_builtin     struct{ name Symbol }
-type evoke_def         struct{ name Symbol }
-type evoke_detect_loop struct{ Value }
-type evoke_count       struct{}
-type evocation struct{
-	automatic
-	x   Value
-	o []Value
-	a []Value
-}
-func (p *evocation) do(ctx Context, op any) (_ any) {
-	switch t := op.(type) { // case keep_autos: return false
-	case inner_cast: return &p.automatic
-	case dynamic_cast: return t.ctx(p, &p.automatic)
-	case evoke_builtin:
-		if x, y := p.x.(*builtin); y && (t.name == symEmpty || t.name == x.name) {
-			return x
-		}
-	case evoke_def:
-		if x, y := p.x.(*def); y && (t.name == symEmpty || t.name == x.name) {
-			return x
-		}
-	case evoke_x:
-		if p.x != nil && (t.name == symEmpty || t.name.String() == ident(ctx, p.x)) {
-			return p.x
-		}
-
-    case evoke_count:
-        u, _ := p.Context.do(ctx, t).(uint)
-        return 1 + u
-
-    case evoke_detect_loop:
-        if t.Value == p.x {
-            switch p.x.(type) {
-            case *auto, *def: return true
-            }
-        }
-        if u, y := do(ctx, evoke_count{}).(uint); y && u > 255 {
-            erro(pc(ctx,p.x), "%s : %s", p.x, ts(p.x))
-        }
-
-    case get_pos:
-        var pos Pos
-        if p.x != nil { pos = p.x.Pos() }
-        if !pos.valid() && p.a != nil && p.a[0] != nil { pos = p.a[0].Pos() }
-        if !pos.valid() && p.o != nil && p.o[0] != nil { pos = p.o[0].Pos() }
-        if  pos.valid()  {  return pos  }
-
-    case get_fatpos:
-        if t.p == NoPos && p.x != nil {
-            if x, ok := p.x.(interface{ Position() Position }); ok {
-                if pos := x.Position(); pos.valid() { return pos }
-            }
-        }
-    }
-    return p.automatic.do(ctx, op)
-}
-
 type opts struct{ vals []Value }
 type opt  struct{ Value }
 
@@ -23585,6 +23633,22 @@ func (m def_map) String() (s string) {
 	return
 }
 
+// selfie_init_args is an optional protection guard in the frame.
+// It is used by a frame context implemented the `init_args` interface.
+func selfie_init_args(ctx, frame Context, i init_args) bool {
+	var inner = inner(frame)
+	var done, _ = inner.do(ctx, i).(bool)
+	if !done && any(i) == any(frame) {
+		// Fetches raw parameters natively from the parent caller scope 
+		// (e.g. evoke_rule_ctx) and routes them into the argument compiler.
+		if args, isVals := inner.do(ctx, get_arguments{}).([]Value); isVals {
+			i.args(ctx, args)
+			return true
+		}
+	}
+	return done
+}
+
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
 type get_auto struct{ s Symbol }
@@ -23600,7 +23664,7 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return ac.Context
 	case dynamic_cast: return t.ctx(ac, ac.Context)
-	// case init_args: if t == ac { panic("automatic.args") }
+	case init_args: return selfie_init_args(ctx, ac, t)
 	case get_auto:
 		if d, _ := ac.defs[t.s]; d != nil {
 			return d
@@ -23945,7 +24009,7 @@ type builtin struct{ knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name.String() }
-func (p *builtin) benchmark(ctx *evocation, t time.Time, v reflect.Value) {
+func (p *builtin) benchmark(ctx *evoke_builtin_ctx, t time.Time, v reflect.Value) {
 	var n = time.Now()
 	if d := n.Sub(t); 100*time.Millisecond < d {
 		var a = xmerge(final{ctx}, ctx.a...)
@@ -24087,17 +24151,17 @@ func (p *filemap) patterns(ctx Context) (pats []Value) {
 }
 
 // match split filename into list and match each part with the pattern correspondingly.
-func (p *filemap) match(ctx Context, val Value) (_ bool, _ Value, _ string) {
+func (p *filemap) match_UNUSED(ctx Context, val Value) (_ bool, _ Value, _ string) {
 	// TODO: escape file matching for 'String' and "strcomp" values
 	for _, pat := range p.patterns(ctx) {
-		if matched, name := p._match(ctx, pat, val); matched {
+		if matched, name := p.matchPat(ctx, pat, val); matched {
 			return matched, pat, name
 		}
 	}
 	return
 }
 
-func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string) {
+func (p *filemap) matchPat(ctx Context, pat, val Value) (matched bool, name string) {
 	var res any
 	matched, res, _, _ = match(ctx, pat, val)
 
@@ -24133,7 +24197,7 @@ func (p *filemap) _match(ctx Context, pat, val Value) (matched bool, name string
 	return
 }
 
-func (p *filemap) stat(ctx Context, name string) (res *file) {
+func (p *filemap) stat_UNUSED(ctx Context, name string) (res *file) {
 	var patts = p.patts
 	
 	if len(patts) == 0 {
@@ -24189,7 +24253,7 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
 		res = _stat(ctx, name, stat_sub{subSym}, stat_dir{dirSym}, stat_nonexist{true})
 		if res != nil { break }
 
-		var pre Symbol // FIXME: Ensure this is assigned from your pattern matcher!
+		var pre Symbol // FIXME: Ensure this is assigned from the pattern matcher!
 		var preStr string
 		if pre != symEmpty {
 			preStr = pre.String()
@@ -24254,6 +24318,21 @@ func (p *filemap) stat(ctx Context, name string) (res *file) {
     return
 }
 
+type matched_filemap struct{ filemap ; value Value }
+type matched_rule struct{ *rule ; value Value }
+func (t matched_filemap) String() string {
+	s1, s2 := t.filemap.String(), t.value.String()
+	if s1 == s2 { return "{matched_filemap "+s1+"}" }
+	return "{matched_filemap "+s1+" name="+s2+"}"
+}
+func (t matched_rule) String() string {
+	s1, s2 := t.rule.String(), t.value.String()
+	if s1 == s2 { return "{matched_rule "+s1+"}" }
+	return "{matched_rule "+s1+" name="+s2+"}"
+}
+
+func (t *matched_rule) valid() bool { return t.rule != nil && t.value != nil }
+
 // nodeEntry preserves order
 type nodeEntry struct {
 	k Symbol
@@ -24284,10 +24363,32 @@ func (p *valcache) String() (s string) { // NOTE: for debug
 	return "{"+s+"}"
 }
 
-func (p *valcache) km() (ss map[string]struct{}) {
-	ss = make(map[string]struct{})
-	for _, v := range reflect.ValueOf(p.v).MapKeys() {
-		ss[fmt.Sprintf("%s", v.Interface())] = struct{}{}
+func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
+	for _, a := range p.a {
+		switch a := a.(type) {
+		case filemap:
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.pattern, fullvalue); matched && rem == nil {
+				var a = filemap{a._filemap, a.pattern}
+				if 0 < do(ctx, matched_filemap{a, res}).(int) {
+					ok = true
+				} else {
+					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
+				}
+			}
+		case *rule:
+			// Ensure matched == true AND there is no unconsumed remainder
+			if matched, res, rem, _ := match(ctx, a.target, fullvalue); matched && rem == nil {
+				var a = &rule{a.target, a.arged, a.program}
+				if 0 < do(ctx, matched_rule{a, res}).(int) {
+					ok = true
+				} else {
+					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
+				}
+			}
+		default:
+			erro(ctx, "%v", ts(a), callstack{num:10})
+		}
 	}
 	return
 }
@@ -24332,48 +24433,6 @@ func (c *valcache) add(sym Symbol) *valcache {
 	}
 
 	return child
-}
-
-type matched_filemap struct{ filemap ; value Value }
-type matched_rule struct{ *rule ; value Value }
-func (t matched_filemap) String() string {
-	s1, s2 := t.filemap.String(), t.value.String()
-	if s1 == s2 { return "{matched_filemap "+s1+"}" }
-	return "{matched_filemap "+s1+" name="+s2+"}"
-}
-func (t matched_rule) String() string {
-	s1, s2 := t.rule.String(), t.value.String()
-	if s1 == s2 { return "{matched_rule "+s1+"}" }
-	return "{matched_rule "+s1+" name="+s2+"}"
-}
-func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
-	for _, a := range p.a {
-		switch a := a.(type) {
-		case filemap:
-			// Ensure matched == true AND there is no unconsumed remainder
-			if matched, res, rem, _ := match(ctx, a.pattern, fullvalue); matched && rem == nil {
-				var a = filemap{a._filemap, a.pattern}
-				if 0 < do(ctx, matched_filemap{a, res}).(int) {
-					ok = true
-				} else {
-					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
-				}
-			}
-		case *rule:
-			// Ensure matched == true AND there is no unconsumed remainder
-			if matched, res, rem, _ := match(ctx, a.target, fullvalue); matched && rem == nil {
-				var a = &rule{a.target, a.arged, a.program}
-				if 0 < do(ctx, matched_rule{a, res}).(int) {
-					ok = true
-				} else {
-					erro(ctx, "%v %v", ts(a), res, callstack{num:10})
-				}
-			}
-		default:
-			erro(ctx, "%v", ts(a), callstack{num:10})
-		}
-	}
-	return
 }
 
 // =============================================================================
@@ -25007,10 +25066,10 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 	return
 }
 
-func unmap_entries(ctx Context, p *project, key any, m map[*project]struct{}) (res []entry) {
+func unmap_entries(ctx Context, p *project, key any, m map[*project]struct{}) (res []matched_rule) {
 	if m == nil { m = map[*project]struct{}{} } else if _, y := m[p]; y { return }
 	if m != nil { m[p] = struct{}{} }
-	if res = unmap[entry](ctx, &p.entries, key); res != nil { return }
+	if res = unmap[matched_rule](ctx, &p.entries, key); res != nil { return }
 	for _, b := range p.bases {
 		if res = unmap_entries(ctx, b, key, m); res != nil { return }
 	}
@@ -25215,20 +25274,38 @@ func (p *project) shadow(ctx Context, payload any) *valcache {
 	return shadow
 }
 
-func findfile(ctx Context, s string, ps ...*project) (_ *file) {
-    if len(ps) == 0 { ps = append(ps, _project(ctx)) }
-    for _, p := range ps { if f := p.file(ctx, s); f != nil { return f } }
-    return
+// =====================================================================
+// 1. Core File Routing Suite
+// =====================================================================
+
+// findfile safely resolves a type-safe Symbol identifier against a sequence 
+// of target projects, lifting it into a virtual AST word token to query the 
+// native VFS file-mapping engine. It operates purely within the integer-mapped
+// Symbol Domain to optimize lookup performance.
+func findfile(ctx Context, s Symbol, ps ...*project) (_ *file) {
+	if len(ps) == 0 { 
+		ps = append(ps, _project(ctx)) 
+	}
+	
+	for _, p := range ps { 
+		if f := p.file(ctx, s); f != nil { 
+			return f 
+		} 
+	}
+	return
 }
 
+// select_file_1 selects matched filemap for files (exists or not)
 func (p *project) select_file_1(ctx Context, m matched_filemap) (res *file) {
 	defer func() { if res != nil { res.filemap = &m.filemap } }()
 
 	if m.paths == nil {
 		if res, _ = m.pattern.(*file); res != nil {
+			if pos := m.value.Pos(); res.pos != pos {
+				// FIXME: res = &loc{res, pos}
+			}
 			return
 		} else {
-			// FIXED: Direct resolution via receiver p instead of context inspection
 			var d = p.absPath 
 			return _stat(ctx, m.value, stat_dir{d}, stat_nonexist{true})
 		}
@@ -25246,14 +25323,12 @@ func (p *project) select_file_1(ctx Context, m matched_filemap) (res *file) {
 				}
 			}
 			if d := __symbol(ctx, t); d != symEmpty {
-				// CANONICAL FIXED PASS: Forwards the absolute folder prefix as stat_sub 
-				// coupled with stat_dir{p.absPath} to yield the correct single-space formatting.
 				if f := _stat(ctx, m.value, stat_dir{p.absPath}, stat_sub{d}, stat_nonexist{true}); f != nil {
 					fs = append(fs, f)
 				} else {
 					erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
 				}
-			} else if false {
+			} else {
 				erro(ctx, "%s ⇒ %v → %v → ''", m.value, v, t)
 			}
 		} else {
@@ -25262,7 +25337,7 @@ func (p *project) select_file_1(ctx Context, m matched_filemap) (res *file) {
 	}
 
 	for _, f := range fs { if f.exists() { return f } }
-	if 0 < len(fs) { res = fs[0] }
+	if len(fs) > 0 { res = fs[0] }
 	return
 }
 
@@ -25276,7 +25351,7 @@ func (p *project) select_files(ctx Context, m []matched_filemap) (res []*file) {
 }
 
 func (p *project) select_file(ctx Context, m []matched_filemap) (res *file) {
-	if a := p.select_files(ctx, m); 0 < len(a) {
+	if a := p.select_files(ctx, m); len(a) > 0 {
 		if res = a[0]; !res.exists() {
 			for _, f := range a { if f.exists() { return f } }
 		}
@@ -25286,19 +25361,6 @@ func (p *project) select_file(ctx Context, m []matched_filemap) (res *file) {
 
 func (p *project) file(ctx Context, a any) *file {
 	return p.select_file(ctx, unmap_files(ctx, p, a, nil))
-}
-
-func (p *project) file1(ctx Context, a any) *file {
-	// 1. Try to resolve via project file mappings
-	if f := p.select_file(ctx, unmap_files(ctx, p, a, nil)); f != nil {
-		return f
-	}
-	
-	// 2. Unmapped Fallback: Forcefully initialize VFS node anchored directly to the project root
-	if sym := __symbol(ctx, a.(Value)); sym != symEmpty {
-		return _stat(ctx, sym, stat_dir{p.absPath}, stat_nonexist{true})
-	}
-	return nil
 }
 
 func (p *project) tempdir(ctx Context) (d *def, s string) {
@@ -25502,7 +25564,7 @@ func (p *project) configuration_sm(ctx Context) (f *file) {
 	return f
 }
 
-func project_entry(c Context, s any, a ...bool) entry { return _project(c).entry(c, s, a...) }
+func project_entry(c Context, s any, a ...bool) matched_rule { return _project(c).entry(c, s, a...) }
 func project_resolve(c Context, s Symbol) object { return _project(c).resolve(c, s) }
 
 type is_project_resolving struct{ p *project }
@@ -25595,8 +25657,8 @@ func (p *project) cacheResolution(name Symbol, obj object) {
 	}
 }
 
-func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) {
-    entries = unmap_entries(ctx, p, name, nil)
+func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []matched_rule) {
+	entries = unmap_entries(ctx, p, name, nil)
 
     if false && p.configure != nil && truly(ctx, is_configure{}) {
         entries = append(entries, p.configure._entries(ctx, name, true)...)
@@ -25621,7 +25683,7 @@ func (p *project) _entries(ctx Context, name any, _b ...bool) (entries []entry) 
     return
 }
 
-func (p *project) entry(c Context, name any, a ...bool) (_ entry) {
+func (p *project) entry(c Context, name any, a ...bool) (_ matched_rule) {
     var entries = p._entries(c, name, a...)
     if n := len(entries); 0 < n {
         if 1 < n { erro(c, "%v : %d entries", name, n) }
@@ -25960,6 +26022,7 @@ func newTraverseSession() *traverseSession {
 
 type op_prompt_entering struct{ exe *execution }
 type op_prompt_leaving  struct{ exe *execution }
+type wait_execution struct{ exe *execution }
 
 type execution struct {
 	Context
@@ -26028,6 +26091,7 @@ func (p *execution) do(ctx Context, op any) (res any) {
 	case final: return p 
 	case ex_closure: return true 
 	case is_closure_exec: return p.closure != nil
+    case init_args: return selfie_init_args(ctx, p, t)
 
 	// =====================================================================
 	// CENTRALIZED RUNTIME SCOPE RESOLUTION
@@ -26108,12 +26172,12 @@ func (p *execution) do(ctx Context, op any) (res any) {
 			}
 		}
 
+	case default_value: p.defval = t.v; return
 	case program_res:
 		if t.v != nil { p.values = append(p.values, t.v) }
+		if checkpoints { check_rule_executed(ctx, p, t.v) }
 		p.Context.do(ctx, op)
 		return
-
-	case default_value:  p.defval = t.v; return
 
 	case get_pos:
 		if p.prerequisite != nil { return p.prerequisite.Pos() }
@@ -27129,7 +27193,6 @@ type (
     mark_dirty     struct{ a []Value }
     act_dirt       struct{ a []Value }
     act_count_dia  struct{ t []diagtype }
-    init_args      interface{ args(Context, []Value) } //struct{ *automatic }
 	get_fatpos     struct{ p Pos }
     get_pos        struct{}
     get_project    struct{}
@@ -28087,7 +28150,7 @@ func (u *universe) run(ctx Context) (result []Value) {
 
 			// Unified Context Airlock activation
 			var values []Value
-			cc := &capture_ctx{Context: ctx, args: args, result: &values}
+			cc := &evoke_rule_ctx{Context: ctx, args: args, result: &values}
 
 			traverse(cc, entry)
 
@@ -29362,7 +29425,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grep_ctx, sys bool, name Sy
 	} else if __symHasPrefix(name, __symJoin(symDot,symPathSep)) ||
 		__symHasPrefix(name, __symJoin(symDotDot,symPathSep)) { // relative path: ./ or ../
 		res = _stat(ctx, name, stat_dir{gc.dir}, stat_nonexist{true})
-	} else if res = findfile(ctx, name.String()); res != nil && res.exists() {
+	} else if res = findfile(ctx, name); res != nil && res.exists() {
 		return // found existed file
 	}
 
@@ -29383,7 +29446,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grep_ctx, sys bool, name Sy
 	if alt := _stat(ctx, name, stat_dir{gc.dir}); alt != nil { return alt }
 
 	var s, base = __symDir(name), __symBase(name)
-	var alt = findfile(ctx, base.String())
+	var alt = findfile(ctx, base)
 	if suffix := __symJoin(symPathSep, s); alt != nil && __symHasSuffix(alt.dir, suffix) {
 		dir := __symTrimSuffix(alt.dir, suffix)
 		ok1 := alt.change(dir, s, alt.name)    // <dir>, foo/bar, name.xxx
@@ -30365,11 +30428,10 @@ func (ctx *modifier_check) x(args ...Value) (_ any) {
 			if x.bool { val = auto_get(ctx, symAt) } else { val = nil }
 		}
 
-		var s string
 		var f *file
 		if f, res = to_file(val); res {
 			// best case
-		} else if s = __string(ctx, val); filepath.IsAbs(s) {
+		} else if s := __symbol(ctx, val); __symIsAbs(s) {
 			if f = _stat(ctx, s); f != nil { res = true }
 		} else if f = findfile(ctx, s); f != nil { res = true }
 
@@ -30491,12 +30553,12 @@ argsloop:
 			var ( f *file; res bool )
 			if f, res = to_file(p.val); res {
 				// ok
-			} else if str = __string(ctx, p.val); filepath.IsAbs(str) {
-				if f = _stat(ctx, str); f != nil {
-					// ok
+			} else if sym := __symbol(ctx, p.val); __symIsAbs(sym) {
+				if f = _stat(ctx, sym); f != nil {
+					str = sym.String()// ok
 				}
-			} else if f = findfile(ctx, str); f != nil {
-				// ok
+			} else if f = findfile(ctx, sym); f != nil {
+				str = sym.String()// ok
 			}
 			
 			// UPGRADED: 0-allocation primitive bounds checking!
@@ -31664,17 +31726,13 @@ const (
     builtinForce
 )
 
-type builtinbase struct{ *evocation ; general_opts }
+type builtinbase struct{ *evoke_builtin_ctx ; general_opts }
 func (c *builtinbase) do(ctx Context, op any) (_ any) {
     switch t := op.(type) {
-	case inner_cast: return c.evocation
-	case dynamic_cast: return t.ctx(c, c.evocation)
+	case inner_cast: return c.evoke_builtin_ctx
+	case dynamic_cast: return t.ctx(c, c.evoke_builtin_ctx)
     }
-    return c.evocation.do(ctx, op)
-}
-func (c *builtinbase) _a(force bool) (skip bool) {
-    c.evocation.a = expands(c, c.evocation.a...)
-    return
+    return c.evoke_builtin_ctx.do(ctx, op)
 }
 
 type builtin_x interface{ x() any }
@@ -36108,7 +36166,7 @@ func (ctx *__remove) x() (res any) {
             removePat(ctx, v)
         } else if f, y := v.(*file); y {
             removeFile(ctx, f)
-        } else if f = findfile(ctx, __string(ctx, v)); f != nil {
+        } else if f = findfile(ctx, __symbol(ctx, v)); f != nil {
             removeFile(ctx, f)
         } else if p, y := v.(*path); y {
             removePath(ctx, p)
@@ -36496,7 +36554,7 @@ func (ctx *__stat) x() (res any) {
 type __file struct { builtinbase
 	exists bool `exist,exists,must,must-exist,required`
 	report bool `report,reportmissing,report-missing`
-	ignore bool `ignore,ignore-missing,missing,nonexist,non-exist`
+	ignore bool `ignore,ignore-missing,absent,missing,nonexist,non-exist`
 }
 
 func (ctx *__file) do(c Context, op any) any {
@@ -36676,7 +36734,7 @@ func stepPattern(ctx Context, pat Value, nameSym Symbol) (nextPats []Value) {
 type wildcard_lock struct { pat Symbol }
 type __wildcard struct {
 	builtinbase
-	includeMissing bool    `include,includemissing,include-missing,missing,all`
+	includeMissing bool    `include,includemissing,include-missing,missing,absent,all`
 	ignoreMissing  bool    `ignore,ignoremissing,ignore-missing`
 	errorMissing   bool    `err,error,errormissing,error-missing,no-missing`
 	exclude        []Value `exclude,except,no,not`
