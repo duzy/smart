@@ -101,6 +101,181 @@ var (
     udots = []byte("…")
 )
 
+// compactbuilds provides zero-allocation stream compression and lazy separator 
+// insertion directly over a raw byte slice.
+type compactbuilds struct {
+	buf  []byte
+	last byte
+	pend string // Deferred separator sequence
+	raw  bool   // Disables squashing and dynamic spacing
+}
+
+func (b *compactbuilds) grow(n int) {
+	if cap(b.buf)-len(b.buf) < n {
+		b.buf = append(b.buf, make([]byte, n)...)[:len(b.buf)]
+	}
+}
+
+func (b *compactbuilds) pendStr(sep string) {
+	if !b.raw && len(b.buf) > 0 {
+		b.pend = sep
+	}
+}
+
+func (b *compactbuilds) discard() {
+	b.pend = ""
+}
+
+func (b *compactbuilds) setRaw(raw bool) {
+	b.raw = raw
+	if raw { b.pend = "" }
+}
+
+func (b *compactbuilds) len() int {
+	return len(b.buf) + len(b.pend)
+}
+
+func (b *compactbuilds) flush() {
+	if b.pend != "" {
+		b.buf = append(b.buf, b.pend...)
+		b.last = b.pend[len(b.pend)-1]
+		b.pend = ""
+	}
+}
+
+func (b *compactbuilds) truncate(n int) {
+	b.buf = b.buf[:n]
+	b.pend = ""
+	if n > 0 {
+		b.last = b.buf[n-1]
+	} else {
+		b.last = 0
+	}
+}
+
+// reset instantly clears the stream while preserving the underlying memory 
+// capacity for future zero-allocation writes.
+func (b *compactbuilds) reset() {
+	b.buf = b.buf[:0]
+	b.pend = ""
+	b.last = 0
+	b.raw = false
+}
+
+func (b *compactbuilds) writeByte(c byte) {
+	if !b.raw {
+		if c == ' ' {
+			if b.pend == " " { b.pend = ""; return } 
+			if b.pend == "" && b.last == ' ' { return } 
+		}
+		b.flush()
+	}
+	b.last = c
+	b.buf = append(b.buf, c)
+}
+
+func (b *compactbuilds) writeRune(r rune) {
+	if !b.raw { b.flush() }
+	if r < utf8.RuneSelf {
+		b.last = byte(r)
+		b.buf = append(b.buf, byte(r))
+	} else {
+		b.last = 0
+		b.buf = utf8.AppendRune(b.buf, r)
+	}
+}
+
+func (b *compactbuilds) writeString(s string) {
+	if len(s) == 0 { return }
+	if !b.raw {
+		if s[0] == ' ' {
+			if b.pend == " " {
+				b.pend = ""
+			} else if b.pend == "" && b.last == ' ' {
+				s = strings.TrimLeft(s, " ")
+				if len(s) == 0 { return }
+			}
+		}
+		b.flush()
+	}
+	b.last = s[len(s)-1]
+	b.buf = append(b.buf, s...)
+}
+
+func (b *compactbuilds) write(p []byte) {
+	if len(p) == 0 { return }
+	if !b.raw {
+		if p[0] == ' ' {
+			if b.pend == " " {
+				b.pend = ""
+			} else if b.pend == "" && b.last == ' ' {
+				for len(p) > 0 && p[0] == ' ' { p = p[1:] }
+				if len(p) == 0 { return }
+			}
+		}
+		b.flush()
+	}
+	b.last = p[len(p)-1]
+	b.buf = append(b.buf, p...)
+}
+
+// string safely casts the raw byte array to a string with zero allocations.
+func (b *compactbuilds) string() string {
+	if len(b.buf) == 0 { return "" }
+	return unsafe.String(unsafe.SliceData(b.buf), len(b.buf))
+}
+
+type strsep string
+
+// builds provides allocation-free sequential stream writing for variadic arguments.
+// It natively leverages the compactbuilds lazy-evaluation engine to automatically 
+// swallow dangling separators if elements evaluate to empty strings.
+func builds[T any](cb *compactbuilds, args ...T) {
+	var sep string
+	var first = true
+
+	for _, a := range args {
+		// Update separator dynamically; do not consume as an output element
+		if s, ok := any(a).(strsep); ok { 
+			sep = string(s)
+			continue 
+		}
+
+		if !first && sep != "" { 
+			cb.pendStr(sep) 
+		}
+
+		mark := cb.len()
+
+		switch t := any(a).(type) {
+		case string:
+			cb.writeString(t)
+		case rune:
+			cb.writeRune(t)
+		case byte:
+			cb.writeByte(t)
+		case Symbol:
+			t.build(cb) // Direct internal fast-path
+		case interface{ build(*compactbuilds) }:
+			t.build(cb) // Custom AST node builder delegation
+		case interface{ String() string }:
+			cb.writeString(t.String())
+		default:
+			// Fallback formatting: writeString natively handles empty 
+			// checks and prevents the pending sep from flushing if empty.
+			cb.writeString(fmt.Sprintf("%v", a))
+		}
+
+		// Only clear the 'first' flag if the element actually wrote bytes
+		if cb.len() > mark {
+			first = false
+		}
+	}
+	
+	// Clear any dangling separator if the trailing elements were all empty
+	cb.discard() 
+}
+
 // =============================================================================
 // Core Data Structures & Interning
 // =============================================================================
@@ -143,27 +318,27 @@ var vocab vocabulary
 
 // build is a zero-allocation recursive string builder.
 // By passing the pointer, we write directly to the final memory buffer!
-func (sym Symbol) build(b *strings.Builder) {
+func (sym Symbol) build(b *compactbuilds) {
 	switch meta := vocab.symetas[sym]; meta.Kind() {
 	case SymRaw:
-		b.WriteString(vocab.strings[meta.Idx])
+		b.writeString(vocab.strings[meta.Idx])
 	case SymEph:
-		b.WriteString(vocab.ephemeral[meta.Idx])
+		b.writeString(vocab.ephemeral[meta.Idx])
 	case SymInt:
 		// FormatInt allocates slightly, but appending to a builder directly is complex. 
 		// This is acceptable for the rare number conversion.
-		b.WriteString(strconv.FormatInt(int64(vocab.numbers[meta.Idx]), 10))
+		b.writeString(strconv.FormatInt(int64(vocab.numbers[meta.Idx]), 10))
 	case SymFlt:
-		b.WriteString(strconv.FormatFloat(math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
+		b.writeString(strconv.FormatFloat(math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
 	case SymSeq:
-		for _, s := range vocab.sequences[meta.Idx] { s.build(b) } // Recursive delegation!
+		for _, s := range vocab.sequences[meta.Idx] { s.build(b) }
 	}
 }
 
 func (sym Symbol) string() string { // Unlocked!
-	var b strings.Builder
-	sym.build(&b)
-	return b.String()
+	var cb compactbuilds
+	sym.build(&cb)
+	return cb.string()
 }
 
 func (sym Symbol) String() (s string) {
@@ -392,6 +567,8 @@ const (
 	symOnce
 	symDirty
 	symBy
+	symDb
+	symDbs
 
 	symType
 	symTypes
@@ -816,7 +993,7 @@ var coreSymbols = []string{
 	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
 	"print", "printf", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
 	"closure", "cd", "mkdir", "sudo", "fork", "wait", "stamp", "touch", "extract", "deps", "check",
-	"case", "cond", "if", "where", "once", "dirty", "by",
+	"case", "cond", "if", "where", "once", "dirty", "by", "db", "dbs",
 
 	"type", "types", "typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace",
 	"def", "defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "greater", "less",
@@ -1219,9 +1396,9 @@ func bindLateConstantAlias(constantID Symbol, target Symbol) {
 	meta := vocab.symetas[target]
 	vocab.symetas[constantID] = meta
 
-	var sb strings.Builder
-	target.build(&sb)
-	str := sb.String()
+	var cb compactbuilds
+	target.build(&cb)
+	str := cb.string()
 	h := hashStr(str)
 
 	vocab.strsyms[h] = append(vocab.strsyms[h], constantID)
@@ -1452,10 +1629,9 @@ func internSeq(seq []Symbol) Symbol {
 		}
 	}
 
-	var sb strings.Builder
-	for _, s := range seq { s.build(&sb) }
-
-	str := sb.String()
+	var cb compactbuilds
+	for _, s := range seq { s.build(&cb) }
+	str := cb.string()
 	hStr := hashStr(str)
 
 	// If the string form exists, bind it!
@@ -5776,6 +5952,7 @@ const (
 	KindDelegate
 	KindClosure
 	KindArgumented
+	KindDBStub
 	KindNone
 	KindNull
 	KindEscaped
@@ -14404,13 +14581,13 @@ func cmps(ctx Context, l, r []Value) cmpres {
 func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	if checkpoints { defer check_cmp_symbol(ctx, x, y) (&result) }
 
-	var sb strings.Builder
+	var cb compactbuilds
 	var iL, iR int64
 	var fL, fR float64
 
 	vocab.RLock()
-	x.build(&sb); sx = sb.String(); sb.Reset()
-	y.build(&sb); sy = sb.String(); sb.Reset()
+	x.build(&cb); sx = cb.string(); cb.reset()
+	y.build(&cb); sy = cb.string(); cb.reset()
 	metaL := vocab.symetas[x]
 	metaR := vocab.symetas[y]
 	kL := metaL.Kind()
@@ -14882,6 +15059,20 @@ func (_ *null) String() string { return "{}" }
 type none struct{ valbase }
 func (_ *none) kind() Kind { return KindNone }
 func (p *none) String() (_ string) { return }
+
+type dbstub struct{ valbase ; v []Value }
+func (_ *dbstub) kind() Kind { return KindDBStub }
+func (p *dbstub) String() string {
+	if len(p.v) == 0 { return "{dbs}" }
+	var cb compactbuilds
+	p.build(&cb)
+	return cb.string()
+}
+func (p *dbstub) build(cb *compactbuilds) {
+	cb.writeString("{dbs ")
+	builds(cb, p.v...)
+	cb.writeString("}")
+}
 
 type get_arguments struct{}
 type init_args interface{ args(Context, []Value) }
@@ -16993,259 +17184,357 @@ func (c *__string_ctx) do(ctx Context, op any) any {
 	}
 	return c.Context.do(ctx, op)
 }
+
+// __builds traverses the AST and writes directly to the shared stream buffer.
+func __builds(ctx Context, sb *compactbuilds, v any) {
+	switch t := v.(type) {
+	case string: sb.writeString(t)
+	case rune: sb.writeRune(t)
+	case token: sb.writeString(t.String())
+	case Symbol: t.build(sb)
+	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globmeta, *punct:
+		sb.writeString(t.(Value).String())
+	case *valbase, *null, *none, nil: return
+	case *answer:
+		if t.bool { sb.writeString("yes") } else { sb.writeString("no") }
+	case *option:
+		if t.bool { sb.writeString("on") } else { sb.writeString("off") }
+	case *boolean:
+		if t.bool { sb.writeString("true") } else { sb.writeString("false") }
+	case *strlit: sb.writeString(t.s)
+	case *raw: sb.writeString(t.s)
+	case *word: sb.writeString(t.s.String())
+	case *regexpat: sb.writeString(t.Regexp.String())
+	case *filestub: sb.writeString(t.name.String())
+	case *project: sb.writeString(t.name.String())
+	case self: sb.writeString(t.name.String())
+	case negative: 
+		sb.writeByte('!')
+		__builds(ctx, sb, t.Value)
+	case flag: 
+		sb.writeByte('-')
+		__builds(ctx, sb, t.Value)
+	case *disjunction: __builds(ctx, sb, t.val)
+	case *undetermined: __builds(ctx, sb, t.value)
+	case *xloc: __builds(ctx, sb, t.Value)
+	case *loc: __builds(ctx, sb, t.Value)
+	case *defcaps: __builds(ctx, sb, t.Value)
+	case *def: if t != nil { __builds(ctx, sb, t.value) }
+	case *auto: if t != nil { __builds(ctx, sb, t.def(ctx)) }
+	case *rule: if t != nil { __builds(ctx, sb, t.target) }
+	case matched_rule: __builds(ctx, sb, t.target)
+	case *quote: 
+		sb.writeString(strconv.Quote(__string(ctx, &t.list)))
+	case *globrange: 
+		sb.writeByte('[')
+		__builds(ctx, sb, t.Value)
+		sb.writeByte(']')
+	case *globbrace: 
+		for _, e := range t.elems { __builds(ctx, sb, e) }
+	case *globpat: 
+		for _, e := range t.elems { __builds(ctx, sb, e) }
+	case *percpat:
+		if t.Prefix != nil { __builds(ctx, sb, t.Prefix) }
+		sb.writeByte('%')
+		if t.Suffix != nil { __builds(ctx, sb, t.Suffix) }
+	case *compound:
+		cc := &com_ctx{ctx, 0}
+		mark := sb.len() // Use local marker to accurately track if this node wrote bytes
+		for _, e := range com(cc, nil, t.elems) {
+			if sb.len() > mark { sb.pendStr(" ") }
+			if x, y := e.(*compound); y {
+				for _, xe := range x.elems { 
+					if sb.len() > mark { sb.pendStr(" ") }
+					__builds(ctx, sb, xe) 
+				}
+			} else {
+				__builds(ctx, sb, e)
+			}
+		}
+		sb.discard()
+	case *qualword:
+		mark := sb.len()
+		for _, e := range t.elems {
+			// Qualword strictly requires dots between all segments
+			if sb.len() > mark { sb.pendStr(".") }
+			__builds(ctx, sb, e)
+		}
+		sb.discard()
+	case *path:
+		for i, elem := range t.elems {
+			if i > 0 { 
+				sb.pendStr(pathSep) 
+				sb.flush() // FIXED: Force the separator to write even if elem is empty!
+			}
+			mark := sb.len()
+			__builds(ctx, sb, elem)
+			// Explicit trailing slash retention for root paths
+			if i == 0 && sb.len() == mark && len(t.elems) == 1 {
+				sb.writeString(pathSep)
+			}
+		}
+		sb.discard()
+	case *strcomp:
+		for _, elem := range t.elems { __builds(ctx, sb, elem) }
+	case *strval:
+		mark := sb.len()
+		for _, v := range t.v { 
+			if sb.len() > mark { sb.pendStr(" ") }
+			__builds(ctx, sb, v)
+		}
+		sb.discard()
+	case *list:
+		mark := sb.len()
+		for _, elem := range t.elems {
+			if sb.len() > mark && sb.last != '\n' { sb.pendStr(" ") }
+			__builds(ctx, sb, elem)
+		}
+		sb.discard()
+	case *arrow, *closure, *delegate:
+		if val := expand(ctx, t.(Value)); val != v {
+			if reflect.TypeOf(val) != reflect.TypeOf(v) {
+				__builds(ctx, sb, val)
+			} else if cmp(ctx, val, v.(Value)) != cmpEqual {
+				__builds(ctx, sb, val)
+			}
+		}
+	case fullfile: sb.writeString(t.fullname().String())
+	case fullname:
+		if v := t.Value; v != nil {
+			items := merge(v)
+			cc := fullfile_ctx{ctx} 
+			mark := sb.len()
+
+			for _, item := range items {
+				if sb.len() > mark { sb.pendStr(" ") }
+				if x, y := to_file(item); y {
+					if x == nil || x.filestub == nil { erro(ctx, "nil file stub") } 
+					sb.writeString(x.fullname().String())
+				} else {
+					__builds(cc, sb, item)
+				}
+			}
+			sb.discard()
+		}
+	case *file:
+		if truly(ctx, wants_fullfile{}) {
+			sb.writeString(t.fullname().String())
+		} else {
+			sb.writeString(t.name.String())
+		}
+	case *conjunction:
+		if isEmpty(t.sep) {
+			for _, elem := range t.elems { __builds(ctx, sb, elem) }
+		} else {
+			first := true
+			for _, elem := range t.elems {
+				sb.flush() 
+				mark := sb.len() 
+
+				if !first {
+					__builds(ctx, sb, t.sep)
+					sb.flush() 
+				}
+				
+				subMark := sb.len()
+				__builds(ctx, sb, elem)
+				sb.flush() 
+
+				if sb.len() == subMark {
+					sb.truncate(mark)
+				} else {
+					first = false
+				}
+			}
+		}
+	case *pair:
+		ks := merge(expand(ctx, t.key))
+		vs := merge(expand(ctx, t.val))
+		mark := sb.len()
+		for _, k := range ks {
+			if isNull(k) { continue }
+			for _, v := range vs {
+				if isNull(v) { continue }
+				if sb.len() > mark { sb.pendStr(" ") }
+				__builds(ctx, sb, k)
+				sb.writeByte('=')
+				__builds(ctx, sb, v)
+			}
+		}
+		sb.discard()
+	case *group:
+		sb.writeByte('(')
+		mark := sb.len()
+		for _, elem := range t.elems {
+			if sb.len() > mark { sb.pendStr(" ") }
+			__builds(ctx, sb, elem)
+		}
+		sb.discard()
+		sb.writeByte(')')
+	case *argumented:
+		__builds(ctx, sb, t.Value)
+		sb.writeByte('(')
+		mark := sb.len()
+		for _, arg := range t.args {
+			if sb.len() > mark { sb.pendStr(",") }
+			__builds(ctx, sb, arg)
+		}
+		sb.discard()
+		sb.writeByte(')')
+	case *recipe:
+		for _, elem := range t.elems { __builds(ctx, sb, elem) }
+	case *plainline:
+		if len(t.elems) == 1 {
+			if d, y := t.elems[0].(*delegate); y {
+				if x, y := d.x.(*builtin); y && x.name == symForeach {
+					__builds(plainline_ctx{ctx}, sb, d)
+					return
+				}
+			}
+		}
+
+		for _, v := range t.elems { __builds(ctx, sb, v) }
+
+		if i := len(t.elems); 0 < i {
+			v := t.elems[i-1]
+			if _, y := v.(*null); y { return }
+			if x, y := v.(*list); y { 
+				if n := len(x.elems); n > 0 { v = x.elems[n-1] } 
+			}
+			if _, y := v.(*plainline); y { return }
+		}
+
+		sb.writeByte('\n')
+	case *plain:
+		cc := plain_ctx{ctx, len(t.elems) == 1}
+		mark := sb.len()
+		for _, e := range t.elems {
+			if x, y := e.(*plainline); y {
+				sb.discard() 
+				__builds(cc, sb, x)
+			} else {
+				if sb.len() > mark { sb.pendStr(" ") }
+				__builds(cc, sb, e)
+			}
+		}
+		sb.discard()
+	case *use:
+		sb.writeString("use ")
+		sb.writeString(t.project.name.String())
+		sb.writeString(fmt.Sprintf(" %v", t.params))
+	case *uselist:
+		sb.writeByte('[')
+		mark := sb.len()
+		for _, u := range t.list {
+			if sb.len() > mark { sb.pendStr(" ") }
+			sb.writeString(u.project.name.String())
+		}
+		sb.discard()
+		sb.writeByte(']')
+	case *modifier:
+		__builds(ctx, sb, modify(ctx, &t.group, false))
+	case *modification:
+		mark := sb.len()
+		for _, m := range t.list {
+			if m != nil {
+				if sb.len() > mark { sb.pendStr(" ") }
+				__builds(ctx, sb, modify(ctx, &m.group, false))
+			}
+		}
+		sb.discard()
+	case *url:
+		__builds(ctx, sb, t.Scheme)
+		sb.writeByte(':')
+		if t.Host != nil && !isNone(t.Host) {
+			sb.writeString("//")
+			if t.Username != nil && !isNone(t.Username) {
+				__builds(ctx, sb, t.Username)
+				if t.Password != nil { 
+					sb.writeByte(':')
+					__builds(ctx, sb, t.Password) 
+				}
+				sb.writeByte('@')
+			}
+			__builds(ctx, sb, t.Host)
+			if t.Port != nil && !isNone(t.Port) { 
+				sb.writeByte(':')
+				__builds(ctx, sb, t.Port) 
+			}
+		}
+		if t.Path != nil && !isNone(t.Path) {
+			__builds(ctx, sb, t.Path)
+		}
+		if t.Query != nil {
+			sb.writeByte('?')
+			for i, q := range t.Query { 
+				if i > 0 { sb.pendStr("&") }
+				__builds(ctx, sb, q) 
+			}
+			sb.discard()
+		}
+		if t.Fragment != nil && !isNone(t.Fragment) { 
+			sb.writeByte('#')
+			__builds(ctx, sb, t.Fragment) 
+		}
+	case *exec_result:
+		if t.stdout.Buf != nil { 
+			sb.write(t.stdout.Buf.Bytes())
+		} else if t.stderr.Buf != nil { 
+			sb.write(t.stderr.Buf.Bytes())
+		} else { 
+			sb.writeString(strconv.Itoa(t.status))
+		}
+	case *escaped:
+		switch t.s {
+		case "n": sb.writeByte('\n')
+		case "r": sb.writeByte('\r')
+		default:  sb.writeString(t.s)
+		}
+	default:
+		// Disable the debug form for the safe legacy behavior. Unmapped nodes 
+		// evaluate to empty string boundaries rather than corrupting paths.
+		if false && checkpoints { sb.writeString(ts(v, ctx)) } 
+	}
+}
+
 func __string(ctx Context, v any) (res string) {
-	var val Value
-	if checkpoints { defer check_string(ctx, v)(&val, &res) }
-	if !truly(ctx, __stringing{}) { ctx = &__string_ctx{ctx} }
+	if checkpoints { defer check_string(ctx, v)(&res) }
+
 	switch t := v.(type) {
 	case string: return t
 	case rune: return string(t)
 	case token: return t.String()
 	case Symbol: return t.String()
-	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globmeta, *punct:
-		return t.(Value).String()
-	case *valbase, *null, *none, nil: return
-	case *answer : if t.bool { return "yes"  } else { return "no" }
-	case *option : if t.bool { return "on"   } else { return "off" }
-	case *boolean: if t.bool { return "true" } else { return "false" }
+	case *valbase, *null, *none, nil: return ""
 	case *strlit: return t.s
 	case *raw: return t.s
 	case *word: return t.s.String()
-	case *regexpat: return t.Regexp.String()
 	case *filestub: return t.name.String()
-	case *project: return t.name.String()
-	case self: return t.name.String()
-	case negative: return "!"+__string(ctx, t.Value)
-	case flag: return "-"+__string(ctx, t.Value)
-	case *disjunction: return __string(ctx, t.val)
-	case *undetermined: return __string(ctx, t.value)
-	case *xloc: return __string(ctx, t.Value)
-	case *loc: return __string(ctx, t.Value)
-	case *defcaps: return __string(ctx, t.Value)
-	case *def: if t == nil { return "" } else { return __string(ctx, t.value) }
-	case *auto: if t == nil { return "" } else { return __string(ctx, t.def(ctx)) }
-	case *rule: if t == nil { return "" } else { return __string(ctx, t.target) }
-	case matched_rule: return __string(ctx, t.target)
-	case *quote: return strconv.Quote(__string(ctx, &t.list))
-	case *globrange: return "[" + __string(ctx, t.Value) + "]"
-	case *globbrace: for _, e := range t.elems { res += __string(ctx, e) }
-	case *globpat: for _, e := range t.elems { res += __string(ctx, e) }
-	case *percpat:
-		if t.Prefix != nil { res += __string(ctx, t.Prefix) }; res += "%"
-		if t.Suffix != nil { res += __string(ctx, t.Suffix) }
-	case *compound:
-		var cc = &com_ctx{ctx, 0}
-		for i, e := range com(cc, nil, t.elems) { // a{x y z}b → axb ayb azb
-			if checkpoints { check__string_com(ctx, t, e) }
-			if 0 < i && res != "" { res += " " }
-			if x, y := e.(*compound); y {
-				for _, e := range x.elems { res += __string(ctx, e) }
-			} else {
-				res += __string(ctx, e)
-			}
-		}
-	case *qualword:
-		for i, e := range t.elems { if i > 0 { res += "." }
-			res += __string(ctx, e)
-		}
-	case *path:
-		for i, elem := range t.elems {
-			if v := __string(ctx, elem); 0 < i {
-				res += pathSep + v
-			} else if v != "" {
-				res += v
-			} else if len(t.elems) == 1 {
-				res += pathSep
-			}
-		}
-	case *strcomp:
-		for _, elem := range t.elems { res += __string(ctx, elem) }
-		if truly(ctx, is_def_name{}) { return `"` + res + `"` }
-	case *strval:
-		for _, v := range t.v { if res != "" { res += " " }; res += __string(ctx, v) }
-		if truly(ctx, is_def_name{}) { return `"` + res + `"` }
-	case *list:
-		for _, elem := range t.elems {
-			if t := __string(ctx, elem); t != "" {
-				if res != "" && !strings.HasSuffix(res, "\n") { res += " " }
-				res += t
-			}
-		}
-	case *arrow, *closure, *delegate:
-		// Check if v differs from val without triggering __string recursion
-		if val = expand(ctx, t.(Value)); val != v {
-			// Fix: avoid infinite recursion via equal -> cmp -> __string -> expand -> equal
-			// If expand returns a different object (v != val), we use it.
-			// We DO NOT check cmp(v, val) because cmp might fall back to __string(val), causing a loop.
-			if reflect.TypeOf(val) != reflect.TypeOf(v) {
-				res = __string(ctx, val)
-			} else if cmp(ctx, val, v.(Value)) != cmpEqual {
-				res = __string(ctx, val)
-			}
-		}
-	case fullfile: return t.fullname().String()
-	case fullname:
-		if v := t.Value; v != nil {
-			// Flatten any nested collections or list structures cleanly
-			items := merge(v)
-			cc := fullfile_ctx{ctx} // Force truly(wants_fullfile).
+	}
 
-			// FAST PATH: Single structural scalar item (Bypass Builder allocations)
-			if len(items) == 1 && items[0] == v {
-				if x, y := to_file(v); y {
-					if x == nil {
-						erro(ctx, "nil file")
-					} else if x.filestub == nil {
-						erro(ctx, "nil file stub")
-					} else {
-						return x.fullname().String()
-					}
-				}
-				return __string(cc, v)
-			}
+	var sb compactbuilds
+	var closingByte byte
 
-			// COLD PATH: Distributed collection stringification
-			var sb strings.Builder
-			for _, item := range items {
-				var s string
-				if x, y := to_file(item); y {
-					if x == nil {
-						erro(ctx, "nil file")
-					} else if x.filestub == nil {
-						erro(ctx, "nil file stub")
-					} else {
-						s = x.fullname().String()
-					}
-				} else {
-					s = __string(cc, item)
-				}
-				if s != "" {
-					if sb.Len() > 0 { sb.WriteByte(' ') }
-					sb.WriteString(s)
-				}
-			}
-			return sb.String()
-		}
-	case *file:
-		// THE DOD FIX: Dynamic Query-Time Fullfile!
-        // We preserve the pure `*file` storage, but if the execution context 
-        // (like `shell -full`) explicitly requests absolute paths, we dynamically 
-        // project the absolute path to the shell without mutating the AST!
-        if truly(ctx, wants_fullfile{}) { return t.fullname().String() }
-        return t.name.String() // Default presented name, ie. t.filestub.name.String()
-	case *conjunction: // see also $(join ...)
-		var ( sep = __string(ctx, t.sep); ss []string )
-		for _, v := range t.elems { if s := __string(ctx, v); s != "" { ss = append(ss, s) } }
-		return strings.Join(ss, sep)
-	case *pair:
-		var ks = merge(expand(ctx, t.key))
-		var vs = merge(expand(ctx, t.val))
-		for _, k := range ks {
-			if !isNull(k) {
-				for _, v := range vs {
-					if !isNull(v) {
-						if res != "" { res += " " }
-						res += __string(ctx, k) + "=" + __string(ctx, v)
-					}
-				}
-			}
-		}
-	case *group:
-		res = "("
-		for i, elem := range t.elems { if 0 < i { res += " " }; res += __string(ctx, elem) }
-		res += ")"
-	case *argumented:
-		res = __string(ctx, t.Value) + "("
-		for i, arg := range t.args { if 0 < i { res += "," }; res += __string(ctx, arg) }
-		res += ")"
-	case *recipe:
-		for _, elem := range t.elems {
-			if isEmpty(elem) { continue }
-			if s := __string(ctx, elem); s != "" {
-				// THE DOD FIX: Boundary Space Squashing!
-				// If an empty variable caused two `raw` spaces to border each other,
-				// we seamlessly trim the leading spaces off the incoming string.
-				if len(res) > 0 && res[len(res)-1] == ' ' && s[0] == ' ' {
-					s = strings.TrimLeft(s, " ")
-				}
-				res += s
-			}
-		}
-	case *plainline:
-		if len(t.elems) == 1 {
-			if d, y := t.elems[0].(*delegate); y {
-				if x, y := d.x.(*builtin); y && x.name == symForeach {
-					return __string(plainline_ctx{ctx}, d)
-				}
-			}
-		}
+	sb.grow(64) 
 
-		for _, v := range t.elems { res += __string(ctx, v) }
+	if !truly(ctx, __stringing{}) { ctx = &__string_ctx{ctx} }
 
-		if i := len(t.elems); 0 < i {
-			var v = t.elems[i-1]
-			if _, y := v.(*null); y { return }
-			if x, y := v.(*list); y { if i := x.len(); 0 < i { v = x.elems[i-1] } }
-			if _, y := v.(*plainline); y { return }
-		}
-
-		res += "\n"
-	case *plain:
-		var cc = plain_ctx{ctx, len(t.elems)==1}
-		for i, e := range t.elems {
-			if x, y := e.(*plainline); y {
-				res += __string(cc, x)
-			} else {
-				if 0 < i && res != "" { res += " " }
-				res += __string(cc, e)
-			}
-		}
-	case *use:
-		return fmt.Sprintf("use %s %v", t.project.name, t.params)
-	case *uselist:
-		for i, u := range t.list {
-			if 0 < i && res != "" { res += " " }
-			res += u.project.name.String()
-		}
-		return "[" + res + "]"
-	case *modifier:
-		return __string(ctx, modify(ctx, &t.group, false))
-	case *modification:
-		for i, m := range t.list {
-			if 0 < i && res != "" { res += " " }
-			if m != nil { res += __string(ctx, modify(ctx, &m.group, false)) }
-		}
-	case *url:
-		if res = __string(ctx, t.Scheme) + ":" ; t.Host != nil && !isNone(t.Host) {
-			if res += "//" ; t.Username != nil && !isNone(t.Username) {
-				res += __string(ctx, t.Username)
-				if t.Password != nil { res += ":" + __string(ctx, t.Password) }
-				res += "@"
-			}
-			res += __string(ctx, t.Host)
-			if t.Port != nil && !isNone(t.Port) { res += ":" + __string(ctx, t.Port) }
-		}
-		if t.Path != nil && !isNone(t.Path) {
-			//if !strings.HasPrefix(res, pathSep) { res += pathSep }
-			res += __string(ctx, t.Path)
-		}
-		if t.Query != nil {
-			res += "?"
-			for i, q := range t.Query { if 0 < i { res += "&" }; res += __string(ctx, q) }
-		}
-		if t.Fragment != nil && !isNone(t.Fragment) { res += "#" + __string(ctx, t.Fragment) }
-	case *exec_result:
-		if t.stdout.Buf != nil { return t.stdout.Buf.String() }
-		if t.stderr.Buf != nil { return t.stderr.Buf.String() }
-		return strconv.Itoa(t.status)
-	case *escaped:
-		switch t.s {
-		case "n": return "\n"
-		case "r": return "\r"
-		default:  return t.s
+	if truly(ctx, is_def_name{}) {
+		switch v.(type) {
+		case *strcomp, *strval:
+			sb.writeByte('"')
+			closingByte = '"'
 		}
 	}
-	return
+
+	__builds(ctx, &sb, v)
+
+	if closingByte != 0 { 
+		sb.setRaw(true) 
+		sb.writeByte(closingByte) 
+	}
+			
+	return sb.string()
 }
 
 // __any_true executes short-circuiting logical OR over a variadic slice of values.
@@ -22488,12 +22777,12 @@ func traverse(ctx Context, val Value) {
 		}
 
 		if !alreadyCompleted && !p.isSysFile() {
+			if checkpoints { check_traverse_mapped(ctx, nil, nil, p) }
+
 			ctx = &traverse_ctx{ctx, p}
 
 			var rulesMatched int
 			var projs = x.traverseProjs()
-
-			if checkpoints { check_traverse_files_mapping(ctx, nil, nil, val) }
 
 			// 1. Concrete File Target Slices Pass
 			for _, proj := range projs {
@@ -22586,7 +22875,7 @@ func traverse(ctx Context, val Value) {
 				}
 			}
 		}
-		if checkpoints { check_traverse_files_mapping(ctx, stems, pat, val) }
+		if checkpoints { check_traverse_mapped(ctx, stems, pat, val) }
 
 		ctx = &traverse_ctx{ctx, p}
 
@@ -23205,6 +23494,7 @@ func ts(i any, o ...any) (s string) {
 				content += ts(val, barrier)
 			}
 		}
+	case       *strlit: content = x.s
 	case       *strval:
 		for _, v := range x.v {
 			if content != "" { content += " " }
@@ -24322,13 +24612,13 @@ type matched_filemap struct{ filemap ; value Value }
 type matched_rule struct{ *rule ; value Value }
 func (t matched_filemap) String() string {
 	s1, s2 := t.filemap.String(), t.value.String()
-	if s1 == s2 { return "{matched_filemap "+s1+"}" }
-	return "{matched_filemap "+s1+" name="+s2+"}"
+	if s1 == s2 { return "{matched(file) "+s1+"}" }
+	return "{matched(file) "+s1+" name="+s2+"}"
 }
 func (t matched_rule) String() string {
 	s1, s2 := t.rule.String(), t.value.String()
-	if s1 == s2 { return "{matched_rule "+s1+"}" }
-	return "{matched_rule "+s1+" name="+s2+"}"
+	if s1 == s2 { return "{matched(rule) "+s1+"}" }
+	return "{matched(rule) "+s1+" name="+s2+"}"
 }
 
 func (t *matched_rule) valid() bool { return t.rule != nil && t.value != nil }
@@ -25144,7 +25434,7 @@ type project struct { // A project is a Logical DAG.
 
 	patterns []*rule // order is important
 	configs  []*def  // configure entries
-	main     entry
+	main     *rule
 
 	ext project_ext
 	opt project_opts
@@ -28148,24 +28438,22 @@ func (u *universe) run(ctx Context) (result []Value) {
 		for _, entry := range entries {
 			if u.verboseExecFlags { info(ctx, "%v", entry); flush(ctx) }
 
-			// Unified Context Airlock activation
-			var values []Value
-			cc := &evoke_rule_ctx{Context: ctx, args: args, result: &values}
-
-			traverse(cc, entry)
-
-			result = append(result, values...)
+			// Leverage the unified airlock natively through evoke
+			if v := evoke(ctx, entry, nil, args); v != nil {
+				result = append(result, unpack(v)...)
+			}
 			done = true
 		}
 	}
 	if done { return }
 
-	var goals []Value
+	var goals []matched_rule // Strongly typed list of validated rule targets
 	var collect func(proj *project, vals []Value) bool
+	
 	collect = func(proj *project, vals []Value) bool {
 		if len(vals) == 0 {
 			if entry := proj.main; entry != nil {
-				goals = append(goals, entry)
+				goals = append(goals, matched_rule{entry, entry.target})
 			}
 			return true
 		}
@@ -28173,27 +28461,27 @@ func (u *universe) run(ctx Context) (result []Value) {
 			switch t := goal.(type) {
 			case *null, *none: // Just ignore
 			case *word:
-				if entries := proj._entries(ctx, t.s, true); entries == nil {
+				if entries := proj._entries(ctx, t.s, true); len(entries) == 0 {
 					erro(ctx, "no such entry `%s`", t.s)
 					return false
 				} else {
-					for _, entry := range entries { goals = append(goals, entry) }
+					goals = append(goals, entries...)
 				}
 			case *delegate:
 				var s = __string(ctx, t)
-				if entries := proj._entries(ctx, s, true); entries == nil {
+				if entries := proj._entries(ctx, s, true); len(entries) == 0 {
 					erro(ctx, "no such entry `%s` (via `%v`)", s, t)
 					return false
 				} else {
-					for _, entry := range entries { goals = append(goals, entry) }
+					goals = append(goals, entries...)
 				}
 			case flag:
 				var s = __string(ctx, t)
-				if entries := proj._entries(ctx, s, true); entries == nil {
+				if entries := proj._entries(ctx, s, true); len(entries) == 0 {
 					erro(ctx, "no such entry `%s` (via `%v`)", s, t)
 					return false
 				} else {
-					for _, entry := range entries { goals = append(goals, entry) }
+					goals = append(goals, entries...)
 				}
 			case *argumented:
 				{
@@ -28227,45 +28515,20 @@ func (u *universe) run(ctx Context) (result []Value) {
 	// =====================================================================
 	if collect(main, merge(u.globe.goals.value)) {
 		if len(goals) == 0 && main.main != nil {
-			goals = append(goals, main.main)
+			goals = append(goals, matched_rule{main.main, main.main.target})
 		}
 
 		if len(goals) > 0 {
-			// 1. Instantiate the master execution anchor with a fresh cross-rule session registry
-			exe := execution{ // NOTE: No need to create a scope for the root execution!
-				Context: ctx, // scope: new_scope(ctx, main.scope, main, main.name),
-				start:   time.Now(),
-				workdir: u.workdir,
-				session: newTraverseSession(), // Safe VFS memory ledger initialization
-			}
-
-			// FIXED: Final Session Exit Guard. If the engine terminates while the console 
-			// tracking memory is still nested inside a module, emit the clean final leaving banner.
-			defer func() {
-				if exe.activePromptedDir != symEmpty && exe.activePromptedDir != exe.workdir {
-					promptLeavingDirectory(&exe, exe.activePromptedDir)
-					flush(ctx)
-				}
-			}()
-
-			// 2. Stream all targeted goals sequentially into the core traversal pipeline
+			// Stream all targeted goals sequentially into the native evoke pipeline
 			for _, goal := range goals {
-				sym := __symbol(&exe, goal)
+				sym := __symbol(ctx, goal.value)
 				args, _ := u.globe.args[sym]
-				exe.args(ctx, args)
-				exe.set(&exe, defVoid, symAt, goal)
-
-				exe.prerequisite = goal
-
-				// Launch the lock-free graph evaluation walk natively
-				traverse(&exe, goal)
+				
+				if v := evoke(ctx, goal, nil, args); v != nil {
+					// Expand the eased result back into the master output collector
+					result = append(result, unpack(v)...)
+				}
 			}
-
-			// 3. Synchronization Barrier: Wait securely for any parallel background routines to finalize
-			exe.Wait()
-
-			// 4. Harvest accumulated evaluation metrics and outputs cleanly from the handle
-			if len(exe.values) > 0 { result = append(result, exe.values...) }
 		}
 	}
 	return
@@ -32321,7 +32584,7 @@ func (ctx *__debug) do(c Context, op any) any {
 	}
 	return ctx.builtinbase.do(c, op)
 }
-func (ctx *__debug) x() (res any) {
+func (ctx *__debug) x() any {
     var s bytes.Buffer
 	for i, a := range ctx.a { if i > 0 { fmt.Fprintf(&s, " ") }
 		fmt.Fprintf(&s, "%v", __string(ctx, a))
@@ -32333,7 +32596,7 @@ func (ctx *__debug) x() (res any) {
 	} else {
         debug(ctx, "%s", s, callstack{num:ctx.n})
     }
-    return
+    return &dbstub{valbase{_pos(ctx)}, ctx.a}
 }
 
 type __error struct { builtinbase }
