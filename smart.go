@@ -56,6 +56,7 @@ import (
 type hashbytes [sha256.Size]byte
 
 const (
+	builds_fallback_ts = true && checkpoints
 	debug_new_scopes = false && checkpoints
 	chain_new_scopes_with_compiling_project = false
 	project_resolve_cache = false
@@ -14581,13 +14582,10 @@ func cmps(ctx Context, l, r []Value) cmpres {
 func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	if checkpoints { defer check_cmp_symbol(ctx, x, y) (&result) }
 
-	var cb compactbuilds
 	var iL, iR int64
 	var fL, fR float64
 
 	vocab.RLock()
-	x.build(&cb); sx = cb.string(); cb.reset()
-	y.build(&cb); sy = cb.string(); cb.reset()
 	metaL := vocab.symetas[x]
 	metaR := vocab.symetas[y]
 	kL := metaL.Kind()
@@ -14604,6 +14602,8 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	// 1. Rank comparison (Globs)
 	if rL, rR := metaL.Rank(), metaR.Rank(); rL > 0 || rR > 0 {
 		if res := cmp_rank(rL, rR); res != cmpEqual {
+			// Note: sx, sy remain "" here, which is perfectly safe because
+			// cmp_symbols only uses the strings if res is cmpLprefix or cmpRprefix.
 			return res, sx, sy
 		}
 	}
@@ -14613,7 +14613,7 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 		if kL == SymInt && kR == SymInt {
 			if iL < iR { return cmpSmaller, sx, sy }
 			if iL > iR { return cmpGreater, sx, sy }
-		} else {
+		} else if (kL == SymInt || kL == SymFlt) && (kR == SymInt || kR == SymFlt) {
 			if kL == SymInt { fL = float64(iL) }
 			if kR == SymInt { fR = float64(iR) }
 			if fL < fR { return cmpSmaller, sx, sy }
@@ -14622,6 +14622,10 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	}
 
 	// 3. String Prefix & Alphabetical Fallback
+	// Only build the strings if all numeric/rank fast-paths have failed!
+	sx = x.String()
+	sy = y.String()
+
 	if len(sx) < len(sy) && strings.HasPrefix(sy, sx) { return cmpLprefix, sx, sy }
 	if len(sy) < len(sx) && strings.HasPrefix(sx, sy) { return cmpRprefix, sx, sy }
 
@@ -17191,7 +17195,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case string: sb.writeString(t)
 	case rune: sb.writeRune(t)
 	case token: sb.writeString(t.String())
-	case Symbol: t.build(sb)
+	case Symbol: t.build(sb) // Writes directly to our internal raw byte slice
 	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globmeta, *punct:
 		sb.writeString(t.(Value).String())
 	case *valbase, *null, *none, nil: return
@@ -17239,33 +17243,29 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		if t.Suffix != nil { __builds(ctx, sb, t.Suffix) }
 	case *compound:
 		cc := &com_ctx{ctx, 0}
-		mark := sb.len() // Use local marker to accurately track if this node wrote bytes
-		for _, e := range com(cc, nil, t.elems) {
-			if sb.len() > mark { sb.pendStr(" ") }
+		mark := sb.len()
+		for i, e := range com(cc, nil, t.elems) {
+			if false && checkpoints { check__string_com(ctx, t, e) }
+
+			if i > 0 && sb.len() > mark { sb.pendStr(" ") }
+
 			if x, y := e.(*compound); y {
-				for _, xe := range x.elems { 
-					if sb.len() > mark { sb.pendStr(" ") }
-					__builds(ctx, sb, xe) 
-				}
+				for _, xe := range x.elems { __builds(ctx, sb, xe) }
 			} else {
 				__builds(ctx, sb, e)
 			}
 		}
 		sb.discard()
 	case *qualword:
-		mark := sb.len()
-		for _, e := range t.elems {
-			// Qualword strictly requires dots between all segments
-			if sb.len() > mark { sb.pendStr(".") }
+		for i, e := range t.elems {
+			// FIXED: Qualwords strictly require dots unconditionally for sub-property mapping
+			if i > 0 { sb.writeString(".") }
 			__builds(ctx, sb, e)
 		}
-		sb.discard()
 	case *path:
 		for i, elem := range t.elems {
-			if i > 0 { 
-				sb.pendStr(pathSep) 
-				sb.flush() // FIXED: Force the separator to write even if elem is empty!
-			}
+			// FIXED: Restored exact 1:1 legacy slash mapping. Slashes are never squashed!
+			if i > 0 { sb.writeString(pathSep) }
 			mark := sb.len()
 			__builds(ctx, sb, elem)
 			// Explicit trailing slash retention for root paths
@@ -17273,18 +17273,17 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 				sb.writeString(pathSep)
 			}
 		}
-		sb.discard()
 	case *strcomp:
 		for _, elem := range t.elems { __builds(ctx, sb, elem) }
 	case *strval:
-		mark := sb.len()
+		mark := sb.len() // Local boundary
 		for _, v := range t.v { 
 			if sb.len() > mark { sb.pendStr(" ") }
 			__builds(ctx, sb, v)
 		}
 		sb.discard()
 	case *list:
-		mark := sb.len()
+		mark := sb.len() // Local boundary
 		for _, elem := range t.elems {
 			if sb.len() > mark && sb.last != '\n' { sb.pendStr(" ") }
 			__builds(ctx, sb, elem)
@@ -17303,10 +17302,9 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		if v := t.Value; v != nil {
 			items := merge(v)
 			cc := fullfile_ctx{ctx} 
-			mark := sb.len()
 
-			for _, item := range items {
-				if sb.len() > mark { sb.pendStr(" ") }
+			for i, item := range items {
+				if i > 0 { sb.pendStr(" ") }
 				if x, y := to_file(item); y {
 					if x == nil || x.filestub == nil { erro(ctx, "nil file stub") } 
 					sb.writeString(x.fullname().String())
@@ -17341,6 +17339,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 				sb.flush() 
 
 				if sb.len() == subMark {
+					// Element evaluated to nothing! Instantly rewind the separator.
 					sb.truncate(mark)
 				} else {
 					first = false
@@ -17364,9 +17363,8 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		sb.discard()
 	case *group:
 		sb.writeByte('(')
-		mark := sb.len()
-		for _, elem := range t.elems {
-			if sb.len() > mark { sb.pendStr(" ") }
+		for i, elem := range t.elems {
+			if i > 0 { sb.pendStr(" ") }
 			__builds(ctx, sb, elem)
 		}
 		sb.discard()
@@ -17374,12 +17372,11 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *argumented:
 		__builds(ctx, sb, t.Value)
 		sb.writeByte('(')
-		mark := sb.len()
-		for _, arg := range t.args {
-			if sb.len() > mark { sb.pendStr(",") }
+		for i, arg := range t.args {
+			// FIXED: Commas are syntax boundaries and must not be squashed
+			if i > 0 { sb.writeString(",") }
 			__builds(ctx, sb, arg)
 		}
-		sb.discard()
 		sb.writeByte(')')
 	case *recipe:
 		for _, elem := range t.elems { __builds(ctx, sb, elem) }
@@ -17408,12 +17405,12 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *plain:
 		cc := plain_ctx{ctx, len(t.elems) == 1}
 		mark := sb.len()
-		for _, e := range t.elems {
+		for i, e := range t.elems {
 			if x, y := e.(*plainline); y {
 				sb.discard() 
 				__builds(cc, sb, x)
 			} else {
-				if sb.len() > mark { sb.pendStr(" ") }
+				if i > 0 && sb.len() > mark { sb.pendStr(" ") }
 				__builds(cc, sb, e)
 			}
 		}
@@ -17424,9 +17421,8 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		sb.writeString(fmt.Sprintf(" %v", t.params))
 	case *uselist:
 		sb.writeByte('[')
-		mark := sb.len()
-		for _, u := range t.list {
-			if sb.len() > mark { sb.pendStr(" ") }
+		for i, u := range t.list {
+			if i > 0 { sb.pendStr(" ") }
 			sb.writeString(u.project.name.String())
 		}
 		sb.discard()
@@ -17435,9 +17431,9 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		__builds(ctx, sb, modify(ctx, &t.group, false))
 	case *modification:
 		mark := sb.len()
-		for _, m := range t.list {
+		for i, m := range t.list {
 			if m != nil {
-				if sb.len() > mark { sb.pendStr(" ") }
+				if i > 0 && sb.len() > mark { sb.pendStr(" ") }
 				__builds(ctx, sb, modify(ctx, &m.group, false))
 			}
 		}
@@ -17467,10 +17463,10 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		if t.Query != nil {
 			sb.writeByte('?')
 			for i, q := range t.Query { 
-				if i > 0 { sb.pendStr("&") }
+				// FIXED: Query ampersands are structural boundaries
+				if i > 0 { sb.writeString("&") }
 				__builds(ctx, sb, q) 
 			}
-			sb.discard()
 		}
 		if t.Fragment != nil && !isNone(t.Fragment) { 
 			sb.writeByte('#')
@@ -17491,9 +17487,8 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		default:  sb.writeString(t.s)
 		}
 	default:
-		// Disable the debug form for the safe legacy behavior. Unmapped nodes 
-		// evaluate to empty string boundaries rather than corrupting paths.
-		if false && checkpoints { sb.writeString(ts(v, ctx)) } 
+		// Fallback ts form without evaporation: debug unhandled node boundaries!
+		if builds_fallback_ts { sb.writeString(ts(v, ctx, ts_no_evaporation{})) }
 	}
 }
 
