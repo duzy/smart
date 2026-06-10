@@ -221,7 +221,19 @@ func (b *compactbuilds) write(p []byte) {
 }
 
 // string safely casts the raw byte array to a string with zero allocations.
-func (b *compactbuilds) string() string {
+//
+// ⚠️ MEMORY SAFETY WARNING:
+// This function uses unsafe pointers to bypass Go's string-copying allocations.
+// The returned string is backed by the EXACT same memory as the builder's internal
+// byte slice. Because strings in Go are expected to be immutable, you MUST NOT
+// mutate, truncate, or reset the `compactbuilds` instance if the returned string
+// is still being referenced.
+//
+// ANTI-PATTERN:
+// 	var cb compactbuilds
+// 	x.build(&cb); sx = cb.shared(); cb.reset() // sx points directly to cb.buf
+// 	y.build(&cb); sy = cb.shared(); cb.reset() // y overwrites cb.buf, corrupting sx!
+func (b *compactbuilds) shared() string {
 	if len(b.buf) == 0 { return "" }
 	return unsafe.String(unsafe.SliceData(b.buf), len(b.buf))
 }
@@ -339,7 +351,7 @@ func (sym Symbol) build(b *compactbuilds) {
 func (sym Symbol) string() string { // Unlocked!
 	var cb compactbuilds
 	sym.build(&cb)
-	return cb.string()
+	return cb.shared()
 }
 
 func (sym Symbol) String() (s string) {
@@ -1399,7 +1411,7 @@ func bindLateConstantAlias(constantID Symbol, target Symbol) {
 
 	var cb compactbuilds
 	target.build(&cb)
-	str := cb.string()
+	str := cb.shared()
 	h := hashStr(str)
 
 	vocab.strsyms[h] = append(vocab.strsyms[h], constantID)
@@ -1632,7 +1644,7 @@ func internSeq(seq []Symbol) Symbol {
 
 	var cb compactbuilds
 	for _, s := range seq { s.build(&cb) }
-	str := cb.string()
+	str := cb.shared()
 	hStr := hashStr(str)
 
 	// If the string form exists, bind it!
@@ -15070,7 +15082,7 @@ func (p *dbstub) String() string {
 	if len(p.v) == 0 { return "{dbs}" }
 	var cb compactbuilds
 	p.build(&cb)
-	return cb.string()
+	return cb.shared()
 }
 func (p *dbstub) build(cb *compactbuilds) {
 	cb.writeString("{dbs ")
@@ -17507,29 +17519,29 @@ func __string(ctx Context, v any) (res string) {
 	case *filestub: return t.name.String()
 	}
 
-	var sb compactbuilds
+	var cb compactbuilds
 	var closingByte byte
 
-	sb.grow(64) 
+	cb.grow(64) 
 
 	if !truly(ctx, __stringing{}) { ctx = &__string_ctx{ctx} }
 
 	if truly(ctx, is_def_name{}) {
 		switch v.(type) {
 		case *strcomp, *strval:
-			sb.writeByte('"')
+			cb.writeByte('"')
 			closingByte = '"'
 		}
 	}
 
-	__builds(ctx, &sb, v)
+	__builds(ctx, &cb, v)
 
 	if closingByte != 0 { 
-		sb.setRaw(true) 
-		sb.writeByte(closingByte) 
+		cb.setRaw(true) 
+		cb.writeByte(closingByte) 
 	}
 			
-	return sb.string()
+	return cb.shared()
 }
 
 // __any_true executes short-circuiting logical OR over a variadic slice of values.
