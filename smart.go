@@ -3446,7 +3446,8 @@ const (
     diagInfo diagtype = iota // 0
     diagWarn   // 1
     diagError  // 2
-    diagPrompt // 3
+	diagDebug  // 3
+    diagPrompt // 4
 )
 
 type diagtype int
@@ -3628,53 +3629,38 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			panic(too_many_diags{y})
 		}
 
-		startLen := len(cb.buf) // Track length for byte-counting without strings
+		startLen := len(cb.buf) // Track length for holistic byte-counting
 
 		// 1. 100% Zero-Allocation Prefixing via Symbol Domain
 		if p.t != diagPrompt {
 			if p.position.Filename != 0 {
 				p.position.Filename.build(&cb)
 				if p.position.Line > 0 {
-					cb.writeByte(':')  //symColon.build(&cb)
+					cb.writeByte(':')
+
 					cb.buf = strconv.AppendInt(cb.buf, int64(p.position.Line), 10)
+					cb.last = cb.buf[len(cb.buf)-1] // Sync state machine after direct mutation
+
 					if p.position.Column > 0 {
-						cb.writeByte(':')  //symColon.build(&cb)
+						cb.writeByte(':')
 						cb.buf = strconv.AppendInt(cb.buf, int64(p.position.Column), 10)
+						cb.last = cb.buf[len(cb.buf)-1] // Sync state machine
 					}
 				}
-				cb.writeByte(':')  //symColon.build(&cb)
+				cb.writeByte(':')
 			}
 
 			switch p.t {
 			case diagInfo:
-				// symInfo.build(&cb)
-				// cb.writeByte(':')  //symColon.build(&cb)
-				// cb.writeString(" ")
 				cb.writeString("info: ")
 			case diagWarn:
-				// symWarning.build(&cb)
-				// cb.writeByte(':')  //symColon.build(&cb)
-				// cb.writeString(" ")
 				cb.writeString("warning: ")
 			case diagError:
 				errs += 1
-				if p.stack == nil {
-					// symError.build(&cb)
-					// cb.writeByte(':')  //symColon.build(&cb)
-					// cb.writeString(" ")
-					cb.writeString("error: ")
-				} else {
-					cb.writeString(" ")
-				}
+				cb.writeString("error: ") // FIXED: Always print the error prefix!
 			}
 		} else if p.t == diagError {
 			errs += 1
-		}
-
-		if diagnostic_count_bytes {
-			d.flushed += len(cb.buf) - startLen
-		} else {
-			d.flushed += 1
 		}
 
 		// 2. Resolve Active Arguments (SBO unboxing)
@@ -3699,13 +3685,23 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
 		// 4. Attach Stack
 		if p.stack != nil {
-			cb.buf = append(cb.buf, bytes.TrimSpace(p.stack)...)
-			cb.writeString("\n")
-			if diagnostic_count_bytes {
-				d.flushed += len(p.stack)
-			} else {
-				d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
+			stackBytes := bytes.TrimSpace(p.stack)
+			cb.buf = append(cb.buf, stackBytes...)
+			if len(stackBytes) > 0 {
+				cb.last = stackBytes[len(stackBytes)-1] // Sync state machine
 			}
+			cb.writeString("\n")
+		}
+
+		// FIXED: Move flushed metric calculation to the very end to capture everything
+		if diagnostic_count_bytes {
+			d.flushed += len(cb.buf) - startLen
+		} else {
+			lines := 1
+			if p.stack != nil {
+				lines += 1 + bytes.Count(p.stack, []byte("\n"))
+			}
+			d.flushed += lines
 		}
 	}
 
@@ -3808,7 +3804,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 	var p *diagpoint
 	var ps string // position prefix
 
-	if dt == -1 && !noCS { ps = _position(ctx).String() + ": " }
+	if dt == -1 && !noCS { dt = diagDebug }
 	if dt == -1 { dt = diagPrompt }
 
 	// 1. Process the primary format message
