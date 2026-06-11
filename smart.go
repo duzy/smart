@@ -56,7 +56,7 @@ import (
 type hashbytes [sha256.Size]byte
 
 const (
-	builds_fallback_ts = true && checkpoints
+	builds_fallback_ts = false && checkpoints
 	debug_new_scopes = false && checkpoints
 	chain_new_scopes_with_compiling_project = false
 	project_resolve_cache = false
@@ -156,12 +156,12 @@ func (b *compactbuilds) truncate(n int) {
 
 // reset instantly clears the stream while preserving the underlying memory 
 // capacity for future zero-allocation writes.
-func (b *compactbuilds) reset() {
-	b.buf = b.buf[:0]
-	b.pend = ""
-	b.last = 0
-	b.raw = false
-}
+// func (b *compactbuilds) reset() {
+// 	b.buf = b.buf[:0]
+// 	b.pend = ""
+// 	b.last = 0
+// 	b.raw = false
+// }
 
 func (b *compactbuilds) writeByte(c byte) {
 	if !b.raw {
@@ -218,6 +218,16 @@ func (b *compactbuilds) write(p []byte) {
 	}
 	b.last = p[len(p)-1]
 	b.buf = append(b.buf, p...)
+}
+
+// writef formats strings directly into the stream,
+// eliminating the intermediate allocations of fmt.Sprintf.
+func (b *compactbuilds) writef(format string, args ...any) {
+	b.flush() // THE DOD FIX: Flush any pending separator before appending!
+	b.buf = fmt.Appendf(b.buf, format, args...)
+
+	// Update the state machine's last byte so spacing logic doesn't break
+	if len(b.buf) > 0 { b.last = b.buf[len(b.buf)-1] }
 }
 
 // string safely casts the raw byte array to a string with zero allocations.
@@ -393,7 +403,9 @@ const (
 	symUnderscore   // _
 	symApostrophe   // '
 	symQuotation    // "
-	symColon        // :
+	symColon        // :     ASCII Colon Symbol (U+003A)
+	symRatio        // ∶     Mathematical Ratio Symbol (U+2236)
+	symWideColon    // ：    Fullwidth Colon Symbol (U+FF1A)
 	symComma        // ,
 	symTilde        // ~     $~    the grep modifier result
 	symDot          // .
@@ -409,13 +421,14 @@ const (
 	symLbrack       // [    symLeftBracket
 	symRbrack       // ]    symRightBracket
 	symCornerTL     // ⌜    symLtopcorner
+	symCornerTR     // ⌝    symRtopcorner
 	symCornerBL     // ⌞    symLbotcorner
+	symCornerBR     // ⌟    symRbotcorner
 	symLsingguil    // ‹    symAngleQuoteSingleL
+	symRsingguil    // ›    symAngleQuoteSingleR
 	symLguillemet   // «    symAngleQuoteDoubleL
 	symRguillemet   // »    symAngleQuoteDoubleR
-	symRsingguil    // ›    symAngleQuoteSingleR
-	symCornerBR     // ⌟    symRbotcorner
-	symCornerTR     // ⌝    symRtopcorner
+	symArrow        // →
 	symHash         // #
 	symEqualSign    //  =   ASSIGN
 	symUnshiSign    //  =+  ASSIGN_USH
@@ -490,7 +503,10 @@ const (
 	symFtps
 	symHttp
 	symHttps
+	symBit // bit
+	symBitcoin
 	symExtbit
+	symExtBit
 
 	symDo
 	symDock
@@ -758,7 +774,6 @@ const (
 
 	symSrc // src
 	symBin // bin
-	symBit // bit
 	symLog // log
 	symExe // exe
 	symDyn // dyn
@@ -972,8 +987,8 @@ var coreSymbols = []string{
 	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 
 	// --- *START* punctuations ---
-	"&", "$", "-", "_", "'", `"`, ":", ",", "~", ".", "..", "/", "//", `\`, `\\`,
-	"(", ")", "{", "}", "[", "]", "⌜","⌞","‹","«","»","›","⌟","⌝", "#","=", "=+", "+=",
+	"&", "$", "-", "_", "'", `"`, ":", "∶", "：", ",", "~", ".", "..", "/", "//", `\`, `\\`,
+	"(", ")", "{", "}", "[", "]", "⌜","⌝","⌞","⌟","‹","›","«","»","→", "#","=", "=+", "+=",
 
 	"@", "@D", "@F", "@'",
 	"|", "|D", "|F", "|'",
@@ -995,7 +1010,7 @@ var coreSymbols = []string{
 
 	"os", "mo", "mode", "go", "goals", "sm", "smart",
 
-	"mailto", "ftp", "ftps", "http", "https", "extbit",
+	"mailto", "ftp", "ftps", "http", "https", "bit", "bitcoin", "extbit", "ExtBit",
 
 	"do", "dock", "sh", "shell", "py", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
 	"assert", "append", "eval", "value", "config", "configure", "configuration", "compile", "build",
@@ -1029,7 +1044,7 @@ var coreSymbols = []string{
 	"app", "ahead", "shared", "static", "inlines", "hidden", "work", "workout", "workspace", "modified",
 	"test", "bugs", "bug", "dev", "silent",
 
-	"src", "bin", "bit", "log", "exe", "dyn", "llc", "cpp", "cxx",
+	"src", "bin", "log", "exe", "dyn", "llc", "cpp", "cxx",
 	"c", "cc", "c++", "o", "O", "Os", "m", "mm", "s", "S", "so", "h", "hh",
 
 	"package", "version", "vendor", "url", "bugreport", "tar", "tarname", "have",
@@ -1200,10 +1215,10 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 						// A. Corner Bracket Metas (3-Byte Sequences: 0xE2 0x8C 0x9C-0x9F)
 						if s[i+1] == 0x8C && i+2 < len(s) {
 							switch s[i+2] {
-							case 0x9C: seq = append(seq, symCornerTL); i += 2; start = i + 1; continue
-							case 0x9D: seq = append(seq, symCornerTR); i += 2; start = i + 1; continue
-							case 0x9E: seq = append(seq, symCornerBL); i += 2; start = i + 1; continue
-							case 0x9F: seq = append(seq, symCornerBR); i += 2; start = i + 1; continue
+							case 0x9C: seq = append(seq, symCornerTL); i += 2; start = i + 1; continue // ⌜
+							case 0x9D: seq = append(seq, symCornerTR); i += 2; start = i + 1; continue // ⌝
+							case 0x9E: seq = append(seq, symCornerBL); i += 2; start = i + 1; continue // ⌞
+							case 0x9F: seq = append(seq, symCornerBR); i += 2; start = i + 1; continue // ⌟
 							}
 						}
 						// B. Single Angle Quotes (3-Byte Sequences: 0xE2 0x80 0xB9/0xBA)
@@ -1213,8 +1228,16 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 							case 0xBA: seq = append(seq, symAngleQuoteSingleR); i += 2; start = i + 1; continue // ›
 							}
 						}
+						// C. Rightwards Arrow (3-Byte Sequence: 0xE2 0x86 0x92)
+						if s[i+1] == 0x86 && i+2 < len(s) {
+							if s[i+2] == 0x92 { seq = append(seq, symArrow); i += 2; start = i + 1; continue } // →
+						}
+						// D. Ratio Symbol (3-Byte Sequence: 0xE2 0x88 0xB6)
+						if s[i+1] == 0x88 && i+2 < len(s) {
+							if s[i+2] == 0xB6 { seq = append(seq, symRatio); i += 2; start = i + 1; continue } // ∶
+						}
 					}
-					// C. Double Angle Quotes (2-Byte Sequences: 0xC2 0xAB/0xBB)
+					// E. Double Angle Quotes (2-Byte Sequences: 0xC2 0xAB/0xBB)
 					if ch == 0xC2 && i+1 < len(s) {
 						switch s[i+1] {
 						case 0xAB: seq = append(seq, symAngleQuoteDoubleL); i++; start = i + 1; continue // «
@@ -1992,20 +2015,21 @@ func isSymKind(s Symbol, ns ...uint8) bool {
 	return false
 }
 
-const shredderChars = `&$-_'":,~./\(){}[]#=|^<>%*?+@⌜⌟⌞⌝‹›«»` // ' ' \t \n \r
+const shredderChars = `&$-_'":∶,~./\(){}[]#=|^<>%*?+@⌜⌟⌞⌝‹›«»→` // ' ' \t \n \r
 func isShredderChar0(ch byte) bool { return strings.IndexByte(shredderChars, ch) >= 0 }
 
-// isShredderChar executes a blazing fast atomic check. Intercepts 0xE2
-// to support multi-byte wildcard corner brackets without rune-decoding overhead.
+// isShredderChar executes a blazing fast atomic check. Intercepts 0xE2 and 0xC2
+// to support multi-byte wildcard boundaries without rune-decoding overhead.
 func isShredderChar(ch byte) bool {
 	// CRITICAL NOTE:
 	// The scanning loop in makeSymMetaLocked processes the string character-by-character
-	// as raw bytes (ch byte). The corner brackets are multi-byte UTF-8 characters,
-	// not single-byte ASCII:
-	//   ⌜ (U+231C) $\rightarrow$ Bytes: 0xE2 0x8C 0x9C
-	//   ⌝ (U+231D) $\rightarrow$ Bytes: 0xE2 0x8C 0x9D
-	//   ⌞ (U+231E) $\rightarrow$ Bytes: 0xE2 0x8C 0x9E
-	//   ⌟ (U+231F) $\rightarrow$ Bytes: 0xE2 0x8C 0x9F
+	// as raw bytes (ch byte). The extended symbols are multi-byte UTF-8 characters,
+	// not single-byte ASCII. They are captured by their lead bytes:
+	//   ⌜, ⌝, ⌞, ⌟ (U+231C-U+231F) -> Lead Byte: 0xE2
+	//   ‹, ›       (U+2039-U+203A) -> Lead Byte: 0xE2
+	//   ∶          (U+2236)        -> Lead Byte: 0xE2
+	//   →          (U+2192)        -> Lead Byte: 0xE2
+	//   «, »       (U+00AB-U+00BB) -> Lead Byte: 0xC2
 	switch ch {
 	case '&', '$', '-', '_', '\'', '"', ':', ',', '~', '.', '/', '\\',
 		'(', ')', '{', '}', '[', ']', '#', '=', '|', '^', '<', '>', 
@@ -3411,6 +3435,8 @@ func _fLoadedProjs(u *universe, t diagtype, f string) []*diag {
 	return ds
 }
 
+func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
+
 const diagnostic_count_bytes = false // counting bytes versus lines
 const diagnostic_limit = 256
 var   diagnostic_limit_erros = 520
@@ -3424,160 +3450,285 @@ const (
 )
 
 type diagtype int
-type diagcs_i int // add callstack i (start index)
-type diagcs_j int // add callstack j (end index)
-type diagtext struct{}
-type diagpoint struct{
-    t diagtype
-    position Position
-    message string
-	// panic any
-    stack []byte // see also rt_debug.Stack()
+type diag struct{ t diagtype; f string; a []any }
+func _ft(t diagtype, f string, a ...any) *diag { return &diag{t, f, a} }
+func _f(f string, a ...any) *diag { return &diag{0, f, a} }
+
+// DOD: Deferred format template and Small Buffer Optimization (SBO)
+type diagpoint struct {
+	t        diagtype
+	position Position
+
+	f        string
+	args     [4]any // Fast path: Inline array prevents heap escapes
+	argsOver []any  // Slow path: Falls back to variadic slice for 5+ args
+	argCount uint8
+
+	stack    []byte
 }
 
-type diag_struct struct{ t diagtype; f string; a []any }
-type diag_trace diag_struct
-type diag diag_struct
-type diag_flush struct{}
-type diagnostic struct{
-    Context
-    sync.Mutex
-    points []*diagpoint
-    erros int // number of flushed erros
-    flushed int // in bytes
+type diagnostic struct {
+	Context
+	sync.Mutex
+	points  [diagnostic_limit]diagpoint // Zero-allocation Ring Buffer
+	head    int
+	tail    int
+	count   int
+	erros   int
+	flushed int
 }
+
+type diag_flush struct{}
+type diagtext struct{}
+type act_set_stack struct { p *diagpoint; stack []byte } // Thread-safe attach guard
+
 func (d *diagnostic) do(ctx Context, op any) (_ any) {
-    switch t := op.(type) {
+	switch t := op.(type) {
 	case inner_cast: return d.Context
 	case dynamic_cast: return t.ctx(d, d.Context)
-    case property: if t&propErros != 0 { return d.erros }
-    case diag_flush: return d.flush(ctx)
+	case property: if t&propErros != 0 { return d.erros }
+	case diag_flush: return d.flush(ctx)
 	case diag: return d.point(ctx, t.t, t.f, t.a...)
-    case act_count_dia: return d.count(t.t...)
-    }
-    if d.Context == nil { return }
-    return d.Context.do(ctx, op)
+	case count_diags_op: return d.count_diags(uint(t))
+	case act_set_stack:
+		d.Lock()
+		t.p.stack = t.stack
+		d.Unlock()
+		return nil
+	}
+	if d.Context == nil { return nil }
+	return d.Context.do(ctx, op)
 }
 
-func (d *diagnostic) count(dt ...diagtype) (errs int) {
+type count_diags_op uint // Upgraded from struct with a slice to a pure integer mask
+func count_diags(ctx Context, t ...diagtype) (i int) {
+	var mask uint
+	for _, typ := range t {
+		if typ >= 0 && typ < 64 { // Safeguard against invalid shifts
+			mask |= 1 << typ
+		}
+	}
+	i, _ = do(ctx, count_diags_op(mask)).(int)
+	return
+}
+
+func (d *diagnostic) count_diags(mask uint) (errs int) {
 	d.Lock(); defer d.Unlock()
-	for _, d := range d.points {
-		for _, t := range dt {
-			if d.t == t { errs += 1 ; break }
+	for i := 0; i < d.count; i++ {
+		idx := (d.head + i) % diagnostic_limit
+		
+		// THE DOD FIX: O(1) Bitwise Check 
+		// Eliminates the inner loop and branches perfectly.
+		if (1 << d.points[idx].t) & mask != 0 {
+			errs++
 		}
 	}
 	return
 }
 
+func (d *diagnostic) search_diag(rx *regexp.Regexp) *diagpoint {
+	// TODO: search the diag where rx.Match\(Bytes\|String\)(point)
+	return nil
+}
+
 func (d *diagnostic) point(ctx Context, dt diagtype, f string, args ...any) *diagpoint {
 	if dt != diagPrompt { f = strings.TrimSpace(f) }
-	// Pass ctx down to add so it can trigger an auto-flush if needed!
-	return d.add(ctx, &diagpoint{dt, _position(ctx), fmt.Sprintf(f, args...), nil})
+
+	d.Lock()
+	if d.count >= diagnostic_limit {
+		d.Unlock(); d.flush(ctx); d.Lock()
+		if d.count >= diagnostic_limit {
+			d.Unlock(); panic(too_many_diags{d.count})
+		}
+	}
+
+	ptr := &d.points[d.tail]
+	ptr.t = dt
+	ptr.position = _position(ctx)
+	ptr.f = f
+	ptr.stack = nil
+	ptr.argCount = uint8(len(args))
+	
+	// DOD SBO Routing: Keep 0-4 arguments perfectly stack-bound!
+	if len(args) <= 4 {
+		ptr.argsOver = nil
+		for i := 0; i < len(args); i++ {
+			ptr.args[i] = args[i]
+		}
+	} else {
+		ptr.argsOver = args // Fallback
+	}
+
+	d.tail = (d.tail + 1) % diagnostic_limit
+	d.count++
+	d.Unlock()
+	return ptr
 }
 
 func (d *diagnostic) add(ctx Context, p *diagpoint) *diagpoint {
 	d.Lock()
 	
-	if len(d.points) >= diagnostic_limit {
+	if d.count >= diagnostic_limit {
 		d.Unlock() // Safely unlock to avoid a deadlock when calling flush()
+		d.flush(ctx) // Auto-Flush
+		d.Lock() // Re-acquire the lock
 		
-		// THE DOD FIX: Auto-Flush!
-		// Force the queue to drain to stderr. If the error count exceeds 
-		// diagnostic_limit_erros, flush() will naturally trigger the panic, 
-		// but ONLY AFTER the developer has seen the logs!
-		d.flush(ctx)
-		
-		d.Lock() // Re-acquire the lock to append the new point
-		
-		// Fallback safeguard: If flush() somehow failed to drain the queue 
-		// (e.g., limits are configured poorly), we enforce the hard stop.
-		if len(d.points) >= diagnostic_limit {
+		// Fallback safeguard against infinite recursive errors
+		if d.count >= diagnostic_limit {
 			d.Unlock()
-			panic(too_many_diags{len(d.points)})
+			panic(too_many_diags{d.count})
 		}
 	}
 	
-	d.points = append(d.points, p)
+	// Copy the data into the ring buffer pool
+	ptr := &d.points[d.tail]
+	*ptr = *p 
+	
+	d.tail = (d.tail + 1) % diagnostic_limit
+	d.count++
+	
 	d.Unlock()
-	return p
+	return ptr // Return the internal pointer so `p.stack` can be mutated by callers safely
 }
 
 func (d *diagnostic) flush(ctx Context) (errs int) {
-	// defer func() { if d.erros += errs ; errs > 0 { do(ctx, on_errors{errs}) }} ()
+	d.Lock()
+	if d.count == 0 {
+		d.Unlock()
+		return 0
+	}
 
-	print := func(p *diagpoint, pend bool) (_ bool) {
-		if x, y := diagnostic_limit_erros, d.erros; 0 < x && x < y {
-			if false { d.erros = 0 } // reset to avoid causing next panics
+	var toFlush [diagnostic_limit]diagpoint
+	var n int
+
+	for d.count > 0 {
+		toFlush[n] = d.points[d.head]
+		
+		// Instantly nullify references so the GC can reclaim strings/args
+		d.points[d.head].f = ""
+		for i := 0; i < 4; i++ { d.points[d.head].args[i] = nil }
+		d.points[d.head].argsOver = nil
+		d.points[d.head].stack = nil 
+		
+		d.head = (d.head + 1) % diagnostic_limit
+		d.count--
+		n++
+	}
+	d.Unlock()
+
+	var cb compactbuilds
+
+	for i := 0; i < n; i++ {
+		p := &toFlush[i]
+		
+		if x, y := diagnostic_limit_erros, d.erros+errs; 0 < x && x < y {
 			panic(too_many_erros{y})
 		}
 		if x, y := diagnostic_limit_bytes, d.flushed; 0 < x && x < y && false {
-			if false { d.flushed = 0 } // reset to avoid causing next panics
 			panic(too_many_diags{y})
 		}
 
-		pos, msg := p.position.String(), p.message
+		startLen := len(cb.buf) // Track length for byte-counting without strings
 
-		// THE DOD FIX: Protect diagPrompt!
-		// diagPrompt prints raw text and expects the payload to retain its own formatting.
-		// We only strip the duplicate prefix for Info/Warn/Error which prepend it manually.
-		if p.t != diagPrompt && strings.HasPrefix(msg, pos) {
-			msg = msg[len(pos):]
-			if strings.HasPrefix(msg, ": ") {
-				msg = msg[2:]
-			} else if strings.HasPrefix(msg, ":") {
-				msg = msg[1:]
+		// 1. 100% Zero-Allocation Prefixing via Symbol Domain
+		if p.t != diagPrompt {
+			if p.position.Filename != 0 {
+				p.position.Filename.build(&cb)
+				if p.position.Line > 0 {
+					cb.writeByte(':')  //symColon.build(&cb)
+					cb.buf = strconv.AppendInt(cb.buf, int64(p.position.Line), 10)
+					if p.position.Column > 0 {
+						cb.writeByte(':')  //symColon.build(&cb)
+						cb.buf = strconv.AppendInt(cb.buf, int64(p.position.Column), 10)
+					}
+				}
+				cb.writeByte(':')  //symColon.build(&cb)
 			}
+
+			switch p.t {
+			case diagInfo:
+				// symInfo.build(&cb)
+				// cb.writeByte(':')  //symColon.build(&cb)
+				// cb.writeString(" ")
+				cb.writeString("info: ")
+			case diagWarn:
+				// symWarning.build(&cb)
+				// cb.writeByte(':')  //symColon.build(&cb)
+				// cb.writeString(" ")
+				cb.writeString("warning: ")
+			case diagError:
+				errs += 1
+				if p.stack == nil {
+					// symError.build(&cb)
+					// cb.writeByte(':')  //symColon.build(&cb)
+					// cb.writeString(" ")
+					cb.writeString("error: ")
+				} else {
+					cb.writeString(" ")
+				}
+			}
+		} else if p.t == diagError {
+			errs += 1
 		}
 
 		if diagnostic_count_bytes {
-			d.flushed += len(pos) + len(msg)
+			d.flushed += len(cb.buf) - startLen
 		} else {
 			d.flushed += 1
 		}
 
-		// if p.panic != nil { msg += fmt.Sprintf(": %v", p.panic) }
-
-		switch p.t {
-		case diagInfo: fmt.Fprintf(stderr, "%v:info: %s\n", pos, msg)
-		case diagWarn: fmt.Fprintf(stderr, "%v:warning: %s\n", pos, msg)
-		case diagPrompt:
-			if msg != "" { fmt.Fprintf(stderr, "%s", msg) }
-			if pend && !strings.HasSuffix(msg, "\n") { return true }
-		case diagError:
-			if errs += 1 ; true || p.stack == nil {
-				fmt.Fprintf(stderr, "%v:error: %s\n", pos, msg)
-			} else {
-				fmt.Fprintf(stderr, "%v: %s\n", pos, msg)
-			}
+		// 2. Resolve Active Arguments (SBO unboxing)
+		var activeArgs []any
+		if p.argCount <= 4 {
+			activeArgs = p.args[:p.argCount]
+		} else {
+			activeArgs = p.argsOver
 		}
 
+		// 3. Render the Deferred Template
+		if p.argCount == 0 {
+			cb.writeString(p.f)
+		} else {
+			cb.writef(p.f, activeArgs...)
+		}
+
+		// Ensure newline formatting
+		if p.t != diagPrompt || (len(p.f) > 0 && p.f[len(p.f)-1] != '\n') {
+			cb.writeString("\n")
+		}
+
+		// 4. Attach Stack
 		if p.stack != nil {
-			fmt.Fprintf(stderr, "%s\n", bytes.TrimSpace(p.stack))
+			cb.buf = append(cb.buf, bytes.TrimSpace(p.stack)...)
+			cb.writeString("\n")
 			if diagnostic_count_bytes {
 				d.flushed += len(p.stack)
 			} else {
 				d.flushed += 1 + bytes.Count(p.stack, []byte("\n"))
 			}
 		}
-		return
 	}
 
-	for 0 < len(d.points) {
-		d.Lock()
-		point := d.points[0]
-		d.points = d.points[1:]
-		d.Unlock()
+	d.Lock()
+	d.erros += errs
+	d.Unlock()
 
-		print(point, true)
-
-		if false && 16 < errs {
-			fmt.Fprintf(stderr, "%v: too many errors (%d)\n", _position(ctx), errs)
-		}
+	if out := cb.shared(); out != "" {
+		fmt.Fprint(stderr, out)
 	}
-	return
+	return errs
 }
 
 func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
+
+func join_diags_msg(sep string, ds ...*diag) string {
+	var cb compactbuilds
+	for i, d := range ds {
+		if i > 0 { cb.pendStr(sep) }
+		cb.writef(d.f, d.a...)
+	}
+	return cb.shared()
+}
 
 type unwind struct{}
 type trace_val struct{ int ; val Value }
@@ -3601,6 +3752,9 @@ func (c debug_ctx) do(ctx Context, op any) any {
 	}
 	return c.Context.do(ctx, op)
 }
+
+type diagcs_i int // add callstack i (start index)
+type diagcs_j int // add callstack j (end index)
 
 var _debug_m sync.Mutex
 func debug(ctx Context, f any, a ...any) *diagpoint {
@@ -3740,23 +3894,28 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		var pos Pos
 
 		switch t := v.(type) {
-		case *xloc:       str = t.pos.String() + ": "; v = t.Value
-		case *loc:        pos = t.pos; v = t.Value
+		case *xloc:       str = t.pos.String() + ": "; v = t.Value; vt = sf("%v: %v →",vt,v)
+		case *loc:        pos = t.pos; v = t.Value; vt = sf("%v: %v →",vt,v)
 		case *valbase:    pos = t.pos; v = nil
-		case *def:        pos = t.pos; v = t.value; vt = sf("%v: %v",t.name,t.value)
-		case *closure:    pos = t.pos; v = t.x; vt = sf("%v: %v", vt, t.x)
-		case *delegate:   pos = t.pos; v = t.x; vt = sf("%v: %v", vt, t.x)
+		case *group:      pos = t.pos; if t.len()>0 { v = t.elems[0] }; vt = sf("%v: %v →",vt,t)
+		case *def:        pos = t.pos; v = t.value; vt = sf("def(%v): %v →",t.name,t.value)
+		case *closure:    pos = t.pos; v = t.x; vt = sf("%v: %v →", vt, t.x)
+		case *delegate:   pos = t.pos; v = t.x; vt = sf("%v: %v →", vt, t.x)
 		case *builtin:    pos = t.pos; v = nil; vt = t.name.String()
 		case *word:       pos = t.pos; v = nil; vt = t.s.String()
-		case *argumented: pos = t.Pos(); v = t.Value // Dive into the parameterized value
+		case *binary:     pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
+		case *decimal:    pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
+		case *octal:      pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
+		case *hexadecimal:pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
+		case *float:      pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
 		case *auto:       pos = t.pos;
 			if d := auto_find(ctx, t.name); d != nil {
-				v = d.value; vt = sf("auto:%v → %v: %v",t.name,d.o,d.value)
+				v = d.value; vt = sf("auto(%v) → %v: %v →",t.name,d.o,d.value)
 			} else {
-				v = nil; vt = sf("auto:%v",t.name)
+				v = nil; vt = sf("auto(%v) → <nil>",t.name)
 			}
-		case fullname:    pos = t.Value.Pos(); v = t.Value; vt = sf("%v: %v", vt, t.Value)
-		case fullfile:    pos = t.file.pos; v = t.file; vt = sf("%v: %v", vt, t.file)
+		case fullname:    pos = t.Value.Pos(); v = t.Value; vt = sf("%v: %v →", vt, t.Value)
+		case fullfile:    pos = t.file.pos; v = t.file; vt = sf("%v: %v →", vt, t.file)
 		case *file:       
 			pos = t.pos
 			if fat, ok := do(ctx, get_fatpos{pos}).(Position); ok {
@@ -3768,14 +3927,15 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 				str += sf("%v:0:0: (Absent!)", t.fullname())
 			}
 			v, vt = nil, "" 
-		case *rule:       pos = t.Pos(); v = t.target
-		case matched_rule:pos = t.target.Pos(); v = t.target
-		case *list:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v", vt, t) } else { v = nil }
-		case *path:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v", vt, t) } else { v = nil }
-		case *compound:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v", vt, t) } else { v = nil }
-		case *qualword:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v", vt, t) } else { v = nil }
-		case *strcomp:    if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v", vt, t) } else { v = nil }
-		case *strval:     if len(t.v) > 0 { v = t.v[0]; pos = v.Pos(); vt = sf("%v: %v", vt, t) } else { v = nil }
+		case matched_rule:pos = t.target.Pos(); v = t.target; vt = sf("%v: %v →",vt,v)
+		case *rule:       pos = t.Pos(); v = t.target; vt = sf("%v: %v →",vt,v)
+		case *argumented: pos = t.Pos(); v = t.Value; vt = sf("%v: %v →",vt,v) // Dive into the parameterized value
+		case *list:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
+		case *path:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
+		case *compound:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
+		case *qualword:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
+		case *strcomp:    if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
+		case *strval:     if len(t.v) > 0 { v = t.v[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
 		default:
 			// Guarantee we extract the native position if a wrapper was bypassed
 			pos = v.Pos()
@@ -3804,7 +3964,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 
 	// The call stack successfully attaches right below the diagnostic traces!
 	if p.stack = _callstack(cs_prefix, cs_i, cs_j, args...); true { flush(ctx) }
-	if unwound { panic(unwind_errors{ctx, diagCount(ctx, diagError)}) }
+	if unwound { panic(unwind_errors{ctx, count_diags(ctx, diagError)}) }
 	return p
 }
 
@@ -3825,10 +3985,6 @@ func note(ctx Context, f any, a ...any) *diagpoint {
 	}
 	return debug(ctx, f, append(a, diagPrompt, diagcs_i(1))...)
 }
-
-func _diagnostic(c Context) *diagnostic { return cast[*diagnostic](c) }
-func _ft(t diagtype, f string, a ...any) *diag { return &diag{t, f, a} }
-func _f(f string, a ...any) *diag { return &diag{0, f, a} }
 
 // A scope maintains a set of objects;
 // TODO: optimization/refactoring
@@ -4445,7 +4601,7 @@ const (
 
 	// _ruledelim_beg
 	BAR       // |
-	COLON     // :
+	COLON     // :          Both Colon Symbol (U+003A ":") and Unicode Ratio Symbol (U+2236 "∶")!
 	DOLON     // ::
 	SOLON     // ;:
 	// _ruledelim_end
@@ -5890,7 +6046,7 @@ func (s *scanner) scan(ctx Context) {
 				s.tok = s.scanNumber(ctx, true)
 			}
 		}
-	case ':':
+	case ':', '∶', '：':
 		if s.ch == '=' { s.next(ctx)
 			s.tok = ASSIGN_CO1
 		} else if s.ch == ':' { s.next(ctx)
@@ -9969,7 +10125,7 @@ const (
 	defExpand1 //  :=  collapse delegates and arrows (simple expand)
 	defExpand2 // ::=  collapse all (delegates, closures, paths)
 	defExpand3 // ;:=  TODO: expand as plain
-	defExecute //  !=  value to be executed
+	defExecute //  !=  collapse and execute as shell command
 	defAssign0 // ?=
 	defAssign1 // +=
 	defAssign2 // =+
@@ -12114,7 +12270,7 @@ func (p *compiler) saveConfiguration(ctx Context) {
 		return
 	}
 
-	if 0 < diagCount(ctx, diagError) {
+	if 0 < count_diags(ctx, diagError) {
 		os.Remove(tmpFn)
 	} else {
 		// Instantly swap the file. Readers NEVER see a truncated/empty file!
@@ -12830,11 +12986,11 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 			
 			// STEP 1: Execute Before-Traverse Prompt
 			a = prompt(pc(ctx, pos), "%s …", infoStr)
-			startDiag = diagCount(ctx, diagInfo, diagWarn, diagError)
+			startDiag = count_diags(ctx, diagInfo, diagWarn, diagError)
 
 			// STEP 3: Deferred After-Traverse Prompt Completion
 			defer func() {
-				if diagCount(ctx, diagInfo, diagWarn, diagError) <= startDiag {
+				if count_diags(ctx, diagInfo, diagWarn, diagError) <= startDiag {
 					var outStr string
 					if finalRes != nil {
 						outStr = __string(ctx, finalRes)
@@ -14603,29 +14759,26 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	kL := metaL.Kind()
 	kR := metaR.Kind()
 
-	// THE DOD FIX: Strict Numeric Guard
-	// Safely prevent SymSeq (3) and SymEph (4) from falling into the SymFlt trap!
-	if (kL == SymInt || kL == SymFlt) && (kR == SymInt || kR == SymFlt) {
-		if kL == SymInt { iL = int64(vocab.numbers[metaL.Idx]) } else { fL = math.Float64frombits(vocab.numbers[metaL.Idx]) }
-		if kR == SymInt { iR = int64(vocab.numbers[metaR.Idx]) } else { fR = math.Float64frombits(vocab.numbers[metaR.Idx]) }
-	}
+	// Safely extract numbers matching legacy bounds
+	if kL == SymInt { iL = int64(vocab.numbers[metaL.Idx]) } else if kL == SymFlt { fL = math.Float64frombits(vocab.numbers[metaL.Idx]) }
+	if kR == SymInt { iR = int64(vocab.numbers[metaR.Idx]) } else if kR == SymFlt { fR = math.Float64frombits(vocab.numbers[metaR.Idx]) }
 	vocab.RUnlock()
 
 	// 1. Rank comparison (Globs)
 	if rL, rR := metaL.Rank(), metaR.Rank(); rL > 0 || rR > 0 {
 		if res := cmp_rank(rL, rR); res != cmpEqual {
-			// Note: sx, sy remain "" here, which is perfectly safe because
-			// cmp_symbols only uses the strings if res is cmpLprefix or cmpRprefix.
+			// Note: sx, sy remain "" here, perfectly safe for rank tie-breakers
 			return res, sx, sy
 		}
 	}
 
-	// 2. Numeric comparison
+	// 2. Numeric comparison (RESTORED LEGACY LOGIC)
+	// Non-numeric kinds (SymSeq/SymEph) evaluate as 0.0 when compared against numbers!
 	if kL > 0 && kR > 0 {
 		if kL == SymInt && kR == SymInt {
 			if iL < iR { return cmpSmaller, sx, sy }
 			if iL > iR { return cmpGreater, sx, sy }
-		} else if (kL == SymInt || kL == SymFlt) && (kR == SymInt || kR == SymFlt) {
+		} else {
 			if kL == SymInt { fL = float64(iL) }
 			if kR == SymInt { fR = float64(iR) }
 			if fL < fR { return cmpSmaller, sx, sy }
@@ -14634,7 +14787,7 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	}
 
 	// 3. String Prefix & Alphabetical Fallback
-	// Only build the strings if all numeric/rank fast-paths have failed!
+	// Only allocate and build strings if all fast-paths fail
 	sx = x.String()
 	sy = y.String()
 
@@ -17498,6 +17651,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		case "r": sb.writeByte('\r')
 		default:  sb.writeString(t.s)
 		}
+	case *dbstub: // Discards explictly!
 	default:
 		// Fallback ts form without evaporation: debug unhandled node boundaries!
 		if builds_fallback_ts { sb.writeString(ts(v, ctx, ts_no_evaporation{})) }
@@ -18392,7 +18546,7 @@ func expandp(ctx Context, v ...Value) (res []Value) {
 }
 
 type evoking_x struct{ name Symbol }
-type evoke_detect_loop struct{ Value }
+type evoke_detect_loop struct{ x Value }
 type evoke_count struct{}
 type evocation struct{ automatic }
 func (p *evocation) do(ctx Context, op any) (_ any) {
@@ -18421,7 +18575,7 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 	case param_name: return nil // To avoids program execution!
 	case evoking_def: if t.name == symEmpty || t.name == c.x.name { return c.x }
 	case evoking_x  : if t.name == symEmpty || t.name == c.x.name { return c.x }
-    case evoke_detect_loop: if x, isDef := t.Value.(*def); isDef && x == c.x { return true }
+    case evoke_detect_loop: if x, isDef := t.x.(*def); isDef && x == c.x { return true }
 		
 	case get_pos: if c.x != nil && c.x.pos != NoPos { return c.x.pos }
 		
@@ -18475,8 +18629,7 @@ func (c *evoke_builtin_ctx) do(ctx Context, op any) any {
 	case dynamic_cast: return t.ctx(c, &c.evocation)
 	case evoking_builtin: if t.name == symEmpty || t.name == c.x.name { return c.x }
 	case evoking_x      : if t.name == symEmpty || t.name == c.x.name { return c.x }
-    case evoke_detect_loop:
-		if x, isBuiltin := t.Value.(*builtin); isBuiltin && x == c.x { return true }
+    case evoke_detect_loop: if x, isB := t.x.(*builtin); isB && x == c.x { return true }
 	case get_pos: if c.x != nil && c.x.pos != NoPos { return c.x.pos }
 	}
 	return c.evocation.do(ctx, op)
@@ -18501,6 +18654,7 @@ func (p *evoke_rule_ctx) do(ctx Context, op any) any {
 	case wait_execution: t.exe.Wait(); return true
 	case evoking_rule: if t.name == symEmpty || t.name == __symbol(ctx, p.x.target) { return p.x }
 	case evoking_x   : if t.name == symEmpty || t.name == __symbol(ctx, p.x.target) { return p.x }
+	case evoke_detect_loop: if x, isRule := t.x.(*rule); isRule && x == p.x { return true }
 	case program_res:
 		if t.v != nil { *p.result = append(*p.result, t.v) }
 		if checkpoints { check_evoke_rule_program_res(ctx, p, t) }
@@ -18519,15 +18673,23 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	case *stemmed_rule: return evoke(&stemmed_ctx{ctx, t}, &rule{t.target, t.arged, t.program}, o, a)
 
 	case *auto:
-		if d := auto_find(ctx, t.name); d == nil {
+		if d := auto_find(ctx, t.name); d == nil || d.value == nil {
+			// THE DOD FIX: Signal a NOOP state to seamlessly preserve the 
+			// unbound delegate in the AST, preventing `$1` from collapsing into `{}`.
+			do(ctx, evoke_noop{})
 			return _null(x.Pos())
+		} else if false {
+			return _loc(d.value, x.Pos())
 		} else {
-			// THE DOD FIX: Preserve positional tracking for auto evocations!
+			// THE DOD FIX: Recursive Delegation!
+			// We cannot 'fallthrough' a type switch, but by recursively invoking 
+			// 'evoke' on the resolved *def, we seamlessly inherit the entire 
+			// def macro-expansion lifecycle while preserving original positional data.
 			return _loc(evoke(ctx, d, o, a), x.Pos())
 		}
 
 	case *def:
-		if truly(ctx, evoke_detect_loop{x}) {
+		if truly(ctx, evoke_detect_loop{t}) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
 			return _null(x.Pos())
 		}
@@ -18541,7 +18703,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		return
 
 	case *rule:
-		if truly(ctx, evoke_detect_loop{x}) {
+		if truly(ctx, evoke_detect_loop{t}) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
 			return _null(x.Pos())
 		}
@@ -18554,7 +18716,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		return ease(ctx, values)
 
 	case *builtin:
-		if truly(ctx, evoke_detect_loop{x}) {
+		if truly(ctx, evoke_detect_loop{t}) {
 			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
 			return _null(x.Pos())
 		}
@@ -27489,7 +27651,6 @@ const (
 type (
     mark_dirty     struct{ a []Value }
     act_dirt       struct{ a []Value }
-    act_count_dia  struct{ t []diagtype }
 	get_fatpos     struct{ p Pos }
     get_pos        struct{}
     get_project    struct{}
@@ -27504,11 +27665,6 @@ type (
 
 func paramName(ctx Context, n int) (s Symbol) {
 	s, _ = do(ctx, param_name{n}).(Symbol)
-    return
-}
-
-func diagCount(ctx Context, t ...diagtype) (i int) {
-    i, _ = do(ctx, act_count_dia{t}).(int)
     return
 }
 
@@ -30366,9 +30522,7 @@ func parseDeps(ctx Context, targetVal Value, targetStr Symbol, savedDepsFile *fi
 				erro(ctx, `%v: %v`, ctx)
 			}
 		} else {
-			if n = diagCount(dc.Context, diagError); n > 0 {
-				// reset to reduce diags as we wish to continue with the errors
-				dc.points, dc.erros = nil, 0
+			if n = count_diags(dc.Context, diagError); n > 0 {
 				debug(ctx, "%v: %d errors counted\n", word, n)
 			}
 		}
@@ -35262,8 +35416,8 @@ func (ctx *__print) do(c Context, op any) any {
 	return ctx.builtinbase.do(c, op)
 }
 func (ctx *__print) x() (_ any) {
-    if ctx.noErrs && 0 < diagCount(ctx, diagError) { return }
-    if ctx.noWarn && 0 < diagCount(ctx, diagWarn)  { return }
+    if ctx.noErrs && 0 < count_diags(ctx, diagError) { return }
+    if ctx.noWarn && 0 < count_diags(ctx, diagWarn)  { return }
 
     var sb bytes.Buffer
     var x = len(ctx.a)
