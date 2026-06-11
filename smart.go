@@ -2891,77 +2891,120 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 // only falls back to evaluation/interning for dynamic nodes.
 func __symbol(ctx Context, val Value) Symbol {
 	if val == nil { return symEmpty }
-	if val = unbox(val); val == nil { return symEmpty }
 
 	switch v := val.(type) {
 	case *word: return v.s
 	case *auto: return v.name
 	case *file: return v.name
+	case self: return v.name
+	case *project: return v.name
 	case fullfile: return v.name
 	case tempfile: return v.name
 	case fullname: return __symbol(ctx, v.Value)
 	case *defcaps: return __symbol(ctx, v.Value)
+    case *loc:  return __symbol(ctx, v.Value)
+    case *xloc: return __symbol(ctx, v.Value)
 	case *pair: return __symbol(ctx, v.key)
-	case *rule: return __symbol(ctx, v.target)
-	case *stemmed_rule: return __symbol(ctx, v.target)
-	case matched_rule: return __symbol(ctx, v.target)
+	case *rule: return __symbol(&ident_ctx{ctx,0}, v.target)
+	case *stemmed_rule: return __symbol(ctx, v.rule)
+	case matched_rule:  return __symbol(ctx, v.rule)
 	case flag:
 		if isEmpty(v.Value) { return symDash }
 		return __symJoin(symDash, __symbol(ctx, v.Value))
+
 	case *strlit:
 		return internSeq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
+
+	// DOD: Exact slice pre-allocation prevents heap resizing
 	case *strval:
-		seq := []Symbol{symLbrace}
-		for _, v := range v.v { seq = append(seq, __symbol(ctx,v)) }
-		return internSeq(append(seq, symRbrace))
+		seq := make([]Symbol, 0, len(v.v)+2)
+		seq = append(seq, symLbrace)
+		for _, e := range v.v { seq = append(seq, __symbol(ctx, e)) }
+		seq = append(seq, symRbrace)
+		return internSeq(seq)
+	
 	case *strcomp:
-		seq := []Symbol{symQuotation}
-		for _, v := range v.elems { seq = append(seq, __symbol(ctx,v)) }
-		return internSeq(append(seq, symQuotation))
+		seq := make([]Symbol, 0, len(v.elems)+2)
+		seq = append(seq, symQuotation)
+		for _, e := range v.elems { seq = append(seq, __symbol(ctx, e)) }
+		seq = append(seq, symQuotation)
+		return internSeq(seq)
+	
 	case *compound:
-		seq := []Symbol{}
-		for _, v := range v.elems { seq = append(seq, __symbol(ctx,v)) }
+		seq := make([]Symbol, 0, len(v.elems))
+		for _, e := range v.elems { seq = append(seq, __symbol(ctx, e)) }
 		return internSeq(seq)
+	
 	case *qualword:
-		seq := []Symbol{}
-		for i, v := range v.elems {
-			if i > 0 { seq = append(seq, symDot) } // Interleave the dot natively!
-			seq = append(seq, __symbol(ctx, v))
-		}
-		return internSeq(seq)
-	case *list:
-		// THE DOD FIX: Support for list expansion inside composite nodes!
-		// A list like `⌜.s1 .s2⌟` must evaluate its children and join them with spaces.
-		seq := []Symbol{symLtopcorner} // ⌜
+		seq := make([]Symbol, 0, len(v.elems)*2) // Account for interleaved dots
 		for i, e := range v.elems {
-			if i > 0 { seq = append(seq, symSpace) } // Explicitly join with space!
+			if i > 0 { seq = append(seq, symDot) }
 			seq = append(seq, __symbol(ctx, e))
 		}
-		return internSeq(append(seq, symRbotcorner)) // ⌟
+		return internSeq(seq)
+	
+	case *argumented:
+		// Capacity: 1 (Value) + 1 (Lparen) + args + spaces + 1 (Rparen)
+		seq := make([]Symbol, 0, len(v.args)*2+2)
+		seq = append(seq, __symbol(ctx, v.Value), symLparen)
+		for i, a := range v.args {
+			if i > 0 { seq = append(seq, symSpace) }
+			seq = append(seq, __symbol(ctx, a))
+		}
+		seq = append(seq, symRparen)
+		return internSeq(seq)
+	
+	case *list:
+		if v.len() == 1 { return __symbol(ctx, v.elems[0]) }
+		seq := make([]Symbol, 0, len(v.elems)*2+1)
+		seq = append(seq, symLtopcorner) // ⌜
+		for i, e := range v.elems {
+			if i > 0 { seq = append(seq, symSpace) }
+			seq = append(seq, __symbol(ctx, e))
+		}
+		seq = append(seq, symRbotcorner) // ⌟
+		return internSeq(seq)
+
+	case *prediction: if v.bool { return symTrue } else { return symFalse }
+	case *boolean: if v.bool { return symTrue } else { return symFalse }
+	case *answer: if v.bool { return symYes } else { return symNo }
+	case *option: if v.bool { return symOn } else { return symOff }
 
 	// AST Numeric Types - Zero-Allocation Fast Paths
 	case *integer: // Base struct, in case the parser ever emits it directly
+		if v.sym != 0 { return v.sym }
 		if 0 <= v.int64 && v.int64 <= 9 {
 			return sym_0 + Symbol(v.int64)
 		}
 		return intern(strconv.FormatInt(v.int64, 10))
 
 	case *decimal:
+		if v.sym != 0 { return v.sym }
 		if 0 <= v.int64 && v.int64 <= 9 {
 			return sym_0 + Symbol(v.int64)
 		}
 		return intern(v.String()) // Safe fallback using the struct's String() method
 
 	case *float:
+		if v.sym != 0 { return v.sym }
 		// Check if the float represents a clean single-digit integer (e.g., 1.0 -> 1)
 		if v.float64 == float64(int64(v.float64)) && 0 <= v.float64 && v.float64 <= 9 {
 			return sym_0 + Symbol(int64(v.float64))
 		}
 		return intern(v.String())
 
+	case *binary: if v.sym == 0 { return intern(v.String()) } else { return v.sym }
+	case *octal: if v.sym == 0 { return intern(v.String()) } else { return v.sym }
+	case *hexadecimal: if v.sym == 0 { return intern(v.String()) } else { return v.sym }
+
+	case *punct:
+		// NOTE: PROOT is the leading EMPTY in a path
+		// NOTE: PTAIL is the tailing EMPTY in a path
+		return intern(v.token.String())
+
 	// Other integer bases (Binary, Octal, Hexadecimal)
 	// We just pass these to intern() via their String() method.
-	case *binary, *octal, *hexadecimal, *datetime, *Date, *Time:
+	case *datetime, *Date, *Time:
 		return intern(v.String())
 
 	case interface{ sym() Symbol }:
@@ -2969,12 +3012,13 @@ func __symbol(ctx Context, val Value) Symbol {
 	}
 
 	// Fallback for dynamically evaluated nodes (e.g. SRC_$(ARCH)_FILES)
-	if truly(ctx, symident{}) {
-		return intern(ident(ctx, val))
-	} else {
-		return intern(__string(ctx, val))
-	}
+	var s string
+	if truly(ctx, symident{}) { s = ident(ctx, val) } else { s = __string(ctx, val) }
+	return intern(s)
 }
+
+type symbolize_ctx struct{ Context }
+func (sc symbolize_ctx) do(ctx Context, op any) any { return nil }
 
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	if checkpoints { defer check_symbolize(v)(&res) }
@@ -3129,8 +3173,11 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *raw:
 		// FIXME: a raw value may store strings from p.Stdout.Buf.String()!
         // Semantic Equality: "foo" (raw) == foo (word)
-		// TODO: symbolize_string(trivial_ctx{t.pos}, t.s)
-		return __symSeq(intern(t.String()))
+		if false {
+			return symbolize_string(symbolize_ctx{nil}, t.s)
+		} else {
+			return __symSeq(intern(t.String()))
+		}
 	}
     return
 }
@@ -7136,8 +7183,8 @@ func (p *compiler) braced(ctx Context) (x Value) {
 			_p := p.Position()
 			return &compound{elements{[]Value{
 				_word(p.pos, _p.Filename), _punct(p.pos, COLON),
-				_decimal(p.pos, int64(_p.Line)), _punct(p.pos, COLON),
-				_decimal(p.pos, int64(_p.Column)), _punct(p.pos, COLON),
+				_decimal(p.pos, int64(_p.Line), 0), _punct(p.pos, COLON),
+				_decimal(p.pos, int64(_p.Column), 0), _punct(p.pos, COLON),
 			}}}
 
 		case symPlain:
@@ -7702,15 +7749,15 @@ func (p *compiler) literal(ctx Context) (_ Value) {
 	// ESCAPE is handled in value.EscapeChar
 	switch tok {
 	case BAR: erro(ctx, "`|` is deprecated, change the modifiers!")
-	case BINARY:      return ParseBinary(pos, lit)
-	case OCTAL:       return ParseOctal(pos, lit)
-	case INTEGER:     return ParseDecimal(pos, lit)
-	case HEXADECIMAL: return ParseHexadecimal(pos, lit)
+	case BINARY:      return ParseBinary(pos, lit, sym)
+	case OCTAL:       return ParseOctal(pos, lit, sym)
+	case INTEGER:     return ParseDecimal(pos, lit, sym)
+	case HEXADECIMAL: return ParseHexadecimal(pos, lit, sym)
 	case DATETIME:    return ParseDateTime(pos, lit)
 	case DATE:        return ParseDate(pos, lit)
 	case TIME:        return ParseTime(pos, lit)
 	case URL:         return ParseURL(pos, lit)
-	case FLOATING:    return parseFloat(pos, lit)
+	case FLOATING:    return parseFloat(pos, lit, sym)
 	case WORD:        return _word(pos, sym)
 	case RAW:         return _raw(pos, lit)
 	case STRING:      return _strlit(pos, lit)
@@ -9496,14 +9543,15 @@ func (p *compiler) braced_type(ctx Context, tok token) (x Value) {
 	p.next(ctx, true)
 
 	var n any
+	var sym Symbol
 	var pos = p.pos
 	if tok == BOOLEAN { tok = BOOL }
 	if p.spaces(ctx); p.tok != RBRACE {
 		switch tok {
 		case ANSWER, BOOL:
 			switch p.tok {
-			case  TRUE, YES,  ON: n = true
-			case FALSE,  NO, OFF: n = false
+			case  TRUE, YES,  ON: n, sym = true, p.sym
+			case FALSE,  NO, OFF: n, sym = false, p.sym
 			default:
 				erro(ctx, "unexpected token: %v", p.tok)
 			}
@@ -9518,11 +9566,11 @@ func (p *compiler) braced_type(ctx Context, tok token) (x Value) {
 	switch tok {
 	case ANSWER: x = _answer(pos,      n.(bool))
 	case   BOOL: x = _boolean(pos,     n.(bool))
-	case    BIN: x = _binary(pos,      n.(int64))
-	case    OCT: x = _octal(pos,       n.(int64))
-	case    INT: x = _decimal(pos,     n.(int64))
-	case    HEX: x = _hexadecimal(pos, n.(int64))
-	case  FLOAT: x = _float(pos,       n.(float64))
+	case    BIN: x = _binary(pos,      n.(int64), sym)
+	case    OCT: x = _octal(pos,       n.(int64), sym)
+	case    INT: x = _decimal(pos,     n.(int64), sym)
+	case    HEX: x = _hexadecimal(pos, n.(int64), sym)
+	case  FLOAT: x = _float(pos,       n.(float64), sym)
 	}
 
 	if x == nil {
@@ -15331,7 +15379,7 @@ func makePrediction(pos Pos, val bool, s string) *prediction {
     return &prediction{boolean{valbase{pos}, val}, s}
 }
 
-type integer struct{ valbase; int64 }
+type integer struct{ valbase; int64; sym Symbol }
 func (_ *integer) kind() Kind { return KindInteger }
 
 type binary struct{ integer }
@@ -15352,7 +15400,7 @@ func (p *hexadecimal) String() string { return "0x"+strconv.FormatInt(int64(p.in
 
 const epsilon = 1e-15 /* 1e-16 */
 
-type float struct{ valbase; float64 } // IEEE-754 64-bit binary floating-point
+type float struct{ valbase; float64; sym Symbol } // IEEE-754 64-bit binary floating-point
 func (p *float) kind() Kind { return KindFloat }
 func (p *float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 
@@ -15428,6 +15476,7 @@ func (p *raw) trim(pre string) {
 type strlit struct{ valbase; s string }
 func (_ *strlit) kind() Kind { return KindStrLit }
 func (p *strlit) String() string { return `'`+p.s+`'` }
+func (p *strlit) ident(Context) string { return `'`+p.s+`'` }
 
 type strval struct{ valbase; v []Value }
 func (_ *strval) kind() Kind { return KindStrVal }
@@ -16184,7 +16233,7 @@ LoopJSON:
             case string:
                 node.append(makePair(sv, _strlit(pos, vd)))
             case float64:
-                node.append(makePair(sv, _float(pos, vd)))
+                node.append(makePair(sv, _float(pos, vd, 0)))
             case nil: // null
                 node.append(makePair(sv, _word(pos, intern("null"))))
             default:
@@ -16192,7 +16241,7 @@ LoopJSON:
             }
             //prompt(ctx, "node: %v\n", node)
         case float64:
-            if v := Value(_float(pos, d)); x == 0 {
+            if v := Value(_float(pos, d, 0)); x == 0 {
                 nodes = append(nodes, v)
             } else {
                 node, value = stack[x-1], v
@@ -17366,7 +17415,14 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		if t.bool { sb.writeString("on") } else { sb.writeString("off") }
 	case *boolean:
 		if t.bool { sb.writeString("true") } else { sb.writeString("false") }
-	case *strlit: sb.writeString(t.s)
+	case *strlit:
+		if truly(ctx, symident{}) {
+			sb.writeByte('\'')
+			sb.writeString(t.s)
+			sb.writeByte('\'')
+		} else {
+			sb.writeString(t.s)
+		}
 	case *raw: sb.writeString(t.s)
 	case *word: sb.writeString(t.s.String())
 	case *regexpat: sb.writeString(t.Regexp.String())
@@ -17386,8 +17442,9 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *defcaps: __builds(ctx, sb, t.Value)
 	case *def: if t != nil { __builds(ctx, sb, t.value) }
 	case *auto: if t != nil { __builds(ctx, sb, t.def(ctx)) }
-	case *rule: if t != nil { __builds(ctx, sb, t.target) }
-	case matched_rule: __builds(ctx, sb, t.target)
+	case *rule: if t != nil { __builds(&ident_ctx{ctx,0}, sb, t.target) }
+	case *stemmed_rule: __builds(ctx, sb, t.rule)
+	case matched_rule: __builds(ctx, sb, t.rule)
 	case *quote: 
 		sb.writeString(strconv.Quote(__string(ctx, &t.list)))
 	case *globrange: 
@@ -20073,7 +20130,7 @@ func (p *dialect_exec) evaluate(ctx Context, args ...Value) (result Value) {
 		} else {
 			switch resKind {
 			case "stdout", "stderr": return _raw(ec.exec_result.pos, s)
-			case "status":           return _decimal(ec.exec_result.pos, int64(ec.status))
+			case "status":           return _decimal(ec.exec_result.pos, int64(ec.status), 0)
 			}
 		}
 	}
@@ -20225,50 +20282,6 @@ func globMatchCharSet(pattern string, char rune) bool {
 	return match != negate
 }
 
-// getScalarSym extracts the primitive, un-expanded Symbol directly from an AST node
-// to ensure the matching engine operates entirely within the atomic Symbol Domain.
-func getScalarSym(ctx Context, v Value) Symbol {
-	if v == nil {
-		return symEmpty
-	}
-	switch t := v.(type) {
-	case *word:
-		return t.s
-	case *file:
-		// LOW-LEVEL ISOLATION: Always fetch the local segment name symbol directly
-		// to prevent out-of-tree fullfile absolute path conversions during matching.
-		return t.name
-	case *strlit:
-		return intern(t.s)
-	case *raw:
-		return intern(t.s)
-	case *globmeta:
-		return intern(t.token.String())
-	case *punct:
-		// NOTE: PROOT is the leading EMPTY in a path
-		// NOTE: PTAIL is the tailing EMPTY in a path
-		return intern(t.token.String())
-	case *decimal:
-		return intern(strconv.FormatInt(t.int64, 10))
-	case *float:
-		return intern(strconv.FormatFloat(t.float64, 'g', -1, 64))
-	case *boolean:
-		if t.bool { return intern("true") } else { return intern("false") }
-	case *escaped:
-		return intern(t.s)
-	case fullname:
-		return getScalarSym(ctx, t.Value)
-	case fullfile:
-		return getScalarSym(ctx, t.file)
-	case *loc:
-		return getScalarSym(ctx, t.Value)
-	case *xloc:
-		return getScalarSym(ctx, t.Value)
-	}
-	// Fallback to the context's primitive extractor for general symbols
-	return __symbol(ctx, v)
-}
-
 // UNUSED:
 func getScalarLength(ctx Context, v Value) int {
 	if t, ok := v.(flag); ok {
@@ -20277,7 +20290,7 @@ func getScalarLength(ctx Context, v Value) int {
 	}
 	
 	// Direct symbol length execution with zero allocations
-	return __symStrLen(getScalarSym(ctx, v))
+	return __symStrLen(__symbol(ctx, v))
 }
 
 // getScalarSubstr extracts a substring from a scalar Value.
@@ -20314,7 +20327,7 @@ func getScalarSubstr(ctx Context, v Value, start, end int) string {
 		return valStr
 	}
 
-	s := getScalarSym(ctx, v).String()
+	s := __symbol(ctx, v).String()
 	if start < 0 { start = 0 }
 	if end < 0 || end > len(s) { end = len(s) }
 
@@ -22148,8 +22161,9 @@ func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, 
 func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, res, rem Value) {
 	if checkpoints { defer check_matchScalarScalar(ctx, pat, val, trail)(&matched, &res, &rem) }
 
-	patSym := getScalarSym(ctx, pat)
-	valSym := getScalarSym(ctx, val)
+	 // Use the authoritative __symbol pipeline!
+	patSym := __symbol(ctx, pat)
+	valSym := __symbol(ctx, val)
 	remSym := symEmpty
 
 	// Guard against structural layout anchors (like PROOT/PTAIL) masquerading as plain empty strings
@@ -23197,16 +23211,16 @@ func ease(ctx Context, a any) (res Value) {
     switch t := a.(type) {
 	case   Symbol: return _word(_pos(ctx), t)
     case    bool : return _boolean(_pos(ctx),         t )
-    case    int  : return _decimal(_pos(ctx),   int64(t))
-    case    int16: return _decimal(_pos(ctx),   int64(t))
-    case    int32: return _decimal(_pos(ctx),   int64(t))
-    case    int64: return _decimal(_pos(ctx),         t )
-    case   uint  : return _decimal(_pos(ctx),   int64(t))
-    case   uint16: return _decimal(_pos(ctx),   int64(t))
-    case   uint32: return _decimal(_pos(ctx),   int64(t))
-    case   uint64: return _decimal(_pos(ctx),   int64(t))
-    case  float32: return _float(  _pos(ctx), float64(t))
-    case  float64: return _float(  _pos(ctx),         t )
+    case    int  : return _decimal(_pos(ctx),   int64(t), 0)
+    case    int16: return _decimal(_pos(ctx),   int64(t), 0)
+    case    int32: return _decimal(_pos(ctx),   int64(t), 0)
+    case    int64: return _decimal(_pos(ctx),         t , 0)
+    case   uint  : return _decimal(_pos(ctx),   int64(t), 0)
+    case   uint16: return _decimal(_pos(ctx),   int64(t), 0)
+    case   uint32: return _decimal(_pos(ctx),   int64(t), 0)
+    case   uint64: return _decimal(_pos(ctx),   int64(t), 0)
+    case  float32: return _float(  _pos(ctx), float64(t), 0)
+    case  float64: return _float(  _pos(ctx),         t , 0)
     case   string: return _strlit( _pos(ctx),         t )
     case []string: for _, s := range t { elems = append(elems, _strlit(_pos(ctx), s )) }
 	case  []*file: for _, f := range t { elems = append(elems, f) }
@@ -23770,11 +23784,11 @@ func _none(pos Pos) *none { return &none{valbase{pos}} }
 func _answer(pos Pos, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
 func _boolean(pos Pos, v bool) *boolean { return &boolean{valbase{pos},v} }
 func _option(pos Pos, v bool) *option { return &option{boolean{valbase{pos},v}} }
-func _binary(pos Pos, i int64) *binary { return &binary{integer{valbase{pos},i}} }
-func _octal(pos Pos, i int64) *octal { return &octal{integer{valbase{pos},i}} }
-func _decimal(pos Pos, i int64) *decimal { return &decimal{integer{valbase{pos},i}} }
-func _hexadecimal(pos Pos, i int64) *hexadecimal { return &hexadecimal{integer{valbase{pos},i}} }
-func _float(pos Pos, f float64) *float  { return &float{valbase{pos},f} }
+func _binary(pos Pos, i int64, sym Symbol) *binary { return &binary{integer{valbase{pos},i,sym}} }
+func _octal(pos Pos, i int64, sym Symbol) *octal { return &octal{integer{valbase{pos},i,sym}} }
+func _decimal(pos Pos, i int64, sym Symbol) *decimal { return &decimal{integer{valbase{pos},i,sym}} }
+func _hexadecimal(pos Pos, i int64, sym Symbol) *hexadecimal { return &hexadecimal{integer{valbase{pos},i,sym}} }
+func _float(pos Pos, f float64, sym Symbol) *float  { return &float{valbase{pos},f,sym} }
 func _strlit(pos Pos, s string) *strlit { return &strlit{valbase{pos},s} }
 func _strcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
 func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
@@ -23875,71 +23889,71 @@ func makeClosure(pos Pos, tok token, obj Value, opts []Value, args ...Value) Val
 	return &closure{delegate{valbase{pos}, tok, obj, opts, args}}
 }
 
-func Make(pos Pos, in any) (out Value) {
-    switch v := in.(type) {
-    case int:       out = _decimal(pos,int64(v))
-    case int32:     out = _decimal(pos,int64(v))
-    case int64:     out = _decimal(pos,v)
-    case float32:   out = _float(pos,float64(v))
-    case float64:   out = _float(pos,v)
-    case string:    out = _strlit(pos, v)
-    case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
-    case Value:     out = v
-    }
-    return
-}
-func MakeAll(pos Pos, in... any) (out []Value) {
-    for _, v := range in {
-        // TODO: position for each element
-        out = append(out, Make(pos,v))
-    }
-    return
-}
+// func Make(pos Pos, in any) (out Value) {
+//     switch v := in.(type) {
+//     case int:       out = _decimal(pos,int64(v))
+//     case int32:     out = _decimal(pos,int64(v))
+//     case int64:     out = _decimal(pos,v)
+//     case float32:   out = _float(pos,float64(v))
+//     case float64:   out = _float(pos,v)
+//     case string:    out = _strlit(pos, v)
+//     case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
+//     case Value:     out = v
+//     }
+//     return
+// }
+// func MakeAll(pos Pos, in... any) (out []Value) {
+//     for _, v := range in {
+//         // TODO: position for each element
+//         out = append(out, Make(pos,v))
+//     }
+//     return
+// }
 
-func ParseBinary(pos Pos, s string) *binary {
+func ParseBinary(pos Pos, s string, sym Symbol) *binary {
     if strings.HasPrefix(s, "0b") || strings.HasPrefix(s, "0B") {
         s = s[2:]
     }
     if i, e := strconv.ParseInt(s, 2, 64); e == nil {
-        return _binary(pos,i)
+        return _binary(pos, i, sym)
     } else {
         panic(e)
     }
 }
 
-func ParseOctal(pos Pos, s string) *octal {
+func ParseOctal(pos Pos, s string, sym Symbol) *octal {
     if strings.HasPrefix(s, "0") {
         s = s[1:]
     }
     if i, e := strconv.ParseInt(s, 8, 64); e == nil {
-        return _octal(pos,i)
+        return _octal(pos, i, sym)
     } else {
         panic(e)
     }
 }
 
-func ParseDecimal(pos Pos, s string) *decimal {
+func ParseDecimal(pos Pos, s string, sym Symbol) *decimal {
 	if i, e := strconv.ParseInt(s, 10, 64); e == nil {
-		return _decimal(pos,i)
+		return _decimal(pos, i, sym)
 	} else {
 		panic(e)
 	}
 }
 
-func ParseHexadecimal(pos Pos, s string) *hexadecimal {
+func ParseHexadecimal(pos Pos, s string, sym Symbol) *hexadecimal {
 	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
 		s = s[2:]
 	}
 	if i, e := strconv.ParseInt(s, 16, 64); e == nil {
-		return _hexadecimal(pos,i)
+		return _hexadecimal(pos, i, sym)
 	} else {
 		panic(e)
 	}
 }
 
-func parseFloat(pos Pos, s string) *float {
+func parseFloat(pos Pos, s string, sym Symbol) *float {
 	if f, e := strconv.ParseFloat(strings.Replace(s, "_", "", -1), 64); e == nil {
-		return _float(pos,f)
+		return _float(pos, f, sym)
 	} else {
 		panic(e)
 	}
@@ -31683,7 +31697,7 @@ func (ctx *modifier_wait) x(args ...Value) (result any) {
     }
     if ctx.status {
         // TODO: warn(ctx, "deprecated (wait -status), use (shell -status) instead; %v", execRes).debug()
-        a = append(a, _decimal(pos,int64(execRes.status)))
+        a = append(a, _decimal(pos,int64(execRes.status),0))
     }
 
     if len(a) > 0 { result = ease(ctx, a) }
@@ -32691,8 +32705,8 @@ func (ctx *__position) x() (res any) {
 		vals = append(vals, _raw(p, "\""+pos.Filename.String()+"\""))
 	}
 
-	if ctx.line   { vals = append(vals, _decimal(p, int64(pos.Line + ctx.addLine))) }
-	if ctx.column { vals = append(vals, _decimal(p, int64(pos.Column + ctx.addColumn))) }
+	if ctx.line   { vals = append(vals, _decimal(p, int64(pos.Line + ctx.addLine), 0)) }
+	if ctx.column { vals = append(vals, _decimal(p, int64(pos.Column + ctx.addColumn), 0)) }
 
 	if len(vals) == 0 { return _raw(p, pos.String()) }
 	if len(vals) == 1 { return vals[0] }
@@ -33825,14 +33839,14 @@ func (ctx *__plus) x() (res any) {
             var i = __int(ctx, a)
             if n == 0 { num = i } else { num += i }
         }
-        return _decimal(_pos(ctx), num)
+        return _decimal(_pos(ctx), num, 0)
     } else {
         var num float64
         for n, a := range ctx.a {
             var f = __float(ctx, a)
             if n == 0 { num = f } else { num += f }
         }
-        return _float(_pos(ctx), num)
+        return _float(_pos(ctx), num, 0)
     }
 }
 
@@ -33851,14 +33865,14 @@ func (ctx *__minus) x() (res any) {
             var i = __int(ctx, a)
             if n == 0 { num = i } else { num -= i }
         }
-        return _decimal(_pos(ctx), num)
+        return _decimal(_pos(ctx), num, 0)
     } else {
         var num float64
         for n, a := range ctx.a {
             var f = __float(ctx, a)
             if n == 0 { num = f } else { num -= f }
         }
-        return _float(_pos(ctx), num)
+        return _float(_pos(ctx), num, 0)
     }
 }
 
@@ -34611,13 +34625,13 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 		p := unloc(pat)
 
 		if pp, ok := p.(*percpat); ok {
-			pfxSym := getScalarSym(ctx, pp.Prefix)
+			pfxSym := __symbol(ctx, pp.Prefix)
 
 			sufVal := pp.Suffix
 			if inner, isPP := unloc(sufVal).(*percpat); isPP && isEmpty(inner.Prefix) {
 				sufVal = inner.Suffix // Handle %%
 			}
-			sufSym := getScalarSym(ctx, sufVal)
+			sufSym := __symbol(ctx, sufVal)
 
 			fp.isPerc = true
 			fp.prefix = pfxSym.String()
@@ -34627,7 +34641,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 			fp.regex = rx.Regexp
 		} else if !patterned(ctx, p) {
 			fp.isExact = true
-			fp.exact = getScalarSym(ctx, p)
+			fp.exact = __symbol(ctx, p)
 		}
 
 		fastPats = append(fastPats, fp)
@@ -34648,7 +34662,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 		}
 
 		// Extract the lookup symbol handle directly from the syntax token
-		vSym := getScalarSym(ctx, v)
+		vSym := __symbol(ctx, v)
 
 		if cached, exists := cache[vSym]; exists {
 			if cached.matched {
@@ -35282,7 +35296,7 @@ func (ctx *__trimext) x() any {
 				// B. Pure Symbol Domain Auto-Detect Mode
 				// Leverages __symExt to pinpoint the extension symbol natively,
 				// avoiding String() allocations and filepath.Ext parsing overhead.
-				sym := getScalarSym(ctx, currentVal)
+				sym := __symbol(ctx, currentVal)
 				if extSym := __symExt(sym); extSym != symEmpty {
 					pat := _word(currentVal.Pos(), extSym)
 
