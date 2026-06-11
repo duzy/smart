@@ -598,6 +598,7 @@ const (
 	symBy
 	symDb
 	symDbs
+	symDbstub
 
 	symType
 	symTypes
@@ -621,6 +622,7 @@ const (
 	symEqual // 'equal', not '='
 	symNe
 	symMatch
+	symMatched
 	symGreater
 	symLess
 
@@ -703,6 +705,7 @@ const (
 	symRel
 	symRelative
 	symReldir
+	symRule
 	symFile
 	symStat
 	symWildcard
@@ -1021,10 +1024,10 @@ var coreSymbols = []string{
 	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
 	"print", "printf", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
 	"closure", "cd", "mkdir", "sudo", "fork", "wait", "stamp", "touch", "extract", "deps", "check",
-	"case", "cond", "if", "where", "once", "dirty", "by", "db", "dbs",
+	"case", "cond", "if", "where", "once", "dirty", "by", "db", "dbs", "dbstub",
 
 	"type", "types", "typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace",
-	"def", "defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "greater", "less",
+	"def", "defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "matched", "greater", "less",
 	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which", "bare",
 	"div", "divide", "mul", "multiply", "minus", "element", "field", "fields", "split", "search",
 	"usee", "user", "uses", "path", "finalize", "resolve", "strip", "trim", "ext", "chop", "chopdir",
@@ -1034,7 +1037,7 @@ var coreSymbols = []string{
 	"dir", "dirs", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9",
 	"undir", "undirs", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9",
 
-	"rel", "relative", "reldir", "file", "stat", "wildcard", "clean", "ch", "chdir",
+	"rel", "relative", "reldir", "rule", "file", "stat", "wildcard", "clean", "ch", "chdir",
 	"git", "gitdir", "rename", "remove", "link", "readlink", "sym", "symlink", "truncate", "return",
 
 	"copy", "out", "outbin", "outlib", "outobj", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
@@ -3762,7 +3765,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 	return errs
 }
 
-func flush(ctx Context) (i int) { i, _ = do(ctx, diag_flush{}).(int); return }
+func flush(ctx Context) int { i, _ := do(ctx, diag_flush{}).(int); return i }
 
 func join_diags_msg(sep string, ds ...*diag) string {
 	var cb compactbuilds
@@ -3801,26 +3804,24 @@ type diagcs_j int // add callstack j (end index)
 
 var _debug_m sync.Mutex
 func debug(ctx Context, f any, a ...any) *diagpoint {
-	// THE DOD FIX: Goroutine-safe Re-entrancy Guard!
-	// If this context chain is already inside a debug call, short-circuit immediately.
+	// THE DOD FIX: Goroutine-safe Re-entrancy Guard
 	if truly(ctx, in_debug{}) {
 		panic("nesting debug")
 	}
 
-	// Wrap the context so downstream evaluations know we are logging
 	ctx = debug_ctx{ctx}
 	
 	_debug_m.Lock(); defer _debug_m.Unlock()
 
 	var unwound = false
 	var noCS, doFlush bool
-	var trCtx int // trace context stack positions
-	var trV_i int // trace value ast positions
+	var trCtx int 
+	var trV_i int 
 	var trV_v Value
 	var cs_prefix string = "info:"
 	var cs_i, cs_j int = 5, 0
 	var cs callstack
-	var dt diagtype = -1 // ARCHITECTURAL FIX: Use -1 sentinel to separate uninitialized states from diagInfo (0)
+	var dt diagtype = -1 // ARCHITECTURAL FIX: Sentinel state
 	var ds []*diag
 	var args []any
 
@@ -3833,64 +3834,55 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		case diagcs_i: cs_i += int(t)
 		case diagcs_j: cs_j += int(t)
 		case diag_flush: doFlush = true
-		case diagtext: if noCS = true; dt == 0 { dt = diagPrompt }
+		case diagtext: if noCS = true; dt == -1 { dt = diagPrompt }
 		case callstack:
 			if 0 < t.num     { cs.num = t.num }
 			if 0 < t.skip    { cs.skip = t.skip }
 			if 0 != t.frames { cs.frames = t.frames }
 			if "" != t.stop  { cs.stop = t.stop }
-		case []*diag:
-			ds = append(ds, t...)
-		case *diag:
-			ds = append(ds, t)
-		default:
-			args = append(args, t)
+		case []*diag: ds = append(ds, t...)
+		case *diag: ds = append(ds, t)
+		default: args = append(args, t)
 		}
 	}
 
 	var p *diagpoint
-	var ps string // position prefix
 
-	if dt == -1 && !noCS { dt = diagDebug }
-	if dt == -1 { dt = diagPrompt }
+	if dt == -1 {
+		if noCS { dt = diagPrompt } else { dt = diagDebug }
+	}
 
-	// 1. Process the primary format message
+	// 1. Process the primary format message 
+	// (Eager `ps` position string and manual `\n` appendages have been entirely deleted. 
+	// `flush()` naturally prefixes `diagDebug` and strictly guarantees exactly one trailing newline).
 	switch t := f.(type) {
 	case *diag:
 		if t.f != "" {
-			nl := "\n"
-			if noCS { nl = "" } // Bypass newline for bare prompts
-			p, _ = do(ctx, diag{dt, ps+t.f+nl, t.a}).(*diagpoint)
+			p, _ = do(ctx, diag{dt, t.f, t.a}).(*diagpoint)
 		}
 	case []*diag:
 		for _, t := range t {
-			nl := "\n"
-			if noCS { nl = "" } // Bypass newline for bare prompts
-			p, _ = do(ctx, diag{dt, ps+t.f+nl, t.a}).(*diagpoint)
+			p, _ = do(ctx, diag{dt, t.f, t.a}).(*diagpoint)
 		}
 	case string:
-		if noCS {
-			// Pass the raw string exactly as-is for bare prompts
-			p, _ = do(ctx, diag{dt, ps+t, args}).(*diagpoint)
+		if true || noCS || dt == diagPrompt || dt == diagDebug {
+			p, _ = do(ctx, diag{dt, t, args}).(*diagpoint)
 		} else {
 			for _, t := range strings.Split(t, "\n") {
 				if t == "" { continue }
-				p, _ = do(ctx, diag{dt, ps+t+"\n", args}).(*diagpoint)
+				p, _ = do(ctx, diag{dt, t, args}).(*diagpoint)
 			}
 		}
 	default:
-		nl := "\n"
-		if noCS { nl = "" } // Bypass newline for bare prompts
-		p, _ = do(ctx, diag{dt, ps+typeof(t)+": %v"+nl, args}).(*diagpoint)
+		p, _ = do(ctx, diag{dt, typeof(t)+": %v", args}).(*diagpoint)
 	}
 
-	// 2. Process additional `_f` strings immediately after the main message
-	// This groups the error multi-line outputs together perfectly.
+	// 2. Process additional `_f` sequences
 	for _, d := range ds {
-		p, _ = do(ctx, diag{d.t, ps+d.f+"\n", d.a}).(*diagpoint)
+		p, _ = do(ctx, diag{d.t, d.f, d.a}).(*diagpoint)
 	}
 
-	// 3. Trace context engine resolution
+	// 3. Trace context engine resolution (100% Deferred Formatting)
 	if n := trCtx; n > 0 {
 		var pos = _position(ctx)
 		for c := inner(ctx); c != nil && 0 < n && pos.valid(); c = inner(c) {
@@ -3898,116 +3890,138 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			if t := _position(c); !t.valid() || t.same(pos) { continue } else
 			{ pos = t }
 
-			// Explicitly format the un-prefixed trace string
-			var str = pos.String() + ": "
-			if false {
-				str += strings.TrimSuffix(typeof(c),"_ctx") + ": "
-			}
+			var format = "%v: "
+			var dArgs = []any{pos}
 
 			if proj := _project(c); proj == nil {
-				str += "<nil>"
+				format += "<nil>"
 			} else {
-				var bs string
-				for i, b := range proj.bases {
-					if i > 0 { bs += " " }
-					bs += b.name.String()
+				format += "%s"
+				dArgs = append(dArgs, proj.name)
+				if len(proj.bases) > 0 {
+					var bs []string
+					for _, b := range proj.bases { bs = append(bs, b.name.String()) }
+					format += " (%s)"
+					dArgs = append(dArgs, strings.Join(bs, " "))
 				}
-				str += sf("%s (%s)", proj.name, bs)
 			}
 
 			if e := _entry(c); e != nil {
-				if t := e.String(); t == "" {// if t, _, _ := entryIndicator(c, e)
-					str += ": " + ident(ctx, e)
+				if t := e.String(); t == "" {
+					format += ": %s"
+					dArgs = append(dArgs, ident(ctx, e))
 				} else {
-					str += ": " + t
+					format += ": %s"
+					dArgs = append(dArgs, t)
 				}
 			}
 
-			if false { str += " ; " + ts(c) }
-
-			// Force diagPrompt so the engine logger doesn't inject `error:`
-			p, _ = do(c, diag{diagPrompt, str+"\n", nil}).(*diagpoint)
+			p, _ = do(c, diag{diagPrompt, format, dArgs}).(*diagpoint)
 		}
 	}
 
-	// 4. Flawless trace_val execution
+	// 4. Flawless trace_val execution (Eliminated sf and eager string concat)
 	for n, v := trV_i, trV_v; n > 0 && v != nil; n -= 1 {
-		var vt string = typeof(v)
-		var str string
 		var pos Pos
+		var f string
+		var da []any // diag args
+		var isFile bool
 
 		switch t := v.(type) {
-		case *xloc:       str = t.pos.String() + ": "; v = t.Value; vt = sf("%v: %v →",vt,v)
-		case *loc:        pos = t.pos; v = t.Value; vt = sf("%v: %v →",vt,v)
+		case *loc:        pos = t.pos; v = t.Value; f = "%v: %v →"; da = []any{typeof(t), slsv{v}}
 		case *valbase:    pos = t.pos; v = nil
-		case *group:      pos = t.pos; if t.len()>0 { v = t.elems[0] }; vt = sf("%v: %v →",vt,t)
-		case *def:        pos = t.pos; v = t.value; vt = sf("def(%v): %v →",t.name,t.value)
-		case *closure:    pos = t.pos; v = t.x; vt = sf("%v: %v →", vt, t.x)
-		case *delegate:   pos = t.pos; v = t.x; vt = sf("%v: %v →", vt, t.x)
-		case *builtin:    pos = t.pos; v = nil; vt = t.name.String()
-		case *word:       pos = t.pos; v = nil; vt = t.s.String()
-		case *binary:     pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
-		case *decimal:    pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
-		case *octal:      pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
-		case *hexadecimal:pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
-		case *float:      pos = t.pos; v = nil; vt = sf("%s(%s)", vt, t.String())
+		case *group:      pos = t.pos; if t.len()>0 { v = t.elems[0] }; f = "%v: %v →"; da = []any{typeof(t), t}
+		case *def:        pos = t.pos; v = t.value; f = "def(%v): %v →"; da = []any{t.name, t.value}
+		case *closure:    pos = t.pos; v = t.x;     f = "%v: %v →"; da = []any{typeof(t), t.x}
+		case *delegate:   pos = t.pos; v = t.x;     f = "%v: %v →"; da = []any{typeof(t), t.x}
+		case *builtin:    pos = t.pos; v = nil;     f = "%v";       da = []any{t.name}
+		case *word:       pos = t.pos; v = nil;     f = "%v";       da = []any{t.s}
+		case *binary:     pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
+		case *decimal:    pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
+		case *octal:      pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
+		case *hexadecimal:pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
+		case *float:      pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
+		case fullname:    pos = t.Value.Pos(); v = t.Value; f = "%v: %v →"; da = []any{typeof(t), t.Value}
+		case fullfile:    pos = t.file.pos; v = t.file; f = "%v: %v →"; da = []any{typeof(t), t.file}
 		case *auto:       pos = t.pos;
 			if d := auto_find(ctx, t.name); d != nil {
-				v = d.value; vt = sf("auto(%v) → %v: %v →",t.name,d.o,d.value)
+				v = d.value; f = "auto(%v) → %v: %v →"; da = []any{t.name, d.o, d.value}
 			} else {
-				v = nil; vt = sf("auto(%v) → <nil>",t.name)
+				v = nil; f = "auto(%v) → <nil>"; da = []any{t.name}
 			}
-		case fullname:    pos = t.Value.Pos(); v = t.Value; vt = sf("%v: %v →", vt, t.Value)
-		case fullfile:    pos = t.file.pos; v = t.file; vt = sf("%v: %v →", vt, t.file)
-		case *file:       
+		case *xloc:
+			if t.pos.Column == 0 {
+				f = "%s:%d: %v: %v →"
+				da = []any{t.pos.Filename, t.pos.Line, typeof(t), v}
+			} else {
+				f = "%s:%d:%d: %v: %v →"
+				da = []any{t.pos.Filename, t.pos.Line, t.pos.Column, typeof(t), v}
+			}
+			v = t.Value
+		case *file:
+			isFile = true
 			pos = t.pos
 			if fat, ok := do(ctx, get_fatpos{pos}).(Position); ok {
-				str = sf("%v:file:%v →\n", fat, t.name)
+				f = "%v:file:%v →\n"
+				da = []any{fat, t.name}
 			}
 			if t.exists() {
-				str += sf("%v:1:1:", t.fullname())
+				f += "%v:1:1:"
+				da = append(da, t.fullname())
 			} else {
-				str += sf("%v:0:0: (Absent!)", t.fullname())
+				f += "%v:0:0: (Absent!)"
+				da = append(da, t.fullname())
 			}
-			v, vt = nil, "" 
-		case matched_rule:pos = t.target.Pos(); v = t.target; vt = sf("%v: %v →",vt,v)
-		case *rule:       pos = t.Pos(); v = t.target; vt = sf("%v: %v →",vt,v)
-		case *argumented: pos = t.Pos(); v = t.Value; vt = sf("%v: %v →",vt,v) // Dive into the parameterized value
-		case *list:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
-		case *path:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
-		case *compound:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
-		case *qualword:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
-		case *strcomp:    if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
-		case *strval:     if len(t.v) > 0 { v = t.v[0]; pos = v.Pos(); vt = sf("%v: %v →", vt, t) } else { v = nil }
+			v = nil
+		case matched_rule:pos = t.target.Pos(); v = t.target; f = "%v: %v →"; da = []any{typeof(t), v}
+		case *rule:       pos = t.Pos(); v = t.target; f = "%v: %v →"; da = []any{typeof(t), v}
+		case *argumented: pos = t.Pos(); v = t.Value; f = "%v: %v →"; da = []any{typeof(t), v}
+		case *list:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
+		case *path:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
+		case *compound:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
+		case *qualword:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
+		case *strcomp:    if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
+		case *strval:     if len(t.v) > 0 { v = t.v[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
 		default:
-			// Guarantee we extract the native position if a wrapper was bypassed
 			pos = v.Pos()
-			/* str */vt = sf("[%s]: ", ts(v, ctx))
-			v = nil // We hit a leaf node. Set `v = nil` to break the loop!
+			f = "[%s]: "
+			da = []any{ts(v, ctx)}
+			v = nil
 		}
 
-		if str == "" && pos != 0 { 
+		// Dynamically prepend positional fs safely
+		if pos != 0 && f != "" && !isFile {
+			var pfxArgs []any
 			if fat, ok := do(ctx, get_fatpos{pos}).(Position); ok && fat.valid() {
-				str = fat.String() + ": "
+				if fat.Column == 0 {
+					f = "%s:%d: " + f
+					pfxArgs = []any{fat.Filename,fat.Line}
+				} else {
+					f = "%s:%d:%d: " + f
+					pfxArgs = []any{fat.Filename,fat.Line,fat.Column}
+				}
 			} else {
-				str = sf("%v: ", pos)
+				f = "@%v: " + f
+				pfxArgs = []any{pos}
 			}
+			da = append(pfxArgs, da...)
 		}
 
-		// if heading { vt = "trace value: " + vt }
-		p, _ = do(ctx, diag{diagPrompt, str+vt+"\n", nil}).(*diagpoint)
+		p, _ = do(ctx, diag{diagPrompt, f, da}).(*diagpoint)
 	}
 
-	if noCS { if doFlush { flush(ctx) }; return p }
-	if args = []any{}; p == nil { return nil }
-	if cs.num > 0     { args = append(args, cs.num) }
-	if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
-	if cs.stop != ""  { args = append(args, stopframe(cs.stop)) }
-	if cs.frames != 0 { args = append(args, frames(cs.frames)) }
+	if noCS {
+		if doFlush { flush(ctx) }
+	} else {
+		if args = []any{}; p == nil { return nil }
+		if cs.num > 0     { args = append(args, cs.num) }
+		if cs.skip > 0    { args = append(args, skipint(cs.skip)) }
+		if cs.stop != ""  { args = append(args, stopframe(cs.stop)) }
+		if cs.frames != 0 { args = append(args, frames(cs.frames)) }
 
-	// The call stack successfully attaches right below the diagnostic traces!
-	if p.stack = _callstack(cs_prefix, cs_i, cs_j, args...); true { flush(ctx) }
-	if unwound { panic(unwind_errors{ctx, count_diags(ctx, diagError)}) }
+		if p.stack = _callstack(cs_prefix, cs_i, cs_j, args...); true { flush(ctx) }
+		if unwound { panic(unwind_errors{ctx, count_diags(ctx, diagError)}) }
+	}
 	return p
 }
 
@@ -7217,6 +7231,9 @@ func (p *compiler) braced(ctx Context) (x Value) {
 
 		case symFullname: // {fullname ...}
 			return p.braced_fullname(ctx)
+
+		case symMatched:
+			erro(ctx, "TODO: %s: ", p.sym, unwind{})
 		}
 	}
 
@@ -15272,6 +15289,25 @@ func (_ *null) String() string { return "{}" }
 type none struct{ valbase }
 func (_ *none) kind() Kind { return KindNone }
 func (p *none) String() (_ string) { return }
+
+type slsv struct{ Value } // Single-Line String Value
+func (t slsv) String() string { return _sls(t.Value.String()) }
+func _sls(s string) string { return strings.ReplaceAll(s,"\n",`\n`) }
+func _bqs(s string, t ...string) string {
+	var dq bool
+	if len(t) == 0 {
+		dq = strings.Index(s,"\n") > 0
+	} else {
+		for _, t := range t {
+			if dq = strings.Index(s,t) > 0; dq { break }
+		}
+	}
+	if dq {
+		return `"`+_sls(s)+`"`
+	} else {
+		return "`"+s+"`"
+	}
+}
 
 type dbstub struct{ valbase ; v []Value }
 func (_ *dbstub) kind() Kind { return KindDBStub }
@@ -23602,7 +23638,6 @@ func ts(i any, o ...any) (s string) {
 	case      *percpat: content = ts(x.Prefix, cc) + " " + ts(x.Suffix, cc)
 	case         *pair: content = ts(x.key, cc) + " " + ts(x.val, cc)
 	case        *arrow: content = ts(x.o, cc) + x.t.String() + ts(x.s, cc)
-	case   *argumented: content = ts(x.Value, cc) + ts(x.args, cc)
 	case      fullname: content = ts(x.Value, cc)
 	case      fullfile: content = x.filestub.name.String()
 	case         *file: content = x.filestub.name.String()
@@ -23623,6 +23658,14 @@ func ts(i any, o ...any) (s string) {
 		var args []string
 		for _, a := range x.args { args = append(args, a.String()) }
 		content = x.val.String() + "(" + strings.Join(args, ",") + ") " + ts(x.Context)
+	case   *argumented:
+		var args []string
+		for _, a := range x.args { args = append(args, ts(a,cc)) }
+		content = ts(x.Value, cc) + "(" + strings.Join(args, ",") + ")"
+	case       *dbstub:
+		var vals []string
+		for _, v := range x.v { vals = append(vals, ts(v,cc)) }
+		content = strings.Join(vals, " ")
 	case      parent_ctx:
 		content = x.project.name.String() + " " + ts(x.Context)
 	case         *term:
@@ -23673,7 +23716,7 @@ func ts(i any, o ...any) (s string) {
 				content += ts(val, barrier)
 			}
 		}
-	case       *strlit: content = x.s
+	case       *strlit: content = strings.ReplaceAll(x.s, "\n", `\n`)
 	case       *strval:
 		for _, v := range x.v {
 			if content != "" { content += " " }
@@ -32756,6 +32799,7 @@ func (ctx *__debug) do(c Context, op any) any {
 	return ctx.builtinbase.do(c, op)
 }
 func (ctx *__debug) x() any {
+	if checkpoints { defer ctx.check() }
     var s bytes.Buffer
 	for i, a := range ctx.a { if i > 0 { fmt.Fprintf(&s, " ") }
 		fmt.Fprintf(&s, "%v", __string(ctx, a))
