@@ -1698,6 +1698,13 @@ func internSeq(seq []Symbol) Symbol {
 	return sym
 }
 
+func __symKind(sym Symbol) (k uint8) {
+	vocab.RLock()
+	k = vocab.symetas[sym].Kind()
+	vocab.RUnlock()
+	return
+}
+
 func __symSeq(sym Symbol) (seq []Symbol) {
 	vocab.RLock()
 	meta := vocab.symetas[sym]
@@ -3928,34 +3935,34 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		var isFile bool
 
 		switch t := v.(type) {
-		case *loc:        pos = t.pos; v = t.Value; f = "%v: %v →"; da = []any{typeof(t), slsv{v}}
 		case *valbase:    pos = t.pos; v = nil
+		case *builtin:    pos = t.pos; v = nil;     f = "%v";           da = []any{t.name}
+		case *word:       pos = t.pos; v = nil;     f = "%v";           da = []any{t.s}
+		case *binary:     pos = t.pos; v = nil;     f = "%s(%s)";       da = []any{typeof(t), t.String()}
+		case *decimal:    pos = t.pos; v = nil;     f = "%s(%s)";       da = []any{typeof(t), t.String()}
+		case *octal:      pos = t.pos; v = nil;     f = "%s(%s)";       da = []any{typeof(t), t.String()}
+		case *hexadecimal:pos = t.pos; v = nil;     f = "%s(%s)";       da = []any{typeof(t), t.String()}
+		case *float:      pos = t.pos; v = nil;     f = "%s(%s)";       da = []any{typeof(t), t.String()}
+		case *def:        pos = t.pos; v = t.value; f = "%v(%v): %v →"; da = []any{typeof(t), t.name, slsv{t.value}}
+		case *loc:        pos = t.pos; v = t.Value; f = "%v: %v →";     da = []any{typeof(t), slsv{v}}
+		case *closure:    pos = t.pos; v = t.x;     f = "%v: %v →";     da = []any{typeof(t), t.x}
+		case *delegate:   pos = t.pos; v = t.x;     f = "%v: %v →";     da = []any{typeof(t), t.x}
 		case *group:      pos = t.pos; if t.len()>0 { v = t.elems[0] }; f = "%v: %v →"; da = []any{typeof(t), t}
-		case *def:        pos = t.pos; v = t.value; f = "def(%v): %v →"; da = []any{t.name, t.value}
-		case *closure:    pos = t.pos; v = t.x;     f = "%v: %v →"; da = []any{typeof(t), t.x}
-		case *delegate:   pos = t.pos; v = t.x;     f = "%v: %v →"; da = []any{typeof(t), t.x}
-		case *builtin:    pos = t.pos; v = nil;     f = "%v";       da = []any{t.name}
-		case *word:       pos = t.pos; v = nil;     f = "%v";       da = []any{t.s}
-		case *binary:     pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
-		case *decimal:    pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
-		case *octal:      pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
-		case *hexadecimal:pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
-		case *float:      pos = t.pos; v = nil;     f = "%s(%s)";   da = []any{typeof(t), t.String()}
 		case fullname:    pos = t.Value.Pos(); v = t.Value; f = "%v: %v →"; da = []any{typeof(t), t.Value}
-		case fullfile:    pos = t.file.pos; v = t.file; f = "%v: %v →"; da = []any{typeof(t), t.file}
+		case fullfile:    pos = t.file.pos;    v = t.file;  f = "%v: %v →"; da = []any{typeof(t), t.file}
 		case *auto:       pos = t.pos;
 			if d := auto_find(ctx, t.name); d != nil {
-				v = d.value; f = "auto(%v) → %v: %v →"; da = []any{t.name, d.o, d.value}
+				v = d.value; f = "auto(%v) → %v: %v →"; da = []any{t.name, d.o, slsv{d.value}}
 			} else {
 				v = nil; f = "auto(%v) → <nil>"; da = []any{t.name}
 			}
 		case *xloc:
 			if t.pos.Column == 0 {
 				f = "%s:%d: %v: %v →"
-				da = []any{t.pos.Filename, t.pos.Line, typeof(t), v}
+				da = []any{t.pos.Filename, t.pos.Line, typeof(t), slsv{v}}
 			} else {
 				f = "%s:%d:%d: %v: %v →"
-				da = []any{t.pos.Filename, t.pos.Line, t.pos.Column, typeof(t), v}
+				da = []any{t.pos.Filename, t.pos.Line, t.pos.Column, typeof(t), slsv{v}}
 			}
 			v = t.Value
 		case *file:
@@ -3973,13 +3980,13 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 				da = append(da, t.fullname())
 			}
 			v = nil
-		case matched_rule:pos = t.target.Pos(); v = t.target; f = "%v: %v →"; da = []any{typeof(t), v}
-		case *rule:       pos = t.Pos(); v = t.target; f = "%v: %v →"; da = []any{typeof(t), v}
-		case *argumented: pos = t.Pos(); v = t.Value; f = "%v: %v →"; da = []any{typeof(t), v}
-		case *list:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
-		case *path:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
-		case *compound:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
-		case *qualword:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), t} } else { v = nil }
+		case matched_rule:pos = t.target.Pos(); v = t.target; f = "%v: %v →"; da = []any{typeof(t), slsv{v}}
+		case *rule:       pos = t.Pos();        v = t.target; f = "%v: %v →"; da = []any{typeof(t), slsv{v}}
+		case *argumented: pos = t.Pos();        v = t.Value;  f = "%v: %v →"; da = []any{typeof(t), slsv{v}}
+		case *list:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
+		case *path:       if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
+		case *compound:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
+		case *qualword:   if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
 		case *strcomp:    if len(t.elems) > 0 { v = t.elems[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
 		case *strval:     if len(t.v) > 0 { v = t.v[0]; pos = v.Pos(); f = "%v: %v →"; da = []any{typeof(t), slsv{t}} } else { v = nil }
 		default:
@@ -15296,10 +15303,10 @@ func _sls(s string) string { return strings.ReplaceAll(s,"\n",`\n`) }
 func _bqs(s string, t ...string) string {
 	var dq bool
 	if len(t) == 0 {
-		dq = strings.Index(s,"\n") > 0
+		dq = strings.Index(s, "\n") > 0
 	} else {
 		for _, t := range t {
-			if dq = strings.Index(s,t) > 0; dq { break }
+			if dq = strings.Index(s, t) > 0; dq { break }
 		}
 	}
 	if dq {
@@ -17329,16 +17336,29 @@ func (p *regexpat) String() string {
     return "{regex "+s+"}"
 }
 
-func values(args ...any) (elems []Value) {
+func values[T any](ctx Context, args ...T) (elems []Value) {
 	for _, a := range args {
-		if x, y := a.(Value); y {
+		// Fast Path 1: Direct Value leaf node match
+		if x, ok := any(a).(Value); ok {
 			elems = append(elems, x)
-		} else if v := reflect.ValueOf(a); v.Kind() == reflect.Slice {
+			continue
+		}
+
+		// DOD Fast Path 2: Direct flat slice match bypasses reflection entirely
+		if x, ok := any(a).([]Value); ok {
+			elems = append(elems, x...)
+			continue
+		}
+
+		// Slow Path fallback: Dynamic/Nested slices (e.g., []*word, [][]Value, []any)
+		v := reflect.ValueOf(a)
+		if v.Kind() == reflect.Slice {
 			for n := 0; n < v.Len(); n++ {
-				elems = append(elems, values(v.Index(n).Interface())...)
+				// THE GENERIC FIX: Explicitly bind the recursive unpacker to the `any` domain
+				elems = append(elems, values[any](ctx, v.Index(n).Interface())...)
 			}
 		} else {
-			// erro(ctx, "'%v' is not value type (%T)", a, a)
+			erro(ctx, "'%v' is not value type (%T)", a, a)
 		}
 	}
 	return
@@ -18871,7 +18891,162 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	return
 }
 
-type executer interface { execute(Context, ...Value) []Value }
+func eval_op(val Value) (op Value, oo, args []Value) {
+	if val == nil { return nil, nil, nil }
+
+	// Default fallback: Ensures `op` is never nil if it's a bare scalar, 
+	// compound, or an empty `*list` node.
+	op = val 
+
+	// 1. Peel positional wrappers to check if the core value is a space-separated list
+	// 2. Separate operator from arguments (Strictly *list, NEVER *compound)
+	for {
+		switch t := val.(type) {
+		case *loc:  val = t.Value; continue
+		case *xloc: val = t.Value; continue
+		case *list:
+			if len(t.elems) > 0 {
+				op, args = t.elems[0], t.elems[1:]
+			}
+		}
+		break
+	}
+
+	// 3. Decode the operator by unboxing positional wrappers and `argumented` options
+	// We use a continuous loop because `argumented` itself might wrap another `loc`!
+	for {
+		switch t := op.(type) {
+		case *loc:
+			op = t.Value
+			continue
+		case *xloc:
+			op = t.Value
+			continue
+		case *argumented:
+			op = t.Value
+			oo = t.args
+			continue
+		}
+		break
+	}
+
+	return op, oo, args
+}
+
+// clone_shared recursively traverses an AST Value and replaces any shared
+// reference pointers with a static snapshot of their current evaluated literal.
+func clone_shared(ctx Context, v Value, targets ...Value) Value {
+	if v == nil { return nil }
+
+	// 1. Intercept shared references and dynamically clone their exact current state
+	for _, target := range targets {
+		if v == target {
+			// THE DOD FIX: Extract the underlying AST node and structurally clone it
+			// as a generic Value, preserving its native type (*strlit, *decimal, etc.)
+			// rather than relying on string parsing and hardcoded constructors.
+			inner := unbox(v)
+
+			// Use reflection to perform a generic, zero-friction shallow copy of the node
+			if rv := reflect.ValueOf(inner); rv.Kind() == reflect.Ptr {
+				clone := reflect.New(rv.Elem().Type())
+				clone.Elem().Set(rv.Elem())
+				return clone.Interface().(Value)
+			}
+			return inner
+		}
+	}
+
+	// 2. Safely rebuild composite nodes if their children mutate
+	switch t := v.(type) {
+	case *list:
+		var changed bool
+		elems := make([]Value, len(t.elems))
+		for i, e := range t.elems {
+			elems[i] = clone_shared(ctx, e, targets...)
+			if elems[i] != e { changed = true }
+		}
+		if changed { return _list(elems...) }
+
+	case *compound:
+		var changed bool
+		elems := make([]Value, len(t.elems))
+		for i, e := range t.elems {
+			elems[i] = clone_shared(ctx, e, targets...)
+			if elems[i] != e { changed = true }
+		}
+		if changed { return _compound(elems...) }
+
+	case *strval:
+		var changed bool
+		elems := make([]Value, len(t.v))
+		for i, e := range t.v {
+			elems[i] = clone_shared(ctx, e, targets...)
+			if elems[i] != e { changed = true }
+		}
+		if changed { return _strval(t.Pos(), elems...) }
+
+	case *strcomp:
+		var changed bool
+		elems := make([]Value, len(t.elems))
+		for i, e := range t.elems {
+			elems[i] = clone_shared(ctx, e, targets...)
+			if elems[i] != e { changed = true }
+		}
+		if changed { return _strcomp(elems...) }
+
+	case *qualword:
+		var changed bool
+		elems := make([]Value, len(t.elems))
+		for i, e := range t.elems {
+			elems[i] = clone_shared(ctx, e, targets...)
+			if elems[i] != e { changed = true }
+		}
+		if changed { return _qualword(elems...) }
+
+	case *argumented:
+		op := clone_shared(ctx, t.Value, targets...)
+		changed := op != t.Value
+		args := make([]Value, len(t.args))
+		for i, e := range t.args {
+			args[i] = clone_shared(ctx, e, targets...)
+			if args[i] != e { changed = true }
+		}
+		if changed { return &argumented{op, args} }
+
+	case *group:
+		var changed bool
+		elems := make([]Value, len(t.elems))
+		for i, e := range t.elems {
+			elems[i] = clone_shared(ctx, e, targets...)
+			if elems[i] != e { changed = true }
+		}
+		if changed { return _group(t.Pos(), elems...) }
+
+	case *pair:
+		key := clone_shared(ctx, t.key, targets...)
+		val := clone_shared(ctx, t.val, targets...)
+		if key != t.key || val != t.val { return makePair(key, val) }
+
+	case *loc:
+		val := clone_shared(ctx, t.Value, targets...)
+		if val != t.Value { return &loc{val, t.pos} }
+
+	case *xloc:
+		val := clone_shared(ctx, t.Value, targets...)
+		if val != t.Value { return &xloc{val, t.pos} }
+
+	case fullname:
+		val := clone_shared(ctx, t.Value, targets...)
+		if val != t.Value { return fullname{val} }
+
+	case flag:
+		val := clone_shared(ctx, t.Value, targets...)
+		if val != t.Value { return flag{val} }
+	}
+
+	return v // Fast path: Unchanged nodes pass through with zero allocations
+}
+
 type dialect_eval struct { accumulation bool ; o origin }
 func (p *dialect_eval) evaluate(ctx Context, args ...Value) (_ Value) {
     var exe = _execution(ctx)
@@ -18879,52 +19054,43 @@ func (p *dialect_eval) evaluate(ctx Context, args ...Value) (_ Value) {
         erro(ctx, "wrong eval context: %v", ts(ctx))
     }
 
-    var list []Value
-    var opts struct { general_opts }
+    var opts struct {
+		general_opts
+		cloneSharedTargets bool `copy-shared,copy-share,clone-shared,clone-share`
+	}
     args = parseOpts(final{ctx}, &opts, args...)
 
+    var list []Value
     for _, recipe := range exe.recipes {
-        var vals = merge(recipe)
+		op, oo, args := eval_op(recipe)
 
-        if n := len(vals); n < 1 {
-            if false { list = append(list, recipe) }
-            continue
-        }
-
-        var op = vals[0]
-        var ov []Value // opt-vals
-        if a, y := op.(*argumented); y { op, ov = a.Value, a.args }
-		if ov != nil { debug(ctx, "TODO: opts %v", ov) }
-
+		var val Value
         switch t := op.(type) {
-        case executer:
-            if a := t.execute(ctx, vals[1:]...); a != nil {
-                if p.accumulation {
-                    list = append(list, a...)
-                } else {
-                    list = a
-                }
-            }
-
-        case *undetermined:
-            if p.accumulation {
-                list = append(list, vals...)
-            } else {
-                list = vals
-            }
-
+        case *builtin, *def, *rule:
+			val = evoke(ctx, t, oo, args)
         default:
             if p.o != 0 {
-                vals = expands(ctx, vals...)
-            }
-            if p.accumulation {
-                list = append(list, vals...)
+                val = expand(ctx, recipe)
             } else {
-                list = vals
-            }
+				val = recipe
+			}
         }
-    }
 
+		if val == nil { continue }
+
+		// THE DOD FIX: Snapshot shared references to decouple accumulated values
+		if opts.cloneSharedTargets {
+			if targets, _ := do(ctx, clone_shared_targets{}).([]Value); len(targets) > 0 {
+				val = clone_shared(ctx, val, targets...)
+			}
+		}
+
+		if p.accumulation {
+			list = append(list, val)
+		} else {
+			list = []Value{val}
+		}
+    }
     return ease(ctx, list)
 }
 
@@ -19464,8 +19630,8 @@ type exec_ctx struct {
     exec_opts
     exec_result
 
-    line strlit
     lino decimal
+    line strlit
 
     log *exec_log
     logPos Position
@@ -19902,6 +20068,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
 
     if ctx.forStdout != nil || ctx.forStderr != nil {
         ac := automatic{Context:ctx.Context, defs:make(def_map)}
+		// NOTE: Args for `$1` and `$2` are parssed by reference (shared between calls)!
         ac.args(ac.Context, []Value{&ctx.line, &ctx.lino})
         if x, y := ac.defs[sym_1]; y {
             ac.defs[symUnderscore] = x
@@ -23833,7 +24000,9 @@ func _decimal(pos Pos, i int64, sym Symbol) *decimal { return &decimal{integer{v
 func _hexadecimal(pos Pos, i int64, sym Symbol) *hexadecimal { return &hexadecimal{integer{valbase{pos},i,sym}} }
 func _float(pos Pos, f float64, sym Symbol) *float  { return &float{valbase{pos},f,sym} }
 func _strlit(pos Pos, s string) *strlit { return &strlit{valbase{pos},s} }
+func _strval(pos Pos, elems ...Value) *strval { return &strval{valbase{pos},elems} }
 func _strcomp(elems ...Value) *strcomp { return &strcomp{elements{elems}} }
+func _qualword(elems ...Value) *qualword { return &qualword{elements{elems}} }
 func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
 func _list(elems ...Value) *list { return &list{elements{elems}} }
 func _group(pos Pos, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
@@ -24139,7 +24308,7 @@ func (m def_map) String() (s string) {
 		if _, y := seen[d.name]; y { continue }
 		if s == "" { s = "{" } else { s += "," }
 		seen[d.name] = struct{}{}
-		s += d.String()
+		s += _sls(d.String())
 	}
 	if s != "" { s += "}" }
 	return
@@ -24163,7 +24332,8 @@ func selfie_init_args(ctx, frame Context, i init_args) bool {
 
 func _automatic(c Context) *automatic { return cast[*automatic](c) }
 
-type get_auto struct{ s Symbol }
+type clone_shared_targets struct{}
+type get_auto  struct{ s Symbol }
 type set_auto  struct{ o origin; s Symbol; v Value }
 type res_auto  struct{ d *def; v Value }
 type automatic struct{
@@ -24184,6 +24354,14 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 	case set_auto:
 		d, v := ac.set(ctx, t.o, t.s, t.v)
 		return res_auto{ d, v }
+	case clone_shared_targets:
+		var targets []Value
+		for _, d := range ac.defs {
+			if d.value != nil && __symKind(d.name) == SymInt {
+				targets = append(targets, d.value)
+			}
+		}
+		if targets != nil { return targets }
 	}
 	return ac.Context.do(ctx, op)
 }
@@ -32790,6 +32968,8 @@ func (ctx *__date) x() (res any) {
 type __debug struct { builtinbase
     s int `stack`
     n int `num`
+	shallow bool `shallow`
+	cloneSharedTargets bool `clone-share,clone-shared,copy-share,copy-shared`
 }
 func (ctx *__debug) do(c Context, op any) any {
 	switch t := op.(type) {
@@ -32811,7 +32991,18 @@ func (ctx *__debug) x() any {
 	} else {
         debug(ctx, "%s", s, callstack{num:ctx.n})
     }
-    return &dbstub{valbase{_pos(ctx)}, ctx.a}
+
+	if ctx.cloneSharedTargets {
+		if targets, _ := do(ctx, clone_shared_targets{}).([]Value); len(targets) > 0 {
+			return clone_shared(ctx, ease(ctx, ctx.a), targets...)
+		}
+	}
+
+	if ctx.shallow {
+		return &dbstub{valbase{_pos(ctx)}, ctx.a}
+	} else {
+		return &dbstub{valbase{_pos(ctx)}, dup(ctx.a)}
+	}
 }
 
 type __error struct { builtinbase }
