@@ -128,8 +128,7 @@ func (b *compactbuilds) discard() {
 }
 
 func (b *compactbuilds) setRaw(raw bool) {
-	b.raw = raw
-	if raw { b.pend = "" }
+	if b.raw = raw; raw { b.pend = "" }
 }
 
 func (b *compactbuilds) len() int {
@@ -6308,6 +6307,7 @@ type compiler struct{
     *term
 	scanner
 	compilestate
+	nextOpenScopeNilOwner bool
 }
 
 // check_compile_cycle requests the Context tree to verify if a project path is currently active.
@@ -10886,7 +10886,10 @@ func (p *compiler) pre_project_set(ctx Context, args ...Value) {
 }
 
 func (p *compiler) openscope(ctx Context, marker Symbol) *scope {
-	p.term = &term{ Context: p.term, scope: new_scope(ctx, p.scope, p.project, marker) }
+	var host *project
+	if !p.nextOpenScopeNilOwner { host = p.project }
+
+	p.term = &term{ Context: p.term, scope: new_scope(ctx, p.scope, host, marker) }
 
 	// FIXED: Synchronize the active lexical tree pointer.
 	// This ensures that any subsequent nested blocks opened within this phase
@@ -11019,23 +11022,34 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 	dec.use.name = symUsee
 
 	if checkpoints {
-		if uc := cast[*use_project_ctx](ctx); uc != nil && p.project == nil {
-			erro(ctx, "host project is nil to use %v (spec=%v)", dec.project, spec, callstack{num:10})
+		if uc := cast[*use_project_ctx](ctx); uc != nil && p.project == nil && absPath == uc.target {
+			erro(ctx,
+				_f(`host project is nil to "use" %v:
+  Declare Spec: %s
+  "use" target: %s
+  ---`,
+					dec.project, spec, uc.target),
+				trace_ctx{5}, callstack{num:10})
 		}
 	}
 
 	// Pure event emission.
 	// `parent.do` will catch this, append the base, and forward it to `universe.do`.
 	do(ctx, declared_project{dec.project})
-
 	if p.project != nil && p.project != dec.project {
 		if prev := p.project.proj(dec.project); prev != nil && prev != dec.project { 
 			erro(pc(ctx,p),
-				_f("=== COLLISION DIAGNOSTIC ==="),
-				_f("Existing mapped project: %p (Name: %v)", prev, prev.name),
-				_f("Newly minted project: %p (Name: %v)", dec.project, dec.project.name),
-				_f("Is this a configuration.sm reload?: %v", do(ctx, is_config_mode{})),
-				_f("name '%v' already taken: %v", name, dec.project.name),
+				_f(`=== COLLISION DIAGNOSTIC ===
+  Existing mapped project: %p (Name: %v)
+  Newly minted project: %p (Name: %v)
+  Is this a configuration.sm reload?: %v
+  name '%v' already taken: %v
+  ---`,
+					prev, prev.name,
+					dec.project, dec.project.name,
+					do(ctx, is_config_mode{}),
+					name, dec.project.name,
+				),
 				trace_ctx{100}, callstack{num:16}, unwind{})
 		}
 	}
@@ -12161,7 +12175,7 @@ func (p *compiler) file(ctx Context, spec, filename Symbol) {
 		} else {
 			p.scope = u.globe.scope
 		}
-		// FIXME: p.project = nil // clear to let new_scope not owned by this project
+		p.nextOpenScopeNilOwner = true // let new_scope not owned by this project in the next openscope
 	} else {
 		p.scope = u.globe.scope
 	}
@@ -12238,7 +12252,7 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 		} else {
 			p.scope = u.globe.scope
 		}
-		// FIXME: p.project = nil // clear to let new_scope not owned by this project
+		p.nextOpenScopeNilOwner = true // let new_scope not owned by this project in the next openscope
 	} else {
 		p.scope = u.globe.scope
 	}
