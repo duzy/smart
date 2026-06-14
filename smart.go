@@ -3707,16 +3707,11 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			}
 
 			switch p.t {
-			case diagInfo:
-				cb.writeString("info: ")
-			case diagWarn:
-				cb.writeString("warning: ")
-			case diagError:
+			case diagInfo : cb.writeString("info: ")
+			case diagWarn : cb.writeString("warning: ")
+			case diagError: cb.writeString("error: ")
 				errs += 1
-				cb.writeString("error: ") // FIXED: Always print the error prefix!
 			}
-		} else if p.t == diagError {
-			errs += 1
 		}
 
 		// 2. Resolve Active Arguments (SBO unboxing)
@@ -3734,8 +3729,8 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			cb.writef(p.f, activeArgs...)
 		}
 
-		// Ensure newline formatting
-		if p.t != diagPrompt || (len(p.f) > 0 && p.f[len(p.f)-1] != '\n') {
+		// Ensure newline formatting for non-prompt diags.
+		if p.t != diagPrompt && (len(p.f) > 0 && p.f[len(p.f)-1] != '\n') {
 			cb.writeString("\n")
 		}
 
@@ -9688,11 +9683,18 @@ func (p *compiler) resolve_project(ctx Context, pos Pos, name Value) *project {
 		return nil
 	}
 
-	// THE DOD FIX: 1. Current Active Project Match
-	// If the requested project is the one we are currently compiling, return it instantly!
+	// 1. Current Active Project Match
 	if p.project != nil {
 		if targetSym == p.project.name || targetSym == p.project.spec {
 			return p.project
+		}
+
+		// THE DOD FIX: Metaclass Field Lookup
+		// If a clause inside a configuration tree asks to resolve the 'configure'
+		// keyword, immediately yield the project's natively bound metaclass pointer
+		// without performing a cold global cache search.
+		if targetSym == symConfigure && p.project.configure != nil {
+			return p.project.configure
 		}
 		
 		// 2. Contextual Local Lookup (Dependencies / Sub-projects)
@@ -9704,13 +9706,14 @@ func (p *compiler) resolve_project(ctx Context, pos Pos, name Value) *project {
 	}
 
 	// 3. Global Universe Lookup
-	// If not found locally, resolve its absolute path and fetch it from the global cache!
 	abs, _ := p.search(ctx, targetSym)
 	if proj, ok := _universe(ctx).globe.loaded[abs]; ok && proj != nil {
 		return proj
 	}
 
-	erro(pc(ctx, pos), "project '%s' not found or loaded", targetSym)
+	erro(pc(ctx, pos),
+		_f("project '%s' not found or loaded", targetSym),
+		callstack{num:20})
 	return nil
 }
 
@@ -10887,7 +10890,9 @@ func (p *compiler) pre_project_set(ctx Context, args ...Value) {
 
 func (p *compiler) openscope(ctx Context, marker Symbol) *scope {
 	var host *project
-	if !p.nextOpenScopeNilOwner { host = p.project }
+	if !p.nextOpenScopeNilOwner { host = p.project } else {
+		p.nextOpenScopeNilOwner = false // THE DOD FIX: Reset the one-shot trigger to prevent lineage starvation in downstream blocks!
+	}
 
 	p.term = &term{ Context: p.term, scope: new_scope(ctx, p.scope, host, marker) }
 
@@ -13087,7 +13092,7 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 					if checkpoints {
 						var valsSlice []Value
 						if finalRes != nil { valsSlice = merge(finalRes) }
-						p.check_configure_val(ctx, __symbol(ctx, auto_get(ctx, symAt)), _word(pos, op), valsSlice, a, b)
+						p.check_configure_handle(ctx, op, valsSlice, a, b)
 					}
 				}
 			}()
@@ -21032,11 +21037,6 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 					}
 				}
 
-				// =====================================================================
-				// FIXED: Packed Wildcard Lookahead Exhaustion Pass
-				// Wrap 'gap' inside packComp before appending to 'stems' for non-SAST wildcards 
-				// to ensure the captured span registers as a single unified stem element.
-				// =====================================================================
 				if tok == SAST {
 					return false, concat(res, gap), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, len(vals), ILLEGAL
 				} else {
@@ -21061,6 +21061,15 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 
 			newElems := concat(exploded, elems[iE+1:])
 			m, r, rm, s, ie_rec, iv_ret, _ := forwardGlobComp(ctx, newElems, vals[iV:])
+
+			sfx := ""
+			if e.Suffix != nil && !isEmpty(e.Suffix) {
+				if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
+					sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
+				} else {
+					sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
+				}
+			}
 
 			if m {
 				mapped_iE := iE
@@ -21088,19 +21097,32 @@ func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, 
 				return true, concat(res, r), rm, concat(stems, s), mapped_iE, iV + iv_ret, ret_wt
 			}
 
+			// =====================================================================
+			// THE DOD FIX: Suffix Countdown Lookahead Pass for Unmatched Wildcards
+			// =====================================================================
+			if len(s) > 0 {
+				stemStr := ""
+				for _, v := range unpack(s[0]) {
+					stemStr += getScalarSubstr(ctx, v, 0, -1)
+				}
+
+				if idx := strings.LastIndex(stemStr, sfx); idx >= 0 {
+					s[0] = _word(vals[iV].Pos(), intern(stemStr[:idx]))
+				} else {
+					for k := len(sfx) - 1; k > 0; k-- {
+						suffix := sfx[:k]
+						if strings.HasSuffix(stemStr, suffix) {
+							s[0] = _word(vals[iV].Pos(), intern(strings.TrimSuffix(stemStr, suffix)))
+							break
+						}
+					}
+				}
+			}
+
 			if iV < len(vals) {
 				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
 				pfx := ""
 				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
-
-				sfx := ""
-				if e.Suffix != nil && !isEmpty(e.Suffix) {
-					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
-						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
-					} else {
-						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
-					}
-				}
 
 				if len(pfx) + len(sfx) <= len(valStr) && strings.HasPrefix(valStr, pfx) {
 					idx := strings.LastIndex(valStr[len(pfx):], sfx)
@@ -21259,10 +21281,6 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 					}
 				}
 
-				// =====================================================================
-				// FIXED: Symmetrical Reverse Packed Wildcard Exhaustion Pass
-				// Wrap 'gap' inside packComp before prepending to 'stems' without gapseg encapsulation.
-				// =====================================================================
 				if tok == SAST {
 					return false, concat(gap, res), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, 0, ILLEGAL
 				} else {
@@ -21287,6 +21305,15 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 
 			newElems := concat(elems[:iE], exploded)
 			m, r, rm, s, ie_rec, iv_ret, _ := backwardGlobComp(ctx, newElems, vals[:iV+1])
+
+			sfx := ""
+			if e.Suffix != nil && !isEmpty(e.Suffix) {
+				if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
+					sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
+				} else {
+					sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
+				}
+			}
 
 			if m {
 				mapped_iE := iE
@@ -21316,19 +21343,33 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 				return true, concat(r, res), rm, concat(s, stems), mapped_iE, iv_ret, ret_wt
 			}
 
+			// =====================================================================
+			// THE DOD FIX: Symmetrical Reverse Suffix Countdown Pass for Unmatched Wildcards
+			// =====================================================================
+			if len(s) > 0 {
+				idx := len(s) - 1
+				textStr := ""
+				for _, v := range unpack(s[idx]) {
+					textStr += getScalarSubstr(ctx, v, 0, -1)
+				}
+
+				if i := strings.LastIndex(textStr, sfx); i >= 0 {
+					s[idx] = _word(vals[iV].Pos(), intern(textStr[:i]))
+				} else {
+					for k := len(sfx) - 1; k > 0; k-- {
+						suffix := sfx[:k]
+						if strings.HasSuffix(textStr, suffix) {
+							s[idx] = _word(vals[iV].Pos(), intern(strings.TrimSuffix(textStr, suffix)))
+							break
+						}
+					}
+				}
+			}
+
 			if iV >= 0 {
 				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
 				pfx := ""
 				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
-
-				sfx := ""
-				if e.Suffix != nil && !isEmpty(e.Suffix) {
-					if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
-						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
-					} else {
-						sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
-					}
-				}
 
 				if len(pfx) + len(sfx) <= len(valStr) && strings.HasPrefix(valStr, sfx) {
 					idx := strings.Index(valStr[:len(valStr)-len(sfx)], pfx)
@@ -21385,12 +21426,8 @@ func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem,
 func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	matched, res, rem, stems, iE, _, wildToken = forwardGlobComp(ctx, elems, unpack(segments[0]))
 	
-	// Restore stripped wildcard stems to their original segment AST type.
 	restoreStems(stems, segments[0])
 
-	// If the component matcher fails but identifies a path-spanning wildcard, 
-	// intercept the state. Restore the segment as an unconsumed remainder ('rem') and 
-	// clear the premature component gap so that path loops can construct a unified 'foo/bar' path stem.
 	if !matched && (wildToken == DAST || wildToken == ASTQ || wildToken == PERC) {
 		rem = unpack(segments[0])
 		stems = nil
@@ -21418,14 +21455,9 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 	fullRem := concat(remNode, segments[1:])
 
 	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
-		// =====================================================================
-		// FIXED: Safe AST Index Location
-		// Eliminates index drift crashes by dynamically locating the exact 
-		// index of the stalled wildcard token.
-		// =====================================================================
 		wildcardIdx := iE
 		if !matched {
-			wildcardIdx = 0 // Safe fallback
+			wildcardIdx = 0 
 			for idx := len(elems) - 1; idx >= 0; idx-- {
 				tok := getGlobToken(elems[idx])
 				if tok == DAST || tok == ASTQ || tok == PERC {
@@ -21449,40 +21481,11 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 		for ; k >= 0 && k < len(segments); k += step {
 			if k == 0 && len(rem) > 0 { continue }
 
-			var pp *percpat
-			if wildcardIdx < len(elems) {
-				pp, _ = unloc(elems[wildcardIdx]).(*percpat)
-			}
-
+			// THE DOD FIX: Completely deleted the manual string parser!
+			// We trust `forwardGlobComp` to evaluate partial mismatches accurately.
 			mSuf, rSufAtoms, remSuf, sSuf, _, _, wtSuf := forwardGlobComp(ctx, elems[wildcardIdx:], unpack(segments[k]))
 			
 			restoreStems(sSuf, segments[k])
-
-			if !mSuf && pp != nil {
-				targetStr := getScalarSubstr(ctx, segments[k], 0, -1) 
-				
-				sfx, pfx := "", ""
-				if pp.Suffix != nil && !isEmpty(pp.Suffix) {
-					if inner, isPP := unloc(pp.Suffix).(*percpat); isPP && isEmpty(inner.Prefix) {
-						if inner.Suffix != nil { sfx = getScalarSubstr(ctx, inner.Suffix, 0, -1) }
-					} else {
-						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
-					}
-				}
-				if pp.Prefix != nil && !isEmpty(pp.Prefix) {
-					pfx = getScalarSubstr(ctx, pp.Prefix, 0, -1)
-				}
-
-				if len(pfx) + len(sfx) <= len(targetStr) && strings.HasPrefix(targetStr, pfx) && strings.HasSuffix(targetStr, sfx) {
-					textStr := targetStr[len(pfx) : len(targetStr)-len(sfx)]
-
-					mSuf = true
-					rSufAtoms = unpack(segments[k])
-					remSuf = nil
-					sSuf = []Value{_word(segments[k].Pos(), intern(textStr))}
-					wtSuf = ILLEGAL
-				}
-			}
 
 			if mSuf {
 				var remSufNode Value
@@ -21505,10 +21508,30 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 			}
 		}
 
+		// THE DOD FIX: Fallback Extraction
+		// When no path segment completely matched, extract the partial suffix match 
+		// from the LAST segment to form the perfect diagnostic stem!
+		var fallbackPath []Value
+		_, _, _, sLast, _, _, _ := forwardGlobComp(ctx, elems[wildcardIdx:], unpack(segments[len(segments)-1]))
+		restoreStems(sLast, segments[len(segments)-1])
+
+		if len(segments) == 1 {
+			if len(sLast) > 0 {
+				rem = unpack(sLast[len(sLast)-1])
+			}
+		} else {
+			fallbackPath = segments[1 : len(segments)-1]
+			if len(sLast) > 0 {
+				fallbackPath = concat(fallbackPath, sLast)
+			} else {
+				fallbackPath = append(fallbackPath, segments[len(segments)-1])
+			}
+		}
+
 		return false,
 			segments,
 			nil,
-			concat(stems, stemseg{elems[wildcardIdx], packPath(concat(packGap(rem, segments[0], wildcardIdx > 0, elems[wildcardIdx].Pos()), segments[1:]))}),
+			concat(stems, stemseg{elems[wildcardIdx], packPath(concat(packGap(rem, segments[0], wildcardIdx > 0, elems[wildcardIdx].Pos()), fallbackPath))}),
 			wildcardIdx + 1, len(segments), wildToken
 	}
 
@@ -21519,7 +21542,6 @@ func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, r
 func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
 	matched, res, rem, stems, iE, _, wildToken = backwardGlobComp(ctx, elems, unpack(segments[len(segments)-1]))
 	
-	// Restore stripped wildcard stems to their original segment AST type.
 	restoreStems(stems, segments[len(segments)-1])
 
 	if !matched && (wildToken == DAST || wildToken == ASTQ || wildToken == PERC) {
@@ -21549,12 +21571,9 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 	fullRem := concat(segments[:len(segments)-1], remNode)
 
 	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
-		// =====================================================================
-		// FIXED: Safe Symmetrical AST Index Location
-		// =====================================================================
 		wildcardIdx := iE
 		if !matched {
-			wildcardIdx = len(elems) - 1 // Safe fallback
+			wildcardIdx = len(elems) - 1 
 			for idx := 0; idx < len(elems); idx++ {
 				tok := getGlobToken(elems[idx])
 				if tok == DAST || tok == ASTQ || tok == PERC {
@@ -21578,40 +21597,10 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 		for ; k >= 0 && k < len(segments); k += step {
 			if k == len(segments)-1 && len(rem) > 0 { continue }
 
-			var pp *percpat
-			if wildcardIdx < len(elems) {
-				pp, _ = unloc(elems[wildcardIdx]).(*percpat)
-			}
-
+			// THE DOD FIX: Trust the exact backward bounds of the component engine!
 			mPre, rPreAtoms, remPre, sPre, _, _, wtPre := backwardGlobComp(ctx, elems[:wildcardIdx+1], unpack(segments[k]))
 			
 			restoreStems(sPre, segments[k])
-
-			if !mPre && pp != nil {
-				targetStr := getScalarSubstr(ctx, segments[k], 0, -1)
-				
-				sfx, pfx := "", ""
-				if pp.Suffix != nil && !isEmpty(pp.Suffix) {
-					if inner, isPP := unloc(pp.Suffix).(*percpat); isPP && isEmpty(inner.Prefix) {
-						if inner.Suffix != nil { sfx = getScalarSubstr(ctx, inner.Suffix, 0, -1) }
-					} else {
-						sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
-					}
-				}
-				if pp.Prefix != nil && !isEmpty(pp.Prefix) {
-					pfx = getScalarSubstr(ctx, pp.Prefix, 0, -1)
-				}
-
-				if len(pfx) + len(sfx) <= len(targetStr) && strings.HasPrefix(targetStr, pfx) && strings.HasSuffix(targetStr, sfx) {
-					textStr := targetStr[len(pfx) : len(targetStr)-len(sfx)]
-
-					mPre = true
-					rPreAtoms = unpack(segments[k])
-					remPre = nil
-					sPre = []Value{_word(segments[k].Pos(), intern(textStr))}
-					wtPre = ILLEGAL 
-				}
-			}
 
 			if mPre {
 				var remPreNode Value
@@ -21638,10 +21627,28 @@ func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, 
 			}
 		}
 
+		// THE DOD FIX: Symmetrical Fallback Extraction
+		var fallbackPath []Value
+		_, _, _, sFirst, _, _, _ := backwardGlobComp(ctx, elems[:wildcardIdx+1], unpack(segments[0]))
+		restoreStems(sFirst, segments[0])
+
+		if len(segments) == 1 {
+			if len(sFirst) > 0 {
+				rem = unpack(sFirst[0])
+			}
+		} else {
+			if len(sFirst) > 0 {
+				fallbackPath = sFirst
+			} else {
+				fallbackPath = []Value{segments[0]}
+			}
+			fallbackPath = concat(fallbackPath, segments[1:len(segments)-1])
+		}
+
 		return false,
 			segments,
 			nil,
-			concat(stemseg{elems[wildcardIdx], packPath(concat(segments[:len(segments)-1], packGap(rem, segments[len(segments)-1], wildcardIdx+1 < len(elems), elems[wildcardIdx].Pos())))}, stems),
+			concat(stemseg{elems[wildcardIdx], packPath(concat(fallbackPath, packGap(rem, segments[len(segments)-1], wildcardIdx+1 < len(elems), elems[wildcardIdx].Pos())))}, stems),
 			wildcardIdx - 1, len(segments), wildToken
 	}
 
@@ -24564,7 +24571,7 @@ func (d *def) streq() (s string) {
 	return
 }
 func (d *def) String() (s string) {
-	if d == nil { return "" }
+	if d == nil { return "<nil-def>" }
 
     var value Value
     {
@@ -26252,10 +26259,7 @@ func (p *project) removeTempSubdirs(ctx Context, cleanDirs ...string) {
 }
 
 func (p *project) isConfigureMetaclass() bool {
-	switch p.name {
-	case symConfigure/* , symDotConfigure */: return true
-	}
-	return false
+	return p.name == symConfigure
 }
 
 func (p *project) configuration_sm(ctx Context) (f *file) {
