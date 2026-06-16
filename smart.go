@@ -23484,7 +23484,7 @@ func ulist(v Value) (l *list) {
     return
 }
 
-func rel_pos_str(ctx Context, f Symbol) string {
+func rel_pos_str_slim(ctx Context, f Symbol) string {
 	if f == symEmpty { return "" }
 
 	target := filepath.ToSlash(f.String())
@@ -23515,6 +23515,11 @@ func rel_pos_str(ctx Context, f Symbol) string {
 	if i > 0 { return "…/" + strings.Join(tParts[i:], "/") }
 
 	return target
+}
+
+func rel_pos_str(ctx Context, f Symbol) string {
+	if false { return rel_pos_str_slim(ctx, f) }
+	return f.String()
 }
 
 type pos_prefix struct{
