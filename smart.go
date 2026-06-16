@@ -26,7 +26,7 @@ import (
 	// "hash/maphash"
 	// "hash/fnv"
     "hash/crc64"
-    hashpkg "hash"
+    hash_pkg "hash"
 	"io/fs"
 	"math"
 	neturl "net/url"
@@ -44,7 +44,7 @@ import (
 	"slices"
     "sync/atomic"
     "syscall"
-	"time"
+	time_pkg "time"
 	"unsafe"
 	"unicode"
 	"unicode/utf8"
@@ -1871,6 +1871,13 @@ func mixUint64(h uint64, v uint64) uint64 {
 	return h
 }
 
+// hashStr uses the FNV-1a 64-bit algorithm. It is incredibly fast and
+// has exceptional distribution for short integer arrays.
+func hashStr(str string) uint64 { return mixString(fnvOffset, str) }
+
+// hashBytes uses the FNV-1a 64-bit algorithm. It is incredibly fast and
+// has exceptional distribution for short integer arrays.
+func hashBytes(bts []byte) uint64 { return mixBytes(fnvOffset, bts) }
 
 // hashSeq uses the FNV-1a 64-bit algorithm. It is incredibly fast and
 // has exceptional distribution for short integer arrays.
@@ -1883,71 +1890,80 @@ func hashSeq(seq []Symbol) uint64 {
 	return h
 }
 
-// hashStr uses the FNV-1a 64-bit algorithm. It is incredibly fast and
-// has exceptional distribution for short integer arrays.
-func hashStr(str string) uint64 { return mixString(fnvOffset, str) }
+func _hash(ctx Context, h uint64, vs ...Value) uint64 {
+	for _, v := range vs {
+		if v == nil {
+			h = mixUint64(h, 0)
+			continue
+		}
 
-// hashBytes uses the FNV-1a 64-bit algorithm. It is incredibly fast and
-// has exceptional distribution for short integer arrays.
-func hashBytes(bts []byte) uint64 { return mixBytes(fnvOffset, bts) }
+		h = mixUint64(h, uint64(v.kind()))
 
-func fnv1(ctx Context, t any, a ...any) uint64 {
-	h := uint64(fnvOffset)
-
-	// 1. Hash the primary identity
-	if t != nil {
-		switch x := t.(type) {
-		case interface{ kind() Kind }:
-			h = mixUint64(h, uint64(x.kind()))
-		case Kind:
-			h = mixUint64(h, uint64(x))
-		default:
-			h = mixString(h, typeof(x))
+		switch p := v.(type) {
+		case *integer:     h = mixUint64(h, uint64(p.int64))
+		case *binary:      h = mixUint64(h, uint64(p.int64))
+		case *octal:       h = mixUint64(h, uint64(p.int64))
+		case *decimal:     h = mixUint64(h, uint64(p.int64))
+		case *hexadecimal: h = mixUint64(h, uint64(p.int64))
+		case *boolean:     h = mixUint64(h, uint64(_if(p.bool, 1, 0)))
+		case *answer:      h = mixUint64(h, uint64(_if(p.bool, 1, 0)))
+		case *option:      h = mixUint64(h, uint64(_if(p.bool, 1, 0)))
+		case *prediction:  h = mixUint64(h, uint64(_if(p.bool, 1, 0)))
+		case *datetime:    h = mixUint64(h, uint64(p.t.UnixNano())) // FIXED: Sub-second precision
+		case *date:        h = mixUint64(h, uint64(p.t.UnixNano())) // FIXED: Sub-second precision
+		case *time:        h = mixUint64(h, uint64(p.t.UnixNano())) // FIXED: Sub-second precision
+		case *globmeta:    h = mixUint64(h, uint64(p.token))
+		case *project:     h = mixUint64(h, uint64(p.name))
+		case *auto:        h = mixUint64(h, uint64(p.name))
+		case *builtin:     h = mixUint64(h, uint64(p.name))
+		case *punct:       h = mixUint64(h, uint64(p.token))
+		case *word:        h = mixUint64(h, uint64(p.s))
+		case *file:        h = mixUint64(h, uint64(p.fullname()))
+		case *float:       h = mixUint64(h, math.Float64bits(p.float64)) // FIXED: Zero-loss float hashing
+		case *regexpat:    h = mixString(h, p.Regexp.String())
+		case *escaped:     h = mixString(h, p.s)
+		case *loc:         h = _hash(ctx, h, p.Value)
+		case *xloc:        h = _hash(ctx, h, p.Value)
+		case *globrange:   h = _hash(ctx, h, p.Value)
+		case *rule:        h = _hash(ctx, h, p.target)
+		case matched_rule: h = _hash(ctx, h, p.target)
+		case *disjunction: h = _hash(ctx, h, p.val)
+		case *def:         h = _hash(ctx, mixUint64(h, uint64(p.name)), p.value)
+		case *list:        h = _hash(ctx, h, p.elems...)
+		case *quote:       h = _hash(ctx, h, p.elems...)
+		case *strcomp:     h = _hash(ctx, h, p.elems...)
+		case *compound:    h = _hash(ctx, h, p.elems...)
+		case *qualword:    h = _hash(ctx, h, p.elems...)
+		case *group:       h = _hash(ctx, h, p.elems...)
+		case *path:        h = _hash(ctx, h, p.elems...)
+		case *pair:        h = _hash(ctx, h, p.key, p.val)
+		case *modifier:    h = _hash(ctx, h, p.elems...)
+		case *plain:       h = _hash(ctx, h, p.elems...)
+		case *plainline:   h = _hash(ctx, h, p.elems...)
+		case *globpat:     h = _hash(ctx, h, p.elems...)
+		case *percpat:     h = _hash(ctx, h, p.Prefix, p.Suffix)
+		case *exec_result: h = _hash(ctx, h, p.values...)
+		case fullname:  h = _hash(ctx, h, p.Value)
+		case negative:  h = _hash(ctx, h, p.Value)
+		case *arrow:    h = _hash(ctx, mixUint64(h, uint64(p.t)), p.o, p.s)
+		case *closure:  h = _hash(ctx, _hash(ctx, _hash(ctx, mixUint64(h, uint64(p.l)), p.x), p.o...), p.a...)
+		case *delegate: h = _hash(ctx, _hash(ctx, _hash(ctx, mixUint64(h, uint64(p.l)), p.x), p.o...), p.a...)
+		case *conjunction:  h = _hash(ctx, _hash(ctx, h, p.sep), p.list.elems...)
+		case *argumented:   h = _hash(ctx, _hash(ctx, h, p.Value), p.args...)
+		case *undetermined: h = _hash(ctx, mixUint64(h, uint64(p.token)), p.identifier, p.value)
+		case flag: if p.Value != nil { h = _hash(ctx, h, p.Value) }
+		case *use: if p.project != nil { h = mixUint64(h, uint64(p.project.name)) }
+		case *uselist: for _, u := range p.list { if u.project != nil { h = mixUint64(h, uint64(u.project.name)) }}
+		case *modification: for _, m := range p.list { h = _hash(ctx, h, m) }
+		default: h = mixString(h, __string(ctx, v))
 		}
 	}
-
-	// 2. Stream variadic components into the hash
-	for _, v := range a {
-		switch tv := v.(type) {
-		case Kind:     h = mixUint64(h, uint64(tv))
-		case token:    h = mixUint64(h, uint64(tv))
-		case int64:    h = mixUint64(h, uint64(tv))
-		case uint64:   h = mixUint64(h, tv)
-		case string:   h = mixString(h, tv)
-		// THE DOD FIX: Native Symbol Support
-		// We explicitly hash the String() to guarantee cross-run deterministic 
-		// caching. Hashing the integer ID would cause massive cache invalidation 
-		// if symbols are interned in a different order!
-		case Symbol:   h = mixString(h, tv.String())
-		case []string:
-			for _, s := range tv { h = mixString(h, s) }
-		case *list:
-			for _, elem := range tv.elems {
-				h = mixUint64(h, hashVal(ctx, elem))
-			}
-		case []Value: // Catch raw unpack() arrays perfectly
-			for _, val := range tv {
-				if val.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
-					h = mixUint64(h, uint64(__int(ctx, val)))
-				} else {
-					h = mixString(h, __string(ctx, val))
-				}
-			}
-		case Value:
-			if tv != nil {
-				if tv.kind()&(KindBoolean|KindInteger|KindFloat|KindDateTime) != 0 {
-					h = mixUint64(h, uint64(__int(ctx, tv)))
-				} else {
-					h = mixString(h, __string(ctx, tv))
-				}
-			}
-		default:
-			erro(ctx, "fnv1: unsupported type : %s", ts(v))
-		}
-	}
-	
 	return h
 }
+
+// hash uses the FNV-1a 64-bit algorithm. It is incredibly fast and
+// has exceptional distribution for short integer arrays.
+func hash(ctx Context, v Value) uint64 { return _hash(ctx, uint64(fnvOffset), v) }
 
 // symEqualsStringLocked resolves hash collisions perfectly with zero allocations for strings.
 func symEqualsStringLocked(sym Symbol, s string) bool {
@@ -3013,7 +3029,7 @@ func __symbol(ctx Context, val Value) Symbol {
 
 	// Other integer bases (Binary, Octal, Hexadecimal)
 	// We just pass these to intern() via their String() method.
-	case *datetime, *Date, *Time:
+	case *datetime, *date, *time:
 		return intern(v.String())
 
 	case interface{ sym() Symbol }:
@@ -3076,7 +3092,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 		}
 		return []Symbol{s}
 
-	case *binary, *octal, *hexadecimal, *datetime, *Date, *Time:
+	case *binary, *octal, *hexadecimal, *datetime, *date, *time:
 		return []Symbol{intern(t.String())}
 
 	case flag:
@@ -3891,33 +3907,35 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			if t := _position(c); !t.valid() || t.same(pos) { continue } else
 			{ pos = t }
 
-			var format = "%v: "
+			var f = "%v: "
 			var dArgs = []any{pos}
 
 			if proj := _project(c); proj == nil {
-				format += "<nil>"
+				f += "<nil>"
 			} else {
-				format += "%s"
+				f += "%s"
 				dArgs = append(dArgs, proj.name)
 				if len(proj.bases) > 0 {
 					var bs []string
 					for _, b := range proj.bases { bs = append(bs, b.name.String()) }
-					format += " (%s)"
+					f += " (%s)"
 					dArgs = append(dArgs, strings.Join(bs, " "))
 				}
 			}
 
 			if e := _entry(c); e != nil {
 				if t := e.String(); t == "" {
-					format += ": %s"
+					f += ": %s"
 					dArgs = append(dArgs, ident(ctx, e))
 				} else {
-					format += ": %s"
+					f += ": %s"
 					dArgs = append(dArgs, t)
 				}
 			}
 
-			p, _ = do(c, diag{diagPrompt, format, dArgs}).(*diagpoint)
+			if !strings.HasSuffix(f, "\n") { f += "\n" }
+
+			p, _ = do(c, diag{diagPrompt, f, dArgs}).(*diagpoint)
 		}
 	}
 
@@ -4007,6 +4025,8 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			}
 			da = append(pfxArgs, da...)
 		}
+
+		if !strings.HasSuffix(f, "\n") { f += "\n" }
 
 		p, _ = do(ctx, diag{diagPrompt, f, da}).(*diagpoint)
 	}
@@ -6911,9 +6931,9 @@ func (p *compiler) repeat(ctx Context, t *template, params []Value) {
 
 	// Note: If you added 'sym' to your parser struct (p.sym),
 	// you may want to add it to this state-restoration defer as well!
-	defer func(t time.Time, pos Pos, tok token, lit string, state scanstate) {
+	defer func(t time_pkg.Time, pos Pos, tok token, lit string, state scanstate) {
 		p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, state
-	} (time.Now(), p.pos, p.tok, p.lit, p.scanner.scanstate)
+	} (time_pkg.Now(), p.pos, p.tok, p.lit, p.scanner.scanstate)
 
 	ac := automatic{Context:ctx, defs:make(def_map)}
 
@@ -8418,7 +8438,7 @@ func ident(ctx Context, x Value) string {
 		return t.token.String()
 	case *valbase, *null, *none, *regexpat, nil: // CRITICAL FIX: Added *regexpat
 		return ""
-	case *answer, *boolean, *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globrange:
+	case *answer, *boolean, *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *date, *time, *globrange:
 		return t.String()
 	case *arrow:
 		return ident(ctx, t.o) + t.t.String() + ident(ctx, t.s)
@@ -10588,14 +10608,14 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		} else {
 			prompt(ctx, "%s├┬→\"%s\" (%s)\n", p.verpre, spec, absPath)
 		}
-		defer func(t time.Time) {
+		defer func(t time_pkg.Time) {
 			var name Symbol
-			var d = time.Since(t)
+			var d = time_pkg.Since(t)
 			var ds = fmt.Sprintf("(%s)", d)
-			if d >= 1*time.Second { ds = fmt.Sprintf("▶%s◀", ds) }
+			if d >= 1*time_pkg.Second { ds = fmt.Sprintf("▶%s◀", ds) }
 			if loaded != nil { name = loaded.name }
 			prompt(ctx, "%s├┴─\"%s\" ⇢ %s %s\n", p.verpre, spec, name, ds)
-		} (time.Now())
+		} (time_pkg.Now())
 	}
 
 	if loaded != nil && !(/*opts.noVars || */opts.reuse) {
@@ -10683,9 +10703,9 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 	}
 
 	if u.verboseImport {
-		defer func(t time.Time) {
-			prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", p.verpre, p.project, spec, time.Since(t))
-		} (time.Now())
+		defer func(t time_pkg.Time) {
+			prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", p.verpre, p.project, spec, time_pkg.Since(t))
+		} (time_pkg.Now())
 	}
 
 	p.useProj(ctx, opts, loaded, params...)
@@ -10700,10 +10720,10 @@ func (p *compiler) useProj(ctx Context, opts useopts, proj *project, params ...V
 
 	u := _universe(ctx)
     if u.verboseUsing {
-        defer func(t time.Time) {
-            var d = time.Now().Sub(t)
+        defer func(t time_pkg.Time) {
+            var d = time_pkg.Now().Sub(t)
             prompt(ctx, "use(%15s) %s ⇒ %v\n", d, p.project, p.project.use)
-        } (time.Now())
+        } (time_pkg.Now())
     }
 
     if proj == p.project {
@@ -12216,14 +12236,14 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	var ok bool
 	var loaded *project
 
-	defer func(t time.Time, loader *project) {
+	defer func(t time_pkg.Time, loader *project) {
 		if loaded == nil { return }
 		if u.globe.main == nil { u.globe.main = loaded }
 		if spec == symDot { spec = filename }
 		if p.project != loader {
 			erro(ctx, "%v: parser project changed: %v", loader, p.project)
 		}
-	} (time.Now(), p.project)
+	} (time_pkg.Now(), p.project)
 
 	if loaded, ok = u.globe.loaded[filename]; ok {
 		do(ctx, declared_project{loaded})
@@ -13407,7 +13427,7 @@ func (p *compiler) configure(ctx Context) {
 		scope: new_scope(ctx, p.project.scope, p.project, symConfigure),
 		workdir:    p.project.absPath, 
 		session:    newTraverseSession(),
-		start:      time.Now(),
+		start:      time_pkg.Now(),
 		configProj: p.project, // FIXED: Locked down to the current loading project at parse-time!
 	}
 
@@ -14497,55 +14517,6 @@ func pc(ctx Context, a any, n ...int) Context {
 	return ctx
 }
 
-func hashVal(ctx Context, x Value) uint64 {
-	switch p := x.(type) {
-	case *loc: return hashVal(ctx, p.Value)
-	case *xloc: return hashVal(ctx, p.Value)
-	case *argumented: return fnv1(ctx, p, p.Value, p.args)
-	case *list: return fnv1(ctx, p, p.any()...)
-	case *quote: return fnv1(ctx, p, p.any()...)
-	case *strcomp: return fnv1(ctx, p, p.any()...)
-	case *compound: return fnv1(ctx, p, p.any()...)
-	case *qualword:
-		// THE DOD FIX: Pass the raw slice to fnv1!
-		// `mixAny` automatically handles `[]Value`, dodging []any boxing!
-		return fnv1(ctx, p, unpack(p))
-	case *group: return fnv1(ctx, p, p.any()...)
-	case *path: return fnv1(ctx, p, p.any()...)
-	case *pair: return fnv1(ctx, p, p.key, p.val)
-	case *escaped: return fnv1(ctx, p, p.s)
-	case *disjunction: return fnv1(ctx, p.kind(), p.val)
-	case *conjunction: return fnv1(ctx, p.kind(), p.sep, p.list)
-	case *globrange: return fnv1(ctx, p.kind(), p.Value)
-	case *globmeta: return fnv1(ctx, p.kind(), p.token.String())
-	case *project: return fnv1(ctx, p, p.name)
-	case *auto: return fnv1(ctx, p, p.name)
-	case *builtin: return fnv1(ctx, p, p.name)
-	case *def: return fnv1(ctx, p, p.name, p.value)
-	case *rule: return fnv1(ctx, p, p.target)
-	case *file: return fnv1(ctx, p, p.fullname())
-	case *modification: return fnv1(ctx, p, p.list)
-	case *modifier: return fnv1(ctx, p, p.any()...)
-	case *plain: return fnv1(ctx, p, p.any()...)
-	case *plainline: return fnv1(ctx, p, p.any()...)
-	case *globpat: return fnv1(ctx, p, p.any()...)
-	case *percpat: return fnv1(ctx, p, p.Prefix, p.Suffix)
-	case *regexpat: return fnv1(ctx, p, p.Regexp.String())
-	case *exec_result: return fnv1(ctx, p, p.values)
-	case *arrow: return fnv1(ctx, p, p.t, p.o, p.s)
-	case *closure: return fnv1(ctx, p, p.l, p.x, p.o, p.a)
-	case *delegate: return fnv1(ctx, p, p.l, p.x, p.o, p.a)
-	case *use: return fnv1(ctx, p, p.project)
-	case *uselist: return fnv1(ctx, p, p.list)
-	case *undetermined: return fnv1(ctx, p, p.token, p.identifier, p.value)
-	case flag: return fnv1(ctx, p, p.Value.kind(), p.Value)
-	case fullname: return fnv1(ctx, p, p.Value)
-	case matched_rule: return fnv1(ctx, p, p.target)
-	case negative: return fnv1(ctx, p, p.Value)
-	}
-	return fnv1(ctx, x.kind(), x)
-}
-
 func hashDir(ctx Context, k []byte) string {
 	// 1. Fetch the pre-interned tmpPath Symbol
 	var dirSym Symbol
@@ -14605,7 +14576,7 @@ func hashDir(ctx Context, k []byte) string {
 // hashPath safely generates a 64-character hex path (e.g., .deps/e3/b0/c4...)
 // using a zero-allocation sync.Pool and stack buffers.
 func hashPath(prefix, hashee0 string, hasheeN ...any) (string, error) {
-	h := sha256Pool.Get().(hashpkg.Hash)
+	h := sha256Pool.Get().(hash_pkg.Hash)
 	h.Reset()
 	defer sha256Pool.Put(h)
 
@@ -14936,7 +14907,7 @@ func cmp_rank(rx, ry int) cmpres {
 	return cmpEqual // Indicates no rank disparity, proceed to normal cmp
 }
 
-func cmp_time(l, r time.Time) cmpres {
+func cmp_time(l, r time_pkg.Time) cmpres {
     switch {
     case l.Before(r): return cmpSmaller
     case l.After(r) : return cmpGreater
@@ -15466,17 +15437,17 @@ type float struct{ valbase; float64; sym Symbol } // IEEE-754 64-bit binary floa
 func (p *float) kind() Kind { return KindFloat }
 func (p *float) String() string { return strconv.FormatFloat(float64(p.float64),'g', -1, 64) }
 
-type datetime struct{ valbase ; t time.Time }
+type datetime struct{ valbase ; t time_pkg.Time }
 func (_ *datetime) kind() Kind { return KindDateTime }
-func (p *datetime) String() string { return time.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
+func (p *datetime) String() string { return time_pkg.Time(p.t).Format("2006-01-02T15:04:05.999999999Z07:00") }
 
-type Date struct{ datetime }
-func (p *Date) kind() Kind { return KindDate }
-func (p *Date) String() string { return time.Time(p.t).Format("2006-01-02") }
+type date struct{ datetime }
+func (p *date) kind() Kind { return KindDate }
+func (p *date) String() string { return time_pkg.Time(p.t).Format("2006-01-02") }
 
-type Time struct{ datetime }
-func (p *Time) kind() Kind { return KindTime }
-func (p *Time) String() string { return time.Time(p.t).Format("15:04:05.999999999Z07:00") }
+type time struct{ datetime }
+func (p *time) kind() Kind { return KindTime }
+func (p *time) String() string { return time_pkg.Time(p.t).Format("15:04:05.999999999Z07:00") }
 
 
 // ie. https://en.wikipedia.org/wiki/URL
@@ -15759,7 +15730,7 @@ func (p *disjunction) String() string { return "{"+p.val.String()+"}" }
 func _disjunction(v Value) (res Value) {
     switch v.(type) {
     case *integer, *binary, *octal, *decimal, *hexadecimal, *float, *disjunction,
-        *punct, *word, *raw, *strlit, *datetime, *file, *Date, *Time, *project, self:
+        *punct, *word, *raw, *strlit, *datetime, *file, *date, *time, *project, self:
         return v
     }
     return &disjunction{valbase{v.Pos()},v}
@@ -16592,8 +16563,8 @@ func (p *file) isSocket() bool {
 	return (atomic.LoadInt32(&p._flag) & flagIsSocket) != 0
 }
 
-func (p *file) modTime() time.Time {
-	return time.Unix(0, atomic.LoadInt64(&p._mtime))
+func (p *file) modTime() time_pkg.Time {
+	return time_pkg.Unix(0, atomic.LoadInt64(&p._mtime))
 }
 
 func (p *file) stat(ctx Context, force bool, erroPathError ...bool) bool {
@@ -17481,7 +17452,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case rune: sb.writeRune(t)
 	case token: sb.writeString(t.String())
 	case Symbol: t.build(sb) // Writes directly to our internal raw byte slice
-	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *Date, *Time, *globmeta, *punct:
+	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *date, *time, *globmeta, *punct:
 		sb.writeString(t.(Value).String())
 	case *valbase, *null, *none, nil: return
 	case *answer:
@@ -17851,8 +17822,8 @@ func __true(ctx Context, v Value) (res bool) {
 	case *hexadecimal: return t.int64 != 0
 	case *float: return math.Abs(t.float64)-0 > epsilon
 	case *datetime: return !t.t.IsZero()
-	case *Date: return !t.t.IsZero()
-	case *Time: return !t.t.IsZero()
+	case *date: return !t.t.IsZero()
+	case *time: return !t.t.IsZero()
 	case *compound: return t.elements.true(ctx)
 	case *qualword: return t.elements.true(ctx)
 	case *globpat: return t.elements.true(ctx)
@@ -17914,8 +17885,8 @@ func __int(ctx Context, v Value) (res int64) {
 	case *decimal: return t.int64
 	case *float: return int64(t.float64)
 	case *datetime: return t.t.Unix()
-	case *Date: return t.t.Unix()
-	case *Time: return t.t.Unix()
+	case *date: return t.t.Unix()
+	case *time: return t.t.Unix()
 	case *pair: return __int(ctx, t.val)
 	case *auto: return __int(ctx, t.def(ctx))
 	case *xloc: return __int(ctx, t.Value)
@@ -18001,8 +17972,8 @@ func __float(ctx Context, v Value) (_ float64) {
 	case *octal: return float64(t.int64)
 	case *decimal: return float64(t.int64)
 	case *datetime: return float64(t.t.Unix())
-	case *Date: return float64(t.t.Unix())
-	case *Time: return float64(t.t.Unix())
+	case *date: return float64(t.t.Unix())
+	case *time: return float64(t.t.Unix())
 	case *pair: return __float(ctx, t.val)
 	case *auto: return __float(ctx, t.def(ctx))
 	case *def: return __float(ctx, t.value)
@@ -18852,7 +18823,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 		ctx := &evoke_builtin_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}}, t, nil, a}
 		_v := reflect.New(t.t)
 
-		defer t.benchmark(ctx, time.Now(), _v)
+		defer t.benchmark(ctx, time_pkg.Now(), _v)
 
 		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
 			erro(ctx, "no such field: %s.builtinbase", _v.Elem().Type())
@@ -19461,7 +19432,7 @@ func (p *exec_log) Write(b []byte) (n int, err error) {
 func (p *exec_log) newWriter(file *os.File, dir, cmd string) {
     p.writer = bufio.NewWriter(file)
     fmt.Fprintf(p, "-*- mode: compilation; default-directory: \"%s\" -*-\n", dir)
-    fmt.Fprintf(p, "Compilation started at %v\n\n", time.Now())
+    fmt.Fprintf(p, "Compilation started at %v\n\n", time_pkg.Now())
     fmt.Fprintf(p, "%s\n", cmd)
 }
 
@@ -19671,7 +19642,7 @@ type exec_ctx struct {
 	// TODO: knownerrors int
     known map[*regexp.Regexp]func(Context, *exec_buffer, []byte, [][]byte)
 
-    start time.Time
+    start time_pkg.Time
 
 	// Concurrency safe for multi-stream exec pipelines!
 	resetStatusZero atomic.Bool
@@ -20073,7 +20044,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
             var ps = ctx.cmd + trimPrompt(ctx.targetName.String())
             if _execution(exe.Context) == nil { ps += " …… ok" }
             if ps != "" {
-                var s = time.Now().Sub(ctx.start).String()
+                var s = time_pkg.Now().Sub(ctx.start).String()
                 if n := ctx.stdout.wrote; n > 0 { s += fmt.Sprintf(", stdout=%d bytes", n) }
                 if n := ctx.stderr.wrote; n > 0 { s += fmt.Sprintf(", stderr=%d bytes", n) }
                 if t := exe.dirt; t != "" { s += "; " + t }
@@ -20145,7 +20116,7 @@ func (ctx *exec_ctx) exec(cmd, opt string) {
 
     ctx.stdout.xc = ctx
     ctx.stderr.xc = ctx
-    ctx.start = time.Now()
+    ctx.start = time_pkg.Now()
 
     var noExec = truly(ctx, exec_noop{})
     for i, src := range srcs {
@@ -23073,7 +23044,7 @@ func traverse(ctx Context, val Value) {
 		x := &execution{
 			Context: ctx,
 			scope:   new_scope(ctx, p.owner().scope, p.owner(), __symbol(ctx, p.target)),
-			start:   time.Now(),
+			start:   time_pkg.Now(),
 			rule:    p,
 		}
 
@@ -23364,7 +23335,7 @@ func unique(ctx Context, values ...Value) []Value {
 	seen := make(map[uint64][]Value, len(values))
 
 	for _, v := range values {
-		n := hashVal(ctx, v)
+		n := hash(ctx, v)
 
 		// Check if we've seen this hash
 		if existing, found := seen[n]; found {
@@ -23399,7 +23370,7 @@ func reverse_unique(ctx Context, values ...Value) []Value {
 
 	for j := len(values) - 1; 0 <= j; j-- {
 		v := values[j]
-		n := hashVal(ctx, v)
+		n := hash(ctx, v)
 
 		if existing, found := seen[n]; found {
 			isDuplicate := false
@@ -24082,8 +24053,8 @@ func _rw1(pos Pos, s string) Value {
 	return &raw{valbase{pos}, s}
 }
 
-func makeDate(pos Pos, s time.Time) *Date  { return &Date{datetime{valbase{pos},s}} }
-func makeTime(pos Pos, t time.Time) *Time  { return &Time{datetime{valbase{pos},t}} }
+func makeDate(pos Pos, s time_pkg.Time) *date  { return &date{datetime{valbase{pos},s}} }
+func makeTime(pos Pos, t time_pkg.Time) *time  { return &time{datetime{valbase{pos},t}} }
 func makeUrl(pos Pos, s *neturl.URL) *url {
 	if s.RawQuery != "" { panic("TODO: url query: "+s.RawQuery) }
 
@@ -24135,7 +24106,7 @@ func makeClosure(pos Pos, tok token, obj Value, opts []Value, args ...Value) Val
 //     case float32:   out = _float(pos,float64(v))
 //     case float64:   out = _float(pos,v)
 //     case string:    out = _strlit(pos, v)
-//     case time.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
+//     case time_pkg.Time: out = &datetime{valbase{pos},v} // FIXME: NewDate, NewTime
 //     case Value:     out = v
 //     }
 //     return
@@ -24197,10 +24168,10 @@ func parseFloat(pos Pos, s string, sym Symbol) *float {
 	}
 }
 
-// time.RFC3339Nano
-func parseDateTime(s string) (time.Time, error) { return time.Parse("2006-01-02T15:04:05.999999999Z07:00", s) }
-func parseDate(s string) (time.Time, error) { return time.Parse("2006-01-02", s) }
-func parseTime(s string) (time.Time, error) { return time.Parse("15:04:05.999999999Z07:00", s) }
+// time_pkg.RFC3339Nano
+func parseDateTime(s string) (time_pkg.Time, error) { return time_pkg.Parse("2006-01-02T15:04:05.999999999Z07:00", s) }
+func parseDate(s string) (time_pkg.Time, error) { return time_pkg.Parse("2006-01-02", s) }
+func parseTime(s string) (time_pkg.Time, error) { return time_pkg.Parse("15:04:05.999999999Z07:00", s) }
 
 func ParseDateTime(pos Pos, s string) Value {
 	if t, e := parseDateTime(s); e == nil {
@@ -24210,7 +24181,7 @@ func ParseDateTime(pos Pos, s string) Value {
 	}
 }
 
-func ParseDate(pos Pos, s string) *Date {
+func ParseDate(pos Pos, s string) *date {
 	if t, e := parseDate(s); e == nil {
 		return makeDate(pos,t)
 	} else {
@@ -24218,7 +24189,7 @@ func ParseDate(pos Pos, s string) *Date {
 	}
 }
 
-func ParseTime(pos Pos, s string) *Time {
+func ParseTime(pos Pos, s string) *time {
 	if t, e := parseTime(s); e == nil {
 		return makeTime(pos,t)
 	} else {
@@ -24725,11 +24696,11 @@ type builtin struct{ knownobject ; t reflect.Type }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name.String() }
-func (p *builtin) benchmark(ctx *evoke_builtin_ctx, t time.Time, v reflect.Value) {
-	var n = time.Now()
-	if d := n.Sub(t); 100*time.Millisecond < d {
+func (p *builtin) benchmark(ctx *evoke_builtin_ctx, t time_pkg.Time, v reflect.Value) {
+	var n = time_pkg.Now()
+	if d := n.Sub(t); 100*time_pkg.Millisecond < d {
 		var a = xmerge(final{ctx}, ctx.a...)
-		var m = time.Since(n)//; %v %v
+		var m = time_pkg.Since(n)//; %v %v
 		debug(pc(ctx,p), "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a), callstack{frames:-1})
 	} else if f := v.Elem().FieldByName("timing"); f.IsValid() {
 		if f.Type().Kind() == reflect.Bool && f.Bool() {
@@ -26414,11 +26385,11 @@ func (p *project) entry(c Context, name any, a ...bool) (_ matched_rule) {
 }
 
 func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemmed_rule) {
-	var t1, t2 time.Time
+	var t1, t2 time_pkg.Time
 
-	defer func(t0 time.Time) {
-		var t = time.Now()
-		if d := t.Sub(t0); d > 1*time.Second {
+	defer func(t0 time_pkg.Time) {
+		var t = time_pkg.Now()
+		if d := t.Sub(t0); d > 1*time_pkg.Second {
 			var ( d1 = t1.Sub(t0) ; d2 = t2.Sub(t1) ; d3 = t.Sub(t2) ; n int )
 			var a = auto_get(ctx, symAt)
 			for sc := _stemmed(ctx); sc != nil; n += 1 {
@@ -26443,7 +26414,7 @@ func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemme
 			}
 			debug(ctx, ds, diagtext{})
 		}
-	} (time.Now())
+	} (time_pkg.Now())
 
 	if res, t1, t2 = p.resolvePatterns123(ctx, v, s.String()); false && len(res) > 0 {
 		for _, t := range res {
@@ -26458,19 +26429,19 @@ func (p *project) resolvePatterns(ctx Context, v Value, s Symbol) (res []*stemme
 	return
 }
 
-func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed_rule, t1, t2 time.Time) {
-    if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) } ; t1 = time.Now()
-    if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) } ; t2 = time.Now()
+func (p *project) resolvePatterns123(ctx Context, v Value, s string) (res []*stemmed_rule, t1, t2 time_pkg.Time) {
+    if true  { res = append(res, p.resolvePatterns1(ctx, v, s)...) } ; t1 = time_pkg.Now()
+    if true  { res = append(res, p.resolvePatterns2(ctx, v, s)...) } ; t2 = time_pkg.Now()
     if false { res = append(res, p.resolvePatterns3(ctx, v, s)...)/* heavy work, VERY SLOW! */ }
     return
 }
 
 func (p *project) resolvePatterns1(ctx Context, val Value, s string) (res []*stemmed_rule) {
-	defer func(t0 time.Time) {
-		if d := time.Now().Sub(t0); d > 1*time.Second {
+	defer func(t0 time_pkg.Time) {
+		if d := time_pkg.Now().Sub(t0); d > 1*time_pkg.Second {
 			debug(ctx, "%v: slow: %v %v", _position(ctx), val, d)
 		}
-	} (time.Now())
+	} (time_pkg.Now())
 
 ForPatterns:
 	for _, pat := range p.patterns {
@@ -26489,9 +26460,9 @@ ForPatterns:
 
 			if pa := pat.arged; len(pa) > 0 {
 				var y bool
-				var t1 = time.Now()
+				var t1 = time_pkg.Now()
 				var av = xmerge(ctx, pa...)
-				var t2 = time.Now()
+				var t2 = time_pkg.Now()
 				for _, a := range av {
 					// =========================================================
 					// Symbol Domain Migration: Replaced internal raw match loop
@@ -26499,8 +26470,8 @@ ForPatterns:
 					if y, _, _, _ = match(ctx, a, __symPath(a.Pos(), intern(s))); y { break }
 				}
 
-				var t3 = time.Now()
-				if d := t3.Sub(t1); d > 1*time.Second {
+				var t3 = time_pkg.Now()
+				if d := t3.Sub(t1); d > 1*time_pkg.Second {
 					var ( d2 = t2.Sub(t1) ; d3 = t3.Sub(t2) )
 					var ( p = _position(ctx) ; pt = pat.target )
 					debug(ctx, "%v: slow: %v, %v→%d; %v⇒%v+%v", p, pt, pa, len(av), d, d2, d3)
@@ -26683,13 +26654,13 @@ func (p *project) usees(bases, basesRecur, useeRecur, pre bool) (res []*project)
 // chdirMutex can serve to protect the whole timeframe.
 var chdirMutex = new(sync.Mutex)
 
-func lockCD(dir string, dura time.Duration) error {
+func lockCD(dir string, dura time_pkg.Duration) error {
     // Protect the work directory, `chdirMutex` ensures that
     // there's only one timer being counting to avoid work
     // directory being changed before the deadline.
     chdirMutex.Lock()
     go func() {
-        if dura > 0 { time.Sleep(dura) }
+        if dura > 0 { time_pkg.Sleep(dura) }
         chdirMutex.Unlock()
     } ()
     return os.Chdir(dir)
@@ -26775,7 +26746,7 @@ type execution struct {
 	changedWD Symbol
 
 	dirt  string    
-	start time.Time 
+	start time_pkg.Time 
 
 	session *traverseSession
 
@@ -27290,7 +27261,7 @@ func (p *execution) dirty(ctx Context, aa ...Value) (outdated bool) {
 		targetFullStr := targetFullSym.String()
 		ts := trimPrompt(targetFullStr)
 		
-		d := time.Since(p.start)
+		d := time_pkg.Since(p.start)
 		
 		var m string
 		if outdated { m = "outdated" } else { m = "updated" }
@@ -27607,17 +27578,17 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 	)
 	
 	if opts.verbose { 
-		defer func(st time.Time) {
+		defer func(st time_pkg.Time) {
 			if same {
 				if true { return } else { status = "unchanged" }
 			} else if status == "" {
 				status = fmt.Sprintf("outdated (%s)", filenameStr)
 			}
 
-			var d = time.Since(st)
+			var d = time_pkg.Since(st)
 			prompt(ctx, "update %v …… %s (in %v)\n", trimPrompt(filenameStr), status, d)
 			if d := opts.debug; d > 0 { debug(ctx, "%v (%v)", auto_get(ctx, symAt), d) }
-		}(time.Now())
+		}(time_pkg.Now())
 	}
 
 	// 3. Physical OS I/O & Timestamp Math
@@ -27634,8 +27605,8 @@ func configureconvert(ctx *execution, dealArgs configureconvertArgs, dealData co
 				}
 			}
 			
-			// Only allocate time.Time if we physically need to execute the touch operation
-			if tt > f._mtime { e = touch(ctx, f, 0, false, time.Unix(0, tt)) }
+			// Only allocate time_pkg.Time if we physically need to execute the touch operation
+			if tt > f._mtime { e = touch(ctx, f, 0, false, time_pkg.Unix(0, tt)) }
 			return f
 		}
 	} else if opts.makePath {
@@ -28272,7 +28243,7 @@ type universe struct {
     *scope
     *globe
 
-	launchTime time.Time
+	launchTime time_pkg.Time
 
     fset *fileset
 
@@ -28567,7 +28538,7 @@ type commandline struct {
     traceEntering   bool `ti,trace-entering`
     traceConfig     bool `tc,trace-config`
 
-    slow time.Duration `slow` // time.Millisecond
+    slow time_pkg.Duration `slow` // time_pkg.Millisecond
 }
 
 func _commandline() commandline { return commandline{
@@ -28582,7 +28553,7 @@ func _commandline() commandline { return commandline{
     panicFailureOnFlushedErrors: true,
     silentOptionalArrow: false,
 
-    slow: 2999 * time.Millisecond,
+    slow: 2999 * time_pkg.Millisecond,
 }}
 
 type workdir_sym Symbol
@@ -28594,7 +28565,7 @@ func isGlobeScope(s *scope) bool {
 
 func new_universe(ii ...any) (ctx *universe) {
 	ctx = &universe{
-		launchTime: time.Now(),
+		launchTime: time_pkg.Now(),
 		// FIXED: sync.Map does not use make(). Initialize explicitly as a blank composite struct literal.
 		statcache:  sync.Map{}, 
 		fset:       new_fileset(),
@@ -28801,9 +28772,9 @@ func (u *universe) load(ctx Context) {
 	// 4. String Unpacking for Terminal Output
 	if u.verboseImport { prompt(ctx, "┌→%s\n", u.workdir.String()) }
 
-	defer func(t time.Time) {
-		// 5. Idiomatic time.Since replaces time.Now().Sub
-		if d := time.Since(t); u.verboseImport {
+	defer func(t time_pkg.Time) {
+		// 5. Idiomatic time_pkg.Since replaces time_pkg.Now().Sub
+		if d := time_pkg.Since(t); u.verboseImport {
 			var name Symbol
 			if p := top.project; p != nil { name = p.name }
 			prompt(ctx, "└·%s … (%s)\n", name.String(), d)
@@ -28811,7 +28782,7 @@ func (u *universe) load(ctx Context) {
 			// Using pure Symbol for Context tagging!
 			debug(pc(ctx, u.workdir), "slow loading (%v)!!\n", d)
 		}
-	} (time.Now())
+	} (time_pkg.Now())
 
 	// 6. Zero-Allocation Path Resolution
 	spec := __symPathRel(symBaseWorkDir, u.workdir)
@@ -29111,7 +29082,7 @@ func _duplicate(v reflect.Value) reflect.Value {
 }
 
 var (
-	l_t        = time.Now()
+	l_t        = time_pkg.Now()
 	l_config   = &ltracing{ tm: l_t }
 	l_exec     = &ltracing{ tm: l_t }
 	l_launch   = &ltracing{ tm: l_t }
@@ -29121,7 +29092,7 @@ var (
 )
 
 type l_tracer interface {
-	elapsed() time.Duration
+	elapsed() time_pkg.Duration
 	tracef(string,...any)
 	trace(...any)
 	level(int)
@@ -29175,7 +29146,7 @@ type ltracing struct {
 	all bool
 	enabled bool // (mode&Trace != 0)
 	indent int  // indentation used for tracing output
-	tm time.Time
+	tm time_pkg.Time
 }
 
 // Printing fields (splitted by \t).
@@ -29244,9 +29215,9 @@ func (p *ltracing) level(n int) {
 	p.indent += n
 }
 
-func (p *ltracing) elapsed() time.Duration {
-	if false && p.tm.IsZero() { p.tm = time.Now() }
-	return time.Now().Sub(p.tm)
+func (p *ltracing) elapsed() time_pkg.Duration {
+	if false && p.tm.IsZero() { p.tm = time_pkg.Now() }
+	return time_pkg.Now().Sub(p.tm)
 }
 
 type evaluater interface {
@@ -29485,7 +29456,7 @@ func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
 		var (
 			ordered = auto_get(ctx, symBar)   // |
 			grepped = auto_get(ctx, symTilde) // ~
-			tt      time.Time
+			tt      time_pkg.Time
 		)
 
 		// CRITICAL SHIELD: Guard against nil file resolutions before reading modTime
@@ -30180,7 +30151,7 @@ func searchGrepped(ctx Context, gp Position, gc *grep_ctx, sys bool, name Symbol
 		
 		if file.exists() && file._mtime > targetNano { 
 			if true || gc.debug > 0 {
-				debug(ctx, "touch %v → %v (%v)", gc.target, file, time.Unix(0, file._mtime), callstack{num:gc.debug})
+				debug(ctx, "touch %v → %v (%v)", gc.target, file, time_pkg.Unix(0, file._mtime), callstack{num:gc.debug})
 			}
 
 			fullname := gc.fullname.String()
@@ -30416,14 +30387,14 @@ func (g *grep_touch) work(ctx Context, gc *grep_ctx) (err error) {
 		if file._mtime > maxNano { // Pure O(1) Integer Math!
 			maxNano = file._mtime
 			if gc.debug>0 { 
-				warn(ctx, "touch %v → %v (%v)", g.target, file, time.Unix(0, maxNano)) 
+				warn(ctx, "touch %v → %v (%v)", g.target, file, time_pkg.Unix(0, maxNano)) 
 			}
 		}
 	}
 	
-	// Only allocate a time.Time if we actually crossed the threshold
+	// Only allocate a time_pkg.Time if we actually crossed the threshold
 	if maxNano > g.mtime {
-		newTime := time.Unix(0, maxNano)
+		newTime := time_pkg.Unix(0, maxNano)
 		if err = os.Chtimes(g.fullname.String(), newTime, newTime); err != nil {
 			erro(ctx, "%v", err)
 		}
@@ -30649,7 +30620,7 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
         debug(ctx, "grep files: %v %v %v\n", target, gc.rxs, args, callstack{num:gc.debug})
     }
     if gc.verbose {
-        defer func(ts time.Time) {
+        defer func(ts time_pkg.Time) {
             var s string
             if len(targets) == 1 { s = targets[0].String() } else {
                 for _, v := range targets {
@@ -30659,8 +30630,8 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
                     }
                 }
             }
-            debug(ctx, "Grep %v …… (%d files in %v)\n", s, len(grepped), time.Now().Sub(ts))
-        } (time.Now())
+            debug(ctx, "Grep %v …… (%d files in %v)\n", s, len(grepped), time_pkg.Now().Sub(ts))
+        } (time_pkg.Now())
     }
 
     var tar = target
@@ -30932,12 +30903,12 @@ func (ctx *modifier_extractdeps) x(args ...Value) (result any) {
 
 	var files []Value
 	if ctx.verbose {
-		defer func(ts time.Time) {
+		defer func(ts time_pkg.Time) {
 			var s string
 			if val := auto_get(ctx, symAt); val != nil { s = val.String() }
-			// DOD: time.Since is mathematically faster and more idiomatic than time.Now().Sub
-			prompt(ctx, "Deps %v …… (%d files in %v)\n", s, len(files), time.Since(ts))
-		}(time.Now())
+			// DOD: time_pkg.Since is mathematically faster and more idiomatic than time_pkg.Now().Sub
+			prompt(ctx, "Deps %v …… (%d files in %v)\n", s, len(files), time_pkg.Since(ts))
+		}(time_pkg.Now())
 	}
 
 CorrectCC:
@@ -31827,7 +31798,7 @@ func (ctx *modifier_updatefile) x(exe *execution, args ...Value) (result any) {
 		err error
 	)
 	if ctx.verbose {
-		defer func(st time.Time) {
+		defer func(st time_pkg.Time) {
 			var f string
 			if ctx.verbFilename {
 				f = trimPrompt(filename)
@@ -31843,8 +31814,8 @@ func (ctx *modifier_updatefile) x(exe *execution, args ...Value) (result any) {
 			} else {
 				s = fmt.Sprintf("changed (%d bytes)", wrote)
 			}
-			prompt(ctx, "update %v …… %s (in %v)\n", f, s, time.Since(st))
-		} (time.Now())
+			prompt(ctx, "update %v …… %s (in %v)\n", f, s, time_pkg.Since(st))
+		} (time_pkg.Now())
 	}
 
 	if same, err = crc64CheckFileModeContent(ctx, filename, []byte(content), ctx.mode); err != nil {
@@ -31908,11 +31879,11 @@ func (ctx *modifier_wait) x(args ...Value) (result any) {
         err error
     )
     if ctx.verbose {
-        defer func (st time.Time) {
+        defer func (st time_pkg.Time) {
             var s string; if err != nil { s = "fail" } else { s = "done" }
             prompt(ctx, "Wait %v …… %s, result=%v\n", target, s, execRes)
             if ctx.debug>0 { debug(ctx, "%v", execRes) }
-        } (time.Now())
+        } (time_pkg.Now())
     }
 
     // Wait for prerequisites and/or execution
@@ -31961,14 +31932,14 @@ func reportFileUpdates(ctx Context, fs []*file) {
 	var startNano = start.UnixNano() // O(1) primitive baseline
 
 	for _, f := range fs {
-		var d = time.Since(start)
+		var d = time_pkg.Since(start)
 		
 		// Blazing fast primitive math
 		if f._mtime > startNano {
 			prompt(ctx, "Updated %v (%v)\n", f.name.String(), d)
 		} else {
-			// Only allocate time.Time for the slow-path logging
-			var mod = time.Unix(0, f._mtime)
+			// Only allocate time_pkg.Time for the slow-path logging
+			var mod = time_pkg.Unix(0, f._mtime)
 			prompt(ctx, "File %v not changed (%v, ModTime=%v)\n", f, d, mod)
 			debug(ctx,
 				_f("incorrect timestamp: %v (JobTime=%v, ModTime=%v)", f, start, mod),
@@ -32976,7 +32947,7 @@ func (ctx *__date) do(c Context, op any) any {
 	return ctx.builtinbase.do(c, op)
 }
 func (ctx *__date) x() (res any) {
-    if t := time.Now(); len(ctx.a) > 0 {
+    if t := time_pkg.Now(); len(ctx.a) > 0 {
         var vals []Value
         for _, a := range ctx.a {
             var s string
@@ -33673,7 +33644,7 @@ func (ctx *__foreach) x() (res any) {
 		if !ctx.empty && isEmpty(val) {
 			continue
 		} else if ctx.unique {
-			var t = hashVal(ctx, val)
+			var t = hash(ctx, val)
 			var isDuplicate bool
 
 			// Resolve potential hash collisions via structural equality
@@ -34008,7 +33979,7 @@ func (ctx *__servehttp) x() (res any) {
         var s = "<font color=red>stop serving '%s' close in a second ...</font>"
         io.WriteString(w, fmt.Sprintf(s, root))
         go func() {
-            time.Sleep(1 * time.Second)
+            time_pkg.Sleep(1 * time_pkg.Second)
             server.Shutdown(context.Background())
         } ()
     }
@@ -34208,28 +34179,28 @@ func (ctx *__unique) do(c Context, op any) any {
 }
 func (ctx *__unique) x() (_ any) {
     var args = ctx.a
-    var t1, t2 time.Time
+    var t1, t2 time_pkg.Time
 
     if false { defer func() {
-        t3 := time.Now()
+        t3 := time_pkg.Now()
         d0 := t3.Sub(t1)
         d1 := t2.Sub(t1)
         d2 := t3.Sub(t2)
-        if d0 > 1*time.Second {
+        if d0 > 1*time_pkg.Second {
             for _, a := range args { __string(ctx, a) }
-            t4 := time.Now()
+            t4 := time_pkg.Now()
             d3 := t4.Sub(t3)
             for i, a := range args { if i > 0 { cmp(ctx, a, args[i-1]) } }
-            t5 := time.Now()
+            t5 := time_pkg.Now()
             d4 := t5.Sub(t4)
             // for i, a := range args { if i > 0 { eq(ctx, a, args[i-1]) } }
             for i, a := range args { if i > 0 { equal(ctx, a, args[i-1]) } }
-            t6 := time.Now()
+            t6 := time_pkg.Now()
             d5 := t6.Sub(t5)
             var args2 []Value
             var seen = make(map[uint64]struct{})
             for _, a := range args {
-                c := hashVal(ctx, a)
+                c := hash(ctx, a)
                 if _, y := seen[c]; y {
                     note(ctx, "%v")
                 } else {
@@ -34241,17 +34212,17 @@ func (ctx *__unique) x() (_ any) {
                 }
                 if t { args2 = append(args2, a) }
             }
-            t7 := time.Now()
+            t7 := time_pkg.Now()
             d6 := t7.Sub(t6)
             debug(ctx, "%v %v %v (%v, %v, %v, %v, %d %d)", d0, d1, d2, d3, d4, d5, d6, len(args), len(args2))
-            t7 = time.Now()
+            t7 = time_pkg.Now()
             unique(ctx, args...)
             d6 = t7.Sub(t6)
             erro(ctx, "unique: %v", d6)
         }
     }()}
 
-    t1 = time.Now()
+    t1 = time_pkg.Now()
 
     if ctx.unexpand {
         args =  merge(args...)
@@ -34259,7 +34230,7 @@ func (ctx *__unique) x() (_ any) {
         args = xmerge(ctx, args...)
     }
 
-    t2 = time.Now()
+    t2 = time_pkg.Now()
 
     if ctx.reverse {
         return reverse_unique(ctx, args...)
@@ -34759,14 +34730,14 @@ func (ctx *__filter) do(c Context, op any) any {
 	return ctx.builtinbase.do(c, op)
 }
 func (ctx *__filter) _x0(pats []Value, values ...Value) (result []Value) {
-	defer func(t0 time.Time) {
-		if d := time.Since(t0); d > 1*time.Second {
+	defer func(t0 time_pkg.Time) {
+		if d := time_pkg.Since(t0); d > 1*time_pkg.Second {
 			debug(ctx,
 				_f("slow: %v\n", d),
 				_f("slow: %d result, %v\n", len(result), result),
 				_f("slow: %d pats, %v\n", len(pats), pats))
 		}
-	}(time.Now())
+	}(time_pkg.Now())
 
 	if len(values) == 0 {
 		return
@@ -34851,14 +34822,14 @@ func (ctx *__filter) _x0(pats []Value, values ...Value) (result []Value) {
 }
 func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 	if benchmark {
-		defer func(t0 time.Time) {
-			if d := time.Since(t0); d > 25*time.Millisecond {
+		defer func(t0 time_pkg.Time) {
+			if d := time_pkg.Since(t0); d > 25*time_pkg.Millisecond {
 				debug(ctx,
 					_f("slow: %d values, %v, %d result", len(values), d, len(result)),
 					_f("slow: %d pats: %v", len(pats), pats),
 					callstack{num: 10})
 			}
-		}(time.Now())
+		}(time_pkg.Now())
 	}
 
 	if len(values) == 0 {
@@ -35178,13 +35149,13 @@ func (ctx *__patsubst) srcFile(proj *project, src Value) (srcFile *file, full bo
 func (ctx *__patsubst) x0() (_ any) {
 	var res []Value
 
-	if benchmark { defer func(t0 time.Time) {
-		if d := time.Since(t0); d > 25*time.Millisecond {
+	if benchmark { defer func(t0 time_pkg.Time) {
+		if d := time_pkg.Since(t0); d > 25*time_pkg.Millisecond {
 			debug(ctx,
 				_f("slow patsubst: %v", d),
 				callstack{num:10, stop:"smart.evoke"})
 		}
-	}(time.Now())}
+	}(time_pkg.Now())}
 
 	var srcPats, dstPats, sources []Value
 	if nil != ctx.a {
@@ -35234,13 +35205,13 @@ func (ctx *__patsubst) x0() (_ any) {
 func (ctx *__patsubst) x() (_ any) {
 	var res []Value
 
-	if benchmark { defer func(t0 time.Time) {
-		if d := time.Since(t0); d > 25*time.Millisecond {
+	if benchmark { defer func(t0 time_pkg.Time) {
+		if d := time_pkg.Since(t0); d > 25*time_pkg.Millisecond {
 			debug(ctx,
 				_f("slow patsubst: %v", d),
 				callstack{num:10, stop:"smart.evoke"})
 		}
-	}(time.Now())}
+	}(time_pkg.Now())}
 
 	var srcPats, dstPats, sources []Value
 	if nil != ctx.a {
@@ -37694,7 +37665,7 @@ func (ctx *__wildcard) x() any {
 
 	var cacheFile string
 	var p = _project(ctx)
-	var t0 = time.Now()
+	var t0 = time_pkg.Now()
 
 	// 1. Enter Walled Garden
 	var ctxDirSym = symEmpty
@@ -37737,7 +37708,7 @@ func (ctx *__wildcard) x() any {
 				if f == nil { f = p.file(ctx, pathSym.String()) }
 				if f != nil { cachedFiles = append(cachedFiles, f) }
 			}
-			if false { debug(pc(ctx,cacheFile), "%v", time.Since(t0)) }
+			if false { debug(pc(ctx,cacheFile), "%v", time_pkg.Since(t0)) }
 			return cachedFiles 
 		}
 	}
@@ -37801,7 +37772,7 @@ func (ctx *__wildcard) x() any {
 				sb.WriteByte('\n')
 			}
 			os.WriteFile(cacheFile, []byte(sb.String()), 0644)
-			if false { debug(pc(ctx,cacheFile), "%v", time.Since(t0)) }
+			if false { debug(pc(ctx,cacheFile), "%v", time_pkg.Since(t0)) }
 		} else {
 			erro(ctx, "failed to create cache dir: %v", err)
 		}
@@ -37929,7 +37900,7 @@ outer:
     return
 }
 
-func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Time) (err error) {
+func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time_pkg.Time) (err error) {
 	// 1. Enter the Walled Garden natively
 	var a, filenameSym = file_fullname(ctx, file)
 
@@ -37951,11 +37922,11 @@ func touch(ctx Context, file Value, optMode uint32, optPath bool, ts ...time.Tim
 
 	var (
 		mode = os.FileMode(optMode)
-		ta, tm time.Time
+		ta, tm time_pkg.Time
 		m os.FileMode
 	)
-	if len(ts) > 0 { ta = ts[0] } else { ta = time.Now() }
-	if len(ts) > 1 { tm = ts[1] } else { tm = time.Now() }
+	if len(ts) > 0 { ta = ts[0] } else { ta = time_pkg.Now() }
+	if len(ts) > 1 { tm = ts[1] } else { tm = time_pkg.Now() }
 	
 	// =========================================================
 	// THE OS AIRLOCK: Extract the string EXACTLY ONCE for file ops
@@ -38312,8 +38283,8 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
 
 type _benchmark struct {
     tag string
-    start, spot time.Time
-    spent time.Duration
+    start, spot time_pkg.Time
+    spent time_pkg.Duration
     num int64
     frames []*_benchmark
 }
@@ -38321,13 +38292,13 @@ type _benchmark struct {
 type _benchspot struct {
     tag string
     n int64
-    d time.Duration
-    x time.Duration
+    d time_pkg.Duration
+    x time_pkg.Duration
 }
 
 type _sum struct {
     n int64
-    d time.Duration
+    d time_pkg.Duration
 }
 
 var (
@@ -38337,13 +38308,13 @@ var (
     benchspot = make(map[string]*_benchspot,64)
 )
 
-type bencher interface { bench(t time.Time) }
-func bench(i bencher, t time.Time) { i.bench(t) }
+type bencher interface { bench(t time_pkg.Time) }
+func bench(i bencher, t time_pkg.Time) { i.bench(t) }
 
 func (frame *_benchmark) report(w io.Writer, indent int, up *_benchmark) {
     var s string
     if frame.num > 0 {
-        var d time.Duration
+        var d time_pkg.Duration
         if up != nil { d = frame.spot.Sub(up.start) }
         s = fmt.Sprintf("%s (n=%v, d=%v, s=%v) (", frame.tag, frame.num, frame.spent, d)
     } else {
@@ -38398,7 +38369,7 @@ func (frame *_benchmark) summary(w io.Writer) {
             i -= ndots
         }
         fmt.Fprint(w, dots[0:i])
-        fmt.Fprintf(w, "{ %d, %s, %s }\n", p.n, p.d, time.Duration(int64(p.d)/p.n))
+        fmt.Fprintf(w, "{ %d, %s, %s }\n", p.n, p.d, time_pkg.Duration(int64(p.d)/p.n))
     }
 }
 
