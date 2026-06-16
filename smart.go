@@ -117,7 +117,7 @@ func (b *compactbuilds) grow(n int) {
 	}
 }
 
-func (b *compactbuilds) pendStr(sep string) {
+func (b *compactbuilds) sep(sep string) {
 	if !b.raw && len(b.buf) > 0 {
 		b.pend = sep
 	}
@@ -264,7 +264,7 @@ func builds[T any](cb *compactbuilds, args ...T) {
 		}
 
 		if !first && sep != "" { 
-			cb.pendStr(sep) 
+			cb.sep(sep)
 		}
 
 		mark := cb.len()
@@ -3771,7 +3771,7 @@ func flush(ctx Context) int { i, _ := do(ctx, diag_flush{}).(int); return i }
 func join_diags_msg(sep string, ds ...*diag) string {
 	var cb compactbuilds
 	for i, d := range ds {
-		if i > 0 { cb.pendStr(sep) }
+		if i > 0 { cb.sep(sep) }
 		cb.writef(d.f, d.a...)
 	}
 	return cb.shared()
@@ -17540,7 +17540,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		for i, e := range com(cc, nil, t.elems) {
 			if false && checkpoints { check__string_com(ctx, t, e) }
 
-			if i > 0 && sb.len() > mark { sb.pendStr(" ") }
+			if i > 0 && sb.len() > mark { sb.sep(" ") }
 
 			if x, y := e.(*compound); y {
 				for _, xe := range x.elems { __builds(ctx, sb, xe) }
@@ -17571,14 +17571,14 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *strval:
 		mark := sb.len() // Local boundary
 		for _, v := range t.v { 
-			if sb.len() > mark { sb.pendStr(" ") }
+			if sb.len() > mark { sb.sep(" ") }
 			__builds(ctx, sb, v)
 		}
 		sb.discard()
 	case *list:
 		mark := sb.len() // Local boundary
 		for _, elem := range t.elems {
-			if sb.len() > mark && sb.last != '\n' { sb.pendStr(" ") }
+			if sb.len() > mark && sb.last != '\n' { sb.sep(" ") }
 			__builds(ctx, sb, elem)
 		}
 		sb.discard()
@@ -17597,7 +17597,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 			cc := fullfile_ctx{ctx} 
 
 			for i, item := range items {
-				if i > 0 { sb.pendStr(" ") }
+				if i > 0 { sb.sep(" ") }
 				if x, y := to_file(item); y {
 					if x == nil || x.filestub == nil { erro(ctx, "nil file stub") } 
 					sb.writeString(x.fullname().String())
@@ -17647,7 +17647,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 			if isNull(k) { continue }
 			for _, v := range vs {
 				if isNull(v) { continue }
-				if sb.len() > mark { sb.pendStr(" ") }
+				if sb.len() > mark { sb.sep(" ") }
 				__builds(ctx, sb, k)
 				sb.writeByte('=')
 				__builds(ctx, sb, v)
@@ -17657,7 +17657,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *group:
 		sb.writeByte('(')
 		for i, elem := range t.elems {
-			if i > 0 { sb.pendStr(" ") }
+			if i > 0 { sb.sep(" ") }
 			__builds(ctx, sb, elem)
 		}
 		sb.discard()
@@ -17703,7 +17703,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 				sb.discard() 
 				__builds(cc, sb, x)
 			} else {
-				if i > 0 && sb.len() > mark { sb.pendStr(" ") }
+				if i > 0 && sb.len() > mark { sb.sep(" ") }
 				__builds(cc, sb, e)
 			}
 		}
@@ -17715,7 +17715,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *uselist:
 		sb.writeByte('[')
 		for i, u := range t.list {
-			if i > 0 { sb.pendStr(" ") }
+			if i > 0 { sb.sep(" ") }
 			sb.writeString(u.project.name.String())
 		}
 		sb.discard()
@@ -17726,7 +17726,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		mark := sb.len()
 		for i, m := range t.list {
 			if m != nil {
-				if i > 0 && sb.len() > mark { sb.pendStr(" ") }
+				if i > 0 && sb.len() > mark { sb.sep(" ") }
 				__builds(ctx, sb, modify(ctx, &m.group, false))
 			}
 		}
@@ -25062,21 +25062,29 @@ type valcache struct {
 	v map[Symbol]*valcache // Acceleration Index: Created only when len(o) >= mapThreshold
 }
 
-func (p *valcache) String() (s string) { // NOTE: for debug
+func (p *valcache) String() string {
+	var b compactbuilds
+	b.writeByte('{')
+
 	for i, a := range p.a {
 		var t string
 		switch v := a.(type) {
 		case filemap: t = v.String()
-		case *rule: t = v.target.String()
+		case *rule:    t = v.target.String()
 		}
-		s += fmt.Sprintf("%d:%s,", i, t)
+
+		if i > 0 { b.sep(",") }
+		b.writef("%d:%s", i, t)
 	}
-	for _, n := range p.o {
+
+	for i, n := range p.o {
 		c, _ := p.get(n.k)
-		s += fmt.Sprintf("%v:%v,", n.k, c)
+		if i > 0 || p.a != nil { b.sep(",") }
+		b.writef("%v:%v", n.k, c)
 	}
-	if s != "" { s = s[:len(s)-1] } // aka. TrimSuffix(s, ",")
-	return "{"+s+"}"
+
+	b.writeByte('}')
+	return b.shared()
 }
 
 func (p *valcache) matchPayload(ctx Context, fullvalue Value) (ok bool) {
