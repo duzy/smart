@@ -2030,23 +2030,31 @@ func (s *symstr) pump() {
 	}
 }
 
-// byteToSymIdx translates a global regex byte boundary back to the original symbol index.
+// byteToSymIdx safely translates a virtual byte boundary back to the symbol index.
+// Includes strict boundary checks to prevent panics on un-exhausted streams.
 func (s *symstr) byteToSymIdx(byteOffset int) int {
-	if byteOffset < 0 {
-		return -1
-	}
-	if byteOffset >= s.bytePos {
-		return len(s.syms)
-	}
-
-	idx := sort.Search(len(s.markers), func(i int) bool {
-		return s.markers[i].byteOffset > byteOffset
-	}) - 1
-
-	if idx < 0 {
+	if byteOffset <= 0 {
 		return 0
 	}
-	return s.markers[idx].idx
+
+	i := sort.Search(len(s.markers), func(i int) bool {
+		return s.markers[i].byteOffset >= byteOffset
+	})
+
+	// Safe bounds check: Ensure we don't access out-of-range markers
+	if i < len(s.markers) {
+		if s.markers[i].byteOffset == byteOffset {
+			return s.markers[i].idx
+		}
+		if i > 0 {
+			// Fallback to the symbol that encapsulates this internal byte
+			return s.markers[i-1].idx
+		}
+		return 0
+	}
+
+	// If the offset is beyond recorded markers, default to the end of the active buffer
+	return len(s.syms)
 }
 
 // symLength computes the string length of a symbol in the stream using marker math.
@@ -2057,17 +2065,26 @@ func (s *symstr) symLength(idx int) int {
 	return s.bytePos - s.markers[idx].byteOffset
 }
 
-// symbolInRange accurately slices the original symbol sequence based on regex coordinates.
+// symbolInRange safely extracts a slice of symbols given virtual byte coordinates.
+// It accurately slices the original sequence, handling partial regex string matches natively.
 func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
-	if startByte >= endByte {
+	if startByte >= endByte || len(s.syms) == 0 {
 		return nil
 	}
 
 	startSymIdx := s.byteToSymIdx(startByte)
-	endSymIdx := s.byteToSymIdx(endByte - 1)
+	endSymIdx := s.byteToSymIdx(endByte - 1) // -1 ensures we evaluate the symbol containing the last byte
+
+	// Clamp boundaries to prevent slice panics on incomplete streams
+	if startSymIdx < 0 { startSymIdx = 0 }
+	if endSymIdx >= len(s.syms) { endSymIdx = len(s.syms) - 1 }
+	if startSymIdx > endSymIdx { return nil }
 
 	// Case 1: Match falls entirely within a single symbol
 	if startSymIdx == endSymIdx {
+		// Defensive guard against unrecorded markers
+		if startSymIdx >= len(s.markers) { return []Symbol{s.syms[startSymIdx]} }
+
 		sym := s.syms[startSymIdx]
 		marker := s.markers[startSymIdx]
 		length := s.symLength(startSymIdx)
@@ -2075,12 +2092,15 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 		relStart := startByte - marker.byteOffset
 		relEnd := endByte - marker.byteOffset
 
-		// FAST PATH: If the regex boundary exactly matches the symbol boundary,
-		// return the exact symbol object to guarantee ZERO string allocations!
+		// Clamp relative coordinates
+		if relStart < 0 { relStart = 0 }
+		if relEnd > length { relEnd = length }
+
+		// FAST PATH: Zero string allocations if exact match
 		if relStart == 0 && relEnd == length {
 			return []Symbol{sym}
 		}
-		// Partial slice: Must extract string, slice, and intern
+		if relStart >= relEnd { return nil }
 		return []Symbol{intern(sym.String()[relStart:relEnd])}
 	}
 
@@ -2088,13 +2108,19 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	var matched []Symbol
 
 	// First symbol (check for partial start boundary slice)
-	firstSym := s.syms[startSymIdx]
-	firstMarker := s.markers[startSymIdx]
-	if startByte > firstMarker.byteOffset {
+	if startSymIdx < len(s.markers) {
+		firstSym := s.syms[startSymIdx]
+		firstMarker := s.markers[startSymIdx]
 		relStart := startByte - firstMarker.byteOffset
-		matched = append(matched, intern(firstSym.String()[relStart:]))
-	} else {
-		matched = append(matched, firstSym) // Reused intact
+
+		if relStart > 0 {
+			str := firstSym.String()
+			if relStart < len(str) {
+				matched = append(matched, intern(str[relStart:]))
+			}
+		} else {
+			matched = append(matched, firstSym)
+		}
 	}
 
 	// Middle symbols (fully consumed, completely intact!)
@@ -2103,13 +2129,22 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	}
 
 	// Last symbol (check for partial end boundary slice)
-	lastSym := s.syms[endSymIdx]
-	lastMarker := s.markers[endSymIdx]
-	relEnd := endByte - lastMarker.byteOffset
-	if relEnd < s.symLength(endSymIdx) {
-		matched = append(matched, intern(lastSym.String()[:relEnd]))
+	if endSymIdx < len(s.markers) {
+		lastSym := s.syms[endSymIdx]
+		lastMarker := s.markers[endSymIdx]
+		relEnd := endByte - lastMarker.byteOffset
+		length := s.symLength(endSymIdx)
+
+		if relEnd > 0 && relEnd < length {
+			str := lastSym.String()
+			if relEnd <= len(str) {
+				matched = append(matched, intern(str[:relEnd]))
+			}
+		} else if relEnd >= length {
+			matched = append(matched, lastSym) // Reused intact
+		}
 	} else {
-		matched = append(matched, lastSym) // Reused intact
+		matched = append(matched, s.syms[endSymIdx])
 	}
 
 	return matched
@@ -22042,8 +22077,12 @@ func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Valu
 // matchCompComp matches a strictly literal pattern against a target value.
 // It iterates linearly without wildcards, automatically handling internal fragmentation.
 func matchCompComp(ctx Context, pat Value, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
-	if checkpoints { defer check_matchCompComp(ctx, []Value{pat}, []Value{val}, trail)(&matched, &res, &rem) } // Keep check signature happy for now
-	if trail { return backwardCompComp(ctx, pat, val) } else { return forwardCompComp(ctx, pat, val) }
+	if checkpoints { defer check_matchCompComp(ctx, pat, val, trail)(&matched, &res, &rem) }
+	if trail {
+		return backwardCompComp(ctx, pat, val)
+	} else {
+		return forwardCompComp(ctx, pat, val)
+	}
 }
 
 func forwardCompComp(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
@@ -22138,8 +22177,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 	}
 
-	if checkpoints { defer check_match(ctx, pat, val)(&matched, &res, &rem, &stems) }
-
 	{
 		trail := truly(ctx, propReversal)
 
@@ -22178,6 +22215,7 @@ Normalize:
 	res, rem = correctMatchRes(res), correctMatchRes(rem)
 
 	if !matched && res == nil && rem == nil { rem = val }
+	if checkpoints { check_match(ctx, pat, val)(&matched, &res, &rem, &stems) }
 	return
 }
 
