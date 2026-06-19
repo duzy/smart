@@ -1753,6 +1753,21 @@ func internSeq(seq []Symbol) Symbol {
 	return sym
 }
 
+type evalop uint8
+
+const (
+	opEvalValue evalop = iota
+	opEmitSym
+	opCloseInterval
+)
+
+type walktask struct {
+	op    evalop
+	val   Value
+	sym   Symbol
+	start int
+}
+
 // offsetmark maps a global virtual byte position to an underlying slice index.
 // It is shared by both leafstr and symstr for O(log N) sparse coordinate lookups.
 type offsetmark struct {
@@ -1778,11 +1793,15 @@ type symstr struct {
 	bytePos   int       // Tracks the virtual byte offset for the NFA engine
 	markers   []offsetmark // Sparse mapping table for O(log N) coordinate lookup
 	intervals []interval   // AST tracking data injected from the flattener
+	tasks       []walktask // Lazy flattening walk tasks
+	currentByte int        // Lazy flattening byte position
 }
 
 func (s *symstr) ReadRune() (rune, int, error) {
-	// 1. If str is exhausted, load the next symbol
 	for len(s.str) == 0 {
+		// LAZY EXECUTION: Process AST dynamically until a symbol is yielded
+		s.pump()
+
 		if s.symCursor >= len(s.syms) {
 			return 0, 0, io.EOF
 		}
@@ -1819,19 +1838,116 @@ func (s *symstr) ReadRune() (rune, int, error) {
 		}
 	}
 
-	// 2. Decode exactly one rune from the cached string
+	// Decode exactly one rune from the cached string
 	r, size := utf8.DecodeRuneInString(s.str)
 
-	// 3. Advance states
+	// Advance states
 	s.bytePos += size
-	s.str = s.str[size:] // Slice off the consumed rune
+	s.str = s.str[size:]
 
-	// If we just exhausted the current symbol, advance the symbol cursor for next time
 	if len(s.str) == 0 {
 		s.symCursor++
+
+		// FUSED EAGER CLOSURE FLUSHING:
+		// Ensure any AST wrappers that terminate exactly at this symbol boundary
+		// are recorded immediately, in case the NFA accepts the match and halts here.
+		for s.symCursor >= len(s.syms) && len(s.tasks) > 0 {
+			top := len(s.tasks) - 1
+			if s.tasks[top].op == opCloseInterval {
+				task := s.tasks[top]
+				s.intervals = append(s.intervals, interval{task.start, s.currentByte, task.val})
+				s.tasks = s.tasks[:top]
+			} else {
+				// Break at the next actual token evaluation task
+				break
+			}
+		}
 	}
 
 	return r, size, nil
+}
+
+func (s *symstr) emit(sym Symbol) {
+	// __symFlatSeq guarantees nested SymSeq containers are unrolled
+	flat := __symFlatSeq(sym)
+	for _, fs := range flat {
+		s.syms = append(s.syms, fs)
+		s.currentByte += fs.len() // O(1) tracking using your optimization!
+	}
+}
+
+// pump executes tasks on the stack until at least one new symbol is available.
+func (s *symstr) pump() {
+	for s.symCursor >= len(s.syms) && len(s.tasks) > 0 {
+		top := len(s.tasks) - 1
+		task := s.tasks[top]
+		s.tasks = s.tasks[:top]
+
+		switch task.op {
+		case opEmitSym:
+			s.emit(task.sym)
+		case opCloseInterval:
+			s.intervals = append(s.intervals, interval{task.start, s.currentByte, task.val})
+		case opEvalValue:
+			val := task.val
+			if val == nil { continue }
+			start := s.currentByte
+
+			// Helper functions to push tasks in REVERSE order
+			// (so they pop correctly off the top of the slice stack)
+			pushClose := func(v Value) {
+				s.tasks = append(s.tasks, walktask{op: opCloseInterval, val: v, start: start})
+			}
+			pushSym := func(sym Symbol) {
+				s.tasks = append(s.tasks, walktask{op: opEmitSym, sym: sym})
+			}
+			pushVal := func(v Value) {
+				s.tasks = append(s.tasks, walktask{op: opEvalValue, val: v})
+			}
+
+			switch v := val.(type) {
+			case *loc:      pushClose(v); pushVal(v.Value)
+			case *xloc:     pushClose(v); pushVal(v.Value)
+			case fullname:  pushClose(v); pushVal(v.Value)
+			case *defcaps:  pushClose(v); pushVal(v.Value)
+			case flag:
+				pushClose(v)
+				pushVal(v.Value)
+				pushSym(symDash)
+			case *compound:
+				pushClose(v)
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			case *qualword:
+				pushClose(v)
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					pushVal(v.elems[i])
+					if i > 0 { pushSym(symDot) }
+				}
+			case *strcomp:
+				pushClose(v)
+				pushSym(symQuotation)
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+				pushSym(symQuotation)
+			case *list:
+				if v.len() == 1 {
+					pushClose(v)
+					pushVal(v.elems[0])
+				} else {
+					pushClose(v)
+					pushSym(symRbotcorner)
+					for i := len(v.elems) - 1; i >= 0; i-- {
+						pushVal(v.elems[i])
+						if i > 0 { pushSym(symSpace) }
+					}
+					pushSym(symLtopcorner)
+				}
+			default:
+				// Atomic leaf reached
+				s.emit(__symbol(s.Context, v))
+				s.intervals = append(s.intervals, interval{start, s.currentByte, v})
+			}
+		}
+	}
 }
 
 // byteToSymIdx translates a global regex byte boundary back to the original symbol index.
@@ -23781,14 +23897,8 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	if val == nil { return false, nil, nil, nil }
 
-	fc := &flattener{Context: ctx}
-	fc.flatten(val)
-
-	stream := &symstr{
-		Context:   ctx,
-		syms:      fc.syms,
-		intervals: fc.intervals,
-	}
+	// Seed the lazy engine with the root AST node
+	stream := &symstr{Context: ctx, tasks:[]walktask{{op: opEvalValue, val: val}}}
 
 	locs := pat.re.FindReaderSubmatchIndex(stream)
 	if locs == nil { return false, nil, val, nil }
