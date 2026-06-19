@@ -363,11 +363,15 @@ func (sym Symbol) build(b *compactbuilds) {
 	case SymEph:
 		b.writeString(vocab.ephemeral[meta.Idx])
 	case SymInt:
-		// FormatInt allocates slightly, but appending to a builder directly is complex.
-		// This is acceptable for the rare number conversion.
-		b.writeString(strconv.FormatInt(int64(vocab.numbers[meta.Idx]), 10))
+		// ZERO-ALLOCATION OPTIMIZATION: Format to a stack buffer.
+		// unsafe.String is safe here because writeString immediately copies the bytes.
+		var buf [24]byte
+		res := strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10)
+		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
 	case SymFlt:
-		b.writeString(strconv.FormatFloat(math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
+		var buf [64]byte
+		res := strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64)
+		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
 	case SymSeq:
 		for _, s := range vocab.sequences[meta.Idx] { s.build(b) }
 	}
@@ -382,7 +386,8 @@ func (sym Symbol) string() string { // Unlocked!
 func (sym Symbol) String() (s string) {
 	vocab.RLock()
 	if int(sym) < len(vocab.symetas) {
-		// Fast-path bypass for monolithic strings
+		// Fast-path bypass for monolithic strings.
+		// FormatInt/Float allocate here, which is unavoidable since a new string must be returned.
 		switch meta := vocab.symetas[sym]; meta.Kind() {
 		case SymRaw: s = vocab.strings[meta.Idx]
 		case SymEph: s = vocab.ephemeral[meta.Idx]
@@ -1724,14 +1729,20 @@ func internSeq(seq []Symbol) Symbol {
 	return sym
 }
 
+// offsetmark maps a global virtual byte position to an underlying slice index.
+// It is shared by both leafstr and symstr for O(log N) sparse coordinate lookups.
+type offsetmark struct {
+	byteOffset int // Global virtual byte position where this element begins
+	idx        int // Index inside the underlying slice (leaves or syms)
+}
 
-// symstr bests working with __symFlatSeq and treat syms like a string with zero heap-allocation!
+// symstr works with __symFlatSeq and treats syms like a string with zero heap-allocation!
 type symstr struct {
-	syms       []Symbol
-	symCursor  int    // Which symbol we are currently processing
-	str        string // The cached string representation of the current symbol
-	bytePos    int    // Tracks the virtual byte offset for ReadRune
-	indexMap   []int  // Maps virtual byte offsets back to syms[] indices
+	syms      []Symbol
+	symCursor int       // Which symbol we are currently processing
+	str       string    // The cached string representation of the current symbol
+	bytePos   int       // Tracks the virtual byte offset for ReadRune
+	markers   []offsetmark // Sparse mapping table for O(log N) coordinate lookup
 }
 
 func (s *symstr) ReadRune() (rune, int, error) {
@@ -1740,6 +1751,12 @@ func (s *symstr) ReadRune() (rune, int, error) {
 		if s.symCursor >= len(s.syms) {
 			return 0, 0, io.EOF
 		}
+
+		// SPARSE TRACKING: Record boundary marker strictly on symbol transition
+		s.markers = append(s.markers, offsetmark{
+			byteOffset: s.bytePos,
+			idx:        s.symCursor,
+		})
 
 		sym := s.syms[s.symCursor]
 
@@ -1751,7 +1768,6 @@ func (s *symstr) ReadRune() (rune, int, error) {
 			s.str = vocab.ephemeral[meta.Idx]
 		case SymInt:
 			var buf [24]byte
-			// Format once per symbol, not once per rune
 			s.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10))
 		case SymFlt:
 			var buf [64]byte
@@ -1771,12 +1787,7 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	// 2. Decode exactly one rune from the cached string
 	r, size := utf8.DecodeRuneInString(s.str)
 
-	// 3. Keep track of the mapping. All bytes of this rune map back to symCursor
-	for i := 0; i < size; i++ {
-		s.indexMap = append(s.indexMap, s.symCursor)
-	}
-
-	// 4. Advance states
+	// 3. Advance states
 	s.bytePos += size
 	s.str = s.str[size:] // Slice off the consumed rune
 
@@ -1788,18 +1799,89 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	return r, size, nil
 }
 
-// byteToSymIdx safely converts a regex byte offset into a vals[] index.
+// byteToSymIdx translates a global regex byte boundary back to the original symbol index.
 func (s *symstr) byteToSymIdx(byteOffset int) int {
 	if byteOffset < 0 {
 		return -1
 	}
-	if byteOffset == 0 && len(s.indexMap) == 0 {
-		return 0
-	}
-	if byteOffset >= len(s.indexMap) {
+	if byteOffset >= s.bytePos {
 		return len(s.syms)
 	}
-	return s.indexMap[byteOffset]
+
+	idx := sort.Search(len(s.markers), func(i int) bool {
+		return s.markers[i].byteOffset > byteOffset
+	}) - 1
+
+	if idx < 0 {
+		return 0
+	}
+	return s.markers[idx].idx
+}
+
+// symLength computes the string length of a symbol in the stream using marker math.
+func (s *symstr) symLength(idx int) int {
+	if idx < len(s.markers)-1 {
+		return s.markers[idx+1].byteOffset - s.markers[idx].byteOffset
+	}
+	return s.bytePos - s.markers[idx].byteOffset
+}
+
+// symbolInRange accurately slices the original symbol sequence based on regex coordinates.
+func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
+	if startByte >= endByte {
+		return nil
+	}
+
+	startSymIdx := s.byteToSymIdx(startByte)
+	endSymIdx := s.byteToSymIdx(endByte - 1)
+
+	// Case 1: Match falls entirely within a single symbol
+	if startSymIdx == endSymIdx {
+		sym := s.syms[startSymIdx]
+		marker := s.markers[startSymIdx]
+		length := s.symLength(startSymIdx)
+
+		relStart := startByte - marker.byteOffset
+		relEnd := endByte - marker.byteOffset
+
+		// FAST PATH: If the regex boundary exactly matches the symbol boundary, 
+		// return the exact symbol object to guarantee ZERO string allocations!
+		if relStart == 0 && relEnd == length {
+			return []Symbol{sym}
+		}
+		// Partial slice: Must extract string, slice, and intern
+		return []Symbol{intern(sym.String()[relStart:relEnd])}
+	}
+
+	// Case 2: Spans multiple symbols
+	var matched []Symbol
+
+	// First symbol (check for partial start boundary slice)
+	firstSym := s.syms[startSymIdx]
+	firstMarker := s.markers[startSymIdx]
+	if startByte > firstMarker.byteOffset {
+		relStart := startByte - firstMarker.byteOffset
+		matched = append(matched, intern(firstSym.String()[relStart:]))
+	} else {
+		matched = append(matched, firstSym) // Reused intact
+	}
+
+	// Middle symbols (fully consumed, completely intact!)
+	for i := startSymIdx + 1; i < endSymIdx; i++ {
+		matched = append(matched, s.syms[i])
+	}
+
+	// Last symbol (check for partial end boundary slice)
+	lastSym := s.syms[endSymIdx]
+	lastMarker := s.markers[endSymIdx]
+	relEnd := endByte - lastMarker.byteOffset
+	if relEnd < s.symLength(endSymIdx) {
+		matched = append(matched, intern(lastSym.String()[:relEnd]))
+	} else {
+		matched = append(matched, lastSym) // Reused intact
+	}
+
+	return matched
 }
 
 // interval track the exact virtual byte spans of every single node (both containers and leaves)
@@ -1903,11 +1985,6 @@ func (f *flattener) flatten(val Value) {
 	}
 }
 
-type leafmark struct {
-	byteOffset int // Global virtual byte position where this leaf begins
-	leafIdx    int // Index inside the leaves slice
-}
-
 // leafstr implements io.RuneReader to provide a zero-allocation,
 // high-fidelity virtual string view over an array of discrete leaf Values.
 type leafstr struct {
@@ -1916,7 +1993,7 @@ type leafstr struct {
 	cursor  int          // Current index in leaves
 	str     string       // Cached low-level string chunk of the current leaf
 	bytePos int          // Global virtual byte cursor for the NFA engine
-	markers []leafmark   // Sparse mapping table for O(log N) coordinate lookup
+	markers []offsetmark // Sparse mapping table for O(log N) coordinate lookup
 	intervals []interval // Injected from the flattener
 }
 
@@ -1927,9 +2004,9 @@ func (s *leafstr) ReadRune() (rune, int, error) {
 		}
 
 		// Sparse tracking: marker allocated strictly on leaf transition boundaries
-		s.markers = append(s.markers, leafmark{
+		s.markers = append(s.markers, offsetmark{
 			byteOffset: s.bytePos,
-			leafIdx:    s.cursor,
+			idx:        s.cursor,
 		})
 
 		// Low-level resolution: Pull string representation directly from the leaf
@@ -1962,7 +2039,7 @@ func (s *leafstr) byteToLeafIdx(byteOffset int) int {
 	}) - 1
 
 	if idx < 0 { return 0 }
-	return s.markers[idx].leafIdx
+	return s.markers[idx].idx
 }
 
 func (s *leafstr) valueInRange(startByte, endByte int) Value {
