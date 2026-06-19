@@ -1867,6 +1867,45 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	return r, size, nil
 }
 
+// ReadSymbol lazily evaluates the AST and yields the next sequential symbol.
+// Used by native glob and compound matchers for zero-allocation linear traversal.
+func (s *symstr) ReadSymbol() (Symbol, error) {
+	for s.symCursor >= len(s.syms) {
+		if len(s.tasks) == 0 {
+			return symEmpty, io.EOF
+		}
+		s.pump()
+	}
+
+	sym := s.syms[s.symCursor]
+	s.symCursor++
+	return sym, nil
+}
+
+// ReadSymbolBackward yields the previous symbol in the sequence.
+func (s *symstr) ReadSymbolBackward() (Symbol, error) {
+	// If tasks remain, evaluate them so we know where the true end of the stream is.
+	if len(s.tasks) > 0 {
+		s.exhaust()
+		s.symCursor = len(s.syms) // Snap cursor to the end
+	}
+
+	if s.symCursor <= 0 {
+		return symEmpty, io.EOF
+	}
+
+	s.symCursor--
+	return s.syms[s.symCursor], nil
+}
+
+// exhaust forces the lazy evaluator to complete, fully populating s.syms.
+// Required before initiating a backward (trail) match.
+func (s *symstr) exhaust() {
+	for len(s.tasks) > 0 {
+		s.pump()
+	}
+}
+
 func (s *symstr) emit(sym Symbol) {
 	// __symFlatSeq guarantees nested SymSeq containers are unrolled
 	flat := __symFlatSeq(sym)
@@ -2081,88 +2120,6 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	}
 
 	return val
-}
-
-// flattener walks the AST and unrolls it into a blazing-fast Symbol sequence
-// while mapping AST containers to their virtual byte boundaries.
-type flattener struct {
-	Context
-	syms        []Symbol
-	intervals   []interval
-	currentByte int
-}
-
-func (f *flattener) emit(sym Symbol) {
-	// __symFlatSeq guarantees nested SymSeq containers are unrolled
-	flat := __symFlatSeq(sym)
-	for _, s := range flat {
-		f.syms = append(f.syms, s)
-		f.currentByte += s.len()
-	}
-}
-
-func (f *flattener) flatten(val Value) {
-	if val == nil {
-		return
-	}
-
-	start := f.currentByte
-
-	switch v := val.(type) {
-	case *loc:
-		f.flatten(v.Value)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-	case *xloc:
-		f.flatten(v.Value)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-	case fullname:
-		f.flatten(v.Value)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-	case *defcaps:
-		f.flatten(v.Value)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	case flag:
-		f.emit(symDash)
-		f.flatten(v.Value)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	case *compound:
-		for _, e := range v.elems { f.flatten(e) }
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	case *qualword:
-		for i, e := range v.elems {
-			if i > 0 { f.emit(symDot) }
-			f.flatten(e)
-		}
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	case *strcomp:
-		f.emit(symQuotation)
-		for _, e := range v.elems { f.flatten(e) }
-		f.emit(symQuotation)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	case *list:
-		if v.len() == 1 {
-			f.flatten(v.elems[0])
-			f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-			return
-		}
-		f.emit(symLtopcorner)
-		for i, e := range v.elems {
-			if i > 0 { f.emit(symSpace) }
-			f.flatten(e)
-		}
-		f.emit(symRbotcorner)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	default:
-		// Natively utilizes the Symbol Domain's word boundaries
-		f.emit(__symbol(f.Context, v))
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-	}
 }
 
 func __symKind(sym Symbol) (k uint8) {
@@ -23955,220 +23912,89 @@ func matchPathPath(ctx Context, elems, segments []Value, trail bool) (matched bo
 // Returns matched=true if the pattern was completely satisfied, even if the target value has a remainder.
 // The unconsumed portion of the value is returned as `rem`, aka. the remainder.
 func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
+	// 1. STRIP PATTERN WRAPPERS
 	switch p := pat.(type) {
 	case *loc: return match(ctx, p.Value, val)
 	case *xloc: return match(ctx, p.Value, val)
 	case *globbrace: return match(ctx, &p.globpat, val)
 	case *globmeta, *globrange, *percpat: return match(ctx, _globpat(pat), val)
-	case *delegate, *closure: return false, nil, nil, nil
-	case flag:
-		if v, ok := val.(flag); ok { return match(ctx, p.Value, v.Value) }
-	case *file:
-		if unpacked := __symPath(p.pos, p.name); unpacked != nil {
-			return match(ctx, unpacked, val)
-		}
-		rem = val
-		goto Normalize
-	case *word:
-		if unpacked := __symPath(p.pos, p.s); unpacked != nil {
-			if _, isWord := unpacked.(*word); !isWord { return match(ctx, unpacked, val) }
-		}
+	case *delegate, *closure:
+		warn(pc(ctx, pat.Pos()), _f("attempted to match against an un-evaluable delegate/closure pattern: %s", ts(pat, ctx)), trace_ctx{3}, callstack{num:10})
+		return false, nil, nil, nil
 	case *raw:
 		if strings.Contains(p.s, pathSep) {
-			warn(pc(ctx,p.pos), _f("match path in raw: %s", ts(p,ctx)), trace_ctx{3}, callstack{num:10})
+			warn(pc(ctx, p.pos), _f("match path in raw: %s", ts(p, ctx)), trace_ctx{3}, callstack{num:10})
 			return match(ctx, __symPath(p.pos, intern(p.s)), val)
 		}
 	}
 
+	// 2. INTERCEPT TARGET WRAPPERS (TO PRESERVE POS METADATA)
 	switch v := val.(type) {
 	case *loc:
 		matched, res, rem, stems = match(ctx, pat, v.Value)
-		if res != nil {
-			if res == v.Value { res = v } else { res = &loc{res, v.pos} }
-		}
-		if rem != nil {
-			if rem == v.Value { rem = v } else { rem = &loc{rem, v.pos} }
-		}
+		if res != nil { if res == v.Value { res = v } else { res = _loc(v.pos, res) } }
+		if rem != nil { if rem == v.Value { rem = v } else { rem = _loc(v.pos, rem) } }
 		return
 	case *xloc:
 		matched, res, rem, stems = match(ctx, pat, v.Value)
-		if res != nil {
-			if res == v.Value { res = v } else { res = &xloc{res, v.pos} }
-		}
-		if rem != nil {
-			if rem == v.Value { rem = v } else { rem = &xloc{rem, v.pos} }
-		}
+		if res != nil { if res == v.Value { res = v } else { res = _xloc(v.pos, res) } }
+		if rem != nil { if rem == v.Value { rem = v } else { rem = _xloc(v.pos, rem) } }
 		return
 	case *globbrace: return match(ctx, pat, &v.globpat)
 	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
-	case *delegate, *closure: return false, nil, nil, nil
-	case *file:
-		if unpacked := __symPath(v.pos, v.name); unpacked != nil {
-			return match(ctx, pat, unpacked)
-		}
-		rem = val
-		goto Normalize
-	case *word:
-		if unpacked := __symPath(v.pos, v.s); unpacked != nil {
-			if _, isWord := unpacked.(*word); !isWord { return match(ctx, pat, unpacked) }
-		}
+	case *delegate, *closure:
+		warn(pc(ctx, val.Pos()), _f("attempted to match against an un-evaluable delegate/closure target: %s", ts(val, ctx)), trace_ctx{3}, callstack{num:10})
+		return false, nil, nil, nil
 	case *raw:
 		if strings.Contains(v.s, pathSep) {
-			warn(pc(ctx,v.pos), _f("match path in raw: %s", ts(v,ctx)), trace_ctx{3}, callstack{num:10})
+			warn(pc(ctx, v.pos), _f("match path in raw target: %s", ts(v, ctx)), trace_ctx{3}, callstack{num:10})
 			return match(ctx, pat, __symPath(v.pos, intern(v.s)))
 		}
 	}
 
 	if checkpoints { defer check_match(ctx, pat, val)(&matched, &res, &rem, &stems) }
 
-	{ trail := truly(ctx, propReversal); switch p := pat.(type) {
-	case *globpat:
-		switch v := val.(type) {
-		case *path:
-			var r, rm []Value
-			matched, r, rm, stems, _, _, _ = matchGlobPath(ctx, p.elems, v.elems, trail)
-			res, rem = packPath(r), packPath(rm)
-		case *globpat:
-			var r, rm []Value
-			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		case *compound:
-			var r, rm []Value
-			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		case *qualword:
-			var r, rm []Value
-			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, unpack(v), trail)
-			res, rem = packComp(r), packComp(rm)
-		default:
-			var r, rm []Value
-			matched, r, rm, stems, _, _, _ = matchGlobComp(ctx, p.elems, []Value{v}, trail)
-			res, rem = packComp(r), packComp(rm)
-		}
+	{
+		trail := truly(ctx, propReversal)
 
-	case *compound:
-		switch v := val.(type) {
+		// 3. UNIFIED DISPATCH
+		switch p := pat.(type) {
+		case *compound:
+			matched, res, rem, stems = matchCompComp(ctx, p.elems, val, trail)
+
+		case *qualword:
+			matched, res, rem, stems = matchCompComp(ctx, unpack(p), val, trail)
+
 		case *path:
-			if trail {
-				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
-				rem = packPath(concat(v.elems[:len(v.elems)-1], optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), symEmpty}, rem))
-			} else {
-				matched, res, rem, stems = match(ctx, pat, v.elems[0])
-				rem = packPath(concat(rem, optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), symEmpty}, v.elems[1:]))
+			matched, res, rem, stems = matchPathPath(ctx, p.elems, val, trail)
+			if !matched && len(p.elems) <= 1 {
+				matched, res, rem, stems = match(ctx, p.elems[0], val)
 			}
-		case *compound:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		case *qualword:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, unpack(v), trail)
-			res, rem = packComp(r), packComp(rm)
-		case *globpat:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		default:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p.elems, []Value{v}, trail)
-			res, rem = packComp(r), packComp(rm)
-		}
 
-	case *qualword:
-		p_elems := unpack(p)
-		switch v := val.(type) {
-		case *path:
-			if trail {
-				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
-				rem = packPath(concat(v.elems[:len(v.elems)-1], optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), symEmpty}, rem))
+		case *globpat:
+			matched, res, rem, stems = matchGlobComp(ctx, p.elems, val, trail)
+
+		case *regexpat:
+			matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
+
+		case *list:
+			if t, ok := val.(*list); ok {
+				for _, _p := range p.elems {
+					for _, _v := range t.elems {
+						if matched, res, rem, stems = match(ctx, _p, _v); matched { goto Normalize }
+					}
+				}
 			} else {
-				matched, res, rem, stems = match(ctx, pat, v.elems[0])
-				rem = packPath(concat(rem, optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), symEmpty}, v.elems[1:]))
-			}
-		case *compound:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		case *qualword:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, unpack(v), trail)
-			res, rem = packComp(r), packComp(rm)
-		case *globpat:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		default:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, p_elems, []Value{v}, trail)
-			res, rem = packComp(r), packComp(rm)
-		}
-
-	case *path:
-		switch v := val.(type) {
-		case *path:
-			var r, rm []Value
-			matched, r, rm, stems, _, _, _ = matchPathPath(ctx, p.elems, v.elems, trail)
-			res, rem = packPath(r), packPath(rm)
-			goto Normalize
-		case *compound:
-			if len(v.elems) > 0 {
-				if ip, isPath := v.elems[0].(*path); isPath && len(ip.elems) > 0 {
-					leading := ip.elems[:len(ip.elems)-1]
-					last := ip.elems[len(ip.elems)-1]
-					tailComp := &compound{elements{concat([]Value{last}, v.elems[1:])}}
-					v_elems := concat(leading, []Value{tailComp})
-
-					var r, rm []Value
-					matched, r, rm, stems, _, _, _ = matchPathPath(ctx, p.elems, v_elems, trail)
-					res, rem = packPath(r), packPath(rm)
-					goto Normalize
+				for _, _p := range p.elems {
+					if matched, res, rem, stems = match(ctx, _p, val); matched { goto Normalize }
 				}
 			}
-		}
 
-		matched, res, rem, stems = match(ctx, p.elems[0], val)
-		matched = matched && len(p.elems) <= 1
-		goto Normalize
-
-	case *regexpat:
-		matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
-
-	case *list:
-		if t, ok := val.(*list); ok {
-			for _, _p := range p.elems {
-				for _, _v := range t.elems {
-					if matched, res, rem, stems = match(ctx, _p, _v); matched { goto Normalize }
-				}
-			}
-		} else {
-			for _, _p := range p.elems {
-				if matched, res, rem, stems = match(ctx, _p, val); matched { goto Normalize }
-			}
-		}
-		goto Normalize
-
-	default:
-		switch v := val.(type) {
-		case *path:
-			if trail {
-				matched, res, rem, stems = match(ctx, pat, v.elems[len(v.elems)-1])
-				rem = packPath(concat(v.elems[:len(v.elems)-1], optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[len(v.elems)-1].Pos(), symEmpty}, rem))
-			} else {
-				matched, res, rem, stems = match(ctx, pat, v.elems[0])
-				rem = packPath(concat(rem, optword{(rem == nil || isEmpty(rem)) && len(v.elems) > 1, v.elems[0].Pos(), symEmpty}, v.elems[1:]))
-			}
-		case *compound:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, []Value{pat}, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
-		case *globpat:
-			var r, rm []Value
-			matched, r, rm, _, _ = matchCompComp(ctx, []Value{pat}, v.elems, trail)
-			res, rem = packComp(r), packComp(rm)
 		default:
-			matched, res, rem = matchScalarScalar(ctx, pat, val, trail)
+			// Fallback for atomic patterns matching against structural values
+			matched, res, rem, stems = matchCompComp(ctx, []Value{pat}, val, trail)
 		}
-	}}
+	}
 
 Normalize:
 	if !matched && !truly(ctx, is_swapped{}) && patterned(ctx, val) {
