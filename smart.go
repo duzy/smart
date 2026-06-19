@@ -354,9 +354,26 @@ type vocabulary struct{
 
 var vocab vocabulary
 
+func (sym Symbol) unsafeByteLen() int { // Unlocked!
+	switch meta := vocab.symetas[sym]; meta.Kind() {
+	case SymRaw:
+		return len(vocab.strings[meta.Idx])
+	case SymEph:
+		return len(vocab.ephemeral[meta.Idx])
+	case SymInt:
+		var buf [24]byte
+		return len(strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10))
+	case SymFlt:
+		var buf [64]byte
+		return len(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
+	default:
+		return 0
+	}
+}
+
 // build is a zero-allocation recursive string builder.
 // By passing the pointer, we write directly to the final memory buffer!
-func (sym Symbol) build(b *compactbuilds) {
+func (sym Symbol) build(b *compactbuilds) { // Unlocked!
 	switch meta := vocab.symetas[sym]; meta.Kind() {
 	case SymRaw:
 		b.writeString(vocab.strings[meta.Idx])
@@ -400,6 +417,13 @@ func (sym Symbol) String() (s string) {
 	}
 	vocab.RUnlock()
 	return s
+}
+
+func (sym Symbol) len() int {
+	vocab.RLock()
+	res := sym.unsafeByteLen()
+	vocab.RUnlock()
+	return res
 }
 
 const (
@@ -1738,11 +1762,13 @@ type offsetmark struct {
 
 // symstr works with __symFlatSeq and treats syms like a string with zero heap-allocation!
 type symstr struct {
-	syms      []Symbol
+	Context             // Embedded for repack access
+	syms      []Symbol  // Flatten symbols from the value(s)
 	symCursor int       // Which symbol we are currently processing
 	str       string    // The cached string representation of the current symbol
-	bytePos   int       // Tracks the virtual byte offset for ReadRune
+	bytePos   int       // Tracks the virtual byte offset for the NFA engine
 	markers   []offsetmark // Sparse mapping table for O(log N) coordinate lookup
+	intervals []interval   // AST tracking data injected from the flattener
 }
 
 func (s *symstr) ReadRune() (rune, int, error) {
@@ -1844,7 +1870,7 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 		relStart := startByte - marker.byteOffset
 		relEnd := endByte - marker.byteOffset
 
-		// FAST PATH: If the regex boundary exactly matches the symbol boundary, 
+		// FAST PATH: If the regex boundary exactly matches the symbol boundary,
 		// return the exact symbol object to guarantee ZERO string allocations!
 		if relStart == 0 && relEnd == length {
 			return []Symbol{sym}
@@ -1884,6 +1910,28 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	return matched
 }
 
+func (s *symstr) valueInRange(startByte, endByte int) Value {
+	if startByte >= endByte {
+		return nil
+	}
+
+	// 1. HIGH-FIDELITY LOOKUP: Match exact AST Node boundaries
+	for i := len(s.intervals) - 1; i >= 0; i-- {
+		inv := s.intervals[i]
+		if inv.startByte == startByte && inv.endByte == endByte {
+			return inv.node
+		}
+	}
+
+	// 2. FALLBACK: Partial slices fallback to Symbol boundaries!
+	// Because symbols natively respect `isShredderChar`, this slice is guaranteed
+	// to be perfectly aligned with structural punctuation.
+	syms := s.symbolInRange(startByte, endByte)
+
+	// 3. REPACK: Safely reconstitute the partial symbols back into a Value
+	return __symPackValue(s.Context, syms)
+}
+
 // interval track the exact virtual byte spans of every single node (both containers and leaves)
 // during the unrolling phase
 type interval struct {
@@ -1892,13 +1940,22 @@ type interval struct {
 	node      Value
 }
 
-// flattener walks the AST, computes how many bytes each node contributes to the final virtual string
-// and records its exact coordinate boundaries.
+// flattener walks the AST and unrolls it into a blazing-fast Symbol sequence
+// while mapping AST containers to their virtual byte boundaries.
 type flattener struct {
-	ctx         Context
-	leaves      []Value
+	Context
+	syms        []Symbol
 	intervals   []interval
 	currentByte int
+}
+
+func (f *flattener) emit(sym Symbol) {
+	// __symFlatSeq guarantees nested SymSeq containers are unrolled
+	flat := __symFlatSeq(sym)
+	for _, s := range flat {
+		f.syms = append(f.syms, s)
+		f.currentByte += s.len()
+	}
 }
 
 func (f *flattener) flatten(val Value) {
@@ -1909,14 +1966,6 @@ func (f *flattener) flatten(val Value) {
 	start := f.currentByte
 
 	switch v := val.(type) {
-	// Atomic Leaves: Compute length and record interval
-	case *word, *file, *auto, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal:
-		str := __symbol(f.ctx, v).String()
-		f.leaves = append(f.leaves, v)
-		f.currentByte += len(str)
-		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
-
-	// Location Wrappers: Unpeel but preserve outer span boundaries
 	case *loc:
 		f.flatten(v.Value)
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
@@ -1931,8 +1980,7 @@ func (f *flattener) flatten(val Value) {
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 
 	case flag:
-		f.leaves = append(f.leaves, _word(v.Pos(), symDash))
-		f.currentByte += len("-")
+		f.emit(symDash)
 		f.flatten(v.Value)
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 
@@ -1942,20 +1990,15 @@ func (f *flattener) flatten(val Value) {
 
 	case *qualword:
 		for i, e := range v.elems {
-			if i > 0 {
-				f.leaves = append(f.leaves, _word(v.Pos(), symDot))
-				f.currentByte += len(".")
-			}
+			if i > 0 { f.emit(symDot) }
 			f.flatten(e)
 		}
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 
 	case *strcomp:
-		f.leaves = append(f.leaves, _word(v.Pos(), symQuotation))
-		f.currentByte += len(`"`)
+		f.emit(symQuotation)
 		for _, e := range v.elems { f.flatten(e) }
-		f.leaves = append(f.leaves, _word(v.Pos(), symQuotation))
-		f.currentByte += len(`"`)
+		f.emit(symQuotation)
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 
 	case *list:
@@ -1964,23 +2007,17 @@ func (f *flattener) flatten(val Value) {
 			f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 			return
 		}
-		f.leaves = append(f.leaves, _word(v.Pos(), symLtopcorner))
-		f.currentByte += len("⌜")
+		f.emit(symLtopcorner)
 		for i, e := range v.elems {
-			if i > 0 {
-				f.leaves = append(f.leaves, _word(v.Pos(), symSpace))
-				f.currentByte += len(" ")
-			}
+			if i > 0 { f.emit(symSpace) }
 			f.flatten(e)
 		}
-		f.leaves = append(f.leaves, _word(v.Pos(), symRbotcorner))
-		f.currentByte += len("⌟")
+		f.emit(symRbotcorner)
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 
 	default:
-		str := __symbol(f.ctx, v).String()
-		f.leaves = append(f.leaves, v)
-		f.currentByte += len(str)
+		// Natively utilizes the Symbol Domain's word boundaries
+		f.emit(__symbol(f.Context, v))
 		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
 	}
 }
@@ -23986,57 +24023,36 @@ func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, r
 	return
 }
 
-// matchRegexValueSyms applies a pre-compiled regex pattern against a value.
-func matchRegexValueSyms(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+// matchRegexValue applies a pre-compiled regex pattern against a value.
+func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
 	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
+	if val == nil { return false, nil, nil, nil }
 
-	if val == nil {
-		return false, nil, nil, nil
+	fc := &flattener{Context: ctx}
+	fc.flatten(val)
+
+	stream := &symstr{
+		Context:   ctx,
+		syms:      fc.syms,
+		intervals: fc.intervals,
 	}
-
-	stream := &symstr{syms: __symFlatSeq(__symbol(ctx, val)) }
 
 	locs := pat.re.FindReaderSubmatchIndex(stream)
-	if locs == nil {
-		return false, nil, val, nil // No match, remainder is everything
-	}
+	if locs == nil { return false, nil, val, nil }
 
-	startValIdx := stream.byteToSymIdx(locs[0])
-	endValIdx := stream.byteToSymIdx(locs[1])
-
-	if startValIdx == -1 || endValIdx == -1 {
-		return false, nil, val, nil
-	}
-
-	// ENFORCE ANCHORS & ROUTE REMAINDER
-	var unconsumed []Symbol
+	res = stream.valueInRange(locs[0], locs[1])
 
 	if trail {
-		// Backward match: Must align with the end of the input stream
-		if endValIdx != len(stream.syms) {
-			return false, nil, val, nil
-		}
-		// The remainder is everything BEFORE the trailing match
-		unconsumed = stream.syms[:startValIdx]
+		if locs[1] != stream.bytePos { return false, nil, val, nil }
+		rem = stream.valueInRange(0, locs[0])
 	} else {
-		// Forward match: Must align with the start of the input stream
-		if startValIdx != 0 {
-			return false, nil, val, nil
-		}
-		// The remainder is everything AFTER the prefix match
-		unconsumed = stream.syms[endValIdx:]
+		if locs[0] != 0 { return false, nil, val, nil }
+		rem = stream.valueInRange(locs[1], stream.bytePos)
 	}
 
-	res = __symPackValue(ctx, stream.syms[startValIdx:endValIdx])
-	if len(unconsumed) > 0 { rem = __symPackValue(ctx, unconsumed) }
-
-	// Extract Capture Groups (Stems)
 	for i := 2; i < len(locs); i += 2 {
-		cStart := stream.byteToSymIdx(locs[i])
-		cEnd := stream.byteToSymIdx(locs[i+1])
-
-		if cStart != -1 && cEnd != -1 && cStart < cEnd {
-			stems = append(stems, __symPackValue(ctx, stream.syms[cStart:cEnd]))
+		if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
+			stems = append(stems, stream.valueInRange(locs[i], locs[i+1]))
 		} else {
 			stems = append(stems, nil)
 		}
@@ -24045,18 +24061,18 @@ func matchRegexValueSyms(ctx Context, pat *regexpat, val Value, trail bool) (mat
 	return true, res, rem, stems
 }
 
-func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+func matchRegexValueLeaves(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
 	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	if val == nil { return false, nil, nil, nil }
 
 	// 1. Walk the AST structurally to map positions and leaves together
-	fc := &flattener{ctx: ctx}
+	fc := &flattener{Context: ctx}
 	fc.flatten(val)
 
 	// 2. Stream using the tracking reader
 	stream := &leafstr{
 		ctx:       ctx,
-		leaves:    fc.leaves,
+		// FIXME: leaves:    fc.leaves,
 		intervals: fc.intervals,
 	}
 
