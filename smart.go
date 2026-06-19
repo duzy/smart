@@ -1760,6 +1760,14 @@ type offsetmark struct {
 	idx        int // Index inside the underlying slice (leaves or syms)
 }
 
+// interval track the exact virtual byte spans of every single node (both containers and leaves)
+// during the unrolling phase
+type interval struct {
+	startByte int
+	endByte   int
+	node      Value
+}
+
 // symstr works with __symFlatSeq and treats syms like a string with zero heap-allocation!
 // It's high-fidelity virtual string view over an array of discrete leaf Values.
 type symstr struct {
@@ -1916,29 +1924,47 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 		return nil
 	}
 
-	// 1. HIGH-FIDELITY LOOKUP: Match exact AST Node boundaries
-	for i := len(s.intervals) - 1; i >= 0; i-- {
-		inv := s.intervals[i]
+	var wrappers []Value
+	var pristineStructured Value
+
+	// 1. HIGH-FIDELITY LOOKUP: Match exact AST Node boundaries.
+	// We collect structural wrappers and preserve fully-structured containers.
+	// We intentionally bypass pristine "flat" nodes so they fall through to __symPackValue,
+	// allowing them to gain structure and be stamped with ctx.pos!
+	for _, inv := range s.intervals {
 		if inv.startByte == startByte && inv.endByte == endByte {
-			return inv.node
+			switch w := inv.node.(type) {
+			case *loc, *xloc, fullname, *defcaps:
+				wrappers = append(wrappers, w)
+			case *word, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal, *file, *auto, flag:
+				// Flat nodes are ignored here so they are dynamically repacked
+			default:
+				// Complex structured nodes (*list, *compound, *qualword) are preserved intact
+				pristineStructured = inv.node
+			}
 		}
 	}
 
-	// 2. FALLBACK: Partial slices fallback to Symbol boundaries!
-	// Because symbols natively respect `isShredderChar`, this slice is guaranteed
-	// to be perfectly aligned with structural punctuation.
-	syms := s.symbolInRange(startByte, endByte)
+	var val Value
+	if pristineStructured != nil {
+		val = pristineStructured
+	} else {
+		// 2. FALLBACK & REPACK: Unroll flat nodes or partial slices into rich AST structures
+		val = __symPackValue(s.Context, s.symbolInRange(startByte, endByte))
+	}
 
-	// 3. REPACK: Safely reconstitute the partial symbols back into a Value
-	return __symPackValue(s.Context, syms)
-}
+	// 3. RE-WRAP: Reapply any location or identity wrappers that perfectly enclosed this span.
+	// Because intervals are appended inside-out during flatten(), looping forward applies them correctly.
+	for _, w := range wrappers {
+		switch wrap := w.(type) {
+		case *loc:  val = &loc{val, wrap.pos}
+		case *xloc: val = &xloc{val, wrap.pos}
+		case fullname: val = fullname{val}
+		case *defcaps: val = &defcaps{val, wrap.caps}
+		}
+	}
 
-// interval track the exact virtual byte spans of every single node (both containers and leaves)
-// during the unrolling phase
-type interval struct {
-	startByte int
-	endByte   int
-	node      Value
+	return val
 }
 
 // flattener walks the AST and unrolls it into a blazing-fast Symbol sequence
@@ -23845,8 +23871,24 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	}
 
 	switch v := val.(type) {
-	case *loc: return match(ctx, pat, v.Value)
-	case *xloc: return match(ctx, pat, v.Value)
+	case *loc:
+		matched, res, rem, stems = match(ctx, pat, v.Value)
+		if res != nil {
+			if res == v.Value { res = v } else { res = &loc{res, v.pos} }
+		}
+		if rem != nil {
+			if rem == v.Value { rem = v } else { rem = &loc{rem, v.pos} }
+		}
+		return
+	case *xloc:
+		matched, res, rem, stems = match(ctx, pat, v.Value)
+		if res != nil {
+			if res == v.Value { res = v } else { res = &xloc{res, v.pos} }
+		}
+		if rem != nil {
+			if rem == v.Value { rem = v } else { rem = &xloc{rem, v.pos} }
+		}
+		return
 	case *globbrace: return match(ctx, pat, &v.globpat)
 	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
 	case *delegate, *closure: return false, nil, nil, nil
