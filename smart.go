@@ -1788,8 +1788,8 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	return r, size, nil
 }
 
-// mapByteToValIdx safely converts a regex byte offset into a vals[] index.
-func (s *symstr) mapByteToValIdx(byteOffset int) int {
+// byteToSymIdx safely converts a regex byte offset into a vals[] index.
+func (s *symstr) byteToSymIdx(byteOffset int) int {
 	if byteOffset < 0 {
 		return -1
 	}
@@ -1800,6 +1800,125 @@ func (s *symstr) mapByteToValIdx(byteOffset int) int {
 		return len(s.syms)
 	}
 	return s.indexMap[byteOffset]
+}
+
+type leafMarker struct {
+	byteOffset int // Global virtual byte position where this leaf begins
+	leafIdx    int // Index inside the leaves slice
+}
+
+// leafstr implements io.RuneReader to provide a zero-allocation,
+// high-fidelity virtual string view over an array of discrete leaf Values.
+type leafstr struct {
+	ctx     Context
+	leaves  []Value      // Flat slice of atomic high-fidelity leaf nodes
+	cursor  int          // Current index in leaves
+	str     string       // Cached low-level string chunk of the current leaf
+	bytePos int          // Global virtual byte cursor for the NFA engine
+	markers []leafMarker // Sparse mapping table for O(log N) coordinate lookup
+}
+
+func (s *leafstr) ReadRune() (rune, int, error) {
+	for len(s.str) == 0 {
+		if s.cursor >= len(s.leaves) {
+			return 0, 0, io.EOF
+		}
+
+		// Sparse tracking: marker allocated strictly on leaf transition boundaries
+		s.markers = append(s.markers, leafMarker{
+			byteOffset: s.bytePos,
+			leafIdx:    s.cursor,
+		})
+
+		// Low-level resolution: Pull string representation directly from the leaf
+		s.str = __symbol(s.ctx, s.leaves[s.cursor]).String()
+
+		if len(s.str) == 0 {
+			s.cursor++ // Skip zero-width structural leaves safely
+		}
+	}
+
+	// Decode exactly one UTF-8 rune from our current leaf's string chunk
+	r, size := utf8.DecodeRuneInString(s.str)
+	s.bytePos += size
+	s.str = s.str[size:]
+
+	if len(s.str) == 0 {
+		s.cursor++
+	}
+
+	return r, size, nil
+}
+
+// byteToLeafIdx translates a global regex byte boundary back to the original leaf index.
+func (s *leafstr) byteToLeafIdx(byteOffset int) int {
+	if byteOffset < 0 { return -1 }
+	if byteOffset >= s.bytePos { return len(s.leaves) }
+
+	idx := sort.Search(len(s.markers), func(i int) bool {
+		return s.markers[i].byteOffset > byteOffset
+	}) - 1
+
+	if idx < 0 { return 0 }
+	return s.markers[idx].leafIdx
+}
+
+func (s *leafstr) extractRange(startByte, endByte int) Value {
+	if startByte >= endByte {
+		return nil
+	}
+
+	startLeaf := s.byteToLeafIdx(startByte)
+	endLeaf := s.byteToLeafIdx(endByte - 1)
+
+	// Case 1: Match falls entirely within a single leaf node
+	if startLeaf == endLeaf {
+		leaf := s.leaves[startLeaf]
+		marker := s.markers[startLeaf]
+		leafStr := __symbol(s.ctx, leaf).String()
+
+		relStart := startByte - marker.byteOffset
+		relEnd := endByte - marker.byteOffset
+
+		// CRITICAL: If it consumes the whole node, return it intact with its original pos/type!
+		if relStart == 0 && relEnd == len(leafStr) {
+			return leaf
+		}
+		// Partial slice: Create a new atomic word node tracking the original leaf's pos
+		return _word(leaf.Pos(), intern(leafStr[relStart:relEnd]))
+	}
+
+	// Case 2: Spans multiple leaf nodes
+	var matchedLeaves []Value
+
+	// First leaf (check for partial start boundary slice)
+	firstLeaf := s.leaves[startLeaf]
+	firstMarker := s.markers[startLeaf]
+	firstStr := __symbol(s.ctx, firstLeaf).String()
+	if startByte > firstMarker.byteOffset {
+		relStart := startByte - firstMarker.byteOffset
+		matchedLeaves = append(matchedLeaves, _word(firstLeaf.Pos(), intern(firstStr[relStart:])))
+	} else {
+		matchedLeaves = append(matchedLeaves, firstLeaf) // Reused intact
+	}
+
+	// Middle leaves (fully consumed, completely intact!)
+	for i := startLeaf + 1; i < endLeaf; i++ {
+		matchedLeaves = append(matchedLeaves, s.leaves[i])
+	}
+
+	// Last leaf (check for partial end boundary slice)
+	lastLeaf := s.leaves[endLeaf]
+	lastMarker := s.markers[endLeaf]
+	lastStr := __symbol(s.ctx, lastLeaf).String()
+	relEnd := endByte - lastMarker.byteOffset
+	if relEnd < len(lastStr) {
+		matchedLeaves = append(matchedLeaves, _word(lastLeaf.Pos(), intern(lastStr[:relEnd])))
+	} else {
+		matchedLeaves = append(matchedLeaves, lastLeaf) // Reused intact
+	}
+
+	return packLeaves(s.ctx, matchedLeaves)
 }
 
 func __symKind(sym Symbol) (k uint8) {
@@ -3052,6 +3171,7 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 }
 
 // __symPackValue is a blazingly fast, zero-allocation mini-parser for symbols to value.
+// See also packLeaves.
 func __symPackValue(ctx Context, syms []Symbol) Value {
 	pos := _pos(ctx)
 
@@ -3306,9 +3426,64 @@ func __symbol(ctx Context, val Value) Symbol {
 	return intern(s)
 }
 
+// appendLeaves injects synthetic structural layout markers (symLtopcorner,
+// symRbotcorner, symSpace, symDot, etc.) to stream composite layouts into
+// a continuous sequence of runes. See also packLeaves.
+func appendLeaves(ctx Context, val Value, leaves []Value) []Value {
+	if val == nil {
+		return leaves
+	}
+
+	switch v := val.(type) {
+	// Atomic Scalar Leaves: Append directly to retain type & position
+	case *word, *file, *auto, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal:
+		return append(leaves, v)
+
+	// Location / Identifier Wrappers: Strip but recurse to preserve inner node
+	case *loc:     return appendLeaves(ctx, v.Value, leaves)
+	case *xloc:    return appendLeaves(ctx, v.Value, leaves)
+	case fullname: return appendLeaves(ctx, v.Value, leaves)
+	case *defcaps: return appendLeaves(ctx, v.Value, leaves)
+
+	case flag:
+		// Emits symDash followed by the flag value components
+		leaves = append(leaves, _word(v.Pos(), symDash))
+		return appendLeaves(ctx, v.Value, leaves)
+
+	case *compound:
+		for _, e := range v.elems { leaves = appendLeaves(ctx, e, leaves) }
+		return leaves
+
+	case *qualword:
+		for i, e := range v.elems {
+			if i > 0 { leaves = append(leaves, _word(v.Pos(), symDot)) }
+			leaves = appendLeaves(ctx, e, leaves)
+		}
+		return leaves
+
+	case *strcomp:
+		leaves = append(leaves, _word(v.Pos(), symQuotation))
+		for _, e := range v.elems { leaves = appendLeaves(ctx, e, leaves) }
+		leaves = append(leaves, _word(v.Pos(), symQuotation))
+		return leaves
+
+	case *list:
+		if v.len() == 1 { return appendLeaves(ctx, v.elems[0], leaves) }
+		leaves = append(leaves, _word(v.Pos(), symLtopcorner))
+		for i, e := range v.elems {
+			if i > 0 { leaves = append(leaves, _word(v.Pos(), symSpace)) }
+			leaves = appendLeaves(ctx, e, leaves)
+		}
+		leaves = append(leaves, _word(v.Pos(), symRbotcorner))
+		return leaves
+
+	default:
+		return append(leaves, v)
+	}
+}
+
 type symbolize_ctx struct{ Context }
 func (sc symbolize_ctx) do(ctx Context, op any) any { return nil }
-
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	if checkpoints { defer check_symbolize(v)(&res) }
 	switch t := v.(type) {
@@ -21272,6 +21447,161 @@ func packGlob(parts []Value) Value {
 	return &globpat{elements{parts}}
 }
 
+// packLeaves is a structural interpreter of leaf values. It loops through the
+// extracted slice, detects these synthetic markers, and recursively transforms
+// them back into their original container nodes (*list, *qualword, *compound, flag)
+// —while reusing any pristine, non-synthetic elements completely untouched.
+// See also __symPackValue, appendLeaves.
+func packLeaves(ctx Context, leaves []Value) Value {
+	pos := _pos(ctx)
+	if len(leaves) == 0 {
+		return _null(pos)
+	}
+	if len(leaves) == 1 {
+		return leaves[0]
+	}
+
+	var vals []Value
+	var hasDots bool
+	var idxPathSep int = -1
+
+	for i := 0; i < len(leaves); i++ {
+		node := leaves[i]
+
+		// 1. FAST PATH: Pristine original leaf nodes (like *raw lines or *file references) 
+		// are never word-wrapped layout markers. Pass them through completely untouched.
+		w, isWord := node.(*word)
+		if !isWord {
+			vals = append(vals, node)
+			continue
+		}
+
+		sym := w.s
+		if __symKind(sym) != SymRaw {
+			vals = append(vals, node)
+			continue
+		}
+
+		// 2. DETECT AND ISOLATE STRUCTURAL PAIRS
+		var closing Symbol
+		switch sym {
+		case symQuotation:  closing = symQuotation
+		case symApostrophe: closing = symApostrophe
+		case symBackquote:  closing = symBackquote
+		case symLparen:     closing = symRparen
+		case symLbrace:     closing = symRbrace
+		case symLbrack:     closing = symRbrack
+		case symLangle:     closing = symRangle
+		case symLsingguil:  closing = symRsingguil
+		case symLguillemet: closing = symRguillemet
+		case symCornerTL:   closing = symCornerTR // List Open Corner (⌜)
+		case symCornerBL:   closing = symCornerBR
+		}
+
+		if closing != 0 {
+			closeIdx := -1
+			depth := 1
+
+			// Find matching closing marker at this structural layer
+			for j := i + 1; j < len(leaves); j++ {
+				if wj, ok := leaves[j].(*word); ok && __symKind(wj.s) == SymRaw {
+					if wj.s == closing {
+						depth--
+						if depth == 0 {
+							closeIdx = j
+							break
+						}
+					} else if wj.s == sym && sym != closing {
+						depth++
+					}
+				}
+			}
+
+			if closeIdx != -1 {
+				// Recursively interpret structural elements bound inside pairs
+				inner := packLeaves(ctx, leaves[i+1:closeIdx])
+
+				// RECOVER HIGHER-LEVEL LISTS: If we trapped list markers injected 
+				// by appendLeaves, filter out synthetic item-separator spaces 
+				// and heal them directly back into a robust *list node.
+				if sym == symCornerTL {
+					if inner == nil || isEmpty(inner) {
+						vals = append(vals, _list())
+					} else if c, isComp := inner.(*compound); isComp {
+						var listElems []Value
+						for _, item := range c.elems {
+							if iw, isW := item.(*word); isW && __symKind(iw.s) == SymRaw && iw.s == symSpace {
+								continue // Strip artificial layout spacer
+							}
+							listElems = append(listElems, item)
+						}
+						vals = append(vals, _list(listElems...))
+					} else {
+						vals = append(vals, _list(inner))
+					}
+					i = closeIdx
+					continue
+				}
+
+				// Standard text groupings wrap elements inside a clean compound
+				var compElems []Value
+				compElems = append(compElems, _word(node.Pos(), sym))
+				if inner != nil && !isEmpty(inner) {
+					if c, isComp := inner.(*compound); isComp {
+						compElems = append(compElems, c.elems...)
+					} else {
+						compElems = append(compElems, inner)
+					}
+				}
+				compElems = append(compElems, _word(leaves[closeIdx].Pos(), closing))
+				
+				vals = append(vals, packComp(compElems))
+				i = closeIdx
+				continue
+			}
+		}
+
+		// 3. DETECT AND ISOLATE STANDALONE DELIMITERS
+		switch sym {
+		case symDot:
+			if hasDots = true; i == 0 {
+				vals = append(vals, _null(node.Pos()))
+			}
+		case symSlash:
+			switch idxPathSep = len(vals); idxPathSep {
+			case 0:
+				vals = append(vals, _punct(node.Pos(), PROOT))
+			case len(leaves)-1:
+				vals = append(vals, _punct(node.Pos(), PTAIL))
+			}
+		case symDash:
+			// Recurse trailing sequence to generate flag elements cleanly
+			var inner Value
+			if i+1 < len(leaves) {
+				inner = packLeaves(ctx, leaves[i+1:])
+			} else {
+				inner = _null(node.Pos())
+			}
+			vals = append(vals, flag{inner})
+			i = len(leaves) // Mark remainder as completely consumed
+		case symSpace:
+			// Maintain loose structural whitespace outside groupings if present
+			vals = append(vals, node)
+		default:
+			vals = append(vals, node)
+		}
+	}
+
+	// 4. CHOOSE FINAL STRUCTURAL CONTAINER BASED ON DETECTED TRAITS
+	if idxPathSep != -1 {
+		return packPath(vals)
+	} else if hasDots {
+		return packQual(vals)
+	} else {
+		return packComp(vals)
+	}
+}
+
 func packParts(trail bool, parts []Value, args ...any) []Value {
 	var vals []Value
 	for _, arg := range args {
@@ -23474,8 +23804,8 @@ func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, r
 	return
 }
 
-// matchRegexValue applies a pre-compiled regex pattern against a value.
-func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+// matchRegexValueSyms applies a pre-compiled regex pattern against a value.
+func matchRegexValueSyms(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
 	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 
 	if val == nil {
@@ -23489,8 +23819,8 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 		return false, nil, val, nil // No match, remainder is everything
 	}
 
-	startValIdx := stream.mapByteToValIdx(locs[0])
-	endValIdx := stream.mapByteToValIdx(locs[1])
+	startValIdx := stream.byteToSymIdx(locs[0])
+	endValIdx := stream.byteToSymIdx(locs[1])
 
 	if startValIdx == -1 || endValIdx == -1 {
 		return false, nil, val, nil
@@ -23520,8 +23850,8 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 
 	// Extract Capture Groups (Stems)
 	for i := 2; i < len(locs); i += 2 {
-		cStart := stream.mapByteToValIdx(locs[i])
-		cEnd := stream.mapByteToValIdx(locs[i+1])
+		cStart := stream.byteToSymIdx(locs[i])
+		cEnd := stream.byteToSymIdx(locs[i+1])
 
 		if cStart != -1 && cEnd != -1 && cStart < cEnd {
 			stems = append(stems, __symPackValue(ctx, stream.syms[cStart:cEnd]))
@@ -23533,52 +23863,37 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 	return true, res, rem, stems
 }
 
-// matchRegexValues applies a pre-compiled regex pattern against a flattened slice of Values.
-func matchRegexValues(ctx Context, pat *regexpat, vals []Value) (matched bool, res, rem, stems []Value) {
-	if len(vals) == 0 {
-		return false, nil, nil, nil
-	}
+func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
+	if val == nil { return false, nil, nil, nil }
 
-	// 1. Extract symbols for the zero-allocation stream
-	// (Assuming you have a helper like __symFlatSeq or cast logic here)
-	syms := make([]Symbol, len(vals))
-	for i, v := range vals { syms[i] = __symbol(ctx, v) }
+	// 1. Unroll the input down to high-fidelity leaves
+	leaves := appendLeaves(ctx, val, []Value{})
 
-	stream := &symstr{syms: syms}
+	// 2. Stream using the pure, low-level virtual reader
+	stream := &leafstr{ctx: ctx, leaves: leaves}
 
-	// 2. Execute the highly-optimized standard Go Regex Engine
 	locs := pat.re.FindReaderSubmatchIndex(stream)
 	if locs == nil {
-		return false, nil, vals, nil // No match, remainder is everything
+		return false, nil, val, nil
 	}
 
-	// 3. Translate byte offsets back to Value array indices
-	startValIdx := stream.mapByteToValIdx(locs[0])
-	endValIdx := stream.mapByteToValIdx(locs[1]) // locs[1] is exclusive
+	// 3. Extract ranges with high fidelity
+	res = stream.extractRange(locs[0], locs[1])
 
-	if startValIdx == -1 || endValIdx == -1 {
-		return false, nil, vals, nil
+	if trail {
+		if locs[1] != stream.bytePos { return false, nil, val, nil }
+		rem = stream.extractRange(0, locs[0])
+	} else {
+		if locs[0] != 0 { return false, nil, val, nil }
+		rem = stream.extractRange(locs[1], stream.bytePos)
 	}
 
-	// 4. Slice the original values
-	res = vals[startValIdx:endValIdx]
-
-	// If the pattern was compiled with an end-anchor ($) for "trail" behavior,
-	// endValIdx will naturally be len(vals).
-	rem = vals[endValIdx:]
-
-	// 5. Extract Capture Groups (Stems)
-	// locs array structure: [matchStart, matchEnd, cap1Start, cap1End, cap2Start, cap2End...]
+	// 4. Capture Groups (Stems)
 	for i := 2; i < len(locs); i += 2 {
-		cStart := stream.mapByteToValIdx(locs[i])
-		cEnd := stream.mapByteToValIdx(locs[i+1])
-
-		if cStart != -1 && cEnd != -1 {
-			// Capture matched sub-values.
-			// We return []Value for stems; the caller can wrap them if needed.
-			stems = append(stems, packComp(vals[cStart:cEnd]))
+		if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
+			stems = append(stems, stream.extractRange(locs[i], locs[i+1]))
 		} else {
-			// Unmatched optional group (e.g., `(foo)?` that didn't trigger)
 			stems = append(stems, nil)
 		}
 	}
@@ -23777,32 +24092,7 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		goto Normalize
 
 	case *regexpat:
-		if true {
-			matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
-		} else {
-			switch v := val.(type) {
-			case *path:
-				var r, rm []Value
-				matched, r, rm, stems = matchRegexValues(ctx, p, v.elems)
-				res, rem = packPath(r), packPath(rm)
-			case *globpat:
-				var r, rm []Value
-				matched, r, rm, stems = matchRegexValues(ctx, p, v.elems)
-				res, rem = packComp(r), packComp(rm)
-			case *compound:
-				var r, rm []Value
-				matched, r, rm, stems = matchRegexValues(ctx, p, v.elems)
-				res, rem = packComp(r), packComp(rm)
-			case *qualword:
-				var r, rm []Value
-				matched, r, rm, stems = matchRegexValues(ctx, p, unpack(v))
-				res, rem = packComp(r), packComp(rm)
-			default:
-				var r, rm []Value
-				matched, r, rm, stems = matchRegexValues(ctx, p, []Value{v})
-				res, rem = packComp(r), packComp(rm)
-			}
-		}
+		matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
 
 	case *list:
 		if t, ok := val.(*list); ok {
