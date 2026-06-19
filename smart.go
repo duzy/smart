@@ -1802,7 +1802,108 @@ func (s *symstr) byteToSymIdx(byteOffset int) int {
 	return s.indexMap[byteOffset]
 }
 
-type leafMarker struct {
+// interval track the exact virtual byte spans of every single node (both containers and leaves)
+// during the unrolling phase
+type interval struct {
+	startByte int
+	endByte   int
+	node      Value
+}
+
+// flattener walks the AST, computes how many bytes each node contributes to the final virtual string
+// and records its exact coordinate boundaries.
+type flattener struct {
+	ctx         Context
+	leaves      []Value
+	intervals   []interval
+	currentByte int
+}
+
+func (f *flattener) flatten(val Value) {
+	if val == nil {
+		return
+	}
+
+	start := f.currentByte
+
+	switch v := val.(type) {
+	// Atomic Leaves: Compute length and record interval
+	case *word, *file, *auto, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal:
+		str := __symbol(f.ctx, v).String()
+		f.leaves = append(f.leaves, v)
+		f.currentByte += len(str)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	// Location Wrappers: Unpeel but preserve outer span boundaries
+	case *loc:
+		f.flatten(v.Value)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+	case *xloc:
+		f.flatten(v.Value)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+	case fullname:
+		f.flatten(v.Value)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+	case *defcaps:
+		f.flatten(v.Value)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	case flag:
+		f.leaves = append(f.leaves, _word(v.Pos(), symDash))
+		f.currentByte += len("-")
+		f.flatten(v.Value)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	case *compound:
+		for _, e := range v.elems { f.flatten(e) }
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	case *qualword:
+		for i, e := range v.elems {
+			if i > 0 {
+				f.leaves = append(f.leaves, _word(v.Pos(), symDot))
+				f.currentByte += len(".")
+			}
+			f.flatten(e)
+		}
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	case *strcomp:
+		f.leaves = append(f.leaves, _word(v.Pos(), symQuotation))
+		f.currentByte += len(`"`)
+		for _, e := range v.elems { f.flatten(e) }
+		f.leaves = append(f.leaves, _word(v.Pos(), symQuotation))
+		f.currentByte += len(`"`)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	case *list:
+		if v.len() == 1 {
+			f.flatten(v.elems[0])
+			f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+			return
+		}
+		f.leaves = append(f.leaves, _word(v.Pos(), symLtopcorner))
+		f.currentByte += len("⌜")
+		for i, e := range v.elems {
+			if i > 0 {
+				f.leaves = append(f.leaves, _word(v.Pos(), symSpace))
+				f.currentByte += len(" ")
+			}
+			f.flatten(e)
+		}
+		f.leaves = append(f.leaves, _word(v.Pos(), symRbotcorner))
+		f.currentByte += len("⌟")
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+
+	default:
+		str := __symbol(f.ctx, v).String()
+		f.leaves = append(f.leaves, v)
+		f.currentByte += len(str)
+		f.intervals = append(f.intervals, interval{start, f.currentByte, v})
+	}
+}
+
+type leafmark struct {
 	byteOffset int // Global virtual byte position where this leaf begins
 	leafIdx    int // Index inside the leaves slice
 }
@@ -1815,7 +1916,8 @@ type leafstr struct {
 	cursor  int          // Current index in leaves
 	str     string       // Cached low-level string chunk of the current leaf
 	bytePos int          // Global virtual byte cursor for the NFA engine
-	markers []leafMarker // Sparse mapping table for O(log N) coordinate lookup
+	markers []leafmark   // Sparse mapping table for O(log N) coordinate lookup
+	intervals []interval // Injected from the flattener
 }
 
 func (s *leafstr) ReadRune() (rune, int, error) {
@@ -1825,7 +1927,7 @@ func (s *leafstr) ReadRune() (rune, int, error) {
 		}
 
 		// Sparse tracking: marker allocated strictly on leaf transition boundaries
-		s.markers = append(s.markers, leafMarker{
+		s.markers = append(s.markers, leafmark{
 			byteOffset: s.bytePos,
 			leafIdx:    s.cursor,
 		})
@@ -1863,15 +1965,25 @@ func (s *leafstr) byteToLeafIdx(byteOffset int) int {
 	return s.markers[idx].leafIdx
 }
 
-func (s *leafstr) extractRange(startByte, endByte int) Value {
+func (s *leafstr) valueInRange(startByte, endByte int) Value {
 	if startByte >= endByte {
 		return nil
 	}
 
+	// 1. HIGH-FIDELITY LOOKUP: Check if this span matches an original node span.
+	// Walking backwards targets the topmost container wrapper (e.g., *loc).
+	for i := len(s.intervals) - 1; i >= 0; i-- {
+		inv := s.intervals[i]
+		if inv.startByte == startByte && inv.endByte == endByte {
+			return inv.node // Return original node completely intact with positions!
+		}
+	}
+
+	// 2. FALLBACK: If the match boundaries slice across nodes partially,
+	// fall back to standard leaf slicing.
 	startLeaf := s.byteToLeafIdx(startByte)
 	endLeaf := s.byteToLeafIdx(endByte - 1)
 
-	// Case 1: Match falls entirely within a single leaf node
 	if startLeaf == endLeaf {
 		leaf := s.leaves[startLeaf]
 		marker := s.markers[startLeaf]
@@ -1880,18 +1992,13 @@ func (s *leafstr) extractRange(startByte, endByte int) Value {
 		relStart := startByte - marker.byteOffset
 		relEnd := endByte - marker.byteOffset
 
-		// CRITICAL: If it consumes the whole node, return it intact with its original pos/type!
 		if relStart == 0 && relEnd == len(leafStr) {
 			return leaf
 		}
-		// Partial slice: Create a new atomic word node tracking the original leaf's pos
 		return _word(leaf.Pos(), intern(leafStr[relStart:relEnd]))
 	}
 
-	// Case 2: Spans multiple leaf nodes
 	var matchedLeaves []Value
-
-	// First leaf (check for partial start boundary slice)
 	firstLeaf := s.leaves[startLeaf]
 	firstMarker := s.markers[startLeaf]
 	firstStr := __symbol(s.ctx, firstLeaf).String()
@@ -1899,23 +2006,21 @@ func (s *leafstr) extractRange(startByte, endByte int) Value {
 		relStart := startByte - firstMarker.byteOffset
 		matchedLeaves = append(matchedLeaves, _word(firstLeaf.Pos(), intern(firstStr[relStart:])))
 	} else {
-		matchedLeaves = append(matchedLeaves, firstLeaf) // Reused intact
+		matchedLeaves = append(matchedLeaves, firstLeaf)
 	}
 
-	// Middle leaves (fully consumed, completely intact!)
 	for i := startLeaf + 1; i < endLeaf; i++ {
 		matchedLeaves = append(matchedLeaves, s.leaves[i])
 	}
 
-	// Last leaf (check for partial end boundary slice)
-	lastLeaf := s.leaves[endLeaf]
+	var lastLeaf = s.leaves[endLeaf]
 	lastMarker := s.markers[endLeaf]
 	lastStr := __symbol(s.ctx, lastLeaf).String()
 	relEnd := endByte - lastMarker.byteOffset
 	if relEnd < len(lastStr) {
 		matchedLeaves = append(matchedLeaves, _word(lastLeaf.Pos(), intern(lastStr[:relEnd])))
 	} else {
-		matchedLeaves = append(matchedLeaves, lastLeaf) // Reused intact
+		matchedLeaves = append(matchedLeaves, lastLeaf)
 	}
 
 	return packLeaves(s.ctx, matchedLeaves)
@@ -21468,7 +21573,7 @@ func packLeaves(ctx Context, leaves []Value) Value {
 	for i := 0; i < len(leaves); i++ {
 		node := leaves[i]
 
-		// 1. FAST PATH: Pristine original leaf nodes (like *raw lines or *file references) 
+		// 1. FAST PATH: Pristine original leaf nodes (like *raw lines or *file references)
 		// are never word-wrapped layout markers. Pass them through completely untouched.
 		w, isWord := node.(*word)
 		if !isWord {
@@ -21521,8 +21626,8 @@ func packLeaves(ctx Context, leaves []Value) Value {
 				// Recursively interpret structural elements bound inside pairs
 				inner := packLeaves(ctx, leaves[i+1:closeIdx])
 
-				// RECOVER HIGHER-LEVEL LISTS: If we trapped list markers injected 
-				// by appendLeaves, filter out synthetic item-separator spaces 
+				// RECOVER HIGHER-LEVEL LISTS: If we trapped list markers injected
+				// by appendLeaves, filter out synthetic item-separator spaces
 				// and heal them directly back into a robust *list node.
 				if sym == symCornerTL {
 					if inner == nil || isEmpty(inner) {
@@ -21554,7 +21659,7 @@ func packLeaves(ctx Context, leaves []Value) Value {
 					}
 				}
 				compElems = append(compElems, _word(leaves[closeIdx].Pos(), closing))
-				
+
 				vals = append(vals, packComp(compElems))
 				i = closeIdx
 				continue
@@ -23867,32 +23972,37 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	if val == nil { return false, nil, nil, nil }
 
-	// 1. Unroll the input down to high-fidelity leaves
-	leaves := appendLeaves(ctx, val, []Value{})
+	// 1. Walk the AST structurally to map positions and leaves together
+	fc := &flattener{ctx: ctx}
+	fc.flatten(val)
 
-	// 2. Stream using the pure, low-level virtual reader
-	stream := &leafstr{ctx: ctx, leaves: leaves}
+	// 2. Stream using the tracking reader
+	stream := &leafstr{
+		ctx:       ctx,
+		leaves:    fc.leaves,
+		intervals: fc.intervals,
+	}
 
 	locs := pat.re.FindReaderSubmatchIndex(stream)
 	if locs == nil {
 		return false, nil, val, nil
 	}
 
-	// 3. Extract ranges with high fidelity
-	res = stream.extractRange(locs[0], locs[1])
+	// 3. Coordinate slices extract original intact objects
+	res = stream.valueInRange(locs[0], locs[1])
 
 	if trail {
 		if locs[1] != stream.bytePos { return false, nil, val, nil }
-		rem = stream.extractRange(0, locs[0])
+		rem = stream.valueInRange(0, locs[0])
 	} else {
 		if locs[0] != 0 { return false, nil, val, nil }
-		rem = stream.extractRange(locs[1], stream.bytePos)
+		rem = stream.valueInRange(locs[1], stream.bytePos)
 	}
 
 	// 4. Capture Groups (Stems)
 	for i := 2; i < len(locs); i += 2 {
 		if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-			stems = append(stems, stream.extractRange(locs[i], locs[i+1]))
+			stems = append(stems, stream.valueInRange(locs[i], locs[i+1]))
 		} else {
 			stems = append(stems, nil)
 		}
