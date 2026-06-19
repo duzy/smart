@@ -1786,15 +1786,16 @@ type interval struct {
 // symstr works with __symFlatSeq and treats syms like a string with zero heap-allocation!
 // It's high-fidelity virtual string view over an array of discrete leaf Values.
 type symstr struct {
-	Context             // Embedded for repack access
-	syms      []Symbol  // Flatten symbols from the value(s)
-	symCursor int       // Which symbol we are currently processing
-	str       string    // The cached string representation of the current symbol
-	bytePos   int       // Tracks the virtual byte offset for the NFA engine
-	markers   []offsetmark // Sparse mapping table for O(log N) coordinate lookup
-	intervals []interval   // AST tracking data injected from the flattener
-	tasks       []walktask // Lazy flattening walk tasks
-	currentByte int        // Lazy flattening byte position
+	Context                  // Embedded for repack access
+	syms        []Symbol     // Flatten symbols from the value(s)
+	symCursor   int          // Which symbol we are currently processing
+	str         string       // The cached string representation of the current symbol
+	bytePos     int          // Tracks the virtual byte offset for the NFA engine (UTF-8 offsets)
+	symBytePos  int          // Tracks the symbol byte offset for ReadSymbol (Symbol boundaries)
+	markers     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
+	intervals   []interval   // AST tracking data injected from the flattener
+	tasks       []walktask   // Lazy flattening walk tasks
+	currentByte int          // Lazy flattening byte position
 }
 
 func (s *symstr) ReadRune() (rune, int, error) {
@@ -1851,24 +1852,28 @@ func (s *symstr) ReadRune() (rune, int, error) {
 		// FUSED EAGER CLOSURE FLUSHING:
 		// Ensure any AST wrappers that terminate exactly at this symbol boundary
 		// are recorded immediately, in case the NFA accepts the match and halts here.
-		for s.symCursor >= len(s.syms) && len(s.tasks) > 0 {
-			top := len(s.tasks) - 1
-			if s.tasks[top].op == opCloseInterval {
-				task := s.tasks[top]
-				s.intervals = append(s.intervals, interval{task.start, s.currentByte, task.val})
-				s.tasks = s.tasks[:top]
-			} else {
-				// Break at the next actual token evaluation task
-				break
-			}
-		}
+		s.flushClosures()
 	}
 
 	return r, size, nil
 }
 
+// flushClosures captures wrapper intervals that align with the current token boundary.
+func (s *symstr) flushClosures() {
+	for s.symCursor >= len(s.syms) && len(s.tasks) > 0 {
+		top := len(s.tasks) - 1
+		if s.tasks[top].op == opCloseInterval {
+			task := s.tasks[top]
+			s.intervals = append(s.intervals, interval{task.start, s.currentByte, task.val})
+			s.tasks = s.tasks[:top]
+		} else {
+			break
+		}
+	}
+}
+
 // ReadSymbol lazily evaluates the AST and yields the next sequential symbol.
-// Used by native glob and compound matchers for zero-allocation linear traversal.
+// Used natively by matching algorithms for zero-allocation linear traversal.
 func (s *symstr) ReadSymbol() (Symbol, error) {
 	for s.symCursor >= len(s.syms) {
 		if len(s.tasks) == 0 {
@@ -1877,8 +1882,20 @@ func (s *symstr) ReadSymbol() (Symbol, error) {
 		s.pump()
 	}
 
+	// Ensure we track O(log N) coordinate boundaries for valueInRange
+	if len(s.markers) <= s.symCursor {
+		s.markers = append(s.markers, offsetmark{
+			byteOffset: s.symBytePos,
+			idx:        s.symCursor,
+		})
+	}
+
 	sym := s.syms[s.symCursor]
 	s.symCursor++
+	s.symBytePos += sym.len()
+
+	s.flushClosures()
+
 	return sym, nil
 }
 
@@ -1898,11 +1915,16 @@ func (s *symstr) ReadSymbolBackward() (Symbol, error) {
 	return s.syms[s.symCursor], nil
 }
 
-// exhaust forces the lazy evaluator to complete, fully populating s.syms.
-// Required before initiating a backward (trail) match.
-func (s *symstr) exhaust() {
+// // exhaust forces the lazy evaluator to complete, fully populating s.syms.
+// // Required before initiating a backward (trail) match.
+func (s *symstr) _exhaust() {
 	for len(s.tasks) > 0 {
 		s.pump()
+	}
+}
+func (s *symstr) exhaust() {
+	for {
+		if _, err := s.ReadSymbol(); err == io.EOF { break }
 	}
 }
 
@@ -1947,8 +1969,8 @@ func (s *symstr) pump() {
 			switch v := val.(type) {
 			case *loc:      pushClose(v); pushVal(v.Value)
 			case *xloc:     pushClose(v); pushVal(v.Value)
-			case fullname:  pushClose(v); pushVal(v.Value)
 			case *defcaps:  pushClose(v); pushVal(v.Value)
+			case fullname:  pushClose(v); pushVal(v.Value)
 			case flag:
 				pushClose(v)
 				pushVal(v.Value)
@@ -1960,13 +1982,32 @@ func (s *symstr) pump() {
 				pushClose(v)
 				for i := len(v.elems) - 1; i >= 0; i-- {
 					pushVal(v.elems[i])
-					if i > 0 { pushSym(symDot) }
+					if i > 0 { pushSym(symDot) } // Pad dots natively!
+				}
+			case *path:
+				pushClose(v)
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					pushVal(v.elems[i])
+					if i > 0 { pushSym(symSlash) } // Pad path boundaries natively!
 				}
 			case *strcomp:
 				pushClose(v)
 				pushSym(symQuotation)
 				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
 				pushSym(symQuotation)
+			case *globmeta:
+				pushClose(v)
+				switch v.token {
+				case QUE:  pushSym(symQues)
+				case SAST: pushSym(symAsterisk)
+				case DAST: pushSym(symAsteriskAst)
+				case ASTQ: pushSym(symAsteriskQues)
+				}
+			case *percpat:
+				pushClose(v)
+				if v.Suffix != nil && !isEmpty(v.Suffix) { pushVal(v.Suffix) }
+				pushSym(symPercent) // Let the NFA handle the % logic natively
+				if v.Prefix != nil && !isEmpty(v.Prefix) { pushVal(v.Prefix) }
 			case *list:
 				if v.len() == 1 {
 					pushClose(v)
@@ -21700,2101 +21741,6 @@ func literalSym(ctx Context, v Value) Symbol {
 	return accum
 }
 
-func forwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem []Value, eIdx, sIdx int) {
-	// Defensive Guard: Immediately return if value slices are exhausted
-	if len(vals) == 0 {
-		return false, nil, nil, 0, 0
-	}
-
-	currVal := vals[0]
-
-	for eIdx < len(elems) {
-		m, r1, r2 := matchScalarScalar(ctx, elems[eIdx], currVal, false)
-
-		if !m {
-			// =================================================================
-			// THE DOD FIX: Deep Symbol Domain Coalescence (Forward)
-			// =================================================================
-			if !patterned(ctx, elems[eIdx]) {
-				pSym := literalSym(ctx, elems[eIdx])
-
-				if pSym != symEmpty {
-					accumSym := literalSym(ctx, currVal)
-
-					// Case 1: Inner-Fragmentation (e.g. matchPathPath comparing a word to a compound)
-					if accumSym == pSym {
-						res = concat(res, currVal)
-						sIdx++
-						if sIdx < len(vals) { currVal = vals[sIdx] } else { currVal = nil }
-						eIdx++
-						if currVal == nil { break }
-						continue // Instant 1-to-1 match success!
-					}
-
-					// Case 2: Cross-Fragmentation (e.g. matchCompComp spanning multiple elements)
-					if accumSym != symEmpty {
-						k := sIdx + 1
-						matchedFrag := false
-
-						for k < len(vals) {
-							nextSym := literalSym(ctx, vals[k])
-							if nextSym == symEmpty { break }
-
-							accumSym = __symJoin(accumSym, nextSym)
-							if accumSym == pSym {
-								matchedFrag = true
-								break
-							}
-							k++
-						}
-
-						if matchedFrag {
-							for i := sIdx; i <= k; i++ {
-								res = concat(res, vals[i])
-							}
-							sIdx = k + 1
-							if sIdx < len(vals) { currVal = vals[sIdx] } else { currVal = nil }
-							eIdx++
-							if currVal == nil { break }
-							continue // Move to the next pattern element seamlessly
-						}
-					}
-				}
-			}
-			break // All match attempts failed, break loop normally.
-		}
-
-		if r2 == nil || isEmpty(r2) {
-			res = concat(res, currVal)
-			sIdx++
-			if sIdx < len(vals) {
-				currVal = vals[sIdx]
-			} else {
-				currVal = nil
-			}
-		} else {
-			res = concat(res, r1)
-			currVal = r2 // Shrink the current segment
-		}
-
-		eIdx++
-		if currVal == nil { break } // Ran out of value segments
-	}
-
-	matched = eIdx == len(elems)
-
-	// Safely reconstruct the unconsumed remainder
-	if currVal != nil {
-		rem = concat(currVal, vals[sIdx+1:])
-	} else if sIdx < len(vals) {
-		rem = vals[sIdx:]
-	}
-
-	return
-}
-
-func backwardCompComp(ctx Context, elems, vals []Value) (matched bool, res, rem []Value, eIdx, sIdx int) {
-	// Defensive Guard: Protect the reverse tracker from empty entry arrays
-	if len(vals) == 0 {
-		return false, nil, nil, len(elems) - 1, -1
-	}
-
-	eIdx = len(elems) - 1
-	sIdx = len(vals) - 1
-	currVal := vals[sIdx]
-
-	for 0 <= eIdx {
-		m, r1, r2 := matchScalarScalar(ctx, elems[eIdx], currVal, true)
-
-		if !m {
-			// =================================================================
-			// THE DOD FIX: Deep Symbol Domain Coalescence (Backward)
-			// =================================================================
-			if !patterned(ctx, elems[eIdx]) {
-				pSym := literalSym(ctx, elems[eIdx])
-
-				if pSym != symEmpty {
-					accumSym := literalSym(ctx, currVal)
-
-					// Case 1: Inner-Fragmentation
-					if accumSym == pSym {
-						res = concat(currVal, res)
-						sIdx--
-						if sIdx >= 0 { currVal = vals[sIdx] } else { currVal = nil }
-						eIdx--
-						if currVal == nil { break }
-						continue // Instant 1-to-1 match success!
-					}
-
-					// Case 2: Cross-Fragmentation Lookback
-					if accumSym != symEmpty {
-						k := sIdx - 1
-						matchedFrag := false
-
-						for k >= 0 {
-							prevSym := literalSym(ctx, vals[k])
-							if prevSym == symEmpty { break }
-
-							accumSym = __symJoin(prevSym, accumSym) // prepend!
-							if accumSym == pSym {
-								matchedFrag = true
-								break
-							}
-							k--
-						}
-
-						if matchedFrag {
-							for i := sIdx; i >= k; i-- {
-								res = concat(vals[i], res)
-							}
-							sIdx = k - 1
-							if sIdx >= 0 { currVal = vals[sIdx] } else { currVal = nil }
-							eIdx--
-							if currVal == nil { break }
-							continue // Move to the previous pattern element seamlessly
-						}
-					}
-				}
-			}
-			break // All match attempts failed, break loop normally.
-		}
-
-		if r2 == nil || isEmpty(r2) {
-			res = concat(currVal, res)
-			sIdx--
-			if sIdx >= 0 {
-				currVal = vals[sIdx]
-			} else {
-				currVal = nil
-			}
-		} else {
-			res = concat(r1, res)
-			currVal = r2 // Shrink the current segment
-		}
-
-		eIdx--
-		if currVal == nil { break } // Ran out of value segments
-	}
-
-	matched = eIdx < 0
-
-	// Symmetrical fix to preserve backward unconsumed elements
-	if currVal != nil {
-		rem = concat(vals[:sIdx], currVal)
-	} else if sIdx >= 0 {
-		rem = vals[:sIdx+1]
-	}
-
-	return
-}
-
-func forwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
-	forward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
-		pos := vals[iV].Pos()
-		val := _word(pos, intern(str[:size]))
-
-		m, r, rm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:],
-			concat(optword{size < len(str), pos, intern(str[size:])}, vals[iV+1:]))
-
-		if size == len(str) { iV += 1 }
-		return m, concat(res, val, r), rm, concat(stems, val, s), iE + 1 + ie, iV + iv, wt
-	}
-
-	for iE < len(elems) {
-		switch e := unloc(elems[iE]).(type) {
-		case *globrange:
-			if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL }
-			str, t := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
-			r, size := utf8.DecodeRuneInString(str)
-			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(t, r) {
-				return false, res, vals[iV:], stems, iE, iV, ILLEGAL
-			}
-			return forward(str, size)
-
-		case *globmeta:
-			switch tok := getGlobToken(e); tok {
-			case QUE:
-				if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL }
-				str := getScalarSubstr(ctx, vals[iV], 0, -1)
-				r, size := utf8.DecodeRuneInString(str)
-				if r == utf8.RuneError && size <= 1 {
-					return false, res, vals[iV:], stems, iE, iV, ILLEGAL
-				}
-				return forward(str, size)
-
-			case SAST, DAST, ASTQ:
-				suffix, gap := elems[iE+1:], vals[iV:]
-
-				if tok == ASTQ {
-					for k := 0; k <= len(gap); k++ {
-						if k < len(gap) {
-							str := getScalarSubstr(ctx, gap[k], 0, -1)
-							pos := gap[k].Pos()
-
-							for i := 0; i < len(str); {
-								if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, suffix, concat(_word(pos, intern(str[i:])), gap[k+1:])); m {
-									stemParts := concat(gap[:k], _word(pos, intern(str[:i])))
-									return true, concat(res, stemParts, r), rm, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), len(vals)-len(rm), ILLEGAL
-								}
-
-								_, size := utf8.DecodeRuneInString(str[i:])
-								i += size
-							}
-						} else {
-							if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, suffix, nil); m {
-								return true, concat(res, gap, r), rm, concat(stems, gapseg{true, elems[iE], gap}, s), len(elems), len(vals)-len(rm), ILLEGAL
-							}
-						}
-					}
-				} else {
-					for k := len(gap); k != -1; k += -1 {
-						if m, r, rm, s, _, _, _ := backwardGlobComp(ctx, suffix, gap[k:]); m {
-							stemParts := concat(gap[:k], rm)
-
-							if tok == SAST {
-								var head = stemParts[0]
-								if tp, isPath := unloc(head).(*path); isPath && tp.len() > 1 {
-									var remParts []Value
-									firstRem := tp.elems[1]
-
-									switch elt := unloc(firstRem).(type) {
-									case *word:
-										remParts = append(remParts, _word(firstRem.Pos(), __symJoin(symSlash, elt.s)))
-									default:
-										remParts = append(remParts, firstRem)
-									}
-
-									for _, el := range tp.elems[2:] {
-										remParts = append(remParts, el)
-									}
-									remParts = append(remParts, gap[k:]...)
-
-									return false, concat(res, tp.elems[0]), remParts, concat(stems, tp.elems[0]), iE, iV + 1, ILLEGAL
-								}
-							}
-
-							var consumed = len(vals)
-							if len(rm) > 0 {
-								consumed = len(vals) - len(rm) + 1
-							}
-
-							return true, concat(res, stemParts, r), nil, concat(stems, gapseg{true, elems[iE], stemParts}, s), len(elems), consumed, ILLEGAL
-						}
-					}
-				}
-
-				if tok == SAST {
-					return false, concat(res, gap), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, len(vals), ILLEGAL
-				} else {
-					return false,
-						concat(res, gap),
-						nil,
-						concat(stems, packComp(gap)),
-						iE + 1,
-						len(vals),
-						tok
-				}
-
-			default:
-				return false, res, vals[iV:], stems, iE, iV, ILLEGAL
-			}
-
-		case *percpat:
-			var exploded []Value
-			if e.Prefix != nil && !isEmpty(e.Prefix) { exploded = append(exploded, e.Prefix) }
-			exploded = append(exploded, _globmeta(e.Pos(), DAST))
-			if e.Suffix != nil && !isEmpty(e.Suffix) { exploded = append(exploded, e.Suffix) }
-
-			newElems := concat(exploded, elems[iE+1:])
-			m, r, rm, s, ie_rec, iv_ret, _ := forwardGlobComp(ctx, newElems, vals[iV:])
-
-			sfx := ""
-			if e.Suffix != nil && !isEmpty(e.Suffix) {
-				if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
-					sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
-				} else {
-					sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
-				}
-			}
-
-			if m {
-				mapped_iE := iE
-				if ie_rec >= len(exploded) {
-					mapped_iE = iE + 1 + (ie_rec - len(exploded))
-				}
-				if rm == nil || isEmpty(rm) {
-					if iv_ret > 0 { r = vals[iV : iV+iv_ret] }
-				} else if iv_ret == 0 {
-					matchedStr := ""
-					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
-					r = []Value{_word(vals[iV].Pos(), intern(matchedStr))}
-				}
-
-				if len(s) > 0 {
-					stemStr := ""
-					for _, v := range unpack(s[0]) {
-						stemStr += getScalarSubstr(ctx, v, 0, -1)
-					}
-					s[0] = _word(vals[iV].Pos(), intern(stemStr))
-				}
-
-				ret_wt := PERC
-				if mapped_iE == len(elems) { ret_wt = ILLEGAL }
-				return true, concat(res, r), rm, concat(stems, s), mapped_iE, iV + iv_ret, ret_wt
-			}
-
-			// =====================================================================
-			// THE DOD FIX: Suffix Countdown Lookahead Pass for Unmatched Wildcards
-			// =====================================================================
-			if len(s) > 0 {
-				stemStr := ""
-				for _, v := range unpack(s[0]) {
-					stemStr += getScalarSubstr(ctx, v, 0, -1)
-				}
-
-				if idx := strings.LastIndex(stemStr, sfx); idx >= 0 {
-					s[0] = _word(vals[iV].Pos(), intern(stemStr[:idx]))
-				} else {
-					for k := len(sfx) - 1; k > 0; k-- {
-						suffix := sfx[:k]
-						if strings.HasSuffix(stemStr, suffix) {
-							s[0] = _word(vals[iV].Pos(), intern(strings.TrimSuffix(stemStr, suffix)))
-							break
-						}
-					}
-				}
-			}
-
-			if iV < len(vals) {
-				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
-				pfx := ""
-				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
-
-				if len(pfx) + len(sfx) <= len(valStr) && strings.HasPrefix(valStr, pfx) {
-					idx := strings.LastIndex(valStr[len(pfx):], sfx)
-					if idx >= 0 {
-						idx += len(pfx)
-						stemStr := valStr[len(pfx):idx]
-						matchedLen := idx + len(sfx)
-
-						resAtom := _word(vals[iV].Pos(), intern(valStr[:matchedLen]))
-						stemAtom := _word(vals[iV].Pos(), intern(stemStr))
-
-						var nextVals []Value
-						hasRem := matchedLen < len(valStr)
-						if hasRem {
-							nextVals = append(nextVals, _word(vals[iV].Pos(), intern(valStr[matchedLen:])))
-						}
-						nextVals = concat(nextVals, vals[iV+1:])
-
-						m_in, r_in, rm_in, s_in, ie_rec_in, iv_rec_in, wt_in := forwardGlobComp(ctx, elems[iE+1:], nextVals)
-						if m_in {
-							ret_iV := iV + 1
-							if hasRem {
-								if iv_rec_in > 0 { ret_iV += (iv_rec_in - 1) }
-							} else {
-								ret_iV += iv_rec_in
-							}
-
-							ret_wt := PERC
-							if wt_in == ILLEGAL { ret_wt = ILLEGAL }
-							return true, concat(res, resAtom, r_in), rm_in, concat(stems, stemAtom, s_in), iE + 1 + ie_rec_in, ret_iV, ret_wt
-						}
-					}
-				}
-			}
-
-			return false, concat(res, r), rm, concat(stems, s), iE, iV + iv_ret, PERC
-
-		default:
-			if iV >= len(vals) { return false, res, nil, stems, iE, iV, ILLEGAL }
-
-			m, r, rm := matchScalarScalar(ctx, e, vals[iV], false)
-			if !m {
-				if rm != nil && isEmpty(rm) { rm = nil }
-				return false, concat(res, r), concat(rm, vals[iV+1:]), stems, iE, iV, ILLEGAL
-			}
-
-			res = concat(res, r)
-
-			if rm == nil || isEmpty(rm) {
-				iE++
-				iV++
-			} else {
-				m, rr, rrm, s, ie, iv, wt := forwardGlobComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
-				return m, concat(res, rr), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
-			}
-		}
-	}
-
-	if iV < len(vals) { rem = vals[iV:] }
-	return true, res, rem, stems, iE, iV, ILLEGAL
-}
-
-func backwardGlobComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
-	iE = len(elems) - 1
-	iV = len(vals) - 1
-
-	backward := func(str string, size int) (bool, []Value, []Value, []Value, int, int, token) {
-		pos := vals[iV].Pos()
-		val := _word(pos, intern(str[len(str)-size:]))
-
-		m, r, rm, s, ie, iv, wt := backwardGlobComp(ctx, elems[:iE],
-			concat(vals[:iV], optword{size < len(str), pos, intern(str[:len(str)-size])}))
-
-		return m, concat(r, val, res), rm, concat(s, val, stems), ie, iv, wt
-	}
-
-	for 0 <= iE {
-		switch e := unloc(elems[iE]).(type) {
-		case *globrange:
-			if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL }
-			str, t := getScalarSubstr(ctx, vals[iV], 0, -1), getScalarSubstr(ctx, e.Value, 0, -1)
-			r, size := utf8.DecodeLastRuneInString(str)
-			if r == utf8.RuneError && size <= 1 || !globMatchCharSet(t, r) {
-				return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
-			}
-			return backward(str, size)
-
-		case *globmeta:
-			switch tok := getGlobToken(e); tok {
-			case QUE:
-				if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL }
-				str := getScalarSubstr(ctx, vals[iV], 0, -1)
-				r, size := utf8.DecodeLastRuneInString(str)
-				if r == utf8.RuneError && size <= 1 {
-					return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
-				}
-				return backward(str, size)
-
-			case SAST, DAST, ASTQ:
-				prefix, gap := elems[:iE], vals[:iV+1]
-
-				if tok == ASTQ {
-					for k := len(gap); k >= 0; k-- {
-						if k > 0 {
-							str := getScalarSubstr(ctx, gap[k-1], 0, -1)
-							pos := gap[k-1].Pos()
-
-							for i := len(str); i > 0; {
-								if m, r, rm, s, _, _, _ := backwardGlobComp(ctx, prefix, concat(gap[:k-1], _word(pos, intern(str[:i])))); m {
-									stemParts := concat(optword{i < len(str), pos, intern(str[i:])}, gap[k:])
-									return true, concat(r, stemParts, res), rm, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, len(rm), ILLEGAL
-								}
-
-								_, size := utf8.DecodeLastRuneInString(str[:i])
-								i -= size
-							}
-						} else {
-							if m, r, rm, s, _, _, _ := backwardGlobComp(ctx, prefix, nil); m {
-								return true, concat(r, gap, res), rm, concat(s, gapseg{true, elems[iE], gap}, stems), -1, len(rm), ILLEGAL
-							}
-						}
-					}
-				} else {
-					for k := 0; k != len(gap); k += 1 {
-						if m, r, rm, s, _, _, _ := forwardGlobComp(ctx, prefix, gap[:k]); m {
-							stemParts := concat(rm, gap[k:])
-
-							if tok == SAST {
-								var tail = stemParts[len(stemParts)-1]
-								if tp, isPath := unloc(tail).(*path); isPath && tp.len() > 1 {
-									lastIdx := tp.len() - 1
-									matchedElem := tp.elems[lastIdx]
-
-									var remParts []Value
-									remParts = append(remParts, gap[:k]...)
-									for i := 0; i < lastIdx; i++ {
-										if i == lastIdx-1 {
-											el := tp.elems[i]
-											switch elt := unloc(el).(type) {
-											case *word:
-												remParts = append(remParts, _word(el.Pos(), __symJoin(elt.s, symSlash)))
-											default:
-												remParts = append(remParts, el)
-											}
-										} else {
-											remParts = append(remParts, tp.elems[i])
-										}
-									}
-
-									return false, concat(matchedElem, res), remParts, concat(matchedElem, stems), iE, iV, ILLEGAL
-								}
-							}
-
-							return true, concat(r, stemParts, res), nil, concat(s, gapseg{true, elems[iE], stemParts}, stems), -1, 0, ILLEGAL
-						}
-					}
-				}
-
-				if tok == SAST {
-					return false, concat(gap, res), nil, concat(gapseg{true, elems[iE], gap}, stems), iE, 0, ILLEGAL
-				} else {
-					return false,
-						concat(gap, res),
-						nil,
-						concat(packComp(gap), stems),
-						iE - 1,
-						0,
-						tok
-				}
-
-			default:
-				return false, res, vals[:iV+1], stems, iE, iV + 1, ILLEGAL
-			}
-
-		case *percpat:
-			var exploded []Value
-			if e.Prefix != nil && !isEmpty(e.Prefix) { exploded = append(exploded, e.Prefix) }
-			exploded = append(exploded, _globmeta(e.Pos(), DAST))
-			if e.Suffix != nil && !isEmpty(e.Suffix) { exploded = append(exploded, e.Suffix) }
-
-			newElems := concat(elems[:iE], exploded)
-			m, r, rm, s, ie_rec, iv_ret, _ := backwardGlobComp(ctx, newElems, vals[:iV+1])
-
-			sfx := ""
-			if e.Suffix != nil && !isEmpty(e.Suffix) {
-				if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) {
-					sfx = getScalarSubstr(ctx, pp.Suffix, 0, -1)
-				} else {
-					sfx = getScalarSubstr(ctx, e.Suffix, 0, -1)
-				}
-			}
-
-			if m {
-				mapped_iE := iE
-				if ie_rec < len(elems[:iE]) {
-					mapped_iE = ie_rec
-				}
-
-				if rm == nil || isEmpty(rm) {
-					if iv_ret < iV+1 { r = vals[iv_ret : iV+1] }
-				} else if iv_ret == iV+1 {
-					matchedStr := ""
-					for _, v := range r { matchedStr += getScalarSubstr(ctx, v, 0, -1) }
-					r = []Value{_word(vals[iV].Pos(), intern(matchedStr))}
-				}
-
-				if len(s) > 0 {
-					idx := len(s) - 1
-					textStr := ""
-					for _, v := range unpack(s[idx]) {
-						textStr += getScalarSubstr(ctx, v, 0, -1)
-					}
-					s[idx] = _word(vals[iV].Pos(), intern(textStr))
-				}
-
-				ret_wt := PERC
-				if mapped_iE == -1 { ret_wt = ILLEGAL }
-				return true, concat(r, res), rm, concat(s, stems), mapped_iE, iv_ret, ret_wt
-			}
-
-			// =====================================================================
-			// THE DOD FIX: Symmetrical Reverse Suffix Countdown Pass for Unmatched Wildcards
-			// =====================================================================
-			if len(s) > 0 {
-				idx := len(s) - 1
-				textStr := ""
-				for _, v := range unpack(s[idx]) {
-					textStr += getScalarSubstr(ctx, v, 0, -1)
-				}
-
-				if i := strings.LastIndex(textStr, sfx); i >= 0 {
-					s[idx] = _word(vals[iV].Pos(), intern(textStr[:i]))
-				} else {
-					for k := len(sfx) - 1; k > 0; k-- {
-						suffix := sfx[:k]
-						if strings.HasSuffix(textStr, suffix) {
-							s[idx] = _word(vals[iV].Pos(), intern(strings.TrimSuffix(textStr, suffix)))
-							break
-						}
-					}
-				}
-			}
-
-			if iV >= 0 {
-				valStr := getScalarSubstr(ctx, vals[iV], 0, -1)
-				pfx := ""
-				if e.Prefix != nil && !isEmpty(e.Prefix) { pfx = getScalarSubstr(ctx, e.Prefix, 0, -1) }
-
-				if len(pfx) + len(sfx) <= len(valStr) && strings.HasPrefix(valStr, sfx) {
-					idx := strings.Index(valStr[:len(valStr)-len(sfx)], pfx)
-					if idx >= 0 {
-						stemStr := valStr[idx+len(pfx) : len(valStr)-len(sfx)]
-
-						resAtom := _word(vals[iV].Pos(), intern(valStr[idx:]))
-						stemAtom := _word(vals[iV].Pos(), intern(stemStr))
-
-						var nextVals []Value
-						hasRem := idx > 0
-						if hasRem {
-							nextVals = append(nextVals, _word(vals[iV].Pos(), intern(valStr[:idx])))
-						}
-						nextVals = concat(vals[:iV], nextVals)
-
-						m_in, r_in, rm_in, s_in, ie_rec_in, iv_rec_in, wt_in := backwardGlobComp(ctx, elems[:iE], nextVals)
-						if m_in {
-							ret_wt := PERC
-							if wt_in == ILLEGAL { ret_wt = ILLEGAL }
-							return true, concat(r_in, resAtom, res), rm_in, concat(s_in, stemAtom, stems), ie_rec_in, iv_rec_in, ret_wt
-						}
-					}
-				}
-			}
-
-			return false, concat(r, res), rm, concat(s, stems), iE, iv_ret, PERC
-
-		default:
-			if iV < 0 { return false, res, nil, stems, iE, iV + 1, ILLEGAL }
-
-			m, r, rm := matchScalarScalar(ctx, e, vals[iV], true)
-			if !m {
-				if rm != nil && isEmpty(rm) { rm = nil }
-				return false, concat(r, res), concat(vals[:iV], rm), stems, iE, iV + 1, ILLEGAL
-			}
-
-			res = concat(r, res)
-
-			if rm == nil || isEmpty(rm) {
-				iE--
-				iV--
-			} else {
-				m, rr, rrm, s, ie, iv, wt := backwardGlobComp(ctx, elems[:iE], concat(vals[:iV], rm))
-				return m, concat(rr, res), rrm, concat(s, stems), ie, iv, wt
-			}
-		}
-	}
-
-	if iV >= 0 { rem = vals[:iV+1] }
-	return true, res, rem, stems, iE + 1, iV + 1, ILLEGAL
-}
-
-func forwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	matched, res, rem, stems, iE, _, wildToken = forwardGlobComp(ctx, elems, unpack(segments[0]))
-
-	restoreStems(stems, segments[0])
-
-	if !matched && (wildToken == DAST || wildToken == ASTQ || wildToken == PERC) {
-		rem = unpack(segments[0])
-		stems = nil
-	}
-
-	if matched && wildToken == ILLEGAL && len(segments) > 1 {
-		tok := getGlobToken(elems[len(elems)-1])
-		if tok == DAST || tok == ASTQ || tok == PERC {
-			wildToken, iE = tok, len(elems)-1
-			if len(stems) > 0 {
-				rem = concat(unpack(stems[len(stems)-1]), rem)
-				stems = stems[:len(stems)-1]
-			}
-		}
-	}
-
-	var remNode Value
-	if len(rem) == 0 {
-		if len(segments) > 1 {
-			remNode = &punct{valbase{segments[0].Pos()}, PROOT}
-		}
-	} else {
-		remNode = restore(rem, segments[0])
-	}
-	fullRem := concat(remNode, segments[1:])
-
-	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
-		wildcardIdx := iE
-		if !matched {
-			wildcardIdx = 0
-			for idx := len(elems) - 1; idx >= 0; idx-- {
-				tok := getGlobToken(elems[idx])
-				if tok == DAST || tok == ASTQ || tok == PERC {
-					wildcardIdx = idx
-					break
-				}
-			}
-		}
-
-		if isPureWildcard(elems[wildcardIdx]) && len(elems[wildcardIdx:]) == 1 {
-			return true,
-				segments,
-				nil,
-				concat(stems, stemseg{elems[wildcardIdx], packPath(concat(packGap(rem, segments[0], wildcardIdx > 0, elems[wildcardIdx].Pos()), segments[1:]))}),
-				len(elems), len(segments), ILLEGAL
-		}
-
-		step, k := 1, 0
-		if wildToken == DAST || wildToken == PERC { step, k = -1, len(segments)-1 }
-
-		for ; k >= 0 && k < len(segments); k += step {
-			if k == 0 && len(rem) > 0 { continue }
-
-			// THE DOD FIX: Completely deleted the manual string parser!
-			// We trust `forwardGlobComp` to evaluate partial mismatches accurately.
-			mSuf, rSufAtoms, remSuf, sSuf, _, _, wtSuf := forwardGlobComp(ctx, elems[wildcardIdx:], unpack(segments[k]))
-
-			restoreStems(sSuf, segments[k])
-
-			if mSuf {
-				var remSufNode Value
-				if len(remSuf) == 0 {
-					if k+1 < len(segments) {
-						remSufNode = &punct{valbase{segments[k].Pos()}, PROOT}
-					}
-				} else {
-					remSufNode = restore(remSuf, segments[k])
-				}
-
-				return true,
-					concat(segments[:k], restore(rSufAtoms, segments[k])),
-					concat(remSufNode, segments[k+1:]),
-					concat(stems, stemseg{elems[wildcardIdx], packPath(concat(
-						packGap(rem, segments[0], wildcardIdx > 0, elems[wildcardIdx].Pos()),
-						segments[1:k],
-						packGap(unpack(sSuf[0]), segments[k], true, elems[wildcardIdx].Pos()),
-					))}, sSuf[1:]), len(elems), k + 1, wtSuf
-			}
-		}
-
-		// THE DOD FIX: Fallback Extraction
-		// When no path segment completely matched, extract the partial suffix match
-		// from the LAST segment to form the perfect diagnostic stem!
-		var fallbackPath []Value
-		_, _, _, sLast, _, _, _ := forwardGlobComp(ctx, elems[wildcardIdx:], unpack(segments[len(segments)-1]))
-		restoreStems(sLast, segments[len(segments)-1])
-
-		if len(segments) == 1 {
-			if len(sLast) > 0 {
-				rem = unpack(sLast[len(sLast)-1])
-			}
-		} else {
-			fallbackPath = segments[1 : len(segments)-1]
-			if len(sLast) > 0 {
-				fallbackPath = concat(fallbackPath, sLast)
-			} else {
-				fallbackPath = append(fallbackPath, segments[len(segments)-1])
-			}
-		}
-
-		return false,
-			segments,
-			nil,
-			concat(stems, stemseg{elems[wildcardIdx], packPath(concat(packGap(rem, segments[0], wildcardIdx > 0, elems[wildcardIdx].Pos()), fallbackPath))}),
-			wildcardIdx + 1, len(segments), wildToken
-	}
-
-	if !matched { return false, concat(restore(res, segments[0])), fullRem, stems, iE, 1, ILLEGAL }
-	return true, concat(restore(res, segments[0])), fullRem, stems, len(elems), 1, ILLEGAL
-}
-
-func backwardGlobPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	matched, res, rem, stems, iE, _, wildToken = backwardGlobComp(ctx, elems, unpack(segments[len(segments)-1]))
-
-	restoreStems(stems, segments[len(segments)-1])
-
-	if !matched && (wildToken == DAST || wildToken == ASTQ || wildToken == PERC) {
-		rem = unpack(segments[len(segments)-1])
-		stems = nil
-	}
-
-	if matched && wildToken == ILLEGAL && len(segments) > 1 {
-		tok := getGlobToken(elems[0])
-		if tok == DAST || ASTQ == tok || tok == PERC {
-			wildToken, iE = tok, 0
-			if len(stems) > 0 {
-				rem = concat(rem, unpack(stems[0]))
-				stems = stems[1:]
-			}
-		}
-	}
-
-	var remNode Value
-	if len(rem) == 0 {
-		if len(segments) > 1 {
-			remNode = &punct{valbase{segments[len(segments)-1].Pos()}, PTAIL}
-		}
-	} else {
-		remNode = restore(rem, segments[len(segments)-1])
-	}
-	fullRem := concat(segments[:len(segments)-1], remNode)
-
-	if wildToken == DAST || wildToken == ASTQ || wildToken == PERC {
-		wildcardIdx := iE
-		if !matched {
-			wildcardIdx = len(elems) - 1
-			for idx := 0; idx < len(elems); idx++ {
-				tok := getGlobToken(elems[idx])
-				if tok == DAST || tok == ASTQ || tok == PERC {
-					wildcardIdx = idx
-					break
-				}
-			}
-		}
-
-		if isPureWildcard(elems[wildcardIdx]) && len(elems[:wildcardIdx+1]) == 1 {
-			return true,
-				segments,
-				nil,
-				concat(stemseg{elems[wildcardIdx], packPath(concat(segments[:len(segments)-1], packGap(rem, segments[len(segments)-1], wildcardIdx+1 < len(elems), elems[wildcardIdx].Pos())))}, stems),
-				-1, len(segments), ILLEGAL
-		}
-
-		step, k := -1, len(segments)-1
-		if wildToken == ASTQ { step, k = 1, 0 }
-
-		for ; k >= 0 && k < len(segments); k += step {
-			if k == len(segments)-1 && len(rem) > 0 { continue }
-
-			// THE DOD FIX: Trust the exact backward bounds of the component engine!
-			mPre, rPreAtoms, remPre, sPre, _, _, wtPre := backwardGlobComp(ctx, elems[:wildcardIdx+1], unpack(segments[k]))
-
-			restoreStems(sPre, segments[k])
-
-			if mPre {
-				var remPreNode Value
-				if len(remPre) == 0 {
-					if k > 0 {
-						remPreNode = &punct{valbase{segments[k].Pos()}, PTAIL}
-					}
-				} else {
-					remPreNode = restore(remPre, segments[k])
-				}
-
-				return true,
-					concat(restore(rPreAtoms, segments[k]), segments[k+1:]),
-					concat(segments[:k], remPreNode),
-					concat(
-						sPre[:len(sPre)-1],
-						stemseg{elems[wildcardIdx], packPath(concat(
-							packGap(unpack(sPre[len(sPre)-1]), segments[k], true, elems[wildcardIdx].Pos()),
-							segments[k+1:len(segments)-1],
-							packGap(rem, segments[len(segments)-1], wildcardIdx+1 < len(elems), elems[wildcardIdx].Pos()),
-						))},
-						stems,
-					), -1, len(segments) - k, wtPre
-			}
-		}
-
-		// THE DOD FIX: Symmetrical Fallback Extraction
-		var fallbackPath []Value
-		_, _, _, sFirst, _, _, _ := backwardGlobComp(ctx, elems[:wildcardIdx+1], unpack(segments[0]))
-		restoreStems(sFirst, segments[0])
-
-		if len(segments) == 1 {
-			if len(sFirst) > 0 {
-				rem = unpack(sFirst[0])
-			}
-		} else {
-			if len(sFirst) > 0 {
-				fallbackPath = sFirst
-			} else {
-				fallbackPath = []Value{segments[0]}
-			}
-			fallbackPath = concat(fallbackPath, segments[1:len(segments)-1])
-		}
-
-		return false,
-			segments,
-			nil,
-			concat(stemseg{elems[wildcardIdx], packPath(concat(fallbackPath, packGap(rem, segments[len(segments)-1], wildcardIdx+1 < len(elems), elems[wildcardIdx].Pos())))}, stems),
-			wildcardIdx - 1, len(segments), wildToken
-	}
-
-	if !matched { return false, concat(restore(res, segments[len(segments)-1])), fullRem, stems, -1, 1, ILLEGAL }
-	return true, concat(restore(res, segments[len(segments)-1])), fullRem, stems, -1, 1, ILLEGAL
-}
-
-func forwardRegexComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
-	for iE < len(elems) {
-		if iV >= len(vals) {
-			// Check if remaining elements are optional (e.g., regexrep with min 0)
-			if isOptionalRegexNode(elems[iE]) {
-				iE++
-				continue
-			}
-			return false, res, nil, stems, iE, iV, ILLEGAL
-		}
-
-		e := unloc(elems[iE])
-
-		switch eNode := e.(type) {
-		case *regexpat:
-			// =================================================================
-			// PAT: Root sequence (embeds regexcon)
-			// =================================================================
-			lookahead := append(eNode.elems, elems[iE+1:]...)
-			m, r, rm, s, ie, iv, wt := forwardRegexComp(ctx, lookahead, vals[iV:])
-			return m, concat(res, r), rm, concat(stems, s), iE + ie, iV + iv, wt
-
-		case *regexcon:
-			// =================================================================
-			// CONCAT: Sequence of regex nodes
-			// Flattening guarantees continuous tail passing for inner back-trackers
-			// =================================================================
-			lookahead := append(eNode.elems, elems[iE+1:]...)
-			m, r, rm, s, ie, iv, wt := forwardRegexComp(ctx, lookahead, vals[iV:])
-			return m, concat(res, r), rm, concat(stems, s), iE + ie, iV + iv, wt
-
-		case *regexmeta:
-			// =================================================================
-			// META: Zero-Width Assertions & Wildcards
-			// =================================================================
-
-			switch eNode.op {
-			case regex_syntax.OpBeginLine, regex_syntax.OpBeginText:
-				// Zero-width: matches only if we are at the very beginning of the input stream.
-				// (Assuming iV == 0 means start of input in your execution context)
-				if iV > 0 {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-				iE++
-				continue
-
-			case regex_syntax.OpEndLine, regex_syntax.OpEndText:
-				// Zero-width: matches only if all values have been consumed.
-				if iV < len(vals) {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-				iE++
-				continue
-
-			case regex_syntax.OpWordBoundary, regex_syntax.OpNoWordBoundary:
-				// TODO: Implement boundary checks by inspecting the last char of vals[iV-1]
-				// and the first char of vals[iV] using syntax.IsWordChar().
-				return false, res, nil, stems, iE, iV, ILLEGAL
-
-			case regex_syntax.OpAnyChar, regex_syntax.OpAnyCharNotNL:
-				// Width-consuming assertion: Needs to slice exactly ONE rune from vals[iV]
-				if iV >= len(vals) {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-
-				v := vals[iV]
-
-				// 1. Get the full string representation of the current Value chunk
-				// (Assuming passing len or -1 returns the whole string)
-				fullStr := getScalarSubstr(ctx, v, 0, -1)
-				if len(fullStr) == 0 {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-
-				// 2. Decode exactly one UTF-8 rune to determine byte size
-				rn, size := utf8.DecodeRuneInString(fullStr)
-				if rn == utf8.RuneError {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-
-				// 3. Enforce Not-Newline constraint if applicable
-				if eNode.op == regex_syntax.OpAnyCharNotNL && rn == '\n' {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-
-				// 4. Use getScalarSubstr to slice the consumed string and the remainder
-				consumedStr := getScalarSubstr(ctx, v, 0, size)
-				remStr := getScalarSubstr(ctx, v, size, len(fullStr))
-
-				// 5. Wrap the raw strings back into your AST `Value` interfaces.
-				// NOTE: Replace `makeScalarValue` with whatever your engine uses to create
-				// a Value from a string (e.g., creating a literal or string node).
-				r := []Value{_word(v.Pos(), intern(consumedStr))}
-
-				var rm []Value
-				if len(remStr) > 0 {
-					rm = []Value{_word(v.Pos(), intern(remStr))}
-				}
-
-				// 6. Lookahead execution: identical to how you handle it in regexclass & regexlit.
-				// We pass the remainder `rm` concatenated with any subsequent vals.
-				m, rr, rrm, s, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
-				if !m {
-					return false, res, nil, stems, iE, iV, ILLEGAL
-				}
-
-				// Success: Bubble up the concatenated results
-				return true, concat(res, concat(r, rr)), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
-			}
-
-		case *regexgroup:
-			// =================================================================
-			// GROUP: Recursive execution and Capture
-			// =================================================================
-			m, r, rm, s, _, _, _ := forwardRegexComp(ctx, []Value{eNode.val}, vals[iV:])
-			if !m {
-				return false, res, nil, stems, iE, iV, ILLEGAL
-			}
-
-			// Outer capture group comes BEFORE inner stems to match standard
-			// left-to-right regex index ordering.
-			if eNode.cap > 0 {
-				groupCap := ease(ctx, r)
-				if groupCap != nil {
-					stems = append(stems, groupCap)
-				}
-			}
-			if len(s) > 0 { stems = concat(stems, s) }
-
-			res = concat(res, r)
-
-			m2, rr, rrm, s2, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], rm)
-			return m2, concat(res, rr), rrm, concat(stems, s2), iE + 1 + ie, iV + iv, wt
-
-		case *regexalt:
-			// =================================================================
-			// ALT: Branching/Alternation (a|b)
-			// =================================================================
-			for _, alt := range eNode.elems {
-				lookaheadElems := append([]Value{alt}, elems[iE+1:]...)
-				m, r, rm, s, ie, iv, wt := forwardRegexComp(ctx, lookaheadElems, vals[iV:])
-
-				if m {
-					return true, concat(res, r), rm, concat(stems, s), iE + ie, iV + iv, wt
-				}
-			}
-			return false, res, nil, stems, iE, iV, ILLEGAL
-
-		case *regexrep:
-			// =================================================================
-			// REP: Quantification with Backtracking (*, +, ?, {n,m})
-			// =================================================================
-			var matchHistory [][]Value
-			var remHistory [][]Value
-			var stemsHistory [][]Value
-
-			min, max := eNode.min, eNode.max
-			currentVals := vals[iV:]
-
-			// 1. Match up to max times using continuous `rm` injection
-			for loop := 0; max < 0 || loop < max; loop++ {
-				m, r, rm, s, _, _, _ := forwardRegexComp(ctx, []Value{eNode.val}, currentVals)
-				if !m { break }
-
-				// Prevent infinite loops on zero-width matches
-				if len(r) == 0 { break }
-
-				matchHistory = append(matchHistory, r)
-				remHistory = append(remHistory, rm)
-				stemsHistory = append(stemsHistory, s)
-
-				currentVals = rm // Push the exact remainder into the next iteration
-			}
-
-			// 2. Verify minimum constraint
-			if len(matchHistory) < min {
-				return false, res, nil, stems, iE, iV, ILLEGAL
-			}
-
-			// 3. Backtrack loop: Respecting non-greedy shortest-match-first vs greedy
-			if eNode.greedy {
-				for backtrack := len(matchHistory); backtrack >= min; backtrack-- {
-					var currentRes []Value
-					var currentStems []Value
-
-					for i := 0; i < backtrack; i++ {
-						currentRes = concat(currentRes, matchHistory[i])
-						currentStems = concat(currentStems, stemsHistory[i])
-					}
-
-					var nextVals []Value
-					if backtrack == 0 {
-						nextVals = vals[iV:]
-					} else {
-						nextVals = remHistory[backtrack-1]
-					}
-
-					m, rr, rrm, s2, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], nextVals)
-					if m {
-						return true, concat(res, concat(currentRes, rr)), rrm, concat(stems, concat(currentStems, s2)), iE + 1 + ie, iV + iv, wt
-					}
-				}
-			} else {
-				for backtrack := min; backtrack <= len(matchHistory); backtrack++ {
-					var currentRes []Value
-					var currentStems []Value
-
-					for i := 0; i < backtrack; i++ {
-						currentRes = concat(currentRes, matchHistory[i])
-						currentStems = concat(currentStems, stemsHistory[i])
-					}
-
-					var nextVals []Value
-					if backtrack == 0 {
-						nextVals = vals[iV:]
-					} else {
-						nextVals = remHistory[backtrack-1]
-					}
-
-					m, rr, rrm, s2, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], nextVals)
-					if m {
-						return true, concat(res, concat(currentRes, rr)), rrm, concat(stems, concat(currentStems, s2)), iE + 1 + ie, iV + iv, wt
-					}
-				}
-			}
-			return false, res, nil, stems, iE, iV, ILLEGAL
-
-		case *regexclass:
-			// =================================================================
-			// CLASS: Character/Symbol classes ([a-z], \w, \d)
-			// =================================================================
-			m, r, rm := matchScalarScalar(ctx, eNode, vals[iV], false)
-			if !m {
-				if rm != nil && isEmpty(rm) { rm = nil }
-				return false, concat(res, r), concat(rm, vals[iV+1:]), stems, iE, iV, ILLEGAL
-			}
-
-			res = concat(res, r)
-			if rm == nil || isEmpty(rm) {
-				iE++; iV++
-			} else {
-				m, rr, rrm, s, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
-				return m, concat(res, rr), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
-			}
-
-		case *regexlit:
-			// =================================================================
-			// LITERAL: Deep Symbol Domain Coalescence
-			// =================================================================
-			m, r, rm := matchScalarScalar(ctx, eNode, vals[iV], false)
-			if !m {
-				pSym := literalSym(ctx, eNode)
-				if pSym != symEmpty {
-					accumSym := literalSym(ctx, vals[iV])
-					k := iV + 1
-					matchedFrag := false
-
-					for k < len(vals) {
-						nextSym := literalSym(ctx, vals[k])
-						if nextSym == symEmpty { break }
-
-						accumSym = __symJoin(accumSym, nextSym)
-						if accumSym == pSym {
-							matchedFrag = true
-							break
-						}
-						k++
-					}
-
-					if matchedFrag {
-						for i := iV; i <= k; i++ { res = concat(res, vals[i]) }
-						iV = k + 1
-						iE++
-						continue
-					}
-				}
-				return false, concat(res, r), concat(rm, vals[iV+1:]), stems, iE, iV, ILLEGAL
-			}
-
-			res = concat(res, r)
-			if rm == nil || isEmpty(rm) {
-				iE++
-				iV++
-			} else {
-				m, rr, rrm, s, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
-				return m, concat(res, rr), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
-			}
-
-		default:
-			// Fallback literal/scalar match
-			m, r, rm := matchScalarScalar(ctx, e, vals[iV], false)
-			if !m {
-				if rm != nil && isEmpty(rm) { rm = nil }
-				return false, concat(res, r), concat(rm, vals[iV+1:]), stems, iE, iV, ILLEGAL
-			}
-
-			res = concat(res, r)
-			if rm == nil || isEmpty(rm) {
-				iE++; iV++
-			} else {
-				m, rr, rrm, s, ie, iv, wt := forwardRegexComp(ctx, elems[iE+1:], concat(rm, vals[iV+1:]))
-				return m, concat(res, rr), rrm, concat(stems, s), iE + 1 + ie, iV + iv, wt
-			}
-		}
-	}
-
-	if iV < len(vals) { rem = vals[iV:] }
-	return true, res, rem, stems, iE, iV, ILLEGAL
-}
-
-func backwardRegexComp(ctx Context, elems, vals []Value) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
-	iE = len(elems) - 1
-	iV = len(vals) - 1
-
-	for 0 <= iE {
-		if iV < 0 {
-			if isOptionalRegexNode(elems[iE]) {
-				iE--
-				continue
-			}
-			return false, res, nil, stems, iE, iV + 1, ILLEGAL
-		}
-
-		e := unloc(elems[iE])
-
-		switch eNode := e.(type) {
-		case *regexlit:
-			// =================================================================
-			// THE DOD FIX: Symmetrical Backward Regex Coalescence
-			// =================================================================
-			m, r, rm := matchScalarScalar(ctx, eNode, vals[iV], true)
-			if !m {
-				pSym := literalSym(ctx, eNode)
-				if pSym != symEmpty {
-					accumSym := literalSym(ctx, vals[iV])
-					k := iV - 1
-					matchedFrag := false
-
-					for k >= 0 {
-						prevSym := literalSym(ctx, vals[k])
-						if prevSym == symEmpty { break }
-
-						accumSym = __symJoin(prevSym, accumSym)
-						if accumSym == pSym {
-							matchedFrag = true
-							break
-						}
-						k--
-					}
-
-					if matchedFrag {
-						for i := iV; i >= k; i-- { res = concat(vals[i], res) }
-						iV = k - 1
-						iE--
-						continue
-					}
-				}
-				if rm != nil && isEmpty(rm) { rm = nil }
-				return false, concat(r, res), concat(vals[:iV], rm), stems, iE, iV + 1, ILLEGAL
-			}
-
-			res = concat(r, res)
-			if rm == nil || isEmpty(rm) {
-				iE--
-				iV--
-			} else {
-				m, rr, rrm, s, ie, iv, wt := backwardRegexComp(ctx, elems[:iE], concat(vals[:iV], rm))
-				return m, concat(rr, res), rrm, concat(s, stems), ie, iv, wt
-			}
-
-		default:
-			m, r, rm := matchScalarScalar(ctx, e, vals[iV], true)
-			if !m {
-				if rm != nil && isEmpty(rm) { rm = nil }
-				return false, concat(r, res), concat(vals[:iV], rm), stems, iE, iV + 1, ILLEGAL
-			}
-
-			res = concat(r, res)
-			if rm == nil || isEmpty(rm) {
-				iE--; iV--
-			} else {
-				m, rr, rrm, s, ie, iv, wt := backwardRegexComp(ctx, elems[:iE], concat(vals[:iV], rm))
-				return m, concat(rr, res), rrm, concat(s, stems), ie, iv, wt
-			}
-		}
-	}
-
-	if iV >= 0 { rem = vals[:iV+1] }
-	return true, res, rem, stems, iE + 1, iV + 1, ILLEGAL
-}
-
-// isOptionalRegexNode recursively determines if an AST node can match zero tokens.
-func isOptionalRegexNode(v Value) bool {
-	switch e := unloc(v).(type) {
-	case *regexrep:
-		// Optional if the minimum required matches is 0 (* or ?)
-		return e.min == 0
-	case *regexalt:
-		// An alternation is optional if ANY of its branches are optional
-		for _, opt := range e.elems {
-			if isOptionalRegexNode(opt) { return true }
-		}
-		return false
-	case *regexpat: // For the root block.
-		// A concatenation is optional ONLY if ALL of its elements are optional
-		for _, elem := range e.elems {
-			if !isOptionalRegexNode(elem) { return false }
-		}
-		return true
-	case *regexcon: // CRITICAL: For all inner concatenations!
-		for _, elem := range e.elems {
-			if !isOptionalRegexNode(elem) { return false }
-		}
-		return true
-	case *regexgroup:
-		// A group is optional if its inner pattern is optional
-		return isOptionalRegexNode(e.val)
-	}
-	// Literals, classes, and metas (like \b) require or assert presence
-	return false
-}
-
-func forwardRegexPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	// Delegate strictly to the Regex component engine
-	matched, res, rem, stems, iE, _, wildToken = forwardRegexComp(ctx, elems, unpack(segments[0]))
-
-	restoreStems(stems, segments[0])
-
-	var remNode Value
-	if len(rem) == 0 {
-		if len(segments) > 1 {
-			remNode = &punct{valbase{segments[0].Pos()}, PROOT}
-		}
-	} else {
-		remNode = restore(rem, segments[0])
-	}
-	fullRem := concat(remNode, segments[1:])
-
-	// If regex has wildcard traversal capabilities spanning path separators (e.g. `.*`),
-	// you would apply the fallback loop logic here similar to wildToken == DAST in GlobPath.
-	// Otherwise, strict 1-to-1 segment boundary matching is enforced.
-
-	if !matched {
-		return false, concat(restore(res, segments[0])), fullRem, stems, iE, 1, ILLEGAL
-	}
-
-	return true, concat(restore(res, segments[0])), fullRem, stems, len(elems), 1, ILLEGAL
-}
-
-func backwardRegexPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	matched, res, rem, stems, iE, _, wildToken = backwardRegexComp(ctx, elems, unpack(segments[len(segments)-1]))
-
-	restoreStems(stems, segments[len(segments)-1])
-
-	var remNode Value
-	if len(rem) == 0 {
-		if len(segments) > 1 {
-			remNode = &punct{valbase{segments[len(segments)-1].Pos()}, PTAIL}
-		}
-	} else {
-		remNode = restore(rem, segments[len(segments)-1])
-	}
-	fullRem := concat(segments[:len(segments)-1], remNode)
-
-	if !matched {
-		return false, concat(restore(res, segments[len(segments)-1])), fullRem, stems, -1, 1, ILLEGAL
-	}
-
-	return true, concat(restore(res, segments[len(segments)-1])), fullRem, stems, -1, 1, ILLEGAL
-}
-
-func forwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	for iE < len(elems) {
-		patAtoms := unpack(elems[iE])
-
-		if len(patAtoms) == 1 {
-			if p, ok := unloc(patAtoms[0]).(*punct); ok && (p.token == PROOT || p.token == PTAIL) {
-				if iS < len(segments) {
-					targetAtoms := unpack(segments[iS])
-					isMatch := false
-
-					if len(targetAtoms) == 1 {
-						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == p.token {
-							isMatch = true
-						} else if isEmpty(targetAtoms[0]) || literalSym(ctx, targetAtoms[0]) == symEmpty {
-							if (p.token == PROOT && iS == 0) || (p.token == PTAIL && iS == len(segments)-1) {
-								isMatch = true
-							}
-						}
-					} else if len(targetAtoms) == 0 {
-						if (p.token == PROOT && iS == 0) || (p.token == PTAIL && iS == len(segments)-1) {
-							isMatch = true
-						}
-					}
-
-					if isMatch {
-						res = concat(res, segments[iS])
-						iE++
-						iS++
-						continue
-					}
-				}
-				if p.token == PTAIL {
-					if iS < len(segments) {
-						res = concat(res, packComp(patAtoms))
-						iE++
-						continue
-					}
-				}
-			}
-		}
-
-		if iS >= len(segments) { return false, res, nil, stems, iE, iS, ILLEGAL }
-
-		coalescedCount := 1
-		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
-
-		// FIXED: Restore stripped wildcard stems to their original segment AST type.
-		restoreStems(s, segments[iS])
-
-		if !m && patterned(ctx, elems[iE]) {
-			vStr := segments[iS].String()
-			for iS+coalescedCount < len(segments) {
-				nextStr := segments[iS+coalescedCount].String()
-				if strings.HasPrefix(nextStr, ".") || strings.Contains(sf("%v", segments[iS+coalescedCount]), "qualword") {
-					vStr += nextStr
-					coalescedCount++
-				} else {
-					break
-				}
-			}
-			unifiedWord := _word(segments[iS].Pos(), intern(vStr))
-			if m2, resAtoms2, remAtoms2, s2, ie2, _, wt2 := forwardGlobComp(ctx, patAtoms, []Value{unifiedWord}); m2 {
-				m = true
-				resAtoms = resAtoms2
-				remAtoms = remAtoms2
-				s = s2
-				ie = ie2
-				wt = wt2
-				restoreStems(s, unifiedWord)
-			}
-		}
-
-		if !m {
-			percIdx := -1
-			var pp *percpat
-			for idx, pAtom := range patAtoms {
-				if p, isPunct := unloc(pAtom).(*punct); isPunct && p.token == PERC {
-					percIdx = idx
-					break
-				} else if p, isPerc := unloc(pAtom).(*percpat); isPerc {
-					percIdx = idx
-					pp = p
-					break
-				}
-			}
-
-			if percIdx != -1 && iS+coalescedCount < len(segments) {
-				m = true
-				wt = PERC
-				remAtoms = nil
-
-				var exploded []Value
-				ie = percIdx
-				if pp != nil && pp.Prefix != nil && !isEmpty(pp.Prefix) {
-					exploded = append(exploded, pp.Prefix)
-					ie++
-				}
-				exploded = append(exploded, _globmeta(patAtoms[percIdx].Pos(), PERC))
-				if pp != nil && pp.Suffix != nil && !isEmpty(pp.Suffix) {
-					exploded = append(exploded, pp.Suffix)
-				}
-				patAtoms = concat(patAtoms[:percIdx], exploded, patAtoms[percIdx+1:])
-			}
-		}
-
-		if !m && !patterned(ctx, elems[iE]) {
-			pSym := literalSym(ctx, elems[iE])
-			if pSym != symEmpty {
-				tSym := literalSym(ctx, segments[iS])
-				if pSym == tSym {
-					m = true
-					resAtoms = unpack(segments[iS])
-					remAtoms = nil
-					s = nil
-					wt = ILLEGAL
-				}
-			}
-		}
-
-		if m && wt == ILLEGAL && iS+coalescedCount < len(segments) {
-			tok := getGlobToken(patAtoms[len(patAtoms)-1])
-			if tok == DAST || tok == ASTQ || tok == PERC {
-				wt, ie = tok, len(patAtoms)-1
-			}
-		}
-
-		lookaheadResAtoms, lookaheadRemAtoms, lookaheadS := resAtoms, remAtoms, s
-
-		if !m {
-			wt = ILLEGAL
-			for idx := len(patAtoms) - 1; idx >= 0; idx-- {
-				tok := getGlobToken(patAtoms[idx])
-				if tok == DAST || tok == ASTQ || tok == PERC {
-					wt, ie = tok, idx
-					break
-				}
-			}
-		}
-
-		if wt == DAST || wt == ASTQ || wt == PERC {
-			_, lookaheadResAtoms, lookaheadRemAtoms, lookaheadS, _, _, _ = forwardGlobComp(ctx, patAtoms[:ie], unpack(segments[iS]))
-			restoreStems(lookaheadS, segments[iS])
-		}
-
-		partial := len(lookaheadRemAtoms) > 0
-
-		if wt == DAST || wt == ASTQ || wt == PERC {
-			sufAtoms := patAtoms[ie+1:]
-
-			if pp, ok := unloc(patAtoms[ie]).(*percpat); ok && pp.Suffix != nil {
-				suf := pp.Suffix
-				if inner, isPP := unloc(pp.Suffix).(*percpat); isPP && isEmpty(inner.Prefix) {
-					if inner.Suffix != nil { suf = inner.Suffix }
-				}
-				if suf != nil && !isEmpty(suf) {
-					sufAtoms = concat([]Value{suf}, sufAtoms)
-				}
-			}
-
-			pathElems := elems[iE+1:]
-			gap := segments[iS+coalescedCount:]
-
-			preBound := ie > 0
-			postBound := len(sufAtoms) > 0
-
-			isLast := len(sufAtoms) == 0 && (len(pathElems) == 0 || (len(pathElems) == 1 && func() bool {
-				if p, ok := unloc(unpack(pathElems[0])[0]).(*punct); ok && p.token == PTAIL { return true }
-				return false
-			}()))
-
-			if wt == ASTQ && !isLast {
-				for k := 0; k <= len(gap); k++ {
-					var targetAtoms []Value
-					var targetPos Pos
-					if k == 0 {
-						if !partial { continue }
-						targetAtoms = lookaheadRemAtoms
-						targetPos = segments[iS].Pos()
-					} else {
-						targetAtoms = unpack(gap[k-1])
-						targetPos = gap[k-1].Pos()
-					}
-
-					str := getScalarSubstr(ctx, packComp(targetAtoms), 0, -1)
-					for i := 0; i <= len(str); {
-						var mSuf bool
-						var rSuf, remSuf, sSuf []Value
-
-						if len(sufAtoms) > 0 {
-							var testVals []Value
-							if i < len(str) { testVals = unpack(_word(targetPos, intern(str[i:]))) }
-							mSuf, rSuf, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, testVals)
-						} else {
-							mSuf = true
-							if i < len(str) { remSuf = unpack(_word(targetPos, intern(str[i:]))) }
-						}
-
-						if mSuf {
-							var gapAtoms []Value
-							if i > 0 { gapAtoms = []Value{_word(targetPos, intern(str[:i]))} }
-
-							var nextSegs []Value
-							if k == 0 {
-								nextSegs = concat(restore(remSuf, segments[iS]), optword{len(remSuf) == 0 && len(gap) > 0, targetPos, symEmpty}, gap)
-							} else {
-								nextSegs = concat(restore(remSuf, gap[k-1]), optword{len(remSuf) == 0 && k < len(gap), targetPos, symEmpty}, gap[k:])
-							}
-
-							if mPath, rPath, remPath, sPath, iEPath, iSPath, wtPath := forwardPathPath(ctx, pathElems, nextSegs); mPath {
-								consumedFromGap := iSPath - 1
-								if consumedFromGap < 0 {
-									consumedFromGap = 0
-								}
-
-								if k == 0 {
-									return true,
-										concat(res, packComp(concat(lookaheadResAtoms, gapAtoms, rSuf)), rPath),
-										remPath,
-										concat(stems, lookaheadS, stemseg{patAtoms[ie], packPath(concat(packGap(gapAtoms, segments[iS], postBound, patAtoms[ie].Pos())))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + coalescedCount + consumedFromGap, wtPath
-								} else {
-									return true,
-										concat(res, segments[iS], gap[:k-1], packComp(concat(gapAtoms, rSuf)), rPath),
-										remPath,
-										concat(stems, lookaheadS, stemseg{patAtoms[ie], packPath(concat(
-											packGap(lookaheadRemAtoms, segments[iS], preBound, patAtoms[ie].Pos()),
-											gap[:k-1],
-											packGap(gapAtoms, gap[k-1], postBound, patAtoms[ie].Pos()),
-										))}, sSuf, sPath),
-										iE + 1 + iEPath, iS + k + coalescedCount + consumedFromGap, wtPath
-								}
-							}
-						}
-						if i == len(str) { break }
-						_, size := utf8.DecodeRuneInString(str[i:])
-						i += size
-					}
-				}
-			} else {
-				for k := len(gap); k >= 0; k-- {
-					if k == 0 {
-						if !partial { continue }
-						var mSuf bool
-						var remSuf, sSuf []Value
-
-						if len(sufAtoms) > 0 {
-							mSuf, _, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, lookaheadRemAtoms)
-							if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, sufAtoms, lookaheadRemAtoms); mB {
-								mSuf, remSuf, sSuf = mB, remB, sB
-							}
-							restoreStems(sSuf, segments[iS])
-							if !mSuf { continue }
-						} else {
-							remSuf = lookaheadRemAtoms
-						}
-
-						if mPath, rPath, remPath, sPath, iEPath, iSPath, wtPath := forwardPathPath(ctx, pathElems, gap); mPath {
-							return true,
-								concat(res, segments[iS], rPath),
-								remPath,
-								concat(stems, lookaheadS, stemseg{patAtoms[ie], packPath(concat(packGap(remSuf, segments[iS], postBound, patAtoms[ie].Pos())))}, sSuf, sPath),
-								iE + 1 + iEPath, iS + coalescedCount + iSPath, wtPath
-						}
-					} else {
-						var mSuf bool
-						var remSuf, sSuf []Value
-
-						if len(sufAtoms) > 0 {
-							mSuf, _, remSuf, sSuf, _, _, _ = forwardGlobComp(ctx, sufAtoms, unpack(gap[k-1]))
-							if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, sufAtoms, unpack(gap[k-1])); mB {
-								mSuf, remSuf, sSuf = mB, remB, sB
-							}
-							restoreStems(sSuf, gap[k-1])
-							if !mSuf { continue }
-						} else {
-							remSuf = unpack(gap[k-1])
-						}
-
-						if mPath, rPath, remPath, sPath, iEPath, iSPath, wtPath := forwardPathPath(ctx, pathElems, gap[k:]); mPath {
-							return true,
-								concat(res, segments[iS], gap[:k], rPath),
-								remPath,
-								concat(stems, lookaheadS, stemseg{patAtoms[ie], packPath(concat(
-									packGap(lookaheadRemAtoms, segments[iS], preBound, patAtoms[ie].Pos()),
-									gap[:k-1],
-									packGap(remSuf, gap[k-1], postBound, patAtoms[ie].Pos()),
-								))}, sSuf, sPath),
-								iE + 1 + iEPath, iS + coalescedCount + k + iSPath, wtPath
-						}
-					}
-				}
-			}
-
-			return false,
-				concat(res, restore(resAtoms, segments[iS]), gap),
-				nil,
-				concat(stems, lookaheadS, stemseg{patAtoms[ie], packPath(concat(packGap(lookaheadRemAtoms, segments[iS], preBound, patAtoms[ie].Pos()), gap))}),
-				iE + 1, len(segments), ILLEGAL
-		}
-
-		res, stems = concat(res, restore(resAtoms, segments[iS])), concat(stems, s)
-
-		if !m {
-			var resSlash, remSlash Value
-			if iS > 0 {
-				if iS+coalescedCount < len(segments) {
-					remSlash = _word(segments[iS].Pos(), symEmpty)
-				} else {
-					resSlash = _word(segments[iS].Pos(), symEmpty)
-				}
-			}
-
-			if resSlash != nil && __symbol(ctx, resSlash) == symEmpty { resSlash = nil }
-			if remSlash != nil && __symbol(ctx, remSlash) == symEmpty { remSlash = nil }
-
-			res = concat(res, resSlash)
-			rem = concat(
-				remSlash,
-				restore(remAtoms, segments[iS]),
-				optword{len(remAtoms) == 0 && iS+coalescedCount < len(segments) && remSlash == nil, segments[iS].Pos(), symEmpty},
-				segments[iS+coalescedCount:],
-			)
-			return false, res, rem, stems, iE, iS + coalescedCount, ILLEGAL
-		}
-
-		if partial {
-			rem = concat(
-				restore(remAtoms, segments[iS]),
-				segments[iS+coalescedCount:],
-			)
-
-			if iE < len(elems)-1 { return false, res, rem, stems, iE, iS + coalescedCount, ILLEGAL }
-			return true, res, rem, stems, iE + 1, iS + coalescedCount, ILLEGAL
-		}
-
-		iE++
-		iS += coalescedCount
-	}
-
-	if iS < len(segments) && iS > 0 {
-		consumedSlash := false
-		if len(elems) > 0 {
-			if lastPat := unpack(elems[len(elems)-1]); len(lastPat) == 1 {
-				if p, ok := unloc(lastPat[0]).(*punct); ok && p.token == PTAIL { consumedSlash = true }
-			}
-		}
-		if !consumedSlash {
-			rem = concat(&valbase{segments[iS].Pos()}, segments[iS:])
-		} else {
-			rem = segments[iS:]
-		}
-	} else {
-		rem = segments[iS:]
-	}
-	return true, res, rem, stems, iE, iS, ILLEGAL
-}
-
-func backwardPathPath(ctx Context, elems, segments []Value) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	iE, iS = len(elems)-1, len(segments)-1
-
-	for iE >= 0 {
-		patAtoms := unpack(elems[iE])
-
-		if len(patAtoms) == 1 {
-			if p, ok := unloc(patAtoms[0]).(*punct); ok && (p.token == PROOT || p.token == PTAIL) {
-				if iS >= 0 {
-					targetAtoms := unpack(segments[iS])
-					isMatch := false
-
-					if len(targetAtoms) == 1 {
-						if t, ok := unloc(targetAtoms[0]).(*punct); ok && t.token == p.token {
-							isMatch = true
-						} else if isEmpty(targetAtoms[0]) || literalSym(ctx, targetAtoms[0]) == symEmpty {
-							if (p.token == PROOT && iS == 0) || (p.token == PTAIL && iS == len(segments)-1) {
-								isMatch = true
-							}
-						}
-					} else if len(targetAtoms) == 0 {
-						if (p.token == PROOT && iS == 0) || (p.token == PTAIL && iS == len(segments)-1) {
-							isMatch = true
-						}
-					}
-
-					if isMatch {
-						res = concat(segments[iS], res)
-						iE--
-						iS--
-						continue
-					}
-				}
-				if p.token == PROOT {
-					if iS >= 0 {
-						res = concat(packComp(patAtoms), res)
-						iE--
-						continue
-					}
-				}
-			}
-		}
-
-		if iS < 0 { return false, res, nil, stems, iE + 1, iS + 1, ILLEGAL }
-
-		coalescedCount := 1
-		m, resAtoms, remAtoms, s, ie, _, wt := forwardGlobComp(ctx, patAtoms, unpack(segments[iS]))
-		restoreStems(s, segments[iS])
-
-		if !m || len(remAtoms) > 0 {
-			if mB, resB, remB, sB, ieB, _, wtB := backwardGlobComp(ctx, patAtoms, unpack(segments[iS])); mB {
-				restoreStems(sB, segments[iS])
-				m, resAtoms, remAtoms, s, ie, wt = mB, resB, remB, sB, ieB, wtB
-			}
-		}
-
-		if !m && patterned(ctx, elems[iE]) {
-			vStr := segments[iS].String()
-			for iS-coalescedCount >= 0 {
-				if strings.Contains(sf("%v", segments[iS]), "qualword") || strings.HasPrefix(vStr, ".") {
-					vStr = segments[iS-coalescedCount].String() + vStr
-					coalescedCount++
-				} else {
-					break
-				}
-			}
-			unifiedWord := _word(segments[iS].Pos(), intern(vStr))
-			targetAtoms2 := []Value{unifiedWord}
-			if m2, resAtoms2, remAtoms2, s2, ie2, _, wt2 := forwardGlobComp(ctx, patAtoms, targetAtoms2); m2 {
-				restoreStems(s2, unifiedWord)
-				m, resAtoms, remAtoms, s, ie, wt = m2, resAtoms2, remAtoms2, s2, ie2, wt2
-			} else if mB, resB, remB, sB, ieB, _, wtB := backwardGlobComp(ctx, patAtoms, targetAtoms2); mB {
-				restoreStems(sB, unifiedWord)
-				m, resAtoms, remAtoms, s, ie, wt = mB, resB, remB, sB, ieB, wtB
-			}
-		}
-
-		if !m {
-			percIdx := -1
-			var pp *percpat
-			for idx, pAtom := range patAtoms {
-				if p, isPunct := unloc(pAtom).(*punct); isPunct && p.token == PERC {
-					percIdx = idx
-					break
-				} else if p, isPerc := unloc(pAtom).(*percpat); isPerc {
-					percIdx = idx
-					pp = p
-					break
-				}
-			}
-
-			if percIdx != -1 && iS-coalescedCount >= 0 {
-				m = true
-				wt = PERC
-				remAtoms = nil
-
-				var exploded []Value
-				ie = percIdx
-				if pp != nil && pp.Prefix != nil && !isEmpty(pp.Prefix) {
-					exploded = append(exploded, pp.Prefix)
-					ie++
-				}
-				exploded = append(exploded, _globmeta(patAtoms[percIdx].Pos(), PERC))
-				if pp != nil && pp.Suffix != nil && !isEmpty(pp.Suffix) {
-					exploded = append(exploded, pp.Suffix)
-				}
-				patAtoms = concat(patAtoms[:percIdx], exploded, patAtoms[percIdx+1:])
-			}
-		}
-
-		if !m && !patterned(ctx, elems[iE]) {
-			pSym := literalSym(ctx, elems[iE])
-			if pSym != symEmpty {
-				tSym := literalSym(ctx, segments[iS])
-				if pSym == tSym {
-					m = true
-					resAtoms = unpack(segments[iS])
-					remAtoms = nil
-					s = nil
-					wt = ILLEGAL
-				}
-			}
-		}
-
-		if m && wt == ILLEGAL && iS > 0 {
-			tok := getGlobToken(patAtoms[0])
-			if tok == DAST || tok == ASTQ || tok == PERC {
-				wt, ie = tok, 0
-			}
-		}
-
-		lookaheadResAtoms, lookaheadRemAtoms, lookaheadS := resAtoms, remAtoms, s
-
-		if !m {
-			wt = ILLEGAL
-			for idx := 0; idx < len(patAtoms); idx++ {
-				tok := getGlobToken(patAtoms[idx])
-				if tok == DAST || tok == ASTQ || tok == PERC {
-					wt, ie = tok, idx
-					break
-				}
-			}
-		}
-
-		if wt == DAST || wt == ASTQ || wt == PERC {
-			_, lookaheadResAtoms, lookaheadRemAtoms, lookaheadS, _, _, _ = backwardGlobComp(ctx, patAtoms[ie+1:], unpack(segments[iS]))
-			restoreStems(lookaheadS, segments[iS])
-		}
-
-		partial := len(lookaheadRemAtoms) > 0
-
-		if wt == DAST || wt == ASTQ || wt == PERC {
-			preAtoms := patAtoms[:ie]
-
-			if pp, ok := unloc(patAtoms[ie]).(*percpat); ok && pp.Prefix != nil {
-				if !isEmpty(pp.Prefix) {
-					preAtoms = concat(preAtoms, []Value{pp.Prefix})
-				}
-			}
-
-			pathElems := elems[:iE]
-			gap := segments[:iS-coalescedCount+1]
-
-			preBound := len(preAtoms) > 0
-			postBound := ie+1 < len(patAtoms)
-
-			isFirst := len(preAtoms) == 0 && (len(pathElems) == 0 || (len(pathElems) == 1 && func() bool {
-				if p, ok := unloc(unpack(pathElems[0])[0]).(*punct); ok && p.token == PROOT { return true }
-				return false
-			}()))
-
-			if wt == ASTQ && !isFirst {
-				for k := len(gap); k >= 0; k-- {
-					var targetAtoms []Value
-					var targetPos Pos
-					if k == len(gap) {
-						if !partial { continue }
-						targetAtoms = lookaheadRemAtoms
-						targetPos = segments[iS].Pos()
-					} else {
-						targetAtoms = unpack(gap[k])
-						targetPos = gap[k].Pos()
-					}
-
-					str := getScalarSubstr(ctx, packComp(targetAtoms), 0, -1)
-					for i := len(str); i >= 0; {
-						var mPre bool
-						var rPre, remPre, sPre []Value
-
-						if len(preAtoms) > 0 {
-							var testVals []Value
-							if i > 0 { testVals = unpack(_word(targetPos, intern(str[:i]))) }
-							mPre, rPre, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, testVals)
-							if !mPre || len(remPre) > 0 {
-								if mB, rB, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, testVals); mB {
-									mPre, rPre, remPre, sPre = mB, rB, remB, sB
-								}
-							}
-						} else {
-							mPre = true
-							if i > 0 { remPre = unpack(_word(targetPos, intern(str[:i]))) }
-						}
-
-						if mPre {
-							var gapAtoms []Value
-							if i < len(str) { gapAtoms = []Value{_word(targetPos, intern(str[i:]))} }
-
-							var nextSegs []Value
-							if k == len(gap) {
-								nextSegs = concat(gap, restore(remPre, segments[iS]), optword{len(remPre) == 0 && len(gap) > 0, targetPos, symEmpty})
-							} else {
-								nextSegs = concat(gap[:k], restore(remPre, gap[k]), optword{len(remPre) == 0 && k > 0, targetPos, symEmpty})
-							}
-
-							if mPath, rPath, remPath, sPath, iEPath, iSPath, wtPath := backwardPathPath(ctx, pathElems, nextSegs); mPath {
-								shift := iSPath
-								if shift > k {
-									shift = k
-								}
-
-								if k == len(gap) {
-									return true,
-										concat(rPath, restore(concat(rPre, gapAtoms, lookaheadResAtoms), segments[iS]), res),
-										remPath,
-										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(packGap(gapAtoms, segments[iS], preBound, patAtoms[ie].Pos())))}, lookaheadS, stems),
-										iEPath, shift, wtPath
-								} else {
-									return true,
-										concat(rPath, restore(concat(rPre, gapAtoms), gap[k]), gap[k+1:], segments[iS], res),
-										remPath,
-										concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(
-											packGap(gapAtoms, gap[k], preBound, patAtoms[ie].Pos()),
-											gap[k+1:],
-											packGap(lookaheadRemAtoms, segments[iS], postBound, patAtoms[ie].Pos()),
-										))}, lookaheadS, stems),
-										iEPath, shift, wtPath
-								}
-							}
-						}
-						if i == 0 { break }
-						_, size := utf8.DecodeLastRuneInString(str[:i])
-						i -= size
-					}
-				}
-			} else {
-				for k := 0; k <= len(gap); k++ {
-					if k == len(gap) {
-						if !partial { continue }
-						var mPre bool
-						var remPre, sPre []Value
-
-						if len(preAtoms) > 0 {
-							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, lookaheadRemAtoms)
-							if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, lookaheadRemAtoms); mB {
-								mPre, remPre, sPre = mB, remB, sB
-							}
-							restoreStems(sPre, segments[iS])
-							if !mPre { continue }
-						} else {
-							mPre = true
-							remPre = lookaheadRemAtoms
-						}
-
-						if mPath, rPath, remPath, sPath, iEPath, iSPath, wtPath := backwardPathPath(ctx, pathElems, gap); mPath {
-							return true,
-								concat(rPath, segments[iS], res),
-								remPath,
-								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(packGap(remPre, segments[iS], preBound, patAtoms[ie].Pos())))}, lookaheadS, stems),
-								iEPath, iSPath, wtPath
-						}
-					} else {
-						var mPre bool
-						var remPre, sPre []Value
-
-						if len(preAtoms) > 0 {
-							mPre, _, remPre, sPre, _, _, _ = forwardGlobComp(ctx, preAtoms, unpack(gap[k]))
-							if mB, _, remB, sB, _, _, _ := backwardGlobComp(ctx, preAtoms, unpack(gap[k])); mB {
-								mPre, remPre, sPre = mB, remB, sB
-							}
-							restoreStems(sPre, gap[k])
-							if !mPre { continue }
-						} else {
-							mPre = true
-							remPre = unpack(gap[k])
-						}
-
-						if mPath, rPath, remPath, sPath, iEPath, iSPath, wtPath := backwardPathPath(ctx, pathElems, gap[:k]); mPath {
-							return true,
-								concat(rPath, gap[k:], segments[iS], res),
-								remPath,
-								concat(sPath, sPre, stemseg{patAtoms[ie], packPath(concat(
-									packGap(remPre, gap[k], preBound, patAtoms[ie].Pos()),
-									gap[k+1:],
-									packGap(lookaheadRemAtoms, segments[iS], postBound, patAtoms[ie].Pos()),
-								))}, lookaheadS, stems),
-								iEPath, iSPath, wtPath
-						}
-					}
-				}
-			}
-
-			return false,
-				concat(gap, restore(resAtoms, segments[iS]), res),
-				nil,
-				concat(stemseg{patAtoms[ie], packPath(concat(gap, packGap(lookaheadRemAtoms, segments[iS], postBound, patAtoms[ie].Pos())))}, lookaheadS, stems),
-				iE, 0, ILLEGAL
-		}
-
-		res, stems = concat(restore(resAtoms, segments[iS]), res), concat(s, stems)
-
-		if !m {
-			var resSlash, remSlash Value
-			if iS < len(segments)-1 {
-				if iS-coalescedCount+1 > 0 {
-					remSlash = _word(segments[iS].Pos(), symEmpty)
-				} else {
-					resSlash = _word(segments[iS].Pos(), symEmpty)
-				}
-			}
-
-			if resSlash != nil && __symbol(ctx, resSlash) == symEmpty { resSlash = nil }
-			if remSlash != nil && __symbol(ctx, remSlash) == symEmpty { remSlash = nil }
-
-			res = concat(resSlash, res)
-			rem = concat(
-				segments[:iS-coalescedCount+1],
-				optword{len(remAtoms) == 0 && iS-coalescedCount+1 > 0 && remSlash == nil, segments[iS].Pos(), symEmpty},
-				remSlash,
-				restore(remAtoms, segments[iS]),
-			)
-			return false, res, rem, stems, iE + 1, iS - coalescedCount + 1, ILLEGAL
-		}
-
-		if partial {
-			rem = concat(
-				segments[:iS-coalescedCount+1],
-				restore(remAtoms, segments[iS]),
-			)
-
-			if iE > 0 { return false, res, rem, stems, iE + 1, iS - coalescedCount + 1, ILLEGAL }
-			return true, res, rem, stems, iE, iS - coalescedCount + 1, ILLEGAL
-		}
-
-		iE--
-		iS -= coalescedCount
-	}
-
-	if iS >= 0 && iS < len(segments)-1 {
-		consumedSlash := false
-		if len(elems) > 0 {
-			if firstPat := unpack(elems[0]); len(firstPat) == 1 {
-				if p, ok := unloc(firstPat[0]).(*punct); ok && p.token == PROOT { consumedSlash = true }
-			}
-		}
-		if !consumedSlash {
-			rem = concat(segments[:iS+1], &punct{valbase{segments[iS+1].Pos()}, PTAIL})
-		} else {
-			rem = segments[:iS+1]
-		}
-	} else {
-		rem = segments[:iS+1]
-	}
-	return true, res, rem, stems, iE + 1, iS + 1, ILLEGAL
-}
-
 // matchScalarScalar matches a scalar value against a scalar value.
 // Returns matched=true if the pattern successfully matched (fully or partially).
 // res is the portion of the value that matched.
@@ -23881,31 +21827,331 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 	return true, res, rem, stems
 }
 
-// matchCompComp matches a segment (elems) against another segment (vals) (non-path).
-// It iterates strictly (no wildcards), consuming vals segment by segment.
-// Returns matched=true if ALL pattern elements were successfully matched and consumed.
-// Returns rem as the remainder of the last partially consumed value segment.
-func matchCompComp(ctx Context, elems, vals []Value, trail bool) (matched bool, res, rem []Value, iE, iV int) {
-	if checkpoints { defer check_matchCompComp(ctx, elems, vals, trail)(&matched, &res, &rem, &iE, &iV) }
-	if trail { return backwardCompComp(ctx, elems, vals) } else { return forwardCompComp(ctx, elems, vals) }
+// matchGlobValue dynamically evaluates a glob pattern against any value hierarchy.
+// It natively handles wildcards (*, ?, **) by tracking symbol boundaries in the dual stream.
+func matchGlobValue(ctx Context, pat *globpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+	// if checkpoints { defer check_matchGlobValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
+
+	if trail {
+		return backwardGlobValue(ctx, pat, val)
+	} else {
+		return forwardGlobValue(ctx, pat, val)
+	}
 }
 
-// matchGlobComp matches glob elements (elems) against value atoms (vals).
-func matchGlobComp(ctx Context, elems, vals []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iV int, wildToken token) {
-	if checkpoints { defer check_matchGlobComp(ctx, elems, vals, trail)(&matched, &res, &rem, &stems, &iE, &iV, &wildToken) }
-	if trail { return backwardGlobComp(ctx, elems, vals) } else { return forwardGlobComp(ctx, elems, vals) }
+// globState tracks backtrack points for the zero-allocation NFA solver.
+type globState struct {
+	pIdx      int // Pattern cursor
+	vIdx      int // Value cursor
+	stemStart int // Track where the wildcard capture began
+	sym       Symbol // Which wildcard triggered this backtrack state
 }
 
-// matchGlobPath matches glob elements (elems) against path segments (segments).
-func matchGlobPath(ctx Context, elems, segs []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	if checkpoints { defer check_matchGlobPath(ctx, elems, segs, trail)(&matched, &res, &rem, &stems, &iE, &iS, &wildToken) }
-	if trail { return backwardGlobPath(ctx, elems, segs) } else { return forwardGlobPath(ctx, elems, segs) }
+func forwardGlobValue(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+	if val == nil || pat == nil { return false, nil, val, nil }
+
+	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
+	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
+
+	var backtracks []globState
+	pIdx, vIdx := 0, 0
+
+	for {
+		// Lazily advance streams as needed
+		for pIdx >= len(pStream.syms) { if _, err := pStream.ReadSymbol(); err == io.EOF { break } }
+		for vIdx >= len(vStream.syms) { if _, err := vStream.ReadSymbol(); err == io.EOF { break } }
+
+		// 1. Success condition
+		if pIdx == len(pStream.syms) {
+			matched = true
+			break // Reached the end of the pattern!
+		}
+
+		pSym := pStream.syms[pIdx]
+
+		// 2. Handle Wildcards (Create Backtrack Points)
+		if pSym == symAsterisk || pSym == symAsteriskAst || pSym == symPercent {
+			// Save the current state to the backtrack stack, assuming matching 0 symbols first
+			backtracks = append(backtracks, globState{
+				pIdx:      pIdx + 1, // Next pattern symbol
+				vIdx:      vIdx,     // Current value symbol
+				stemStart: vIdx,
+				sym:       pSym,
+			})
+			pIdx++
+			continue
+		}
+
+		// 3. Handle Single Character Matchers
+		if pSym == symQues {
+			if vIdx < len(vStream.syms) && vStream.syms[vIdx] != symSlash {
+				pIdx++
+				vIdx++
+				continue
+			}
+		} else if vIdx < len(vStream.syms) && pSym == vStream.syms[vIdx] {
+			// Exact match
+			pIdx++
+			vIdx++
+			continue
+		}
+
+		// 4. Mismatch! Trigger Backtracking
+		if len(backtracks) == 0 {
+			return false, nil, val, nil // No wildcards to fall back on
+		}
+
+		// Pop the last wildcard state and advance its value consumption by 1
+		bt := &backtracks[len(backtracks)-1]
+
+		// Enforce boundary constraints (e.g., SAST cannot cross symSlash)
+		if bt.vIdx < len(vStream.syms) {
+			vSym := vStream.syms[bt.vIdx]
+			if (bt.sym == symAsterisk || bt.sym == symPercent) && vSym == symSlash {
+				// Path boundary reached; this wildcard cannot consume any further
+				backtracks = backtracks[:len(backtracks)-1]
+				continue
+			}
+
+			// Consume one more symbol and retry
+			bt.vIdx++
+			pIdx = bt.pIdx
+			vIdx = bt.vIdx
+		} else {
+			// Exhausted all possibilities for this wildcard
+			backtracks = backtracks[:len(backtracks)-1]
+		}
+	}
+
+	if matched {
+		// 1. Flush any pending AST wrappers (e.g., *loc) at the match boundary
+		vStream.flushClosures()
+
+		// Helper to safely translate Symbol indices to virtual byte offsets
+		offsetOf := func(stream *symstr, idx int) int {
+			if idx < len(stream.markers) {
+				return stream.markers[idx].byteOffset
+			}
+			return stream.currentByte
+		}
+
+		// 2. Resolve the exact byte boundary of the matched sequence
+		matchByteEnd := offsetOf(vStream, vIdx)
+
+		// 3. Extract the consumed Target Value (res)
+		res = vStream.valueInRange(0, matchByteEnd)
+
+		// 4. Fast-forward the remainder of the target value (rem)
+		vStream.exhaust()
+		rem = vStream.valueInRange(matchByteEnd, vStream.currentByte)
+
+		// 5. Extract Capture Groups (stems) directly from the NFA Backtrack stack
+		for _, bt := range backtracks {
+			stemStartByte := offsetOf(vStream, bt.stemStart)
+			stemEndByte := offsetOf(vStream, bt.vIdx)
+
+			var stemVal Value
+			if stemStartByte == stemEndByte {
+				// Wildcard consumed 0 symbols (e.g., empty string matched by **)
+				stemVal = nil //symEmpty
+			} else {
+				// Perfect AST Repacking!
+				stemVal = vStream.valueInRange(stemStartByte, stemEndByte)
+			}
+
+			stems = append(stems, stemVal)
+		}
+	}
+
+	return matched, res, rem, stems
 }
 
-// matchPathPath match path segments (elems) against path segments.
-func matchPathPath(ctx Context, elems, segments []Value, trail bool) (matched bool, res, rem, stems []Value, iE, iS int, wildToken token) {
-	if checkpoints { defer check_matchPathPath(ctx, elems, segments, trail)(&matched, &res, &rem, &stems, &iE, &iS) }
-	if trail { return backwardPathPath(ctx, elems, segments) } else { return forwardPathPath(ctx, elems, segments) }
+func backwardGlobValue(ctx Context, pat *globpat, val Value) (matched bool, res, rem Value, stems []Value) {
+	if val == nil || pat == nil { return false, nil, val, nil }
+
+	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
+	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
+
+	// Backward matching requires full upfront evaluation
+	pStream.exhaust()
+	vStream.exhaust()
+
+	var backtracks []globState
+	pIdx := len(pStream.syms) - 1
+	vIdx := len(vStream.syms) - 1
+
+	for {
+		// 1. Success condition (Pattern exhausted)
+		if pIdx < 0 {
+			matched = true
+			break
+		}
+
+		pSym := pStream.syms[pIdx]
+
+		// 2. Handle Wildcards (Create Backtrack Points)
+		// We save the state assuming the wildcard consumes 0 symbols initially.
+		if pSym == symAsterisk || pSym == symAsteriskAst || pSym == symPercent {
+			backtracks = append(backtracks, globState{
+				pIdx:      pIdx - 1, // Move pattern cursor past wildcard
+				vIdx:      vIdx,     // Value cursor remains unchanged
+				stemStart: vIdx,     // Record where the capture block ends
+				sym:       pSym,
+			})
+			pIdx--
+			continue
+		}
+
+		// 3. Handle Single Character Matchers & Exact Matches
+		if pSym == symQues {
+			if vIdx >= 0 && vStream.syms[vIdx] != symSlash {
+				pIdx--
+				vIdx--
+				continue
+			}
+		} else if vIdx >= 0 && pSym == vStream.syms[vIdx] {
+			pIdx--
+			vIdx--
+			continue
+		}
+
+		// 4. Mismatch! Trigger Reverse Backtracking
+		if len(backtracks) == 0 {
+			return false, nil, val, nil // No wildcards to rescue the mismatch
+		}
+
+		// Pop the last wildcard state and consume one MORE symbol backwards
+		bt := &backtracks[len(backtracks)-1]
+
+		if bt.vIdx >= 0 {
+			vSym := vStream.syms[bt.vIdx]
+
+			// Enforce path boundaries (SAST & PERC cannot consume symSlash)
+			if (bt.sym == symAsterisk || bt.sym == symPercent) && vSym == symSlash {
+				backtracks = backtracks[:len(backtracks)-1] // Kill this backtrack branch
+				continue
+			}
+
+			// Consume symbol and reset cursors for a retry
+			bt.vIdx--
+			pIdx = bt.pIdx
+			vIdx = bt.vIdx
+		} else {
+			// Exhausted all possibilities for this wildcard
+			backtracks = backtracks[:len(backtracks)-1]
+		}
+	}
+
+	// 5. High-Fidelity Extraction
+	if matched {
+		vStream.flushClosures()
+
+		// Helper to safely translate Symbol indices to virtual byte offsets
+		offsetOf := func(stream *symstr, idx int) int {
+			if idx <= 0 { return 0 } // Reached the absolute start of the stream
+			if idx < len(stream.markers) {
+				return stream.markers[idx].byteOffset
+			}
+			return stream.currentByte
+		}
+
+		// vIdx represents the LAST unconsumed symbol.
+		// Thus, the matched trailing sequence STARTS at vIdx + 1.
+		matchStartByte := offsetOf(vStream, vIdx+1)
+
+		res = vStream.valueInRange(matchStartByte, vStream.currentByte)
+		rem = vStream.valueInRange(0, matchStartByte)
+
+		// 6. Extract Capture Groups (stems)
+		// CRITICAL: Because we ran backwards, the backtracks array holds wildcards
+		// from Right-to-Left. We iterate it backwards to output Stems Left-to-Right!
+		for i := len(backtracks) - 1; i >= 0; i-- {
+			bt := backtracks[i]
+
+			stemStartByte := offsetOf(vStream, bt.vIdx+1)
+			stemEndByte := offsetOf(vStream, bt.stemStart+1)
+
+			var stemVal Value
+			if stemStartByte == stemEndByte {
+				stemVal = nil //symEmpty
+			} else {
+				stemVal = vStream.valueInRange(stemStartByte, stemEndByte)
+			}
+
+			stems = append(stems, stemVal)
+		}
+	}
+
+	return matched, res, rem, stems
+}
+
+// matchCompComp matches a strictly literal pattern against a target value.
+// It iterates linearly without wildcards, automatically handling internal fragmentation.
+func matchCompComp(ctx Context, pat Value, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+	// if checkpoints { defer check_matchCompComp(ctx, []Value{pat}, []Value{val}, trail)(&matched, &res, &rem, nil, nil) } // Keep check signature happy for now
+	if trail { return backwardCompComp(ctx, pat, val) } else { return forwardCompComp(ctx, pat, val) }
+}
+
+func forwardCompComp(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+	if val == nil || pat == nil { return false, nil, val, nil }
+
+	// Seed both streams natively with the raw AST Values
+	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
+	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
+	var matchLen int
+
+	for {
+		pSym, errP := pStream.ReadSymbol()
+		if errP == io.EOF {
+			matched = true
+			break // Pattern sequence fully satisfied!
+		}
+
+		vSym, errV := vStream.ReadSymbol()
+		if errV == io.EOF || pSym != vSym {
+			matched = false
+			break // Target exhausted early or sequence mismatch
+		}
+
+		matchLen = vStream.symBytePos
+	}
+
+	if matched {
+		vStream.flushClosures() // Ensure exact AST wrappers are recorded
+		res = vStream.valueInRange(0, matchLen)
+		vStream.exhaust() // Fast-forward to calculate the unconsumed tail
+		rem = vStream.valueInRange(matchLen, vStream.currentByte)
+	}
+	return
+}
+
+func backwardCompComp(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+	if val == nil || pat == nil { return false, nil, val, nil }
+
+	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
+	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
+
+	// Backward matching requires full evaluation to align the trailing anchors
+	pStream.exhaust()
+	vStream.exhaust()
+
+	pCursor := len(pStream.syms) - 1
+	vCursor := len(vStream.syms) - 1
+
+	for pCursor >= 0 {
+		if vCursor < 0 || pStream.syms[pCursor] != vStream.syms[vCursor] {
+			return false, nil, val, nil
+		}
+		pCursor--
+		vCursor--
+	}
+
+	matched = true
+	matchStartByte := vStream.markers[vCursor+1].byteOffset
+
+	res = vStream.valueInRange(matchStartByte, vStream.currentByte)
+	rem = vStream.valueInRange(0, matchStartByte)
+	return
 }
 
 // match matches pattern `pat` against value `val`.
@@ -23932,13 +22178,13 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	switch v := val.(type) {
 	case *loc:
 		matched, res, rem, stems = match(ctx, pat, v.Value)
-		if res != nil { if res == v.Value { res = v } else { res = _loc(v.pos, res) } }
-		if rem != nil { if rem == v.Value { rem = v } else { rem = _loc(v.pos, rem) } }
+		if res != nil { if res == v.Value { res = v } else { res = &loc{res, v.pos} } }
+		if rem != nil { if rem == v.Value { rem = v } else { rem = &loc{rem, v.pos} } }
 		return
 	case *xloc:
 		matched, res, rem, stems = match(ctx, pat, v.Value)
-		if res != nil { if res == v.Value { res = v } else { res = _xloc(v.pos, res) } }
-		if rem != nil { if rem == v.Value { rem = v } else { rem = _xloc(v.pos, rem) } }
+		if res != nil { if res == v.Value { res = v } else { res = &xloc{res, v.pos} } }
+		if rem != nil { if rem == v.Value { rem = v } else { rem = &xloc{rem, v.pos} } }
 		return
 	case *globbrace: return match(ctx, pat, &v.globpat)
 	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
@@ -23959,20 +22205,8 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 
 		// 3. UNIFIED DISPATCH
 		switch p := pat.(type) {
-		case *compound:
-			matched, res, rem, stems = matchCompComp(ctx, p.elems, val, trail)
-
-		case *qualword:
-			matched, res, rem, stems = matchCompComp(ctx, unpack(p), val, trail)
-
-		case *path:
-			matched, res, rem, stems = matchPathPath(ctx, p.elems, val, trail)
-			if !matched && len(p.elems) <= 1 {
-				matched, res, rem, stems = match(ctx, p.elems[0], val)
-			}
-
 		case *globpat:
-			matched, res, rem, stems = matchGlobComp(ctx, p.elems, val, trail)
+			matched, res, rem, stems = matchGlobValue(ctx, p, val, trail)
 
 		case *regexpat:
 			matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
@@ -23991,8 +22225,8 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 			}
 
 		default:
-			// Fallback for atomic patterns matching against structural values
-			matched, res, rem, stems = matchCompComp(ctx, []Value{pat}, val, trail)
+			// symstr natively unrolls these and pads symDot/symSlash automatically!
+			matched, res, rem, stems = matchCompComp(ctx, pat, val, trail)
 		}
 	}
 
