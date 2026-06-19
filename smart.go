@@ -2122,13 +2122,17 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 
 	var wrappers []Value
 	var pristineStructured Value
+	var originalPos Pos // Track the true source position!
 
 	// 1. HIGH-FIDELITY LOOKUP: Match exact AST Node boundaries.
-	// We collect structural wrappers and preserve fully-structured containers.
-	// We intentionally bypass pristine "flat" nodes so they fall through to __symPackValue,
-	// allowing them to gain structure and be stamped with ctx.pos!
 	for _, inv := range s.intervals {
 		if inv.startByte == startByte && inv.endByte == endByte {
+			if originalPos == NoPos && inv.node != nil {
+				if p := inv.node.Pos(); p != NoPos {
+					originalPos = inv.node.Pos() // Capture the original target node's position
+				}
+			}
+
 			switch w := inv.node.(type) {
 			case *loc, *xloc, fullname, *defcaps:
 				wrappers = append(wrappers, w)
@@ -2145,17 +2149,25 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	if pristineStructured != nil {
 		val = pristineStructured
 	} else {
-		// 2. FALLBACK & REPACK: Unroll flat nodes or partial slices into rich AST structures
-		val = __symPackValue(s.Context, s.symbolInRange(startByte, endByte))
+		packCtx := s.Context
+		if originalPos != NoPos && originalPos != _pos(s.Context) {
+			// CRITICAL: Prevent the regex pattern's context from bleeding into the repacked
+			// nodes. We override it natively with the original source file position.
+			packCtx = pc(packCtx, originalPos)
+		}
+
+		// 2. FALLBACK & REPACK: Partial slices fallback to Symbol boundaries!
+		// 3. REPACK: Safely reconstitute the partial symbols back into a Value
+		val = __symPackValue(packCtx, s.symbolInRange(startByte, endByte))
 	}
 
-	// 3. RE-WRAP: Reapply any location or identity wrappers that perfectly enclosed this span.
-	// Because intervals are appended inside-out during flatten(), looping forward applies them correctly.
+	// 4. RE-WRAP: Reapply any location or identity wrappers that perfectly enclosed this span.
 	for _, w := range wrappers {
 		switch wrap := w.(type) {
-		case *loc:  val = &loc{val, wrap.pos}
+		case *loc: if val.Pos() != wrap.pos { val = &loc{val, wrap.pos} }
 		case *xloc: val = &xloc{val, wrap.pos}
 		case fullname: val = fullname{val}
+		case fullfile: if f, isFile := val.(*file); isFile { val = fullfile{f} }
 		case *defcaps: val = &defcaps{val, wrap.caps}
 		}
 	}
@@ -21688,59 +21700,6 @@ func packGlob(parts []Value) Value {
 	return &globpat{elements{parts}}
 }
 
-func packParts(trail bool, parts []Value, args ...any) []Value {
-	var vals []Value
-	for _, arg := range args {
-		if arg != nil {
-			switch t := arg.(type) {
-			case []Value: vals = append(vals, t...)
-			case *path: vals = append(vals, t.elems...)
-			case Value: vals = append(vals, t)
-			}
-		}
-	}
-	if 0 < len(vals) {
-		if trail {
-			parts = append(vals, parts...)
-		} else {
-			parts = append(parts, vals...)
-		}
-	}
-	return parts
-}
-
-// literalSym safely evaluates deeply shattered AST nodes (like compounds)
-// strictly within the pure integer Symbol Domain.
-func literalSym(ctx Context, v Value) Symbol {
-	if s := __symbol(ctx, v); s != symEmpty {
-		return s
-	}
-
-	elems := unpack(v)
-
-	// THE IDENTITY GUARD: Fast-path abstraction.
-	// If unpack returns 0 elements, or simply echoes the original node
-	// back (meaning it's an opaque, non-literal leaf), abort immediately.
-	if len(elems) == 0 || (len(elems) == 1 && elems[0] == v) {
-		return symEmpty
-	}
-
-	var accum Symbol = symEmpty
-
-	for _, e := range elems {
-		s := literalSym(ctx, e)
-		if s == symEmpty { return symEmpty } // Contains non-literals
-
-		if accum == symEmpty {
-			accum = s
-		} else {
-			accum = __symJoin(accum, s) // Pure integer sequence math
-		}
-	}
-
-	return accum
-}
-
 // matchScalarScalar matches a scalar value against a scalar value.
 // Returns matched=true if the pattern successfully matched (fully or partially).
 // res is the portion of the value that matched.
@@ -21829,14 +21788,9 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 
 // matchGlobValue dynamically evaluates a glob pattern against any value hierarchy.
 // It natively handles wildcards (*, ?, **) by tracking symbol boundaries in the dual stream.
-func matchGlobValue(ctx Context, pat *globpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
-	// if checkpoints { defer check_matchGlobValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
-
-	if trail {
-		return backwardGlobValue(ctx, pat, val)
-	} else {
-		return forwardGlobValue(ctx, pat, val)
-	}
+func matchGlobValue(ctx Context, pat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+	if checkpoints { defer check_matchGlobValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
+	if trail { return backwardGlobValue(ctx, pat, val) } else { return forwardGlobValue(ctx, pat, val) }
 }
 
 // globState tracks backtrack points for the zero-allocation NFA solver.
@@ -21847,7 +21801,7 @@ type globState struct {
 	sym       Symbol // Which wildcard triggered this backtrack state
 }
 
-func forwardGlobValue(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+func forwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
 
 	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
@@ -21966,7 +21920,7 @@ func forwardGlobValue(ctx Context, pat Value, val Value) (matched bool, res, rem
 	return matched, res, rem, stems
 }
 
-func backwardGlobValue(ctx Context, pat *globpat, val Value) (matched bool, res, rem Value, stems []Value) {
+func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
 
 	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
@@ -22088,7 +22042,7 @@ func backwardGlobValue(ctx Context, pat *globpat, val Value) (matched bool, res,
 // matchCompComp matches a strictly literal pattern against a target value.
 // It iterates linearly without wildcards, automatically handling internal fragmentation.
 func matchCompComp(ctx Context, pat Value, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
-	// if checkpoints { defer check_matchCompComp(ctx, []Value{pat}, []Value{val}, trail)(&matched, &res, &rem, nil, nil) } // Keep check signature happy for now
+	if checkpoints { defer check_matchCompComp(ctx, []Value{pat}, []Value{val}, trail)(&matched, &res, &rem) } // Keep check signature happy for now
 	if trail { return backwardCompComp(ctx, pat, val) } else { return forwardCompComp(ctx, pat, val) }
 }
 
@@ -22162,8 +22116,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	switch p := pat.(type) {
 	case *loc: return match(ctx, p.Value, val)
 	case *xloc: return match(ctx, p.Value, val)
-	case *globbrace: return match(ctx, &p.globpat, val)
-	case *globmeta, *globrange, *percpat: return match(ctx, _globpat(pat), val)
 	case *delegate, *closure:
 		warn(pc(ctx, pat.Pos()), _f("attempted to match against an un-evaluable delegate/closure pattern: %s", ts(pat, ctx)), trace_ctx{3}, callstack{num:10})
 		return false, nil, nil, nil
@@ -22176,18 +22128,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 
 	// 2. INTERCEPT TARGET WRAPPERS (TO PRESERVE POS METADATA)
 	switch v := val.(type) {
-	case *loc:
-		matched, res, rem, stems = match(ctx, pat, v.Value)
-		if res != nil { if res == v.Value { res = v } else { res = &loc{res, v.pos} } }
-		if rem != nil { if rem == v.Value { rem = v } else { rem = &loc{rem, v.pos} } }
-		return
-	case *xloc:
-		matched, res, rem, stems = match(ctx, pat, v.Value)
-		if res != nil { if res == v.Value { res = v } else { res = &xloc{res, v.pos} } }
-		if rem != nil { if rem == v.Value { rem = v } else { rem = &xloc{rem, v.pos} } }
-		return
-	case *globbrace: return match(ctx, pat, &v.globpat)
-	case *globmeta, *globrange, *percpat: return match(ctx, pat, _globpat(val))
 	case *delegate, *closure:
 		warn(pc(ctx, val.Pos()), _f("attempted to match against an un-evaluable delegate/closure target: %s", ts(val, ctx)), trace_ctx{3}, callstack{num:10})
 		return false, nil, nil, nil
@@ -22205,8 +22145,8 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 
 		// 3. UNIFIED DISPATCH
 		switch p := pat.(type) {
-		case *globpat:
-			matched, res, rem, stems = matchGlobValue(ctx, p, val, trail)
+		case *globbrace, *globpat, *globmeta, *globrange, *percpat:
+			matched, res, rem, stems = matchGlobValue(ctx, pat, val, trail)
 
 		case *regexpat:
 			matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
@@ -23323,6 +23263,16 @@ func ts(i any, o ...any) (s string) {
 		}
 	}
 
+	var cc = c
+	var _ts, _tsb func(any) string
+	if evaporation {
+		_ts  = func(a any) string { return ts(a,cc) }
+		_tsb = func(a any) string { return ts(a,ts_barrier{cc}) }
+	} else {
+		_ts  = func(a any) string { return ts(a,cc,ts_no_evaporation{}) }
+		_tsb = func(a any) string { return ts(a,ts_barrier{cc},ts_no_evaporation{}) }
+	}
+
 	// 1. Value tag/type
 	var t string
 	switch x := i.(type) {
@@ -23334,14 +23284,14 @@ func ts(i any, o ...any) (s string) {
 	case *boolean: t = _if(x.bool, "true", "false")
 	case *answer : t = _if(x.bool, "yes", "no")
 	case *option : t = _if(x.bool, "on", "off")
-	case *loc, *xloc, *valbase: t = "" // Empty tag!
-	default: t = typeof(i)
-		if strings.HasPrefix(t, "[]") {
+	case *loc, *xloc, *valbase: if evaporation { t = "" }
+	default:
+		if t = typeof(i); strings.HasPrefix(t, "[]") {
 			v := reflect.ValueOf(i)
 			s  = "["
 			for i := 0; i < v.Len(); i += 1 {
 				if 0 < i { s += " " }
-				s += ts(v.Index(i).Interface(), c)
+				s += _ts(v.Index(i).Interface())
 			}
 			s += "]"
 			return
@@ -23353,7 +23303,6 @@ func ts(i any, o ...any) (s string) {
 	var p = tspos(i)
 
 	// 3. Build the AST context stack
-	var cc = c
 	if c != nil {
 		var fat Position
 		switch x := p.(type) {
@@ -23380,7 +23329,6 @@ func ts(i any, o ...any) (s string) {
 		}
 	}
 
-	var barrier = ts_barrier{cc}
 	var content string
 	switch x := i.(type) {
 	case         *none:
@@ -23389,19 +23337,19 @@ func ts(i any, o ...any) (s string) {
 	case       *option:
 	case      *boolean:
 	case      *valbase:
-	case          *loc: content = ts(x.Value, cc)
-	case         *xloc: content = ts(x.Value, cc)
-	case       skipped: content = ts(x.Value, cc)
-	case      negative: content = ts(x.Value, cc)
-	case           opt: content = ts(x.Value, cc)
-	case          flag: content = ts(x.Value, cc)
-	case  matched_rule: content = ts(x.target, cc)
-	case         *rule: content = ts(x.target, cc)
-	case  *disjunction: content = ts(x.val, cc)
-	case      *percpat: content = ts(x.Prefix, cc) + " " + ts(x.Suffix, cc)
-	case         *pair: content = ts(x.key, cc) + " " + ts(x.val, cc)
-	case        *arrow: content = ts(x.o, cc) + x.t.String() + ts(x.s, cc)
-	case      fullname: content = ts(x.Value, cc)
+	case          *loc: content = _ts(x.Value)
+	case         *xloc: content = _ts(x.Value)
+	case       skipped: content = _ts(x.Value)
+	case      negative: content = _ts(x.Value)
+	case           opt: content = _ts(x.Value)
+	case          flag: content = _ts(x.Value)
+	case  matched_rule: content = _ts(x.target)
+	case         *rule: content = _ts(x.target)
+	case  *disjunction: content = _ts(x.val)
+	case      *percpat: content = _ts(x.Prefix) + " " + _ts(x.Suffix)
+	case         *pair: content = _ts(x.key) + " " + ts(x.val)
+	case        *arrow: content = _ts(x.o) + x.t.String() + ts(x.s)
+	case      fullname: content = _ts(x.Value)
 	case      fullfile: content = x.filestub.name.String()
 	case         *file: content = x.filestub.name.String()
 	case         *auto: content = x.name.String()
@@ -23411,79 +23359,79 @@ func ts(i any, o ...any) (s string) {
 	case     *regexpat: content = x.regexcon.String()
 	case     *globmeta: content = x.token.String()
 	case    *globrange: content = x.Value.String()
-	case  *include_ctx: content = x.spec.String() + " " + ts(x.Context)
-	case      original: content = x.o.String() + " " + ts(x.Context)
-	case     *original: content = x.o.String() + " " + ts(x.Context)
+	case  *include_ctx: content = x.spec.String() + " " + _ts(x.Context)
+	case      original: content = x.o.String() + " " + _ts(x.Context)
+	case     *original: content = x.o.String() + " " + _ts(x.Context)
 	case        Symbol: content = x.String() + " " + strconv.Itoa(int(x))
 	case       filemap: content = x.String()
-	case  *conjunction: return fmt.Sprintf("{%s %s %s}", t, ts(&x.list, cc), ts(x.sep, cc))
+	case  *conjunction: return fmt.Sprintf("{%s %s %s}", t, _ts(&x.list), _ts(x.sep))
 	case *argumented_ctx:
 		var args []string
 		for _, a := range x.args { args = append(args, a.String()) }
-		content = x.val.String() + "(" + strings.Join(args, ",") + ") " + ts(x.Context)
+		content = x.val.String() + "(" + strings.Join(args, ",") + ") " + _ts(x.Context)
 	case   *argumented:
 		var args []string
-		for _, a := range x.args { args = append(args, ts(a,cc)) }
-		content = ts(x.Value, cc) + "(" + strings.Join(args, ",") + ")"
+		for _, a := range x.args { args = append(args, _ts(a)) }
+		content = _ts(x.Value) + "(" + strings.Join(args, ",") + ")"
 	case       *dbstub:
 		var vals []string
-		for _, v := range x.v { vals = append(vals, ts(v,cc)) }
+		for _, v := range x.v { vals = append(vals, _ts(v)) }
 		content = strings.Join(vals, " ")
 	case      parent_ctx:
-		content = x.project.name.String() + " " + ts(x.Context)
+		content = x.project.name.String() + " " + _ts(x.Context)
 	case         *term:
 		if x.scope == nil {
-			return ts(x.Context)
+			return _ts(x.Context)
 		} else {
-			content = x.mark.String() + " " + ts(x.Context)
+			content = x.mark.String() + " " + _ts(x.Context)
 		}
 	case    *automatic:
 		defs := x.defs.String()
 		if defs != "" { defs += " " }
-		content = defs + ts(x.Context)
+		content = defs + _ts(x.Context)
 	case    *evocation:
 		defs := x.defs.String()
 		if defs != "" { defs += " " }
-		content = defs + ts(x.Context)
+		content = defs + _ts(x.Context)
 	case    *execution:
 		var s string
 		if v := x.prerequisite; v != nil && false { s = v.String() + " " }
-		content = s + ts(x.Context)
+		content = s + _ts(x.Context)
 	case     *exec_ctx:
 		var s string
 		if x.sh == nil { s = "<nil-sh>" } else { s = filepath.Base(x.sh.Path) }
-		content =  s + ts(x.Context)
+		content =  s + _ts(x.Context)
 	case  *exec_buffer:
 		var s string
 		// TODO: forms more details into `s`
-		content =  s + ts(x.xc)
+		content =  s + _ts(x.xc)
 	case *modification_checkpoints_ctx:
-		content = ts(x.Context)
+		content = _ts(x.Context)
 	case     *delegate:
-		content = ts(x.x, barrier)
-		if x.o != nil { content += " " + ts(x.o, barrier) }
-		for _, a := range x.a { content += " " + ts(a, barrier) }
+		content = _tsb(x.x)
+		if x.o != nil { content += " " + _tsb(x.o) }
+		for _, a := range x.a { content += " " + _tsb(a) }
 	case      *closure:
-		content = ts(x.x, barrier)
-		if x.o != nil { content += " " + ts(x.o, barrier) }
-		for _, a := range x.a { content += " " + ts(a, barrier) }
+		content = _tsb(x.x)
+		if x.o != nil { content += " " + _tsb(x.o) }
+		for _, a := range x.a { content += " " + _tsb(a) }
 	case      *defcaps:
-		content = ts(x.Value, cc)
+		content = _ts(x.Value)
 		for _, cap := range x.caps {
-			content += " {" + cap.name.String() + ":" + ts(cap.value, cc) + "}"
+			content += " {" + cap.name.String() + ":" + _ts(cap.value) + "}"
 		}
 	case          *url:
 		for _, val := range []any{x.Scheme, x.Username, x.Password, x.Host, x.Port, x.Path, x.Query, x.Fragment} {
 			if val != nil {
 				if content != "" { content += " " }
-				content += ts(val, barrier)
+				content += _tsb(val)
 			}
 		}
 	case       *strlit: content = strings.ReplaceAll(x.s, "\n", `\n`)
 	case       *strval:
 		for _, v := range x.v {
 			if content != "" { content += " " }
-			content += ts(v, barrier)
+			content += _tsb(v)
 		}
 	case        *punct:
 		switch x.token {
@@ -23510,7 +23458,7 @@ func ts(i any, o ...any) (s string) {
 		if !evaporation {
 			for _, item := range items {
 				if content != "" { content += " " }
-				content += ts(item, cc)
+				content += ts(item, cc, ts_no_evaporation{})
 			}
 			break
 		}
@@ -23548,7 +23496,7 @@ func ts(i any, o ...any) (s string) {
 	case         Value:
 		if str := x.String(); str != "" { content = strings.ReplaceAll(str, "\n", `\n`) }
 	case       Context:
-		if in := inner(x); in != nil { content = ts(in, cc) }
+		if in := inner(x); in != nil { content = _ts(in) }
 	default:
 		if str := fmt.Sprintf("%v", x); str != "" { content = strings.ReplaceAll(str, "\n", `\n`) }
 	}
@@ -24297,7 +24245,7 @@ func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin
 func (p *builtin) String() string { return p.name.String() }
 func (p *builtin) benchmark(ctx *evoke_builtin_ctx, t time_pkg.Time, v reflect.Value) {
 	var n = time_pkg.Now()
-	if d := n.Sub(t); 168*time_pkg.Millisecond < d {
+	if d := n.Sub(t); 200*time_pkg.Millisecond < d {
 		var a = xmerge(final{ctx}, ctx.a...)
 		var m = time_pkg.Since(n)//; %v %v
 		debug(pc(ctx,p), "slow %v: %v, %v (%d → %d args)", p, d, m, len(ctx.a), len(a), callstack{frames:-1})
