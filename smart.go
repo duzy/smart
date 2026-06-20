@@ -596,6 +596,7 @@ const (
 	symQuote
 	symDefs
 	symGlob
+	symR
 	symRe
 	symRegex
 	symFullname
@@ -1065,7 +1066,7 @@ var coreSymbols = []string{
 	"assert", "append", "eval", "value", "config", "configure", "configuration", "compile", "build",
 
 	"auto", "autoload", "answer", "bool", "boolean", "defer", "var", "set", "dep", "env", "str",
-	"self", "here", "word", "words", "quote", "defs", "glob", "re", "regex", "fullname", "name",
+	"self", "here", "word", "words", "quote", "defs", "glob", "r", "re", "regex", "fullname", "name",
 
 	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
 	"print", "printf", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
@@ -7888,7 +7889,7 @@ func (p *compiler) braced(ctx Context) (x Value) {
 
 	case WORD:
 		switch p.sym {
-		case symRe: // {re ...}
+		case symR, symRe: // {r ...}, {re ...}
 			return p.regex(ctx)
 
 		case symAuto: // {auto [(a=1, ...)] [list...]}
@@ -18534,7 +18535,6 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		}
 	case *raw: sb.writeString(t.s)
 	case *word: sb.writeString(t.s.String())
-	case *regexpat: sb.writeString(t.String())
 	case *filestub: sb.writeString(t.name.String())
 	case *project: sb.writeString(t.name.String())
 	case self: sb.writeString(t.name.String())
@@ -18568,6 +18568,15 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		if t.Prefix != nil { __builds(ctx, sb, t.Prefix) }
 		sb.writeByte('%')
 		if t.Suffix != nil { __builds(ctx, sb, t.Suffix) }
+	case *regexpat:
+		if false {
+			// FIXME: {re x{1}, x{1,}, x{1,2}, x{5}?, x{2,}?, x{2,8}? \p{Greek}, \P{Greek}}
+			// FIXME: {re (re) (?P<name>re) (?:re) (?im) (?sU:re) \x{10ffff} \x1f \123 \* \. \? \$}
+			// FIXME: {re [[:xdigit:]]*, [^[:alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z}
+			t.regexcon.source(sb) // FIXME: Incomplete implementation!
+		} else if t.re != nil {
+			sb.writeString(t.re.String())
+		}
 	case *compound:
 		cc := &com_ctx{ctx, 0}
 		mark := sb.len()
@@ -22177,34 +22186,32 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 	}
 
-	{
-		trail := truly(ctx, propReversal)
+	trail := truly(ctx, propReversal)
 
-		// 3. UNIFIED DISPATCH
-		switch p := pat.(type) {
-		case *globbrace, *globpat, *globmeta, *globrange, *percpat:
-			matched, res, rem, stems = matchGlobValue(ctx, pat, val, trail)
+	// 3. UNIFIED DISPATCH
+	switch p := pat.(type) {
+	case *globbrace, *globpat, *globmeta, *globrange, *percpat:
+		matched, res, rem, stems = matchGlobValue(ctx, pat, val, trail)
 
-		case *regexpat:
-			matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
+	case *regexpat:
+		matched, res, rem, stems = matchRegexValue(ctx, p, val, trail)
 
-		case *list:
-			if t, ok := val.(*list); ok {
-				for _, _p := range p.elems {
-					for _, _v := range t.elems {
-						if matched, res, rem, stems = match(ctx, _p, _v); matched { goto Normalize }
-					}
-				}
-			} else {
-				for _, _p := range p.elems {
-					if matched, res, rem, stems = match(ctx, _p, val); matched { goto Normalize }
+	case *list:
+		if t, ok := val.(*list); ok {
+			for _, _p := range p.elems {
+				for _, _v := range t.elems {
+					if matched, res, rem, stems = match(ctx, _p, _v); matched { goto Normalize }
 				}
 			}
-
-		default:
-			// symstr natively unrolls these and pads symDot/symSlash automatically!
-			matched, res, rem, stems = matchCompComp(ctx, pat, val, trail)
+		} else {
+			for _, _p := range p.elems {
+				if matched, res, rem, stems = match(ctx, _p, val); matched { goto Normalize }
+			}
 		}
+
+	default:
+		// symstr natively unrolls these and pads symDot/symSlash automatically!
+		matched, res, rem, stems = matchCompComp(ctx, pat, val, trail)
 	}
 
 Normalize:
@@ -22215,7 +22222,7 @@ Normalize:
 	res, rem = correctMatchRes(res), correctMatchRes(rem)
 
 	if !matched && res == nil && rem == nil { rem = val }
-	if checkpoints { check_match(ctx, pat, val)(&matched, &res, &rem, &stems) }
+	if checkpoints { check_match(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	return
 }
 
