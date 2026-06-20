@@ -21782,6 +21782,9 @@ func packGlob(parts []Value) Value {
 	return &globpat{elements{parts}}
 }
 
+type named_stem struct{ Value; name Symbol }
+func (p *named_stem) String() string { return p.Value.String() }
+
 // matchRegexValue applies a pre-compiled regex pattern against a value.
 func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
 	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
@@ -21810,12 +21813,17 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 			stems = append(stems, nil)
 		}
 	}
-	if false { if t := ts(val,ctx); strings.Contains(t, "test.txt:") {
-		debug(ctx, "%v %v", t, ts(stems,ctx))
-		for i, inv := range stream.intervals {
-			debug(ctx, "intervals[%d]: %v", i, ts(inv.node,ctx))
+
+	// Map named capture groups using SubexpNames
+	names := pat.re.SubexpNames()
+	for i := 1; i < len(names); i++ {
+		// Ensure the group is named and exists within our extracted stems bounds
+		if name := names[i]; name != "" && i-1 < len(stems) {
+			// Only wrap if the stem actually matched something (not nil),
+			// preserving the native nil-evaporation for unmatched optional groups.
+			if stems[i-1] != nil { stems[i-1] = &named_stem{stems[i-1], intern(name)} }
 		}
-	}}
+	}
 
 	return true, res, rem, stems
 }
@@ -23400,13 +23408,14 @@ func ts(i any, o ...any) (s string) {
 	case      negative: content = _ts(x.Value)
 	case           opt: content = _ts(x.Value)
 	case          flag: content = _ts(x.Value)
+	case      fullname: content = _ts(x.Value)
 	case  matched_rule: content = _ts(x.target)
 	case         *rule: content = _ts(x.target)
 	case  *disjunction: content = _ts(x.val)
 	case      *percpat: content = _ts(x.Prefix) + " " + _ts(x.Suffix)
 	case         *pair: content = _ts(x.key) + " " + _ts(x.val)
 	case        *arrow: content = _ts(x.o) + x.t.String() + _ts(x.s)
-	case      fullname: content = _ts(x.Value)
+	case   *named_stem: content = x.name.String()+"→"+_ts(x.Value)
 	case      fullfile: content = x.filestub.name.String()
 	case         *file: content = x.filestub.name.String()
 	case         *auto: content = x.name.String()
@@ -37680,7 +37689,7 @@ func (ctx *__grep) x() (_ any) {
 			setGroup := func(idx int, v Value) {
 				var sym Symbol
 				if idx < 10 {
-					sym = Symbol(int(sym_0)+idx)
+					sym = Symbol(int(sym_0) + idx)
 				} else {
 					sym = intern(strconv.Itoa(idx))
 				}
@@ -37703,22 +37712,21 @@ func (ctx *__grep) x() (_ any) {
 				setGroup(0, mRes)
 				if result == nil { val = mRes }
 
-				// 2. Bind ordered capture groups ($1, $2, ...) from stems
-				for i, stem := range stems { setGroup(i+1, stem) }
+				// 2. Bind ordered capture groups ($1, $2, ...) and named stems
+				for i, stem := range stems {
+					target := stem
 
-				// 3. Bind dynamically named captures (e.g., `(?P<i>...)`) if it's a regex
-				if rx, isRx := unloc(pat).(*regexpat); isRx {
-					names := rx.re.SubexpNames()
-					for i := 1; i < len(names); i++ {
-						if names[i] != "" && i-1 < len(stems) {
-							if stem := stems[i-1]; stem != nil {
-								ctx.set(pc(c, p), defVoid, intern(names[i]), stem)
-							}
-						}
+					// Unpack named_stem wrappers injected by the regex engine
+					if ns, isNamed := stem.(*named_stem); isNamed {
+						target = ns.Value // Extract the raw AST node
+						ctx.set(pc(c, p), defVoid, ns.name, target)
 					}
+
+					// Bind the unwrapped target to its standard numerical index
+					setGroup(i+1, target)
 				}
 
-				if result != nil { val = expand(final{c}, result) }
+				if result != nil { val = expand(c, result) }
 				res = append(res, val)
 
 				if checkpoints {
