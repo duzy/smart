@@ -23051,7 +23051,8 @@ type pos_prefix struct{
 // ts_ctx natively pushes the AST stack depth during tracing.
 type ts_ctx struct{
 	Context
-	p Position // The resolved Position of the parent node
+	p       Position // The resolved Position of the parent node
+	showPos bool     // Toggles rendering of position metadata
 }
 
 func (c *ts_ctx) do(ctx Context, op any) any {
@@ -23059,6 +23060,10 @@ func (c *ts_ctx) do(ctx Context, op any) any {
 	case inner_cast: return c.Context
 	case dynamic_cast: return t.ctx(c, c.Context)
 	case pos_prefix:
+		if !c.showPos {
+			return t.tag // Skip position rendering, just return the logical tag
+		}
+
 		var p Position
 		var rawPos Pos
 		switch x := t.pos.(type) {
@@ -23266,23 +23271,31 @@ func ts(i any, o ...any) (s string) {
 
 	var c Context
 	var evaporation = true
-	for _, o := range o {
-		switch t := o.(type) {
+	var showPos = true
+	for _, opt := range o {
+		switch t := opt.(type) {
 		case ts_no_evaporation: evaporation = false
+		case ts_no_position: showPos = false
 		case Context: c = t
 		case nil: c = nil
-		default: panic(o)
+		default: panic(opt)
 		}
 	}
 
 	var cc = c
 	var _ts, _tsb func(any) string
-	if evaporation {
-		_ts  = func(a any) string { return ts(a,cc) }
-		_tsb = func(a any) string { return ts(a,ts_barrier{cc}) }
+	if evaporation && showPos {
+		_ts  = func(a any) string { return ts(a, cc) }
+		_tsb = func(a any) string { return ts(a, ts_barrier{cc}) }
+	} else if evaporation && !showPos {
+		_ts  = func(a any) string { return ts(a, cc, ts_no_position{}) }
+		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_position{}) }
+	} else if !evaporation && showPos {
+		_ts  = func(a any) string { return ts(a, cc, ts_no_evaporation{}) }
+		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_evaporation{}) }
 	} else {
-		_ts  = func(a any) string { return ts(a,cc,ts_no_evaporation{}) }
-		_tsb = func(a any) string { return ts(a,ts_barrier{cc},ts_no_evaporation{}) }
+		_ts  = func(a any) string { return ts(a, cc, ts_no_evaporation{}, ts_no_position{}) }
+		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_evaporation{}, ts_no_position{}) }
 	}
 
 	// 1. Value tag/type
@@ -23322,7 +23335,7 @@ func ts(i any, o ...any) (s string) {
 		case Pos:      fat = _fatpos(c, x)
 		default:       fat = _fatpos(c, NoPos) // Instantly heals nil/unmatched types!
 		}
-		cc = &ts_ctx{Context: c, p: fat}
+		cc = &ts_ctx{Context: c, p: fat, showPos: showPos}
 	}
 
 	// 4. Evaluate Inner Content
@@ -23335,7 +23348,10 @@ func ts(i any, o ...any) (s string) {
 
 	var interceptor Context
 	if evaporation && cc != nil {
-		var pre_spatial = tspre(c, p, "") // spatial prefix
+		var pre_spatial string
+		if showPos {
+			pre_spatial = tspre(c, p, "") // spatial prefix
+		}
 		if target, ok := cc.do(cc, ts_pre{p, pre_spatial}).(Context); ok {
 			interceptor = target // Lock onto the exact context that claimed it!
 		}
@@ -23343,12 +23359,12 @@ func ts(i any, o ...any) (s string) {
 
 	var content string
 	switch x := i.(type) {
-	case         *none:
-	case         *null:
-	case       *answer:
-	case       *option:
-	case      *boolean:
-	case      *valbase:
+	case          *none:
+	case          *null:
+	case        *answer:
+	case        *option:
+	case       *boolean:
+	case       *valbase:
 	case          *loc: content = _ts(x.Value)
 	case         *xloc: content = _ts(x.Value)
 	case       skipped: content = _ts(x.Value)
@@ -23359,8 +23375,8 @@ func ts(i any, o ...any) (s string) {
 	case         *rule: content = _ts(x.target)
 	case  *disjunction: content = _ts(x.val)
 	case      *percpat: content = _ts(x.Prefix) + " " + _ts(x.Suffix)
-	case         *pair: content = _ts(x.key) + " " + ts(x.val)
-	case        *arrow: content = _ts(x.o) + x.t.String() + ts(x.s)
+	case         *pair: content = _ts(x.key) + " " + _ts(x.val)
+	case        *arrow: content = _ts(x.o) + x.t.String() + _ts(x.s)
 	case      fullname: content = _ts(x.Value)
 	case      fullfile: content = x.filestub.name.String()
 	case         *file: content = x.filestub.name.String()
@@ -23470,20 +23486,23 @@ func ts(i any, o ...any) (s string) {
 		if !evaporation {
 			for _, item := range items {
 				if content != "" { content += " " }
-				content += ts(item, cc, ts_no_evaporation{})
+				content += _ts(item) // Now perfectly uses the configured _ts closure
 			}
 			break
 		}
 
 		w := ts_slice(cc, items)
+		cc_old := cc
+		cc = w
 
 		var inner string
 		for idx, a := range items {
 			if inner != "" { inner += " " }
 			w.first = (idx == 0)
 			w.layer = 0
-			inner += ts(a, w)
+			inner += _ts(a)
 		}
+		cc = cc_old
 
 		if t != "" {
 			if w.pre != "" {
@@ -23529,7 +23548,12 @@ func ts(i any, o ...any) (s string) {
 	}
 
 	// If NOT intercepted, calculate the FULL prefix including the logical tag!
-	pre := tspre(c, p, t)
+	var pre string
+	if showPos {
+		pre = tspre(c, p, t)
+	} else {
+		pre = t
+	}
 
 	if pre == "" {
 		if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. *valbase)
@@ -23543,6 +23567,8 @@ func ts(i any, o ...any) (s string) {
 		return "{" + pre + " " + content + "}"
 	}
 }
+
+func slim_ts(i any, o ...any) string { return ts(i,append(o,ts_no_position{},ts_no_evaporation{})...) }
 
 func _arrow(pos Pos, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
 func _null(pos Pos) *null { return &null{valbase{pos}} }
