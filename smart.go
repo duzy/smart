@@ -23158,6 +23158,7 @@ func tspos(i any) (p any) {
 }
 
 // Interceptor operations
+type ts_no_position struct {}
 type ts_no_evaporation struct {}
 type ts_pre struct { p any; pre string }
 type ts_tail struct { interceptor Context }
