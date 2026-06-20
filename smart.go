@@ -21486,11 +21486,9 @@ fieldsloop:
 //   match(ctx Context, pat, val Value) (full bool, res, rem Value, stems []Value)
 //
 // - Low-Level Evaluators (shedding unnecessary returns based on scope):
-//   matchScalarScalar (...) (matched bool, res, rem Value)
-//   matchCompComp     (...) (matched bool, res, rem Value, idx int)
-//   matchGlobComp     (...) (matched bool, res, rem Value, stems []Value, idx int, wildToken token)
-//   matchGlobPath     (...) (matched bool, res, rem Value, stems []Value, idx int, wildToken token)
-//   matchPathPath     (...) (matched bool, res, rem Value, stems []Value, idx int)
+//   matchRegexValue   (...) (matched bool, res, rem Value)
+//   matchGlobValue    (...) (matched bool, res, rem Value)
+//   matchValueValue   (...) (matched bool, res, rem Value)
 //
 // 6. Core Execution Algorithm
 // IF pat is pure literal (no wildcards):
@@ -21742,60 +21740,6 @@ func packPath(parts []Value) Value {
 func packGlob(parts []Value) Value {
 	switch len(parts) { case 0: return nil; case 1: return parts[0] }
 	return &globpat{elements{parts}}
-}
-
-// matchScalarScalar matches a scalar value against a scalar value.
-// Returns matched=true if the pattern successfully matched (fully or partially).
-// res is the portion of the value that matched.
-// rem is the leftover unconsumed portion of the value.
-func matchScalarScalar(ctx Context, pat, val Value, trail bool) (matched bool, res, rem Value) {
-	if checkpoints { defer check_matchScalarScalar(ctx, pat, val, trail)(&matched, &res, &rem) }
-
-	patSym := __symbol(ctx, pat)
-	valSym := __symbol(ctx, val)
-	remSym := symEmpty
-
-	// Guard against structural layout anchors and complex AST masquerading as empty strings
-	if patSym == symEmpty {
-		if p, isPunct := unloc(pat).(*punct); isPunct {
-			if t := p.token; t == PROOT || t == PTAIL {
-				return false, nil, val
-			}
-		}
-
-		// THE FIX: Prevent false-positive empty matches!
-		// If patSym is STILL symEmpty, it means pat is a complex node (like a compound).
-		// A scalar matcher CANNOT match a complex node against a scalar string.
-		if patSym == symEmpty && pat.String() != "" {
-			return false, nil, val
-		}
-	}
-
-	if trail {
-		if matched = __symHasSuffix(valSym, patSym); matched {
-			remSym = __symTrimSuffix(valSym, patSym)
-		}
-	} else {
-		if matched = __symHasPrefix(valSym, patSym); matched {
-			remSym = __symTrimPrefix(valSym, patSym)
-		}
-	}
-
-	if matched {
-		if remSym == symEmpty {
-			res = val
-		} else {
-			if t, isRegexLit := unloc(pat).(*regexlit); isRegexLit {
-				res = t.Value
-			} else {
-				res = pat
-			}
-			rem = _word(val.Pos(), remSym)
-		}
-	} else {
-		rem = val
-	}
-	return
 }
 
 // matchRegexValue applies a pre-compiled regex pattern against a value.
@@ -22083,18 +22027,18 @@ func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Valu
 	return matched, res, rem, stems
 }
 
-// matchCompComp matches a strictly literal pattern against a target value.
+// matchValueValue matches a strictly literal pattern against a target value.
 // It iterates linearly without wildcards, automatically handling internal fragmentation.
-func matchCompComp(ctx Context, pat Value, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
-	if checkpoints { defer check_matchCompComp(ctx, pat, val, trail)(&matched, &res, &rem) }
+func matchValueValue(ctx Context, pat Value, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
+	if checkpoints { defer check_matchValueValue(ctx, pat, val, trail)(&matched, &res, &rem) }
 	if trail {
-		return backwardCompComp(ctx, pat, val)
+		return backwardValueValue(ctx, pat, val)
 	} else {
-		return forwardCompComp(ctx, pat, val)
+		return forwardValueValue(ctx, pat, val)
 	}
 }
 
-func forwardCompComp(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+func forwardValueValue(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
 
 	// Seed both streams natively with the raw AST Values
@@ -22127,7 +22071,7 @@ func forwardCompComp(ctx Context, pat Value, val Value) (matched bool, res, rem 
 	return
 }
 
-func backwardCompComp(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+func backwardValueValue(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
 
 	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
@@ -22211,7 +22155,7 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 
 	default:
 		// symstr natively unrolls these and pads symDot/symSlash automatically!
-		matched, res, rem, stems = matchCompComp(ctx, pat, val, trail)
+		matched, res, rem, stems = matchValueValue(ctx, pat, val, trail)
 	}
 
 Normalize:
@@ -37063,7 +37007,7 @@ func (ctx *__wildcard) directory(topDirSym Symbol, pats ...Value) {
 
 		// =================================================================
 		// 1. Literal Prefix Lookahead
-		// Eliminates O(N) OS directory scans and matchCompComp waste by
+		// Eliminates O(N) OS directory scans and matchValueValue waste by
 		// extracting pure literal targets directly from the active patterns!
 		// =================================================================
 		var names []string
