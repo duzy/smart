@@ -1800,6 +1800,13 @@ type symstr struct {
 	tasks       []walktask   // Lazy flattening walk tasks
 	currentByte int          // Lazy flattening byte position
 }
+func (s *symstr) do(ctx Context, op any) (_ any) { // Optional!
+    switch t := op.(type) {
+	case inner_cast: return s.Context
+	case dynamic_cast: return t.ctx(s, s.Context)
+    }
+    return s.Context.do(ctx, op)
+}
 
 func (s *symstr) ReadRune() (rune, int, error) {
 	for len(s.str) == 0 {
@@ -2160,23 +2167,16 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 
 	var wrappers []Value
 	var pristineStructured Value
-	var originalPos Pos // Track the true source position!
 
 	// 1. HIGH-FIDELITY EXACT MATCH LOOKUP
 	for _, inv := range s.intervals {
 		if inv.startByte == startByte && inv.endByte == endByte {
-			if originalPos == NoPos && inv.node != nil {
-				if p := inv.node.Pos(); p != NoPos {
-					originalPos = p // Capture the original target node's position
-				}
-			}
-
 			switch w := inv.node.(type) {
-			case *loc, *xloc, fullname, *defcaps:
+			case *loc, *xloc, fullname, fullfile, *defcaps:
 				wrappers = append(wrappers, w)
 			case *word, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal, *file, *auto, flag:
-				// Flat nodes are intentionally ignored here so they fall through
-				// to __symPackValue and get dynamically parsed into rich structures!
+				// Flat nodes are intentionally ignored here so they fall through to
+				// __symPackValue and get dynamically parsed into rich structures!
 			default:
 				// Complex structured nodes (*list, *compound, *qualword) are preserved intact
 				pristineStructured = inv.node
@@ -2187,32 +2187,45 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	var val Value
 	if pristineStructured != nil {
 		val = pristineStructured
+	} else if false {
+		// 2. FALLBACK & UPGRADE: Shatter to flat symbols and parse via __symPackValue
+		// Always use the first node (the nearest one) pos, even it's a NoPos!
+		packPos := s.intervals[0].node.Pos()
+		val = __symPackValue(&force_pos_ctx{s, packPos}, s.symbolInRange(startByte, endByte))
 	} else {
 		// 2. FALLBACK & UPGRADE: Shatter to flat symbols and parse via __symPackValue
-		packCtx := s.Context
-		if originalPos != NoPos && originalPos != _pos(s.Context) {
-			packCtx = pc(packCtx, originalPos)
+		var packPos Pos = -1
+		var inheritedXloc *xloc
+
+		// Find the narrowest encompassing node to inherit spatial data!
+		for _, inv := range s.intervals {
+			if inv.startByte <= startByte && endByte <= inv.endByte {
+				if packPos == -1 { packPos = inv.node.Pos() }
+				if x, ok := inv.node.(*xloc); ok { inheritedXloc = x }
+			}
 		}
 
-		val = __symPackValue(packCtx, s.symbolInRange(startByte, endByte))
+		if packPos == -1 { packPos = NoPos }
+		val = __symPackValue(&force_pos_ctx{s, packPos}, s.symbolInRange(startByte, endByte))
+
+		// Safely wrap the newly shattered substring in its parent's physical file location
+		if inheritedXloc != nil { val = &xloc{val, inheritedXloc.pos} }
 	}
 
 	// 3. RE-WRAP: Safely apply outer metadata shells
-	for _, w := range wrappers {
-		switch wrap := w.(type) {
+	for _, wrapper := range wrappers {
+		switch w := wrapper.(type) {
 		case *loc:
-			if val.Pos() != wrap.pos { val = &loc{val, wrap.pos} }
+			if val.Pos() != w.pos { val = &loc{val, w.pos} }
 		case *xloc:
 			// xloc uses fat 'Position'. We check directly if it's already an identical xloc.
-			if x, isXloc := val.(*xloc); !(isXloc && x.pos == wrap.pos) {
-				val = &xloc{val, wrap.pos}
-			}
-		case fullname:
-			val = fullname{val}
+			if x, isXloc := val.(*xloc); !(isXloc && x.pos == w.pos) { val = &xloc{val, w.pos} }
 		case fullfile:
 			if f, isFile := val.(*file); isFile { val = fullfile{f} }
+		case fullname:
+			val = fullname{val}
 		case *defcaps:
-			val = &defcaps{val, wrap.caps}
+			val = &defcaps{val, w.caps}
 		}
 	}
 
@@ -15322,6 +15335,16 @@ func joinraws(sep string, vals ...*raw) string {
     return strings.Join(strs, sep)
 }
 
+type force_pos_ctx struct{ Context ; pos Pos }
+func (p *force_pos_ctx) do(ctx Context, op any) any {
+    switch t := op.(type) {
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
+	case get_pos: return p.pos // NoPos or a valid Pos!
+    }
+    return p.Context.do(ctx, op)
+}
+
 type pos_ctx struct{ Context ; pos any }
 func (p *pos_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
@@ -21787,6 +21810,12 @@ func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched
 			stems = append(stems, nil)
 		}
 	}
+	if false { if t := ts(val,ctx); strings.Contains(t, "test.txt:") {
+		debug(ctx, "%v %v", t, ts(stems,ctx))
+		for i, inv := range stream.intervals {
+			debug(ctx, "intervals[%d]: %v", i, ts(inv.node,ctx))
+		}
+	}}
 
 	return true, res, rem, stems
 }
@@ -37648,6 +37677,16 @@ func (ctx *__grep) x() (_ any) {
 			// =================================================================
 			lineVal := &xloc{_word(NoPos, intern(text)), p}
 
+			setGroup := func(idx int, v Value) {
+				var sym Symbol
+				if idx < 10 {
+					sym = Symbol(int(sym_0)+idx)
+				} else {
+					sym = intern(strconv.Itoa(idx))
+				}
+				ctx.set(pc(c, p), defVoid, sym, v)
+			}
+
 			for _, pat := range rvs {
 				// Delegate entirely to your unified AST match engine
 				matched, mRes, _, stems := match(ctx, pat, lineVal)
@@ -37657,23 +37696,26 @@ func (ctx *__grep) x() (_ any) {
 				ctx.defs = make(def_map) // ensure a clear defs map
 
 				// =================================================================
-				// THE DOD FIX: Map AST Stems to Capture Groups
-				// No FindStringSubmatchIndex, no utf8.RuneCountInString offsets!
+				// THE DOD FIX: Zero-Allocation Scope Binding for Standard Groups
 				// =================================================================
-				if len(stems) > 0 {
-					for i, stem := range stems {
-						n := strconv.Itoa(i)
 
-						// Stem is already a localized AST node, preserving exact
-						// file/line/column data natively without allocating &xloc{}
-						ctx.set(pc(c, p), defVoid, intern(n), stem)
+				// 1. ALWAYS bind $0 to the full matched sequence
+				setGroup(0, mRes)
+				if result == nil { val = mRes }
 
-						if i == 0 && result == nil { val = stem }
+				// 2. Bind ordered capture groups ($1, $2, ...) from stems
+				for i, stem := range stems { setGroup(i+1, stem) }
+
+				// 3. Bind dynamically named captures (e.g., `(?P<i>...)`) if it's a regex
+				if rx, isRx := unloc(pat).(*regexpat); isRx {
+					names := rx.re.SubexpNames()
+					for i := 1; i < len(names); i++ {
+						if names[i] != "" && i-1 < len(stems) {
+							if stem := stems[i-1]; stem != nil {
+								ctx.set(pc(c, p), defVoid, intern(names[i]), stem)
+							}
+						}
 					}
-				} else {
-					// Fallback: Bind the full matched AST portion to capture group '0'
-					ctx.set(pc(c, p), defVoid, intern("0"), mRes)
-					if result == nil { val = mRes }
 				}
 
 				if result != nil { val = expand(final{c}, result) }
