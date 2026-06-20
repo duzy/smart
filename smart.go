@@ -354,6 +354,8 @@ type vocabulary struct{
 
 var vocab vocabulary
 
+// unsafeByteLen returns atomic symbol byte-length without locking `vocab`,
+// See also __symStrLen for generic symbol length.
 func (sym Symbol) unsafeByteLen() int { // Unlocked!
 	switch meta := vocab.symetas[sym]; meta.Kind() {
 	case SymRaw:
@@ -2160,12 +2162,12 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	var pristineStructured Value
 	var originalPos Pos // Track the true source position!
 
-	// 1. HIGH-FIDELITY LOOKUP: Match exact AST Node boundaries.
+	// 1. HIGH-FIDELITY EXACT MATCH LOOKUP
 	for _, inv := range s.intervals {
 		if inv.startByte == startByte && inv.endByte == endByte {
 			if originalPos == NoPos && inv.node != nil {
 				if p := inv.node.Pos(); p != NoPos {
-					originalPos = inv.node.Pos() // Capture the original target node's position
+					originalPos = p // Capture the original target node's position
 				}
 			}
 
@@ -2173,7 +2175,8 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 			case *loc, *xloc, fullname, *defcaps:
 				wrappers = append(wrappers, w)
 			case *word, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal, *file, *auto, flag:
-				// Flat nodes are ignored here so they are dynamically repacked
+				// Flat nodes are intentionally ignored here so they fall through
+				// to __symPackValue and get dynamically parsed into rich structures!
 			default:
 				// Complex structured nodes (*list, *compound, *qualword) are preserved intact
 				pristineStructured = inv.node
@@ -2185,26 +2188,31 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	if pristineStructured != nil {
 		val = pristineStructured
 	} else {
+		// 2. FALLBACK & UPGRADE: Shatter to flat symbols and parse via __symPackValue
 		packCtx := s.Context
 		if originalPos != NoPos && originalPos != _pos(s.Context) {
-			// CRITICAL: Prevent the regex pattern's context from bleeding into the repacked
-			// nodes. We override it natively with the original source file position.
 			packCtx = pc(packCtx, originalPos)
 		}
 
-		// 2. FALLBACK & REPACK: Partial slices fallback to Symbol boundaries!
-		// 3. REPACK: Safely reconstitute the partial symbols back into a Value
 		val = __symPackValue(packCtx, s.symbolInRange(startByte, endByte))
 	}
 
-	// 4. RE-WRAP: Reapply any location or identity wrappers that perfectly enclosed this span.
+	// 3. RE-WRAP: Safely apply outer metadata shells
 	for _, w := range wrappers {
 		switch wrap := w.(type) {
-		case *loc: if val.Pos() != wrap.pos { val = &loc{val, wrap.pos} }
-		case *xloc: val = &xloc{val, wrap.pos}
-		case fullname: val = fullname{val}
-		case fullfile: if f, isFile := val.(*file); isFile { val = fullfile{f} }
-		case *defcaps: val = &defcaps{val, wrap.caps}
+		case *loc:
+			if val.Pos() != wrap.pos { val = &loc{val, wrap.pos} }
+		case *xloc:
+			// xloc uses fat 'Position'. We check directly if it's already an identical xloc.
+			if x, isXloc := val.(*xloc); !(isXloc && x.pos == wrap.pos) {
+				val = &xloc{val, wrap.pos}
+			}
+		case fullname:
+			val = fullname{val}
+		case fullfile:
+			if f, isFile := val.(*file); isFile { val = fullfile{f} }
+		case *defcaps:
+			val = &defcaps{val, wrap.caps}
 		}
 	}
 
@@ -3469,9 +3477,21 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 	case 1: return _word(pos, syms[0])
 	}
 
-	var vals []Value
-	var hasDots bool
-	var idxPathSep int = -1
+	var segs []Value // segments by "/"
+	var vals []Value // segment values
+	var isQual bool
+
+	// Helper to hierarchically pack the current segment before crossing a path boundary
+	packSegment := func() {
+		if len(vals) > 0 {
+			if isQual {
+				segs = append(segs, packQual(vals))
+			} else {
+				segs = append(segs, packComp(vals))
+			}
+			vals, isQual = nil, false
+		}
+	}
 
 	for i := 0; i < len(syms); i++ {
 		sym := syms[i]
@@ -3544,15 +3564,15 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 		// 3. STANDARD DELIMITER PROCESSING
 		switch sym {
 		case symDot:
-			if hasDots = true; i == 0 {
+			// Ensure dot at the START of a segment prepends a null node (e.g. `.c` -> `qualword null c`)
+			if isQual = true; len(vals) == 0 {
 				vals = append(vals, _null(pos))
 			}
 		case symSlash:
-			switch idxPathSep = len(vals); idxPathSep {
-			case 0:
-				vals = append(vals, _punct(pos, PROOT))
-			case len(syms)-1:
-				vals = append(vals, _punct(pos, PTAIL))
+			if i == 0 {
+				segs = append(segs, _punct(pos, PROOT))
+			} else if packSegment(); i == len(syms)-1 {
+				segs = append(segs, _punct(pos, PTAIL))
 			}
 		case symDash:
 			// THE FIX: Isolate everything after the dash into a Flag
@@ -3563,23 +3583,20 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 				inner = _null(pos) // Trailing dash edge case
 			}
 
-			// Wrap the recursively packed tail in a flag.
-			// (Note: If your AST uses a specific constructor like `packFlag(inner)`, swap it here)
 			vals = append(vals, flag{inner})
-
-			// Fast-forward the loop to the end, as the recursive call consumed the remainder
-			i = len(syms)
+			i = len(syms) // Fast-forward loop to end
 		default:
 			vals = append(vals, _word(pos, sym))
 		}
 	}
 
-	if idxPathSep != -1 {
-		return packPath(vals)
-	} else if hasDots {
-		return packQual(vals)
+	// 4. HIERARCHICAL RETURN
+	if packSegment(); len(segs) > 1 {
+		return packPath(segs)
+	} else if len(segs) > 0 {
+		return segs[0] // packSegment packed it perfectly as Qual or Comp
 	} else {
-		return packComp(vals)
+		return _null(pos)
 	}
 }
 
@@ -21798,111 +21815,106 @@ func forwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Value
 	var backtracks []globState
 	pIdx, vIdx := 0, 0
 
+	// NFA Farthest-Reach Tracking
+	var bestBacktracks []globState
+	maxVIdx, maxPIdx := -1, -1
+
 	for {
-		// Lazily advance streams as needed
 		for pIdx >= len(pStream.syms) { if _, err := pStream.ReadSymbol(); err == io.EOF { break } }
 		for vIdx >= len(vStream.syms) { if _, err := vStream.ReadSymbol(); err == io.EOF { break } }
 
-		// 1. Success condition
+		// Track the deepest penetration into the target string
+		if vIdx > maxVIdx || (vIdx == maxVIdx && pIdx > maxPIdx) {
+			maxVIdx = vIdx
+			maxPIdx = pIdx
+			bestBacktracks = append(bestBacktracks[:0], backtracks...)
+		}
+
 		if pIdx == len(pStream.syms) {
 			matched = true
-			break // Reached the end of the pattern!
+			break
 		}
 
 		pSym := pStream.syms[pIdx]
 
-		// 2. Handle Wildcards (Create Backtrack Points)
 		if pSym == symAsterisk || pSym == symAsteriskAst || pSym == symPercent {
-			// Save the current state to the backtrack stack, assuming matching 0 symbols first
 			backtracks = append(backtracks, globState{
-				pIdx:      pIdx + 1, // Next pattern symbol
-				vIdx:      vIdx,     // Current value symbol
-				stemStart: vIdx,
-				sym:       pSym,
+				pIdx: pIdx + 1, vIdx: vIdx, stemStart: vIdx, sym: pSym,
 			})
 			pIdx++
 			continue
 		}
 
-		// 3. Handle Single Character Matchers
 		if pSym == symQues {
 			if vIdx < len(vStream.syms) && vStream.syms[vIdx] != symSlash {
+				backtracks = append(backtracks, globState{
+					pIdx: pIdx + 1, vIdx: vIdx + 1, stemStart: vIdx, sym: symQues,
+				})
 				pIdx++
 				vIdx++
 				continue
 			}
 		} else if vIdx < len(vStream.syms) && pSym == vStream.syms[vIdx] {
-			// Exact match
 			pIdx++
 			vIdx++
 			continue
 		}
 
-		// 4. Mismatch! Trigger Backtracking
 		if len(backtracks) == 0 {
-			return false, nil, val, nil // No wildcards to fall back on
+			break // matched = false
 		}
 
-		// Pop the last wildcard state and advance its value consumption by 1
 		bt := &backtracks[len(backtracks)-1]
-
-		// Enforce boundary constraints (e.g., SAST cannot cross symSlash)
 		if bt.vIdx < len(vStream.syms) {
 			vSym := vStream.syms[bt.vIdx]
 			if (bt.sym == symAsterisk || bt.sym == symPercent) && vSym == symSlash {
-				// Path boundary reached; this wildcard cannot consume any further
 				backtracks = backtracks[:len(backtracks)-1]
 				continue
 			}
-
-			// Consume one more symbol and retry
 			bt.vIdx++
 			pIdx = bt.pIdx
 			vIdx = bt.vIdx
 		} else {
-			// Exhausted all possibilities for this wildcard
 			backtracks = backtracks[:len(backtracks)-1]
 		}
 	}
 
-	if matched {
-		// 1. Flush any pending AST wrappers (e.g., *loc) at the match boundary
-		vStream.flushClosures()
+	// Restore the best partial match state if the total match failed
+	if !matched {
+		if maxVIdx <= 0 { return false, nil, val, nil }
+		vIdx = maxVIdx
+		backtracks = bestBacktracks
+	}
 
-		// Helper to safely translate Symbol indices to virtual byte offsets
-		offsetOf := func(stream *symstr, idx int) int {
-			if idx < len(stream.markers) {
-				return stream.markers[idx].byteOffset
-			}
-			return stream.currentByte
-		}
+	vStream.flushClosures()
 
-		// 2. Resolve the exact byte boundary of the matched sequence
-		matchByteEnd := offsetOf(vStream, vIdx)
+	offsetOf := func(stream *symstr, idx int) int {
+		if idx < len(stream.markers) { return stream.markers[idx].byteOffset }
+		return stream.currentByte
+	}
 
-		// 3. Extract the consumed Target Value (res)
+	matchByteEnd := offsetOf(vStream, vIdx)
+
+	if matchByteEnd > 0 {
 		res = vStream.valueInRange(0, matchByteEnd)
-
-		// 4. Fast-forward the remainder of the target value (rem)
-		vStream.exhaust()
+	}
+	vStream.exhaust()
+	if matchByteEnd < vStream.currentByte {
 		rem = vStream.valueInRange(matchByteEnd, vStream.currentByte)
+	} else if matchByteEnd == 0 {
+		rem = val
+	}
 
-		// 5. Extract Capture Groups (stems) directly from the NFA Backtrack stack
-		for _, bt := range backtracks {
-			stemStartByte := offsetOf(vStream, bt.stemStart)
-			stemEndByte := offsetOf(vStream, bt.vIdx)
-
-			var stemVal Value
-			if stemStartByte == stemEndByte {
-				// Wildcard consumed 0 symbols (e.g., empty string matched by **)
-				stemVal = nil //symEmpty
-			} else {
-				// Perfect AST Repacking!
-				stemVal = vStream.valueInRange(stemStartByte, stemEndByte)
-			}
-
-			stems = append(stems, stemVal)
+	for _, bt := range backtracks {
+		stemStartByte := offsetOf(vStream, bt.stemStart)
+		stemEndByte := offsetOf(vStream, bt.vIdx)
+		var stemVal Value
+		if stemStartByte == stemEndByte {
+			stemVal = nil
+		} else {
+			stemVal = vStream.valueInRange(stemStartByte, stemEndByte)
 		}
+		stems = append(stems, stemVal)
 	}
 
 	return matched, res, rem, stems
@@ -21914,7 +21926,6 @@ func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Valu
 	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
 	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
 
-	// Backward matching requires full upfront evaluation
 	pStream.exhaust()
 	vStream.exhaust()
 
@@ -21922,8 +21933,18 @@ func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Valu
 	pIdx := len(pStream.syms) - 1
 	vIdx := len(vStream.syms) - 1
 
+	// NFA Farthest-Reach Tracking (in reverse, min is deepest)
+	minVIdx, minPIdx := len(vStream.syms), len(pStream.syms)
+	var bestBacktracks []globState
+
 	for {
-		// 1. Success condition (Pattern exhausted)
+		// Track the deepest penetration into the target string from the rear
+		if vIdx < minVIdx || (vIdx == minVIdx && pIdx < minPIdx) {
+			minVIdx = vIdx
+			minPIdx = pIdx
+			bestBacktracks = append(bestBacktracks[:0], backtracks...)
+		}
+
 		if pIdx < 0 {
 			matched = true
 			break
@@ -21931,22 +21952,19 @@ func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Valu
 
 		pSym := pStream.syms[pIdx]
 
-		// 2. Handle Wildcards (Create Backtrack Points)
-		// We save the state assuming the wildcard consumes 0 symbols initially.
 		if pSym == symAsterisk || pSym == symAsteriskAst || pSym == symPercent {
 			backtracks = append(backtracks, globState{
-				pIdx:      pIdx - 1, // Move pattern cursor past wildcard
-				vIdx:      vIdx,     // Value cursor remains unchanged
-				stemStart: vIdx,     // Record where the capture block ends
-				sym:       pSym,
+				pIdx: pIdx - 1, vIdx: vIdx, stemStart: vIdx, sym: pSym,
 			})
 			pIdx--
 			continue
 		}
 
-		// 3. Handle Single Character Matchers & Exact Matches
 		if pSym == symQues {
 			if vIdx >= 0 && vStream.syms[vIdx] != symSlash {
+				backtracks = append(backtracks, globState{
+					pIdx: pIdx - 1, vIdx: vIdx - 1, stemStart: vIdx, sym: symQues,
+				})
 				pIdx--
 				vIdx--
 				continue
@@ -21957,71 +21975,62 @@ func backwardGlobValue(ctx Context, pat, val Value) (matched bool, res, rem Valu
 			continue
 		}
 
-		// 4. Mismatch! Trigger Reverse Backtracking
 		if len(backtracks) == 0 {
-			return false, nil, val, nil // No wildcards to rescue the mismatch
+			break // matched = false
 		}
 
-		// Pop the last wildcard state and consume one MORE symbol backwards
 		bt := &backtracks[len(backtracks)-1]
-
 		if bt.vIdx >= 0 {
 			vSym := vStream.syms[bt.vIdx]
-
-			// Enforce path boundaries (SAST & PERC cannot consume symSlash)
 			if (bt.sym == symAsterisk || bt.sym == symPercent) && vSym == symSlash {
-				backtracks = backtracks[:len(backtracks)-1] // Kill this backtrack branch
+				backtracks = backtracks[:len(backtracks)-1]
 				continue
 			}
-
-			// Consume symbol and reset cursors for a retry
 			bt.vIdx--
 			pIdx = bt.pIdx
 			vIdx = bt.vIdx
 		} else {
-			// Exhausted all possibilities for this wildcard
 			backtracks = backtracks[:len(backtracks)-1]
 		}
 	}
 
-	// 5. High-Fidelity Extraction
-	if matched {
-		vStream.flushClosures()
+	// Restore the best partial trailing match state if the total match failed
+	if !matched {
+		if minVIdx >= len(vStream.syms)-1 { return false, nil, val, nil }
+		vIdx = minVIdx
+		backtracks = bestBacktracks
+	}
 
-		// Helper to safely translate Symbol indices to virtual byte offsets
-		offsetOf := func(stream *symstr, idx int) int {
-			if idx <= 0 { return 0 } // Reached the absolute start of the stream
-			if idx < len(stream.markers) {
-				return stream.markers[idx].byteOffset
-			}
-			return stream.currentByte
-		}
+	vStream.flushClosures()
 
-		// vIdx represents the LAST unconsumed symbol.
-		// Thus, the matched trailing sequence STARTS at vIdx + 1.
-		matchStartByte := offsetOf(vStream, vIdx+1)
+	offsetOf := func(stream *symstr, idx int) int {
+		if idx <= 0 { return 0 }
+		if idx < len(stream.markers) { return stream.markers[idx].byteOffset }
+		return stream.currentByte
+	}
 
+	matchStartByte := offsetOf(vStream, vIdx+1)
+
+	if matchStartByte < vStream.currentByte {
 		res = vStream.valueInRange(matchStartByte, vStream.currentByte)
+	}
+	if matchStartByte > 0 {
 		rem = vStream.valueInRange(0, matchStartByte)
+	} else if matchStartByte == vStream.currentByte {
+		rem = val
+	}
 
-		// 6. Extract Capture Groups (stems)
-		// CRITICAL: Because we ran backwards, the backtracks array holds wildcards
-		// from Right-to-Left. We iterate it backwards to output Stems Left-to-Right!
-		for i := len(backtracks) - 1; i >= 0; i-- {
-			bt := backtracks[i]
-
-			stemStartByte := offsetOf(vStream, bt.vIdx+1)
-			stemEndByte := offsetOf(vStream, bt.stemStart+1)
-
-			var stemVal Value
-			if stemStartByte == stemEndByte {
-				stemVal = nil //symEmpty
-			} else {
-				stemVal = vStream.valueInRange(stemStartByte, stemEndByte)
-			}
-
-			stems = append(stems, stemVal)
+	for i := len(backtracks) - 1; i >= 0; i-- {
+		bt := backtracks[i]
+		stemStartByte := offsetOf(vStream, bt.vIdx+1)
+		stemEndByte := offsetOf(vStream, bt.stemStart+1)
+		var stemVal Value
+		if stemStartByte == stemEndByte {
+			stemVal = nil
+		} else {
+			stemVal = vStream.valueInRange(stemStartByte, stemEndByte)
 		}
+		stems = append(stems, stemVal)
 	}
 
 	return matched, res, rem, stems
@@ -22041,7 +22050,6 @@ func matchValueValue(ctx Context, pat Value, val Value, trail bool) (matched boo
 func forwardValueValue(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
 
-	// Seed both streams natively with the raw AST Values
 	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
 	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
 	var matchLen int
@@ -22062,11 +22070,16 @@ func forwardValueValue(ctx Context, pat Value, val Value) (matched bool, res, re
 		matchLen = vStream.symBytePos
 	}
 
-	if matched {
-		vStream.flushClosures() // Ensure exact AST wrappers are recorded
+	// ALWAYS extract partial progress, even on failure!
+	if matchLen > 0 {
+		vStream.flushClosures()
 		res = vStream.valueInRange(0, matchLen)
-		vStream.exhaust() // Fast-forward to calculate the unconsumed tail
-		rem = vStream.valueInRange(matchLen, vStream.currentByte)
+		vStream.exhaust()
+		if matchLen < vStream.currentByte {
+			rem = vStream.valueInRange(matchLen, vStream.currentByte)
+		}
+	} else {
+		rem = val
 	}
 	return
 }
@@ -22077,7 +22090,6 @@ func backwardValueValue(ctx Context, pat Value, val Value) (matched bool, res, r
 	pStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: pat}}}
 	vStream := &symstr{Context: ctx, tasks: []walktask{{op: opEvalValue, val: val}}}
 
-	// Backward matching requires full evaluation to align the trailing anchors
 	pStream.exhaust()
 	vStream.exhaust()
 
@@ -22086,17 +22098,27 @@ func backwardValueValue(ctx Context, pat Value, val Value) (matched bool, res, r
 
 	for pCursor >= 0 {
 		if vCursor < 0 || pStream.syms[pCursor] != vStream.syms[vCursor] {
-			return false, nil, val, nil
+			matched = false
+			break
 		}
 		pCursor--
 		vCursor--
 	}
 
-	matched = true
-	matchStartByte := vStream.markers[vCursor+1].byteOffset
+	if pCursor < 0 {
+		matched = true
+	}
 
-	res = vStream.valueInRange(matchStartByte, vStream.currentByte)
-	rem = vStream.valueInRange(0, matchStartByte)
+	// ALWAYS extract partial trailing progress, even on failure!
+	if vCursor < len(vStream.syms)-1 {
+		matchStartByte := vStream.markers[vCursor+1].byteOffset
+		res = vStream.valueInRange(matchStartByte, vStream.currentByte)
+		if matchStartByte > 0 {
+			rem = vStream.valueInRange(0, matchStartByte)
+		}
+	} else {
+		rem = val
+	}
 	return
 }
 
