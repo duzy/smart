@@ -5411,6 +5411,10 @@ const (
 	DOTDOT    // ..
 	TILDE     // ~
 
+	APOST     // '
+	BQUOT     // `
+	QUOTE     // "
+
 	SELECT_PROP  // -> 'foo→xxx' (different from ' → ')
 	SELECT_PROG1 // => 'foo⇒xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
 	SELECT_PROG2 // ~> 'foo⇢xxx' ('foo↦xxx' 'foo↣xxx' 'foo⇥xxx')
@@ -5563,6 +5567,9 @@ var tokens = [...]string{
 	DOT:    ".",
 	DOTDOT: "..",
 	TILDE:  "~",
+	APOST:  "'",
+	BQUOT:  "`",
+	QUOTE:  `"`,
 
 	SELECT_PROP:  "→", // foo->bar
 	SELECT_PROG1: "⇒", // foo=>bar foo⇒bar
@@ -10314,10 +10321,10 @@ defsloop:
 			var neg bool
 			if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-			a, _, _, c := match(pc(ctx, pat), pat, name)
+			a, res, _, stems := match(pc(ctx, pat), pat, name)
 			if a && neg { continue defsloop }
 			if a || neg {
-				var main Value = name
+				var main Value = res
 				var caps []*defcap
 
 				// Use the exact predefined integer for $0
@@ -10325,7 +10332,7 @@ defsloop:
 
 				if len(capture) == 0 {
 					// Auto-numbered captures from stems: $1, $2...
-					for i, stem := range c {
+					for i, stem := range stems {
 						var sSym Symbol
 						// ZERO-ALLOCATION MATH: sym_0 to sym_9 are sequential iotas!
 						if i < 9 {
@@ -10333,7 +10340,18 @@ defsloop:
 						} else {
 							sSym = intern(strconv.Itoa(i + 1))
 						}
-						caps = append(caps, &defcap{sSym, stem})
+
+						target := stem
+						// Unpack named_stem wrappers injected by the regex engine
+						if ns, isNamed := stem.(*named_stem); isNamed {
+							target = ns.Value
+							caps = append(caps, &defcap{ns.name, target})
+						}
+
+						// CRITICAL FIX: Convert nil stems to valbase so they evaporate cleanly as `{}`!
+						if target == nil { target = _null(pos) }
+
+						caps = append(caps, &defcap{sSym, target})
 					}
 				} else {
 					// Named captures
@@ -10341,24 +10359,30 @@ defsloop:
 						sym := capture[0]
 						// Fast-path index extraction for numeric captures $1-$9
 						if sym >= sym_1 && sym <= sym_9 {
-							if idx := int(sym - sym_0); idx <= len(c) {
-								main = c[idx-1]
+							if idx := int(sym - sym_0); idx <= len(stems) {
+								main = stems[idx-1]
 							}
-						} else if i, e := strconv.Atoi(sym.String()); e == nil && 0 < i && i <= len(c) {
+						} else if i, e := strconv.Atoi(sym.String()); e == nil && 0 < i && i <= len(stems) {
 							// Slow-path fallback for $10+
-							main = c[i-1]
+							main = stems[i-1]
 						}
+
+						if ns, isNamed := main.(*named_stem); isNamed { main = ns.Value }
+						if main == nil { main = _null(pos) }
 					}
 
 					// CRITICAL FIX 2: Removed the rogue 'else' block!
 					// We must ALWAYS bind the variables to caps, even if len == 1.
 					for i, sym := range capture {
 						var val Value
-						if i < len(c) {
-							val = c[i]
-						} else {
-							val = &valbase{pos}
+						if i < len(stems) {
+							val = stems[i]
+							if ns, isNamed := val.(*named_stem); isNamed { val = ns.Value }
 						}
+
+						// Convert unmatched nil groups to valbase
+						if val == nil { val = _null(pos) }
+
 						caps = append(caps, &defcap{sym, val})
 					}
 				}
