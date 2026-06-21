@@ -1815,9 +1815,15 @@ type vmsnapshot struct {
 	tieSymCursor int    // Tie symbol cursor
 	tieBytePos   int    // Tie byte cursor
 	tieStr       string // Tie cached string
+	tieMarkers   int    // Tracks the markers length of the target stream!
 	pStemsLen    int    // Tracks stems length before this wildcard
 	stemStart    int    // Start coordinate of the wildcard capture
 	stemEnd      int    // End coordinate of the wildcard capture
+}
+
+type stemcap struct {
+	start, end int
+	name       Symbol
 }
 
 // symstr is a fully self-contained Stack Virtual Machine.
@@ -1841,7 +1847,7 @@ type symstr struct {
 	tie         *symstr      // Dynamically ties regular expressions to a target stream
 	err         error        // VM fatal error state (e.g., ErrMatchFailed)
 	backtracks  []vmsnapshot // The VM State Machine Rewind Stack
-	stems       []Value      // Extracted capture groups (from regex or globs)
+	stems       []stemcap    // Extracted capture groups (from regex or globs)
 }
 
 func (s *symstr) do(ctx Context, op any) any { // Optional!
@@ -1873,7 +1879,7 @@ func (s *symstr) step() {
 		s.emit(sym)
 		if sym == symSlash { s.class = patNone }
 
-	case opMatchLiteral: // POP 1: sym Symbol
+	case opMatchLiteral:
 		sym := s.operands[l-1].(Symbol)
 		s.operands = s.operands[:l-1]
 
@@ -1881,22 +1887,17 @@ func (s *symstr) step() {
 
 		for len(str) > 0 {
 			if len(s.tie.str) > 0 {
-				// FAST PATH: Direct string chunk memory comparison
 				n := len(str)
-				if len(s.tie.str) < n {
-					n = len(s.tie.str)
-				}
+				if len(s.tie.str) < n { n = len(s.tie.str) }
 
 				if str[:n] != s.tie.str[:n] {
 					s.fail()
 					return
 				}
 
-				// Advance the native VM execution states
 				str = str[n:]
-				s.tie.advance(n)
+				s.tie.advanceRune(n)
 			} else {
-				// FINAL FALLBACK: Boundary crossed!
 				pr, pSize := utf8.DecodeRuneInString(str)
 				vr, _, err := s.tie.ReadRune()
 
@@ -1925,7 +1926,6 @@ func (s *symstr) step() {
 		stemStart := s.tie.bytePos
 		baseStemsLen := len(s.stems)
 
-		// HARD COPY THE EXECUTION STATE
 		snapOps := append([]evalop(nil), s.ops...)
 		snapOperands := append([]any(nil), s.operands...)
 
@@ -1940,43 +1940,45 @@ func (s *symstr) step() {
 			tieSymCursor: s.tie.symCursor,
 			tieBytePos:   s.tie.bytePos,
 			tieStr:       s.tie.str,
+			tieMarkers:   len(s.tie.markers), // RECORD MARKERS
 			pStemsLen:    baseStemsLen,
 			stemStart:    stemStart,
-			stemEnd:      stemStart, // 0 consumed initially
+			stemEnd:      stemStart,
 		}
 
 		var localSnaps []vmsnapshot
 		localSnaps = append(localSnaps, snap)
 
-		// Eagerly consume everything, taking a snapshot AT EVERY STEP!
 		for {
 			snapSymCursor, snapStr, snapBytePos := s.tie.symCursor, s.tie.str, s.tie.bytePos
+			snapTieMarkers := len(s.tie.markers) // RECORD READ-AHEAD MARKERS
+
 			r, _, err := s.tie.ReadRune()
 
 			if err != nil || (op == opGlobAsterisk && r == '/') {
 				s.tie.symCursor, s.tie.str, s.tie.bytePos = snapSymCursor, snapStr, snapBytePos
+				s.tie.markers = s.tie.markers[:snapTieMarkers] // REWIND READ-AHEAD MARKERS
 				break
 			}
 
 			snap.tieSymCursor = s.tie.symCursor
 			snap.tieStr = s.tie.str
 			snap.tieBytePos = s.tie.bytePos
-			snap.stemEnd = s.tie.bytePos // Track the exact boundary!
-			localSnaps = append(localSnaps, snap) // Safely reuses snapOps/snapOperands!
+			snap.tieMarkers = len(s.tie.markers) // RECORD FOR NEXT SNAPSHOT
+			snap.stemEnd = s.tie.bytePos
+			localSnaps = append(localSnaps, snap)
 		}
 
-		// Push all fallback states to backtracks (max-1 down to 0)
 		s.backtracks = append(s.backtracks, localSnaps[:len(localSnaps)-1]...)
 
-		// Push the max stem to the LIVE state
 		maxSnap := localSnaps[len(localSnaps)-1]
 		if maxSnap.stemEnd == stemStart {
-			s.stems = append(s.stems, nil)
+			s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 		} else {
-			s.stems = append(s.stems, s.tie.valueInRange(stemStart, maxSnap.stemEnd))
+			s.stems = append(s.stems, stemcap{stemStart, maxSnap.stemEnd, symEmpty})
 		}
 
-	case opGlobAstCross: // *? (Reluctant/Lazy)
+	case opGlobAstCross:
 		s.emit(symAsteriskQues)
 
 		stemStart := s.tie.bytePos
@@ -1994,15 +1996,16 @@ func (s *symstr) step() {
 			tieSymCursor: s.tie.symCursor,
 			tieBytePos:   s.tie.bytePos,
 			tieStr:       s.tie.str,
+			tieMarkers:   len(s.tie.markers), // RECORD MARKERS
 			pStemsLen:    len(s.stems),
 			stemStart:    stemStart,
 			stemEnd:      stemStart,
 		}
 
 		s.backtracks = append(s.backtracks, snap)
-		s.stems = append(s.stems, nil) // Starts with 0 consumed
+		s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 
-	case opGlobRange: // POP 1: v *globrange
+	case opGlobRange:
 		v := s.operands[l-1].(*globrange)
 		s.operands = s.operands[:l-1]
 
@@ -2057,15 +2060,21 @@ func (s *symstr) step() {
 		s.operands = s.operands[:l-1]
 
 		snapSymCursor, snapStr, snapBytePos := s.tie.symCursor, s.tie.str, s.tie.bytePos
+		snapTieMarkers := len(s.tie.markers) // RECORD MARKERS
+
 		locs := rx.re.FindReaderSubmatchIndex(s.tie)
 
 		if locs != nil {
 			absEnd := snapBytePos + locs[1]
 
-			matchedVal := s.tie.valueInRange(snapBytePos, absEnd)
-			s.emit(intern(ts(matchedVal, s.Context)))
+			// Fast symbol combination instead of valueInRange!
+			matchedSyms := s.tie.symbolInRange(snapBytePos, absEnd)
+			var str string
+			for _, sym := range matchedSyms { str += sym.String() }
+			s.emit(intern(str))
 
 			s.tie.symCursor, s.tie.str, s.tie.bytePos = snapSymCursor, snapStr, snapBytePos
+			s.tie.markers = s.tie.markers[:snapTieMarkers]
 
 			consumed := locs[1]
 			for consumed > 0 {
@@ -2074,26 +2083,28 @@ func (s *symstr) step() {
 				consumed -= size
 			}
 
-			var localStems []Value
+			// PURE INTEGER TRACKING
+			var localStems []stemcap
 			for i := 2; i < len(locs); i += 2 {
 				if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-					localStems = append(localStems, s.tie.valueInRange(snapBytePos+locs[i], snapBytePos+locs[i+1]))
+					localStems = append(localStems, stemcap{snapBytePos + locs[i], snapBytePos + locs[i+1], symEmpty})
 				} else {
-					localStems = append(localStems, nil)
+					localStems = append(localStems, stemcap{-1, -1, symEmpty})
 				}
 			}
 
 			names := rx.re.SubexpNames()
 			for i := 1; i < len(names); i++ {
 				if name := names[i]; name != "" && i-1 < len(localStems) {
-					if localStems[i-1] != nil {
-						localStems[i-1] = &named_stem{localStems[i-1], intern(name)}
+					if localStems[i-1].start != -1 {
+						localStems[i-1].name = intern(name)
 					}
 				}
 			}
 			s.stems = append(s.stems, localStems...)
 		} else {
 			s.tie.symCursor, s.tie.str, s.tie.bytePos = snapSymCursor, snapStr, snapBytePos
+			s.tie.markers = s.tie.markers[:snapTieMarkers] // REWIND READ-AHEAD
 			s.fail()
 		}
 
@@ -2149,7 +2160,11 @@ func (s *symstr) step() {
 			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
 			pushSym(symQuotation)
 
-		// THE MISSING LINK! Unrolls the glob sequence backwards onto the stack!
+		case *globbrace:
+			s.class |= patGlob
+			pushClose(v)
+			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+
 		case *globpat:
 			s.class |= patGlob
 			pushClose(v)
@@ -2245,6 +2260,7 @@ func (s *symstr) fail() {
 		s.tie.symCursor = snap.tieSymCursor
 		s.tie.str = snap.tieStr
 		s.tie.bytePos = snap.tieBytePos
+		s.tie.markers = s.tie.markers[:snap.tieMarkers] // REWIND THE TARGET MARKERS!
 
 		// 2. Reluctant Expansion Check
 		if snap.op == opGlobAstCross {
@@ -2255,6 +2271,7 @@ func (s *symstr) fail() {
 			newSnap.tieSymCursor = s.tie.symCursor
 			newSnap.tieStr = s.tie.str
 			newSnap.tieBytePos = s.tie.bytePos
+			newSnap.tieMarkers = len(s.tie.markers) // RECORD EXPANDED MARKERS
 			newSnap.stemEnd = s.tie.bytePos
 			s.backtracks = append(s.backtracks, newSnap)
 		}
@@ -2272,14 +2289,12 @@ func (s *symstr) fail() {
 		// 4. Safely Rewind and Extract the Glob Stems!
 		s.stems = s.stems[:snap.pStemsLen]
 		if snap.op == opGlobAsterisk || snap.op == opGlobAstGreed || snap.op == opGlobAstCross {
-			// Because vStream evaluates lazily, we must flush its closures NOW
-			// so that valueInRange can correctly find the extracted intervals!
-			s.tie.flushClosures()
-
+			// Tied stream evaluates lazily and append-only. Because it already read-ahead,
+			// its intervals are permanently safe. We just extract the string!
 			if snap.stemEnd == snap.stemStart {
-				s.stems = append(s.stems, nil)
+				s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 			} else {
-				s.stems = append(s.stems, s.tie.valueInRange(snap.stemStart, snap.stemEnd))
+				s.stems = append(s.stems, stemcap{snap.stemStart, snap.stemEnd, symEmpty})
 			}
 		}
 
@@ -2291,9 +2306,21 @@ func (s *symstr) fail() {
 	s.err = ErrMatchFailed
 }
 
+// advance pushes the VM exactly one full AST symbol forward.
+// This is the core stepper for the Symbol-First Stack VM.
+func (s *symstr) advance() {
+	if s.symCursor < len(s.syms) {
+		sym := s.syms[s.symCursor]
+		s.bytePos += sym.len()
+		s.symCursor++
+		s.str = "" // Instantly clear any fragmented rune state!
+		s.flushClosures()
+	}
+}
+
 // advance safely pushes the stream forward by `n` bytes natively,
 // updating the fast-cache and injecting structural markers precisely on symbol boundaries.
-func (s *symstr) advance(n int) {
+func (s *symstr) advanceRune(n int) {
 	s.bytePos += n
 	s.str = s.str[n:]
 
@@ -2398,7 +2425,7 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	r, size := utf8.DecodeRuneInString(s.str)
 
 	// Advance states safely
-	s.advance(size)
+	s.advanceRune(size)
 
 	return r, size, nil
 }
@@ -2406,13 +2433,11 @@ func (s *symstr) ReadRune() (rune, int, error) {
 // ReadSymbol lazily evaluates the AST and yields the next sequential symbol.
 // Used natively by matching algorithms for zero-allocation linear traversal.
 func (s *symstr) ReadSymbol() (Symbol, error) {
-	for s.symCursor >= len(s.syms) {
+	for s.symCursor >= len(s.syms) { // Similar to pump(), but different.
 		// Catch errors triggered during step execution FIRST
 		if s.err != nil { return symEmpty, s.err }
-
 		if len(s.ops) == 0 { return symEmpty, io.EOF }
-
-		s.pump()
+		s.step()
 	}
 
 	sym := s.syms[s.symCursor]
@@ -2430,26 +2455,9 @@ func (s *symstr) ReadSymbol() (Symbol, error) {
 	s.bytePos += sym.len()
 	s.str = "" // Clear the cache so ReadRune doesn't read stale data if called next
 	s.symCursor++
-
 	s.flushClosures()
 
 	return sym, nil
-}
-
-// ReadSymbolBackward yields the previous symbol in the sequence.
-func (s *symstr) ReadSymbolBackward() (Symbol, error) {
-	// If tasks remain, evaluate them so we know where the true end of the stream is.
-	if len(s.ops) > 0 {
-		s.exhaust()
-		s.symCursor = len(s.syms) // Snap cursor to the end
-	}
-
-	if s.symCursor <= 0 {
-		return symEmpty, io.EOF
-	}
-
-	s.symCursor--
-	return s.syms[s.symCursor], nil
 }
 
 // exhaust forces the lazy evaluator to complete, fully populating s.syms.
@@ -2476,24 +2484,15 @@ func (s *symstr) emit(sym Symbol) {
 // byteToSymIdx safely translates a virtual byte boundary back to the symbol index.
 // Includes strict boundary checks to prevent panics on un-exhausted streams.
 func (s *symstr) byteToSymIdx(byteOffset int) int {
-	if byteOffset <= 0 {
-		return 0
-	}
+	if byteOffset <= 0 { return 0 }
+	if byteOffset >= s.currentByte { return len(s.syms) }
 
-	i := sort.Search(len(s.markers), func(i int) bool {
-		return s.markers[i].byteOffset >= byteOffset
-	})
-
-	// Safe bounds check: Ensure we don't access out-of-range markers
-	if i < len(s.markers) {
-		if s.markers[i].byteOffset == byteOffset {
-			return s.markers[i].idx
+	for i, m := range s.markers {
+		if m.byteOffset == byteOffset { return m.idx }
+		if m.byteOffset > byteOffset {
+			if i > 0 { return s.markers[i-1].idx }
+			return 0
 		}
-		if i > 0 {
-			// Fallback to the symbol that encapsulates this internal byte
-			return s.markers[i-1].idx
-		}
-		return 0
 	}
 
 	// If the offset is beyond recorded markers, default to the end of the active buffer
@@ -2608,8 +2607,7 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 			case *loc, *xloc, fullname, fullfile, *defcaps:
 				wrappers = append(wrappers, w)
 			case *word, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal, *file, *auto, flag:
-				// Flat nodes are intentionally ignored here so they fall through to
-				// __symPackValue and get dynamically parsed into rich structures!
+				// Flat nodes fall through to __symPackValue
 			default:
 				// Complex structured nodes (*list, *compound, *qualword) are preserved intact
 				pristineStructured = inv.node
@@ -2620,11 +2618,6 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	var val Value
 	if pristineStructured != nil {
 		val = pristineStructured
-	} else if false {
-		// 2. FALLBACK & UPGRADE: Shatter to flat symbols and parse via __symPackValue
-		// Always use the first node (the nearest one) pos, even it's a NoPos!
-		packPos := s.intervals[0].node.Pos()
-		val = __symPackValue(&force_pos_ctx{s, packPos}, s.symbolInRange(startByte, endByte))
 	} else {
 		// 2. FALLBACK & UPGRADE: Shatter to flat symbols and parse via __symPackValue
 		var packPos Pos = -1
@@ -2651,7 +2644,6 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 		case *loc:
 			if val.Pos() != w.pos { val = &loc{val, w.pos} }
 		case *xloc:
-			// xloc uses fat 'Position'. We check directly if it's already an identical xloc.
 			if x, isXloc := val.(*xloc); !(isXloc && x.pos == w.pos) { val = &xloc{val, w.pos} }
 		case fullfile:
 			if f, isFile := val.(*file); isFile { val = fullfile{f} }
@@ -22187,47 +22179,20 @@ func packGlob(parts []Value) Value {
 type named_stem struct{ Value; name Symbol }
 func (p *named_stem) String() string { return p.Value.String() }
 
-// matchRegexValue applies a pre-compiled regex pattern against a value.
-func matchRegexValue(ctx Context, pat *regexpat, val Value, trail bool) (matched bool, res, rem Value, stems []Value) {
-	if checkpoints { defer check_matchRegexValue(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
-	if val == nil { return false, nil, nil, nil }
-
-	// Seed the lazy engine with the root AST node
-	stream := &symstr{Context: ctx, /* FIXME: tasks:[]walktask{{op: opEvalValue, val: val}} */}
-
-	locs := pat.re.FindReaderSubmatchIndex(stream)
-	if locs == nil { return false, nil, val, nil }
-
-	res = stream.valueInRange(locs[0], locs[1])
-
-	if trail {
-		if locs[1] != stream.bytePos { return false, nil, val, nil }
-		rem = stream.valueInRange(0, locs[0])
-	} else {
-		if locs[0] != 0 { return false, nil, val, nil }
-		rem = stream.valueInRange(locs[1], stream.bytePos)
-	}
-
-	for i := 2; i < len(locs); i += 2 {
-		if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-			stems = append(stems, stream.valueInRange(locs[i], locs[i+1]))
+func extractStems(vStream *symstr, caps []stemcap) []Value {
+	var res []Value
+	for _, c := range caps {
+		if c.start == -1 {
+			res = append(res, nil)
 		} else {
-			stems = append(stems, nil)
+			v := vStream.valueInRange(c.start, c.end)
+			if c.name != symEmpty && v != nil {
+				v = &named_stem{v, c.name}
+			}
+			res = append(res, v)
 		}
 	}
-
-	// Map named capture groups using SubexpNames
-	names := pat.re.SubexpNames()
-	for i := 1; i < len(names); i++ {
-		// Ensure the group is named and exists within our extracted stems bounds
-		if name := names[i]; name != "" && i-1 < len(stems) {
-			// Only wrap if the stem actually matched something (not nil),
-			// preserving the native nil-evaporation for unmatched optional groups.
-			if stems[i-1] != nil { stems[i-1] = &named_stem{stems[i-1], intern(name)} }
-		}
-	}
-
-	return true, res, rem, stems
+	return res
 }
 
 func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
@@ -22237,44 +22202,54 @@ func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Va
 	vStream.ops = append(vStream.ops, opEvalValue)
 	vStream.operands = append(vStream.operands, val)
 
-	// 1. Strict Stack VM Initialization (With Auto-Tying!)
 	pStream := &symstr{Context: ctx, tie: vStream}
 	pStream.ops = append(pStream.ops, opEvalValue)
 	pStream.operands = append(pStream.operands, pat)
 
-	// 2. Drive the Unified Match VM to completion!
-	// We do NOT use exhaust() because we don't want to force symbol generation.
-	// We just pump the operations until the JIT compiler finishes executing the AST.
+	var bestTieByte int
+	var bestStems []stemcap
+
 	for len(pStream.ops) > 0 && pStream.err == nil {
 		pStream.step()
+
+		if pStream.tie.bytePos >= bestTieByte {
+			bestTieByte = pStream.tie.bytePos
+			if len(pStream.stems) > 0 {
+				bestStems = append([]stemcap(nil), pStream.stems...)
+			} else {
+				bestStems = nil
+			}
+		}
 	}
 
-	// 3. Flush any stranded AST closures on the target stream
-	vStream.flushClosures()
+	vStream.exhaust()
+	vStream.currentByte++ // FIXED: Insufficient range coverage bug.
+	matched = (pStream.err == nil)
 
-	// 4. Check Match State
-	if pStream.err != nil {
-		// If the VM threw ErrMatchFailed, the NFA definitively failed.
-		return false, nil, val, nil
+	if matched {
+		if vStream.bytePos > 0 {
+			res = vStream.valueInRange(0, vStream.bytePos)
+			if vStream.bytePos < vStream.currentByte {
+				rem = vStream.valueInRange(vStream.bytePos, vStream.currentByte)
+			}
+		} else {
+			rem = val
+		}
+		// Convert the winning LIVE stems array!
+		return true, res, rem, extractStems(vStream, pStream.stems)
 	}
 
-	matched = true
-
-	// 5. Safe AST Extraction via pure bytePos boundaries
-	if vStream.bytePos > 0 {
-		res = vStream.valueInRange(0, vStream.bytePos)
-
-		// Unroll the remainder of the target AST to extract the unconsumed portion
-		vStream.exhaust()
-		if vStream.bytePos < vStream.currentByte {
-			rem = vStream.valueInRange(vStream.bytePos, vStream.currentByte)
+	if bestTieByte > 0 {
+		res = vStream.valueInRange(0, bestTieByte)
+		if bestTieByte < vStream.currentByte {
+			rem = vStream.valueInRange(bestTieByte, vStream.currentByte)
 		}
 	} else {
-		// VM succeeded but consumed 0 bytes (e.g. matched an empty string)
 		rem = val
 	}
 
-	return matched, res, rem, pStream.stems
+	// Convert the telemetry stems array!
+	return false, res, rem, extractStems(vStream, bestStems)
 }
 
 func match_backward(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
