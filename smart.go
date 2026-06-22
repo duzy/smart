@@ -1802,28 +1802,56 @@ type interval struct {
 	node      Value
 }
 
-type vmsnapshot struct {
-	op          evalop  // The wildcard that generated this snapshot (opGlobAsterisk, opGlobAstGreed, etc.)
-	ops         []evalop // Hard copy of execution tape
-	operands    []any    // Hard copy of data stack
-	opsLen      int     // Instruction pointer
-	operandsLen int     // Data stack height
-	pSymLen     int     // Pattern tape length
-	pIntervals  int     // Interval closure length
-	pBytePos    int     // Pattern byte cursor
-	pMarkers    int     // Pattern markers length
-	tieSymCursor int    // Tie symbol cursor
-	tieBytePos   int    // Tie byte cursor
-	tieStr       string // Tie cached string
-	// tieMarkers   int    // Tracks the markers length of the target stream!
-	pStemsLen    int    // Tracks stems length before this wildcard
-	stemStart    int    // Start coordinate of the wildcard capture
-	stemEnd      int    // End coordinate of the wildcard capture
-}
-
 type stemcap struct {
 	start, end int
 	name       Symbol
+}
+
+// vmcursors tracks the execution read-head state.
+type vmcursors struct {
+	symCursor int    // Which symbol we are currently processing
+	str       string // The cached string representation of the current symbol
+	bytePos   int    // Tracks the virtual byte offset for the NFA engine
+}
+
+// vmtape tracks the append-only generator state.
+type vmtape struct {
+	syms        []Symbol     // Flatten symbols from the value(s)
+	intervals   []interval   // AST tracking data injected from the flattener
+	markers     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
+	stems       []stemcap    // Extracted capture groups
+	currentByte int          // Lazy flattening byte position
+	symBytePos  int          // Tracks the symbol byte offset for symbol boundaries
+}
+
+// vmstack tracks the mutable execution instructions.
+type vmstack struct {
+	ops      []evalop // The Instruction Stream
+	operands []any    // The Strict Data Stack for VM execution
+}
+
+// vmsnapshot is a completely flattened, zero-overhead memory freeze.
+type vmsnapshot struct {
+	op        evalop    // The wildcard that generated this snapshot
+	stemStart int       // Start coordinate of the wildcard capture
+	stemEnd   int       // End coordinate of the wildcard capture
+	tie       vmcursors // Hard copy of the target stream's cursors
+	tape      vmtape    // Shallow copy of pattern tape (slice headers provide O(1) truncation)
+	stack     vmstack   // Deep copy of execution stack
+}
+
+// clone securely deep-copies the volatile execution stacks.
+func (st vmstack) clone() vmstack {
+	return vmstack{
+		ops:      append([]evalop(nil), st.ops...),
+		operands: append([]any(nil), st.operands...),
+	}
+}
+
+// restore rewinds the mutable execution stacks using existing capacity.
+func (dst *vmstack) restore(src vmstack) {
+	dst.ops = append(dst.ops[:0], src.ops...)
+	dst.operands = append(dst.operands[:0], src.operands...)
 }
 
 // symstr is a fully self-contained Stack Virtual Machine.
@@ -1832,22 +1860,14 @@ type stemcap struct {
 // When s.tie == nil, opEvalValue acts as a pure AST unroller (Generator).
 // When s.tie != nil, it dynamically compiles the exact same AST into granular matching bytecodes!
 type symstr struct {
-	Context                  // Embedded for repack access
-	syms        []Symbol     // Flatten symbols from the value(s)
-	symCursor   int          // Which symbol we are currently processing
-	str         string       // The cached string representation of the current symbol
-	bytePos     int          // Tracks the virtual byte offset for the NFA engine (UTF-8 offsets)
-	symBytePos  int          // Tracks the symbol byte offset for symbol boundaries
-	markers     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
-	intervals   []interval   // AST tracking data injected from the flattener
-	ops         []evalop     // The Instruction Stream
-	operands    []any        // The Strict Data Stack for VM execution
-	currentByte int          // Lazy flattening byte position
-	class       int          // Bitmask tracking AST structural composition (Glob vs Regex)
-	tie         *symstr      // Dynamically ties regular expressions to a target stream
-	err         error        // VM fatal error state (e.g., ErrMatchFailed)
+	Context              // Embedded for repack access
+	vmcursors            // Self-execution state
+	vmtape               // Generator state
+	vmstack              // Execution stacks
+	class       int      // Bitmask tracking AST structural composition
+	tie         *symstr  // Dynamically ties regular expressions to a target stream
+	err         error    // VM fatal error state
 	backtracks  []vmsnapshot // The VM State Machine Rewind Stack
-	stems       []stemcap    // Extracted capture groups (from regex or globs)
 }
 
 func (s *symstr) do(ctx Context, op any) any { // Optional!
@@ -1865,23 +1885,13 @@ func (s *symstr) step() {
 	s.ops = s.ops[:top]
 
 	snapshot := func() vmsnapshot {
-		snapOps := append([]evalop(nil), s.ops...)
-		snapOperands := append([]any(nil), s.operands...)
 		return vmsnapshot{
-			op:           op,
-			ops:          snapOps,
-			operands:     snapOperands,
-			pSymLen:      len(s.syms),
-			pIntervals:   len(s.intervals),
-			pMarkers:     len(s.markers),
-			pBytePos:     s.currentByte,
-			tieSymCursor: s.tie.symCursor,
-			tieBytePos:   s.tie.bytePos,
-			tieStr:       s.tie.str,
-			// tieMarkers:   len(s.tie.markers), // RECORD MARKERS
-			pStemsLen:    len(s.stems),
-			stemStart:    s.tie.bytePos,
-			stemEnd:      s.tie.bytePos,
+			op:        op,
+			stemStart: s.tie.bytePos,
+			stemEnd:   s.tie.bytePos,
+			tie:       s.tie.vmcursors,
+			tape:      s.vmtape,
+			stack:     s.vmstack.clone(),
 		}
 	}
 
@@ -2042,6 +2052,26 @@ func (s *symstr) step() {
 					break
 				}
 
+				// --- THE FIX: INSTANT MICRO-SNAPSHOTS ---
+				str := s.tie.str
+				if len(str) == 0 { str = target.String() }
+
+				offset := 0
+				for offset < len(str) {
+					_, size := utf8.DecodeRuneInString(str[offset:])
+					offset += size
+
+					if offset == len(str) { break } // Skip last char (covered by main snap)
+
+					microSnap := snap
+					microSnap.tie.symCursor = s.tie.symCursor
+					microSnap.tie.str = str[offset:]
+					microSnap.tie.bytePos = s.tie.bytePos + offset
+					microSnap.stemEnd = microSnap.tie.bytePos
+					localSnaps = append(localSnaps, microSnap)
+				}
+				// ----------------------------------------
+
 				// FAST LEAP: Devour the fragment or the whole symbol instantly!
 				if len(s.tie.str) > 0 {
 					s.tie.advanceRune(len(s.tie.str)) // Instantly swallow the leftover fragment!
@@ -2049,10 +2079,7 @@ func (s *symstr) step() {
 					s.tie.advance() // Instantly swallow the entire symbol!
 				}
 
-				snap.tieSymCursor = s.tie.symCursor
-				snap.tieStr = s.tie.str
-				snap.tieBytePos = s.tie.bytePos
-				// snap.tieMarkers = len(s.tie.markers)
+				snap.tie = s.tie.vmcursors
 				snap.stemEnd = s.tie.bytePos
 				localSnaps = append(localSnaps, snap)
 				continue
@@ -2140,22 +2167,20 @@ func (s *symstr) step() {
 		rx  := s.operands[l-1].(*regexpat)
 		s.operands = s.operands[:l-1]
 
-		snapSymCursor, snapStr, snapBytePos := s.tie.symCursor, s.tie.str, s.tie.bytePos
-		snapTieMarkers := len(s.tie.markers) // RECORD MARKERS
+		snapCursors := s.tie.vmcursors // Freeze vmcursors
 
 		locs := rx.re.FindReaderSubmatchIndex(s.tie)
 
 		if locs != nil {
-			absEnd := snapBytePos + locs[1]
+			absEnd := snapCursors.bytePos + locs[1]
 
 			// Fast symbol combination instead of valueInRange!
-			matchedSyms := s.tie.symbolInRange(snapBytePos, absEnd)
+			matchedSyms := s.tie.symbolInRange(snapCursors.bytePos, absEnd)
 			var str string
 			for _, sym := range matchedSyms { str += sym.String() }
 			s.emit(intern(str))
 
-			s.tie.symCursor, s.tie.str, s.tie.bytePos = snapSymCursor, snapStr, snapBytePos
-			s.tie.markers = s.tie.markers[:snapTieMarkers]
+			s.tie.vmcursors = snapCursors
 
 			consumed := locs[1]
 			for consumed > 0 {
@@ -2168,7 +2193,7 @@ func (s *symstr) step() {
 			var localStems []stemcap
 			for i := 2; i < len(locs); i += 2 {
 				if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-					localStems = append(localStems, stemcap{snapBytePos + locs[i], snapBytePos + locs[i+1], symEmpty})
+					localStems = append(localStems, stemcap{snapCursors.bytePos + locs[i], snapCursors.bytePos + locs[i+1], symEmpty})
 				} else {
 					localStems = append(localStems, stemcap{-1, -1, symEmpty})
 				}
@@ -2184,8 +2209,7 @@ func (s *symstr) step() {
 			}
 			s.stems = append(s.stems, localStems...)
 		} else {
-			s.tie.symCursor, s.tie.str, s.tie.bytePos = snapSymCursor, snapStr, snapBytePos
-			s.tie.markers = s.tie.markers[:snapTieMarkers] // REWIND READ-AHEAD
+			s.tie.vmcursors = snapCursors
 			s.fail()
 		}
 
@@ -2354,46 +2378,30 @@ func (s *symstr) fail() {
 	for len(s.backtracks) > 0 {
 		top := len(s.backtracks) - 1
 		snap := s.backtracks[top]
-		s.backtracks = s.backtracks[:top] // ALWAYS pop the backtrack
+		s.backtracks = s.backtracks[:top]
 
-		// 1. Restore the target stream
-		s.tie.symCursor = snap.tieSymCursor
-		s.tie.str = snap.tieStr
-		s.tie.bytePos = snap.tieBytePos
-		// s.tie.markers = s.tie.markers[:snap.tieMarkers] // REWIND THE TARGET MARKERS!
+		// 1. Restore the target stream cursors in one O(1) assignment
+		s.tie.vmcursors = snap.tie
 
 		// 2. Reluctant Expansion Check
 		if snap.op == opGlobAstCross {
 			_, _, err := s.tie.ReadRune()
-
-			// THE FIX: Because this is "cross-segments matching", it MUST be allowed
-			// to cross directory boundaries. Remove the `r == '/'` restriction!
 			if err != nil { continue }
 
 			newSnap := snap
-			newSnap.tieSymCursor = s.tie.symCursor
-			newSnap.tieStr = s.tie.str
-			newSnap.tieBytePos = s.tie.bytePos
-			// newSnap.tieMarkers = len(s.tie.markers) // RECORD EXPANDED MARKERS
+			newSnap.tie = s.tie.vmcursors
 			newSnap.stemEnd = s.tie.bytePos
 			s.backtracks = append(s.backtracks, newSnap)
 		}
 
-		// 3. Rewind the main VM execution stacks safely from the copies!
-		s.ops = append(s.ops[:0], snap.ops...)
-		s.operands = append(s.operands[:0], snap.operands...)
+		// 3. Rewind the pattern tape (shallow slice restore = O(1) array truncation)
+		s.vmtape = snap.tape
 
-		// These only ever grow, so truncating the length is perfectly safe
-		s.syms = s.syms[:snap.pSymLen]
-		s.intervals = s.intervals[:snap.pIntervals]
-		s.markers = s.markers[:snap.pMarkers]
-		s.currentByte = snap.pBytePos
+		// 4. Safely Rewind the main VM execution stacks
+		s.vmstack.restore(snap.stack)
 
-		// 4. Safely Rewind and Extract the Glob Stems!
-		s.stems = s.stems[:snap.pStemsLen]
+		// 5. Safely Append the Glob Stems!
 		if snap.op == opGlobAsterisk || snap.op == opGlobAstGreed || snap.op == opGlobAstCross {
-			// Tied stream evaluates lazily and append-only. Because it already read-ahead,
-			// its intervals are permanently safe. We just extract the string!
 			if snap.stemEnd == snap.stemStart {
 				s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 			} else {
@@ -2401,11 +2409,10 @@ func (s *symstr) fail() {
 			}
 		}
 
-		s.err = nil // Clear the error, we have successfully time-traveled!
+		s.err = nil // Time-travel successful
 		return
 	}
 
-	// No backtracks left. The match is definitively dead.
 	s.err = ErrMatchFailed
 }
 
