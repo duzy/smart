@@ -23375,7 +23375,10 @@ func (c *ts_ctx) do(ctx Context, op any) any {
 		}
 
 		var s string
-		if c.Context != nil && p.Filename != symEmpty && p.Filename != c.p.Filename {
+
+		// Top-level test nodes MUST be allowed to proudly print their Filename
+		// if it differs from the test harness, even if their outer Context is nil!
+		if p.Filename != symEmpty && p.Filename != c.p.Filename {
 			if str := rel_pos_str(c.Context, p.Filename); str != "" { s = str + ":" }
 		}
 
@@ -23403,49 +23406,6 @@ func (c *ts_ctx) do(ctx Context, op any) any {
 
 	if c.Context == nil { return nil }
 	return c.Context.do(ctx, op)
-}
-
-func tspre(ctx Context, ap any, tag string) string {
-	if ctx == nil { return tag }
-
-	// 1. Nested AST Traversal: `ts_ctx` handles redundancy suppression natively!
-	if s, ok := do(ctx, ts_prefix_pos{ap, tag}).(string); ok { return s }
-
-	// 2. ROOT FALLBACK: The absolute beginning of the trace string.
-	var p Position
-	var rawPos Pos
-	switch x := ap.(type) {
-	case Position: p = x
-	case Pos: rawPos = x
-	case Poser: if x != nil { rawPos = x.Pos() }
-	}
-
-	if !p.valid() && rawPos.valid() {
-		if fat, _ := do(ctx, get_fatpos{rawPos}).(Position); fat.valid() { p = fat }
-	}
-
-	var s string
-	var currPos = _position(ctx)
-	if p.Filename != symEmpty && p.Filename != currPos.Filename {
-		if str := rel_pos_str(ctx, p.Filename); str != "" { s = str + ":" }
-	}
-
-	// THE DOD FIX: Removed Redundancy Suppression!
-	// Because this is the root node evaluating against the raw execution context,
-	// it MUST proudly anchor the trace with its position, even if it matches the test harness!
-	if p.Line > 0 {
-		s += fmt.Sprintf("%d:%d", p.Line, p.Column)
-	} else if rawPos.valid() {
-		s += fmt.Sprintf("@%d", rawPos)
-	}
-
-	if tag != "" {
-		if s != "" && !strings.HasSuffix(s, ":") { s += ":" }
-		s += tag
-	} else if strings.HasSuffix(s, ":") {
-		s = s[:len(s)-1]
-	}
-	return s
 }
 
 // Interceptor operations
@@ -23561,16 +23521,17 @@ func ts(i any, o ...any) (s string) {
 	}
 
 	// Unify Position Extraction & Context Stack
+	var rawPos Pos
 	var p Position
 	switch x := i.(type) {
 	case *xloc:    p = x.pos // Safely extracts the fat Position!
 	case Position: p = x
-	case Pos:      if c != nil { p = _fatpos(c, x) }
+	case Pos: if rawPos = x; c != nil { p = _fatpos(c, x) }
 	case Poser:
 		// Safely guard against typed nil interfaces (e.g. `*word(nil)`)
 		v := reflect.ValueOf(x)
 		if v.IsValid() && (v.Kind() != reflect.Ptr || !v.IsNil()) {
-			if c != nil { p = _fatpos(c, x.Pos()) }
+			if pos := x.Pos(); c != nil { p = _fatpos(c, pos) }
 		}
 	}
 
@@ -23589,14 +23550,12 @@ func ts(i any, o ...any) (s string) {
 			return
 		}
 
-		var isDirty bool // NEW: Tracks if any child poisoned the path
+		var isDirty bool // Tracks if any child poisoned the path
 
 		// 1. Discovery Phase: Extract the spatial paths for all items
 		paths := make([][]any, len(items))
 		for i, item := range items {
-			// THE DOD FIX: Shield the discovery phase with ts_barrier!
-			// This absolutely prevents spatial signals from leaking and
-			// corrupting parent contexts during the dry-run.
+			// Shield the discovery phase with ts_barrier!
 			w := &ts_wrap_ctx{Context: ts_barrier{ctx}, discovering: true}
 			cc_old := cc
 			cc = w
@@ -23638,6 +23597,11 @@ func ts(i any, o ...any) (s string) {
 				if i > start {
 					chunks = append(chunks, items[start:i])
 					chunkCommons = append(chunkCommons, common)
+				} else if seedPos != nil {
+					// THE DOD FIX: Seed Divergence!
+					// If the very first item diverges from the seedPos, the container is spatially
+					// detached from its invocation site. Mark it dirty so it doesn't falsely absorb!
+					isDirty = true
 				}
 				start = i
 				common = paths[i]
@@ -23649,19 +23613,18 @@ func ts(i any, o ...any) (s string) {
 		chunkCommons = append(chunkCommons, common)
 
 		// THE DOD FIX: Recursive Container Forfeiture
-		// If the container diverged (len > 1) OR any child diverged (isDirty), forfeit!
 		if isDirty || len(chunks) > 1 {
-			do(cc, ts_cancel_pre{})
-
-			// Pure containers forfeit their outer prefix (e.g. `{list}`).
-			// Substantive nodes retain it (e.g. `{42:18:quote}`).
+			// ONLY pure containers (seedPos == nil) retract consent from parent chunkers.
+			// Substantive nodes (seedPos != nil) genuinely exist at their root and MUST 
+			// NOT poison their parent's grouping!
 			if seedPos == nil {
+				do(cc, ts_cancel_pre{})
 				// Preserve Filename but zero coordinates!
 				p.Line = 0
 				p.Column = 0
 			}
 
-			// Zero out the Line/Column anchor so children print their positions!
+			// Zero out the Line/Column anchor so children print their positions natively!
 			do(cc, ts_forfeit_pos{})
 		}
 
@@ -23670,8 +23633,6 @@ func ts(i any, o ...any) (s string) {
 			if res != "" { res += " " }
 
 			// THE DOD FIX: Singleton Chunk Bypass!
-			// If a chunk is just a single item, it shouldn't form a spatial wrapper unless
-			// it's the SOLE, PRISTINE chunk absorbing the container's tag.
 			if len(chunk) == 1 && !(t != "" && len(chunks) == 1 && !isDirty) {
 				cc_old := cc
 				cc = ts_barrier{cc}
@@ -23681,8 +23642,6 @@ func ts(i any, o ...any) (s string) {
 			}
 
 			// THE DOD FIX: Use ts_barrier to group!
-			// This completely shields the chunk wrapper from leaking un-intercepted
-			// spatial signals up to the parent Slicer.
 			w := &ts_wrap_ctx{Context: ts_barrier{ctx}, discovering: false, common: chunkCommons[i]}
 
 			var inner string
@@ -23696,9 +23655,7 @@ func ts(i any, o ...any) (s string) {
 				cc = cc_old
 			}
 
-			// Only absorb the Slicer's logical tag if the list
-			// is completely unified into a single spatial evaporation block!
-			// Use isDirty to prevent dirty lists from absorbing their tag!
+			// Only absorb the Slicer's logical tag if the list is perfectly unified!
 			if t != "" && len(chunks) == 1 && !isDirty && w.pre != "" {
 				w.pre += " {" + t
 				w.tail += "}"
@@ -23716,6 +23673,33 @@ func ts(i any, o ...any) (s string) {
 			}
 		}
 		return
+	}
+
+	pre := func(ctx Context, tag string) string {
+		if ctx == nil { return tag }
+
+		// 1. Nested AST Traversal: `ts_ctx` handles redundancy suppression natively!
+		if s, ok := do(ctx, ts_prefix_pos{p, tag}).(string); ok { return s }
+
+		var s string
+		var currPos = _position(ctx)
+		if p.Filename != symEmpty && p.Filename != currPos.Filename {
+			if str := rel_pos_str(ctx, p.Filename); str != "" { s = str + ":" }
+		}
+
+		if p.Line > 0 {
+			s += fmt.Sprintf("%d:%d", p.Line, p.Column)
+		} else if rawPos.valid() {
+			s += fmt.Sprintf("@%d", rawPos)
+		}
+
+		if tag != "" {
+			if s != "" && !strings.HasSuffix(s, ":") { s += ":" }
+			s += tag
+		} else if strings.HasSuffix(s, ":") {
+			s = s[:len(s)-1]
+		}
+		return s
 	}
 
 	// 1. Value tag/type
@@ -23746,7 +23730,7 @@ func ts(i any, o ...any) (s string) {
 	var interceptor Context
 	if evaporation && cc != nil {
 		var spatial_prefix string
-		if showPos { spatial_prefix = tspre(c, p, "") }
+		if showPos { spatial_prefix = pre(c, "") }
 		if target, ok := cc.do(cc, ts_pre{p, spatial_prefix}).(Context); ok {
 			interceptor = target // Lock onto the exact context that claimed it!
 		}
@@ -23793,9 +23777,9 @@ func ts(i any, o ...any) (s string) {
 	case       filemap: content = x.String()
 	case  *conjunction: return fmt.Sprintf("{%s %s %s}", t, _ts(&x.list), _ts(x.sep))
 	case *argumented_ctx:
-		content = x.val.String() + "(" + wrap(cc, x.val.Pos(), x.args) + ")"
+		content = x.val.String() + "(" + wrap(ts_barrier{cc}, x.val.Pos(), x.args) + ")"
 	case   *argumented:
-		content = _ts(x.Value) + "(" + wrap(cc, x.Value.Pos(), x.args) + ")"
+		content = _ts(x.Value) + "(" + wrap(ts_barrier{cc}, x.Value.Pos(), x.args) + ")"
 	case       *dbstub:
 		var vals []string
 		for _, v := range x.v { vals = append(vals, _ts(v)) }
@@ -23883,7 +23867,7 @@ func ts(i any, o ...any) (s string) {
 	} else {
 
 		// If NOT intercepted, calculate the FULL prefix including the logical tag!
-		if showPos { t = tspre(c, p, t) }
+		if showPos { t = pre(c, t) }
 
 		if t == "" {
 			if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. valbase)
