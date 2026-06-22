@@ -23332,7 +23332,9 @@ func rel_pos_str(ctx Context, f Symbol) string {
 	return f.String()
 }
 
-type pos_prefix struct{
+type ts_get_pos struct{}
+type ts_forfeit_pos struct{}
+type ts_prefix_pos struct{
 	pos any
 	tag string
 }
@@ -23348,7 +23350,12 @@ func (c *ts_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return c.Context
 	case dynamic_cast: return t.ctx(c, c.Context)
-	case pos_prefix:
+	case ts_get_pos: return c.p
+	case ts_forfeit_pos:
+		c.p.Line = 0
+		c.p.Column = 0
+		return nil
+	case ts_prefix_pos:
 		if !c.showPos {
 			return t.tag // Skip position rendering, just return the logical tag
 		}
@@ -23402,7 +23409,7 @@ func tspre(ctx Context, ap any, tag string) string {
 	if ctx == nil { return tag }
 
 	// 1. Nested AST Traversal: `ts_ctx` handles redundancy suppression natively!
-	if s, ok := do(ctx, pos_prefix{ap, tag}).(string); ok { return s }
+	if s, ok := do(ctx, ts_prefix_pos{ap, tag}).(string); ok { return s }
 
 	// 2. ROOT FALLBACK: The absolute beginning of the trace string.
 	var p Position
@@ -23454,6 +23461,7 @@ func tspos(i any) (p any) {
 // Interceptor operations
 type ts_no_position struct {}
 type ts_no_evaporation struct {}
+type ts_cancel_pre struct{}
 type ts_pre struct { p any; pre string }
 type ts_tail struct { interceptor Context }
 
@@ -23477,6 +23485,7 @@ type ts_wrap_ctx struct {
 	current     []any
 	pre         string
 	tail        string
+	dirty       bool
 	first       bool
 	layer       int
 	opened      int // THE DOD FIX: Tracks exactly how many spatial strings we added
@@ -23484,6 +23493,14 @@ type ts_wrap_ctx struct {
 
 func (p *ts_wrap_ctx) do(ctx Context, op any) any {
 	switch x := op.(type) {
+	case ts_cancel_pre:
+		p.dirty = true // Mark this wrapper as poisoned!
+		// THE DOD FIX: Evaporation Consent Retraction
+		if p.discovering && len(p.current) > 0 {
+			// Poison the discovery path with a unique pointer so it NEVER matches siblings!
+			p.current[len(p.current)-1] = new(int)
+		}
+		return false
 	case ts_pre:
 		if p.discovering {
 			p.current = append(p.current, x.p)
@@ -23523,12 +23540,14 @@ func (p *ts_wrap_ctx) do(ctx Context, op any) any {
 	return nil
 }
 
+// ts forms a test-string for debug purpose only.
 func ts(i any, o ...any) (s string) {
 	if i == nil { return "{}" }
 
 	var c Context
-	var evaporation = true
 	var showPos = true
+	var evaporation = true
+	var p = tspos(i) // Unify Position Extraction
 	for _, opt := range o {
 		switch t := opt.(type) {
 		case ts_no_evaporation: evaporation = false
@@ -23562,11 +23581,13 @@ func ts(i any, o ...any) (s string) {
 			return
 		}
 
+		var isDirty bool // NEW: Tracks if any child poisoned the path
+
 		// 1. Discovery Phase: Extract the spatial paths for all items
 		paths := make([][]any, len(items))
 		for i, item := range items {
 			// THE DOD FIX: Shield the discovery phase with ts_barrier!
-			// This absolutely prevents spatial signals from leaking and 
+			// This absolutely prevents spatial signals from leaking and
 			// corrupting parent contexts during the dry-run.
 			w := &ts_wrap_ctx{Context: ts_barrier{ctx}, discovering: true}
 			cc_old := cc
@@ -23574,12 +23595,13 @@ func ts(i any, o ...any) (s string) {
 			_ts(item)
 			cc = cc_old
 			paths[i] = w.current
+			if w.dirty { isDirty = true } // Propagate the dirty state up the AST!
 		}
 
 		// 2. Chunking Phase: Group contiguous items by common spatial prefixes
 		var chunks [][]Value
 		var chunkCommons [][]any
-		
+
 		var common []any
 		startIndex := 1
 
@@ -23618,16 +23640,27 @@ func ts(i any, o ...any) (s string) {
 		chunks = append(chunks, items[start:])
 		chunkCommons = append(chunkCommons, common)
 
+		// THE DOD FIX: Recursive Container Forfeiture
+		// If the container diverged (len > 1) OR any child diverged (isDirty), forfeit!
+		if isDirty || len(chunks) > 1 {
+			do(cc, ts_cancel_pre{})
+
+			// Pure containers forfeit their outer prefix (e.g. `{list}`).
+			// Substantive nodes retain it (e.g. `{42:18:quote}`).
+			if seedPos == nil { p = nil }
+
+			// Zero out the Line/Column anchor so children print their positions!
+			do(cc, ts_forfeit_pos{})
+		}
+
 		// 3. Live Execution Phase: Format each chunk independently
 		for i, chunk := range chunks {
 			if res != "" { res += " " }
 
 			// THE DOD FIX: Singleton Chunk Bypass!
-			// If a divergent chunk is just a single item, it shouldn't form a spatial 
-			// evaporation envelope (which produces redundant braces like `{42:19 {escaped \,}}`).
-			// By rendering it through `_tsb` (which natively uses ts_barrier), it perfectly 
-			// falls back to native formatting (`{42:19:escaped \,}`) safely!
-			if len(chunk) == 1 && !(t != "" && len(chunks) == 1) {
+			// If a chunk is just a single item, it shouldn't form a spatial wrapper unless
+			// it's the SOLE, PRISTINE chunk absorbing the container's tag.
+			if len(chunk) == 1 && !(t != "" && len(chunks) == 1 && !isDirty) {
 				cc_old := cc
 				cc = ts_barrier{cc}
 				res += _ts(chunk[0])
@@ -23636,24 +23669,25 @@ func ts(i any, o ...any) (s string) {
 			}
 
 			// THE DOD FIX: Use ts_barrier to group!
-			// This completely shields the chunk wrapper from leaking un-intercepted 
+			// This completely shields the chunk wrapper from leaking un-intercepted
 			// spatial signals up to the parent Slicer.
 			w := &ts_wrap_ctx{Context: ts_barrier{ctx}, discovering: false, common: chunkCommons[i]}
-			cc_old := cc
-			cc = w
-			
+
 			var inner string
 			for idx, a := range chunk {
 				if inner != "" { inner += " " }
 				w.first = (idx == 0)
 				w.layer = 0
+				cc_old := cc
+				cc = w
 				inner += _ts(a)
+				cc = cc_old
 			}
-			cc = cc_old
 
-			// Only absorb the Slicer's logical tag if the list 
+			// Only absorb the Slicer's logical tag if the list
 			// is completely unified into a single spatial evaporation block!
-			if t != "" && len(chunks) == 1 && w.pre != "" {
+			// Use isDirty to prevent dirty lists from absorbing their tag!
+			if t != "" && len(chunks) == 1 && !isDirty && w.pre != "" {
 				w.pre += " {" + t
 				w.tail += "}"
 				t = ""
@@ -23696,9 +23730,6 @@ func ts(i any, o ...any) (s string) {
 		}
 		if s := "_ctx"; strings.HasSuffix(t,s) { t = strings.TrimSuffix(t,s) }
 	}
-
-	// 2. Unify Position Extraction
-	var p = tspos(i)
 
 	// 3. Build the AST context stack
 	if c != nil {
