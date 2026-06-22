@@ -4117,7 +4117,7 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 				if inner != nil {
 					var bypass bool
 					switch inner.(type) {
-					case valbase, *null, *none: bypass = true 
+					case valbase, *null, *none: bypass = true
 					}
 					if !bypass {
 						if c, isComp := inner.(*compound); isComp {
@@ -23558,76 +23558,91 @@ func ts(i any, o ...any) (s string) {
 
 	wrap := func(ctx Context, items []Value) (res string) {
 		// THE DOD FIX: Raw fallback loop for ts_no_evaporation!
-		if !evaporation {
+		if !evaporation || len(items) == 0 {
 			for _, item := range items {
 				if res != "" { res += " " }
-				res += _ts(item) // Now perfectly uses the configured _ts closure
+				res += _ts(item)
 			}
 			return
 		}
 
-		w := &ts_wrap_ctx{Context: ctx, discovering: true}
+		// 1. Discovery Phase: Extract the spatial paths for all items
+		paths := make([][]any, len(items))
+		for i, item := range items {
+			w := &ts_wrap_ctx{Context: ctx, discovering: true}
+			cc_old := cc
+			cc = w
+			_ts(item)
+			cc = cc_old
+			paths[i] = w.current
+		}
 
-		defer func(_cc Context) {
+		// 2. Chunking Phase: Group contiguous items by common spatial prefixes
+		var chunks [][]Value
+		var chunkCommons [][]any
+		start := 0
+		common := paths[0]
+
+		for i := 1; i < len(items); i++ {
+			nextCommon := make([]any, 0, len(common))
+			min := len(common)
+			if len(paths[i]) < min { min = len(paths[i]) }
+			for j := 0; j < min; j++ {
+				if common[j] == paths[i][j] {
+					nextCommon = append(nextCommon, common[j])
+				} else {
+					break
+				}
+			}
+
+			// If the spatial prefix breaks, seal the current chunk and start a new one
+			if len(nextCommon) == 0 {
+				chunks = append(chunks, items[start:i])
+				chunkCommons = append(chunkCommons, common)
+				start = i
+				common = paths[i]
+			} else {
+				common = nextCommon
+			}
+		}
+		chunks = append(chunks, items[start:])
+		chunkCommons = append(chunkCommons, common)
+
+		// 3. Live Execution Phase: Format each chunk independently
+		for i, chunk := range chunks {
+			if res != "" { res += " " }
+
+			w := &ts_wrap_ctx{Context: ctx, discovering: false, common: chunkCommons[i]}
+			cc_old := cc
+			cc = w
+
 			var inner string
-			for idx, a := range items {
+			for idx, a := range chunk {
 				if inner != "" { inner += " " }
 				w.first = (idx == 0)
 				w.layer = 0
 				inner += _ts(a)
 			}
+			cc = cc_old
 
-			if t != "" {
-				if w.pre != "" {
-					w.pre += " {" + t
-					w.tail += "}"
-				} else {
-					w.pre = t
-				}
+			// THE DOD FIX: Only absorb the Slicer's logical tag if the list
+			// is completely unified into a single spatial evaporation block!
+			if t != "" && len(chunks) == 1 && w.pre != "" {
+				w.pre += " {" + t
+				w.tail += "}"
 				t = ""
 			}
 
 			if w.pre != "" {
 				if inner != "" {
-					res = "{" + w.pre + " " + inner + w.tail + "}"
+					res += "{" + w.pre + " " + inner + w.tail + "}"
 				} else {
-					res = "{" + w.pre + w.tail + "}"
+					res += "{" + w.pre + w.tail + "}"
 				}
 			} else {
-				res = inner
+				res += inner
 			}
-
-			cc = _cc
-		} (cc)
-
-		cc = w
-
-		if len(items) == 0 { return }
-
-		// Template Map via native recursion
-		_ts(items[0])
-		w.common = w.current
-
-		// Intersect against remaining items to lock unanimity
-		for _, item := range items[1:] {
-			w.current = nil
-			_ts(item)
-
-			min := len(w.common)
-			if len(w.current) < min { min = len(w.current) }
-			for i := 0; i < min; i++ {
-				if w.common[i] != w.current[i] {
-					w.common = w.common[:i]
-					break
-				}
-			}
-			if len(w.common) > min {
-				w.common = w.common[:min]
-			}
-			if len(w.common) == 0 { break }
 		}
-
-		w.discovering = false // Switch to Live Execution Mode!
 		return
 	}
 
