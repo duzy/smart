@@ -7924,9 +7924,9 @@ func (p *compiler) foreach_done(ctx Context) {
 							if dd { ds = append(ds, _f("'%v' %v", symUnderscore, x.Value)) }
 						}
 						for _, c := range x.caps {
-							ac.set(&ac, defStatic, c.name, c.value)
+							ac.set(&ac, defStatic, c.name, c.Value)
 							if checkpoints {
-								if dd { ds = append(ds, _f("'%v' %v", c.name, c.value)) }
+								if dd { ds = append(ds, _f("'%v' %v", c.name, c.Value)) }
 							}
 						}
 					} else {
@@ -8017,9 +8017,9 @@ func (p *compiler) for_done(ctx Context) {
 				for _, cap := range x.caps {
 					// cap.name is already a Symbol from our previous defcap upgrade!
 					if t, y := pars[cap.name]; y {
-						t.elems = append(t.elems, cap.value)
+						t.elems = append(t.elems, cap.Value)
 					} else {
-						t = &param{cap.name, []Value{cap.value}}
+						t = &param{cap.name, []Value{cap.Value}}
 						lp.a = append(lp.a, t)
 						pars[cap.name] = t
 					}
@@ -10753,8 +10753,8 @@ func (p *compiler) braced_quote(ctx Context) (res Value) {
 }
 
 type defcap struct {
-	name  Symbol
-	value Value
+	name Symbol
+	Value
 }
 
 type defcaps struct {
@@ -10776,8 +10776,8 @@ func (dc *defcaps) String() string {
 		// Extract the native string from the Symbol instantly
 		b.WriteString(cap.name.String())
 		b.WriteString(":")
-		if cap.value != nil {
-			b.WriteString(cap.value.String())
+		if cap.Value != nil {
+			b.WriteString(cap.Value.String())
 		}
 		b.WriteString("}")
 	}
@@ -10899,7 +10899,7 @@ defsloop:
 				dc := &defcaps{main, caps}
 				if ac != nil {
 					for _, cap := range caps {
-						ac.set(ctx, defStatic, cap.name, cap.value)
+						ac.set(ctx, defStatic, cap.name, cap.Value)
 					}
 				}
 				vals = append(vals, dc)
@@ -18964,16 +18964,16 @@ func (p *regexlit) source(b *compactbuilds) {
 }
 func (p *regexlit) build(b *compactbuilds) { p.source(b) }
 
-func values[T any](ctx Context, args ...T) (elems []Value) {
+func values(args ...any) (elems []Value) {
 	for _, a := range args {
 		// Fast Path 1: Direct Value leaf node match
-		if x, ok := any(a).(Value); ok {
+		if x, ok := a.(Value); ok {
 			elems = append(elems, x)
 			continue
 		}
 
-		// DOD Fast Path 2: Direct flat slice match bypasses reflection entirely
-		if x, ok := any(a).([]Value); ok {
+		// Fast Path 2: Direct flat slice match bypasses reflection entirely
+		if x, ok := a.([]Value); ok {
 			elems = append(elems, x...)
 			continue
 		}
@@ -18983,10 +18983,10 @@ func values[T any](ctx Context, args ...T) (elems []Value) {
 		if v.Kind() == reflect.Slice {
 			for n := 0; n < v.Len(); n++ {
 				// THE GENERIC FIX: Explicitly bind the recursive unpacker to the `any` domain
-				elems = append(elems, values[any](ctx, v.Index(n).Interface())...)
+				elems = append(elems, values(v.Index(n).Interface())...)
 			}
 		} else {
-			erro(ctx, "'%v' is not value type (%T)", a, a)
+			// erro(ctx, "'%v' is not value type (%T)", a, a)
 		}
 	}
 	return
@@ -23541,27 +23541,23 @@ func ts(i any, o ...any) (s string) {
 
 	var cc = c
 	var t string
-	var _ts, _tsb func(any) string
+	var _ts func(any) string
 	if evaporation && showPos {
-		_ts  = func(a any) string { return ts(a, cc) }
-		_tsb = func(a any) string { return ts(a, ts_barrier{cc}) }
+		_ts = func(a any) string { return ts(a, cc) }
 	} else if evaporation && !showPos {
-		_ts  = func(a any) string { return ts(a, cc, ts_no_position{}) }
-		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_position{}) }
+		_ts = func(a any) string { return ts(a, cc, ts_no_position{}) }
 	} else if !evaporation && showPos {
-		_ts  = func(a any) string { return ts(a, cc, ts_no_evaporation{}) }
-		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_evaporation{}) }
+		_ts = func(a any) string { return ts(a, cc, ts_no_evaporation{}) }
 	} else {
-		_ts  = func(a any) string { return ts(a, cc, ts_no_evaporation{}, ts_no_position{}) }
-		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_evaporation{}, ts_no_position{}) }
+		_ts = func(a any) string { return ts(a, cc, ts_no_evaporation{}, ts_no_position{}) }
 	}
 
-	wrap := func(ctx Context, items []Value) (res string) {
+	wrap := func(ctx Context, seedPos any, items []Value) (res string) {
 		// THE DOD FIX: Raw fallback loop for ts_no_evaporation!
 		if !evaporation || len(items) == 0 {
 			for _, item := range items {
 				if res != "" { res += " " }
-				res += _ts(item)
+				res += _ts(item) // Now perfectly uses the configured _ts closure
 			}
 			return
 		}
@@ -23569,7 +23565,10 @@ func ts(i any, o ...any) (s string) {
 		// 1. Discovery Phase: Extract the spatial paths for all items
 		paths := make([][]any, len(items))
 		for i, item := range items {
-			w := &ts_wrap_ctx{Context: ctx, discovering: true}
+			// THE DOD FIX: Shield the discovery phase with ts_barrier!
+			// This absolutely prevents spatial signals from leaking and 
+			// corrupting parent contexts during the dry-run.
+			w := &ts_wrap_ctx{Context: ts_barrier{ctx}, discovering: true}
 			cc_old := cc
 			cc = w
 			_ts(item)
@@ -23580,10 +23579,19 @@ func ts(i any, o ...any) (s string) {
 		// 2. Chunking Phase: Group contiguous items by common spatial prefixes
 		var chunks [][]Value
 		var chunkCommons [][]any
-		start := 0
-		common := paths[0]
+		
+		var common []any
+		startIndex := 1
 
-		for i := 1; i < len(items); i++ {
+		if seedPos != nil {
+			common = []any{seedPos}
+			startIndex = 0
+		} else {
+			common = paths[0]
+		}
+
+		start := 0
+		for i := startIndex; i < len(items); i++ {
 			nextCommon := make([]any, 0, len(common))
 			min := len(common)
 			if len(paths[i]) < min { min = len(paths[i]) }
@@ -23597,8 +23605,10 @@ func ts(i any, o ...any) (s string) {
 
 			// If the spatial prefix breaks, seal the current chunk and start a new one
 			if len(nextCommon) == 0 {
-				chunks = append(chunks, items[start:i])
-				chunkCommons = append(chunkCommons, common)
+				if i > start {
+					chunks = append(chunks, items[start:i])
+					chunkCommons = append(chunkCommons, common)
+				}
 				start = i
 				common = paths[i]
 			} else {
@@ -23612,10 +23622,26 @@ func ts(i any, o ...any) (s string) {
 		for i, chunk := range chunks {
 			if res != "" { res += " " }
 
-			w := &ts_wrap_ctx{Context: ctx, discovering: false, common: chunkCommons[i]}
+			// THE DOD FIX: Singleton Chunk Bypass!
+			// If a divergent chunk is just a single item, it shouldn't form a spatial 
+			// evaporation envelope (which produces redundant braces like `{42:19 {escaped \,}}`).
+			// By rendering it through `_tsb` (which natively uses ts_barrier), it perfectly 
+			// falls back to native formatting (`{42:19:escaped \,}`) safely!
+			if len(chunk) == 1 && !(t != "" && len(chunks) == 1) {
+				cc_old := cc
+				cc = ts_barrier{cc}
+				res += _ts(chunk[0])
+				cc = cc_old
+				continue
+			}
+
+			// THE DOD FIX: Use ts_barrier to group!
+			// This completely shields the chunk wrapper from leaking un-intercepted 
+			// spatial signals up to the parent Slicer.
+			w := &ts_wrap_ctx{Context: ts_barrier{ctx}, discovering: false, common: chunkCommons[i]}
 			cc_old := cc
 			cc = w
-
+			
 			var inner string
 			for idx, a := range chunk {
 				if inner != "" { inner += " " }
@@ -23625,7 +23651,7 @@ func ts(i any, o ...any) (s string) {
 			}
 			cc = cc_old
 
-			// THE DOD FIX: Only absorb the Slicer's logical tag if the list
+			// Only absorb the Slicer's logical tag if the list 
 			// is completely unified into a single spatial evaporation block!
 			if t != "" && len(chunks) == 1 && w.pre != "" {
 				w.pre += " {" + t
@@ -23735,13 +23761,9 @@ func ts(i any, o ...any) (s string) {
 	case       filemap: content = x.String()
 	case  *conjunction: return fmt.Sprintf("{%s %s %s}", t, _ts(&x.list), _ts(x.sep))
 	case *argumented_ctx:
-		var args []string
-		for _, a := range x.args { args = append(args, a.String()) }
-		content = x.val.String() + "(" + strings.Join(args, ",") + ") " + _ts(x.Context)
+		content = x.val.String() + "(" + wrap(cc, x.val.Pos(), x.args) + ")"
 	case   *argumented:
-		var args []string
-		for _, a := range x.args { args = append(args, _ts(a)) }
-		content = _ts(x.Value) + "(" + strings.Join(args, ",") + ")"
+		content = _ts(x.Value) + "(" + wrap(cc, x.Value.Pos(), x.args) + ")"
 	case       *dbstub:
 		var vals []string
 		for _, v := range x.v { vals = append(vals, _ts(v)) }
@@ -23773,35 +23795,21 @@ func ts(i any, o ...any) (s string) {
 	case  *exec_buffer:
 		var s string
 		// TODO: forms more details into `s`
-		content =  s + _ts(x.xc)
+		content = s + _ts(x.xc)
 	case *modification_checkpoints_ctx:
 		content = _ts(x.Context)
-	case     *delegate:
-		content = _tsb(x.x)
-		if x.o != nil { content += " " + _tsb(x.o) }
-		for _, a := range x.a { content += " " + _tsb(a) }
-	case      *closure:
-		content = _tsb(x.x)
-		if x.o != nil { content += " " + _tsb(x.o) }
-		for _, a := range x.a { content += " " + _tsb(a) }
+	case *delegate, *closure:
+		var d *delegate
+		if t, isClosure := x.(*closure); isClosure { d = &t.delegate } else { d = x.(*delegate) }
+		content = wrap(ts_barrier{cc}, d.pos, values(d.x, d.o, d.a))
 	case      *defcaps:
-		content = _ts(x.Value)
-		for _, cap := range x.caps {
-			content += " {" + cap.name.String() + ":" + _ts(cap.value) + "}"
-		}
+		content = _ts(x.Value) + wrap(ts_barrier{cc}, x.Pos(), values(x.caps))
 	case          *url:
-		for _, val := range []any{x.Scheme, x.Username, x.Password, x.Host, x.Port, x.Path, x.Query, x.Fragment} {
-			if val != nil {
-				if content != "" { content += " " }
-				content += _tsb(val)
-			}
-		}
+		content = wrap(ts_barrier{cc}, nil, values(
+			x.Scheme, x.Username, x.Password, x.Host, x.Port, x.Path, x.Query, x.Fragment,
+		))
 	case       *strlit: content = strings.ReplaceAll(x.s, "\n", `\n`)
-	case       *strval:
-		for _, v := range x.v {
-			if content != "" { content += " " }
-			content += _tsb(v)
-		}
+	case       *strval: content = wrap(cc, x.pos, x.v)
 	case        *punct:
 		switch x.token {
 		case PROOT: content = "PROOT"
@@ -23821,7 +23829,7 @@ func ts(i any, o ...any) (s string) {
 			t += "(" + pl.name.String() + ")"
 		}
 
-		content = wrap(cc, x.slice())
+		content = wrap(cc, nil, x.slice())
 
 	case         Value:
 		if str := x.String(); str != "" { content = strings.ReplaceAll(str, "\n", `\n`) }
