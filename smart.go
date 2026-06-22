@@ -1781,9 +1781,13 @@ const (
 )
 
 const (
-	patNone  = 0
-	patGlob  = 1 << 0
-	patRegex = 1 << 1
+	patNone         = 0
+	patRegex        = 1 << 0
+	patGlobChar     = 1 << 1 // ?, []
+	patGlobAst      = 1 << 2 // *
+	patGlobAstCross = 1 << 3 // *?
+	patGlobAstGreed = 1 << 4 // **
+	patGlob         = patGlobChar | patGlobAst | patGlobAstCross | patGlobAstGreed
 	patMixed = patGlob | patRegex
 )
 
@@ -1908,7 +1912,8 @@ func (s *symstr) step() {
 		s.operands = s.operands[:l-1]
 
 		s.emit(sym)
-		if sym == symSlash { s.class = patNone }
+
+		if sym == symSlash { s.class &^= patGlobChar | patGlobAst }
 
 	case opUnwind:
 		erro(s, "TODO: unwind backtracks")
@@ -1922,8 +1927,6 @@ func (s *symstr) step() {
 			if s.tie.symCursor >= len(s.tie.syms) {
 				s.tie.pump() // Ensure target has generated the next symbol
 			}
-		}
-		{
 			if s.tie.symCursor < len(s.tie.syms) {
 				target := s.tie.syms[s.tie.symCursor]
 
@@ -1934,21 +1937,29 @@ func (s *symstr) step() {
 				}
 
 				if __symHasPrefix(target, sym) {
+					// If this is the last glob instruction and it leaves a fragment
+					// behind (e.g., *?y against yyy), it is destined to fail stream exhaustion.
+					// Fail immediately to instantly trigger the wildcard backtrack!
+					if false && len(s.ops) == 0 {
+						if (s.class&patGlobAstCross) != 0 && __symStrLen(sym) < __symStrLen(target) {
+							s.fail()
+							return
+						}
+					}
 					s.tie.str = target.String()
-					s.tie.advanceRune(__symStrLen(sym))
+					s.tie.advanceRune(__symStrLen(sym)) // Trim the prefix!
 					s.emit(sym)
 					return
 				}
 
-				// TODO: Suffix Fast Path (If you implement a 'trail' boolean for reverse matching)
-				/*
-				if trail && __symHasSuffix(target, sym) {
-					s.tie.str = target.String()
-					// TODO: Reverse chunking math here: s.tie.
-					s.emit(sym)
-					return
+				if false && len(s.ops) == 0 {
+					if (s.class&patGlobAstGreed) != 0 && __symStrLen(sym) < __symStrLen(target) {
+						if !__symHasSuffix(target, sym) {
+							s.fail()
+							return
+						}
+					}
 				}
-				*/
 
 				// NOTE: What if __symHasPrefix(sym, target) is true?
 				// E.g. Pattern is "foobar", Target is "foo".
@@ -2302,26 +2313,25 @@ func (s *symstr) step() {
 			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
 
 		case *globmeta:
-			s.class |= patGlob
 			pushClose(v)
 			if s.tie != nil {
 				switch v.token {
-				case QUE:  s.ops = append(s.ops, opGlobQues)
-				case SAST: s.ops = append(s.ops, opGlobAsterisk)
-				case DAST: s.ops = append(s.ops, opGlobAstGreed)
-				case ASTQ: s.ops = append(s.ops, opGlobAstCross)
+				case QUE:  s.ops = append(s.ops, opGlobQues    ); s.class |= patGlobChar
+				case SAST: s.ops = append(s.ops, opGlobAsterisk); s.class |= patGlobAst
+				case DAST: s.ops = append(s.ops, opGlobAstGreed); s.class |= patGlobAstGreed
+				case ASTQ: s.ops = append(s.ops, opGlobAstCross); s.class |= patGlobAstCross
 				}
 			} else {
 				switch v.token {
-				case QUE:  pushSym(symQues)
-				case SAST: pushSym(symAsterisk)
-				case DAST: pushSym(symAsteriskAst)
-				case ASTQ: pushSym(symAsteriskQues)
+				case QUE:  pushSym(symQues        ); s.class |= patGlobChar
+				case SAST: pushSym(symAsterisk    ); s.class |= patGlobAst
+				case DAST: pushSym(symAsteriskAst ); s.class |= patGlobAstGreed
+				case ASTQ: pushSym(symAsteriskQues); s.class |= patGlobAstCross
 				}
 			}
 
 		case *globrange:
-			s.class |= patGlob
+			s.class |= patGlobChar
 			pushClose(v)
 			if s.tie != nil {
 				s.ops = append(s.ops, opGlobRange)
@@ -2333,7 +2343,7 @@ func (s *symstr) step() {
 			}
 
 		case *percpat:
-			s.class |= patGlob
+			s.class |= patGlobAstGreed // % behaves like **
 			pushClose(v)
 			if s.tie != nil {
 				if v.Suffix != nil && !isEmpty(v.Suffix) { pushVal(v.Suffix) }
@@ -2383,6 +2393,8 @@ func (s *symstr) fail() {
 		// 1. Restore the target stream cursors in one O(1) assignment
 		s.tie.vmcursors = snap.tie
 
+		stemEnd := snap.stemEnd // Tracks the actual execution boundary!
+
 		// 2. Reluctant Expansion Check
 		if snap.op == opGlobAstCross {
 			_, _, err := s.tie.ReadRune()
@@ -2392,6 +2404,8 @@ func (s *symstr) fail() {
 			newSnap.tie = s.tie.vmcursors
 			newSnap.stemEnd = s.tie.bytePos
 			s.backtracks = append(s.backtracks, newSnap)
+
+			stemEnd = newSnap.stemEnd // Fix the boundary!
 		}
 
 		// 3. Rewind the pattern tape (shallow slice restore = O(1) array truncation)
@@ -2401,11 +2415,12 @@ func (s *symstr) fail() {
 		s.vmstack.restore(snap.stack)
 
 		// 5. Safely Append the Glob Stems!
-		if snap.op == opGlobAsterisk || snap.op == opGlobAstGreed || snap.op == opGlobAstCross {
-			if snap.stemEnd == snap.stemStart {
+		switch snap.op {
+		case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
+			if stemEnd == snap.stemStart {
 				s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 			} else {
-				s.stems = append(s.stems, stemcap{snap.stemStart, snap.stemEnd, symEmpty})
+				s.stems = append(s.stems, stemcap{snap.stemStart, stemEnd, symEmpty})
 			}
 		}
 
@@ -2559,7 +2574,8 @@ func (s *symstr) exhaust() (int, []stemcap) {
 
 			// === HIGH-WATER MARK TRACKING ===
 			// Continuously record the furthest the NFA reaches into the target stream.
-			if s.tie != nil && s.tie.bytePos >= bestTieByte {
+			// Guard: Do NOT record state if the step resulted in a fatal match failure!
+			if s.err == nil && s.tie != nil && s.tie.bytePos >= bestTieByte {
 				bestTieByte = s.tie.bytePos
 				if len(s.stems) > 0 {
 					bestStems = append([]stemcap(nil), s.stems...)
@@ -2576,7 +2592,12 @@ func (s *symstr) exhaust() (int, []stemcap) {
 		// and explore alternative greedy paths until it hits EOF or hard fails.
 		// NOTE: We don't need to unroll the target stream to know if it's exhausted!
 		if s.tie != nil && (s.class&patGlob) != 0 && !s.tie.exhausted() {
-			s.fail()
+			if (s.class & patGlobAstCross) != 0 {
+				// RELUCTANT SEMANTICS: *? stops at the first valid prefix match.
+				// If it leaves a remainder, the glob fails. It MUST NOT backtrack to act greedy!
+				s.backtracks = nil
+			}
+			s.fail() // For ** (Greedy), this gracefully pops the next micro-snapshot.
 			continue
 		}
 
@@ -2596,7 +2617,7 @@ func (s *symstr) exhaust() (int, []stemcap) {
 // exhausted returns true if the engine has successfully completed its
 // instruction tape AND consumed every available byte in the target stream.
 func (s *symstr) exhausted() bool {
-	return len(s.ops) == 0 && s.bytePos >= s.currentByte
+	return len(s.ops) == 0 && s.bytePos >= s.currentByte && len(s.str) == 0
 }
 
 // byteToSymIdx safely translates a virtual byte boundary back to the symbol index.
@@ -4042,8 +4063,10 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 	pos := _pos(ctx)
 
 	switch len(syms) {
-	case 0: return _null(pos)
-	case 1: return _word(pos, syms[0])
+	case 0: return nil
+	case 1:
+		if syms[0] == symEmpty { return valbase{pos} }
+		return _word(pos, syms[0])
 	}
 
 	var segs []Value // segments by "/"
@@ -4113,7 +4136,11 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 				compElems = append(compElems, _word(pos, sym))
 
 				if inner != nil {
-					if _, isNull := inner.(*null); !isNull {
+					var bypass bool
+					switch inner.(type) {
+					case valbase, *null, *none: bypass = true 
+					}
+					if !bypass {
 						if c, isComp := inner.(*compound); isComp {
 							compElems = append(compElems, c.elems...)
 						} else {
@@ -4135,7 +4162,7 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 		case symDot:
 			// Ensure dot at the START of a segment prepends a null node (e.g. `.c` -> `qualword null c`)
 			if isQual = true; len(vals) == 0 {
-				vals = append(vals, _null(pos))
+				vals = append(vals, valbase{pos}) // Use valbase to represent '' as ".test"; null represents '{}'.
 			}
 		case symSlash:
 			if i == 0 {
@@ -4149,7 +4176,7 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 			if i+1 < len(syms) {
 				inner = __symPackValue(ctx, syms[i+1:])
 			} else {
-				inner = _null(pos) // Trailing dash edge case
+				inner = valbase{pos} // Trailing dash edge case, use valbase to represent ''.
 			}
 
 			vals = append(vals, flag{inner})
@@ -4164,8 +4191,10 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 		return packPath(segs)
 	} else if len(segs) > 0 {
 		return segs[0] // packSegment packed it perfectly as Qual or Comp
-	} else {
+	} else if false {
 		return _null(pos)
+	} else {
+		return valbase{pos}
 	}
 }
 
@@ -4307,7 +4336,7 @@ func (sc symbolize_ctx) do(ctx Context, op any) any { return nil }
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	if checkpoints { defer check_symbolize(v)(&res) }
 	switch t := v.(type) {
-	case *valbase, *null, *none, *undef: return
+	case valbase, *null, *none, *undef: return
 	case *loc: return symbolize(t.Value)
 	case *xloc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
@@ -5206,7 +5235,7 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 		var isFile bool
 
 		switch t := v.(type) {
-		case *valbase:    pos = t.pos; v = nil
+		case valbase:    pos = t.pos; v = nil
 		case *builtin:    pos = t.pos; v = nil;     f = "%v";           da = []any{t.name}
 		case *word:       pos = t.pos; v = nil;     f = "%v";           da = []any{t.s}
 		case *binary:     pos = t.pos; v = nil;     f = "%s(%s)";       da = []any{typeof(t), t.String()}
@@ -9137,7 +9166,7 @@ func (p *compiler) flag(ctx Context) flag {
 
 	// exclude "-)" "-]" "-}" "-\n", "-=", "-:", etc.
 	if p.is_end_of_line() || p.is_list_term(ctx) || p.tok == SPACE || p.tok == RECIPE {
-		return flag{&valbase{p.pos}}
+		return flag{valbase{p.pos}}
 	}
 
 	var x = p.unary(ctx)
@@ -9264,7 +9293,7 @@ func (p *compiler) dot(ctx Context, x Value) (_ Value) {
 		q = &qualword{}
 		if x == nil {
 			// Leading dot (e.g., .foo): append an empty raw string to preserve semantic structure
-			q.elems = append(q.elems, &valbase{p.pos})
+			q.elems = append(q.elems, valbase{p.pos})
 		} else {
 			q.elems = append(q.elems, x)
 		}
@@ -9299,7 +9328,7 @@ func (p *compiler) dot(ctx Context, x Value) (_ Value) {
 
 	if trailingDot {
 		// Trailing dot (e.g., foo.): append an empty raw string
-		q.elems = append(q.elems, &valbase{p.pos})
+		q.elems = append(q.elems, valbase{p.pos})
 	}
 
 	return q
@@ -9843,7 +9872,7 @@ func ident(ctx Context, x Value) string {
 		return t.token.String()
 	case *globmeta:
 		return t.token.String()
-	case *valbase, *null, *none, *regexpat, nil: // CRITICAL FIX: Added *regexpat
+	case valbase, *null, *none, *regexpat, nil: // CRITICAL FIX: Added *regexpat
 		return ""
 	case *answer, *boolean, *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *date, *time, *globrange:
 		return t.String()
@@ -9983,7 +10012,7 @@ func ident(ctx Context, x Value) string {
 	default:
 		if ic != nil { ic.nil++ } else {
 			erro(pc(ctx,x),
-				_f("%v: no such ident: %v", x, ts(x,ctx)),
+				_f("%v: no such ident (%T): %v", x, x, ts(x,ctx)),
 				callstack{num:24})
 		}
 		return ""
@@ -10300,9 +10329,9 @@ func (p *compiler) unary(ctx Context) (x Value) {
 	switch p.tok {
 	case ASSIGN: // example: '=xxx'
 		if !truly(ctx, left_hand_side{}) {
-			var x = &valbase{p.pos}
+			var x = valbase{p.pos}
 			if p.step(ctx); p.is_list_term(ctx) {
-				return &pair{x, &valbase{p.pos}}
+				return &pair{x, valbase{p.pos}}
 			} else {
 				return &pair{x, p.expr(ctx)}
 			}
@@ -10473,7 +10502,7 @@ composeloop: // parses right-fixes
 	case ASSIGN: // example: key=value
 		if !truly(ctx, left_hand_side{}) {
 			if p.step(ctx); p.is_list_term(ctx) {
-				return &pair{x, &valbase{p.pos}}
+				return &pair{x, valbase{p.pos}}
 			} else {
 				return &pair{x, p.expr(ctx)}
 			}
@@ -16381,7 +16410,7 @@ func diff(ctx Context, a, b []Value) bool {
 
 func isTrivial(v any) (_ bool) {
 	switch t := v.(type) {
-	case *valbase, *none, *null, *undef, nil: return true
+	case valbase, *none, *null, *undef, nil: return true
 	case *pair: return isTrivial(t.key) && isTrivial(t.val) // CRITICAL FIX
 	case *def: return isTrivial(t.value)
 	case *loc: return isTrivial(t.Value)
@@ -16401,7 +16430,7 @@ func isTrivial(v any) (_ bool) {
 }
 func isEmpty(v any) (_ bool) {
 	switch t := v.(type) {
-	case *valbase, *none, *null, *undef, nil: return true
+	case valbase, *none, *null, *undef, nil: return true
 	case *valcache: return len(t.a) == 0 && len(t.o) == 0 && len(t.v) == 0
 	case *pair: return isEmpty(t.key) && isEmpty(t.val) // CRITICAL FIX
 	case *def: return isEmpty(t.value)
@@ -16480,7 +16509,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		return &xloc{prefix(ctx, tx.Value, y), tx.pos}
 	case flag:
 		switch tx.Value.(type) {
-		case *valbase, *null, *none, nil: return flag{y}
+		case valbase, *null, *none, nil: return flag{y}
 		}
 		switch ty := y.(type) {
 		case *pair: return &pair{flag{prefix(ctx, tx.Value, ty.key)}, ty.val}
@@ -16488,7 +16517,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		}
 	case *pair:
 		switch tx.val.(type) {
-		case *valbase, *null, *none, nil: return &pair{tx.key, y}
+		case valbase, *null, *none, nil: return &pair{tx.key, y}
 		default: return &pair{tx.key, prefix(ctx, tx.val, y)}
 		}
 	case *path:
@@ -16577,17 +16606,17 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 	switch ty := y.(type) {
 	case *pair:
 		switch ty.key.(type) {
-		case *valbase, *null, *none, nil: return &pair{x, ty.val}
+		case valbase, *null, *none, nil: return &pair{x, ty.val}
 		default: return &pair{prefix(ctx, x, ty.key), ty.val}
 		}
 	case *globpat:
 		switch x.(type) {
-		case *valbase, *null, *none, nil: return &globpat{elements{dup(ty.elems)}}
+		case valbase, *null, *none, nil: return &globpat{elements{dup(ty.elems)}}
 		default: return &globpat{elements{append([]Value{x}, ty.elems...)}}
 		}
 	case *percpat:
 		switch x.(type) {
-		case *valbase, *null, *none, nil:
+		case valbase, *null, *none, nil:
 			return &percpat{ty.valbase, ty.Prefix, ty.Suffix}
 		default:
 			return &percpat{ty.valbase, prefix(ctx, x, ty.Prefix), ty.Suffix}
@@ -16596,7 +16625,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		if len(ty.elems) == 0 { return x }
 		// CRITICAL FIX: If the qualword starts with a placeholder, x replaces it!
 		switch ty.elems[0].(type) {
-		case *valbase, *null, *none, nil:
+		case valbase, *null, *none, nil:
 			res := dup(ty.elems)
 			res[0] = x
 			return &qualword{elements{res}}
@@ -16614,7 +16643,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 			}
 			// CRITICAL FIX: If the path starts with a placeholder, x replaces it!
 			switch ty.elems[0].(type) {
-			case *valbase, *null, *none, nil:
+			case valbase, *null, *none, nil:
 				res := dup(ty.elems)
 				res[0] = x
 				return &path{elements{res}}
@@ -16626,7 +16655,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		switch ty.elems[0].(type) {
 		case *pair: erro(ctx, "%v", ty.elems)
 		// CRITICAL FIX: Avoid completely losing `x` by safely replacing the placeholder
-		case *valbase, *null, *none, nil:
+		case valbase, *null, *none, nil:
 			res := dup(ty.elems)
 			res[0] = x
 			return &compound{elements{res}}
@@ -16673,9 +16702,9 @@ func (vals *valvec) add2(ctx Context, val Value) (res *valvec) {
 }
 
 type valbase struct{ pos Pos }
-func (_ *valbase) kind() Kind { return KindUnclassified }
-func (_ *valbase) String() (_ string) { return }
-func (p *valbase) Pos() Pos { return p.pos }
+func (_ valbase) kind() Kind { return KindUnclassified }
+func (_ valbase) String() (_ string) { return }
+func (p valbase) Pos() Pos { return p.pos }
 
 type loc struct{ Value ; pos Pos }
 func (p *loc) Pos() Pos { return p.pos }
@@ -16972,6 +17001,7 @@ func (q *quote) String() (s string) { return "{quote "+q.list.String()+"}" }
 type punct struct{ valbase; token }
 func (_ *punct) kind() Kind { return KindPunct }
 func (p *punct) String() string { return p.token.String() }
+func (p *punct) sym() Symbol { panic("TODO: punctuation token -> symbol") }
 func _punct(pos Pos, tok token) *punct { return &punct{valbase{pos}, tok} }
 
 type word struct{ valbase; s Symbol } // AST representation for a Symbol.
@@ -19083,7 +19113,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case Symbol: t.build(sb) // Writes directly to our internal raw byte slice
 	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *date, *time, *globmeta, *punct:
 		sb.writeString(t.(Value).String())
-	case *valbase, *null, *none, nil: return
+	case valbase, *null, *none, nil: return
 	case *answer:
 		if t.bool { sb.writeString("yes") } else { sb.writeString("no") }
 	case *option:
@@ -19402,7 +19432,7 @@ func __string(ctx Context, v any) (res string) {
 	case rune: return string(t)
 	case token: return t.String()
 	case Symbol: return t.String()
-	case *valbase, *null, *none, nil: return ""
+	case valbase, *null, *none, nil: return ""
 	case *strlit: return t.s
 	case *raw: return t.s
 	case *word: return t.s.String()
@@ -19800,7 +19830,7 @@ func selprop(ctx Context, v Value) (res Symbol, okay bool) {
 func sel(ctx Context, v any, s Symbol) (res Value) {
 	var g *globpat
 	switch t := v.(type) {
-	case nil, *auto, *null, *valbase: return nil // absorb logical nil
+	case nil, *auto, *null, valbase: return nil // absorb logical nil
 	case *globbrace: g = &t.globpat
 	case *globpat  : g = t
 	case *word: return
@@ -22216,7 +22246,7 @@ func concat(args ...any) (parts []Value) {
 					parts = append(parts, _word(t.p, t.s))
 				}
 			case stemseg:
-				if t.v == nil { t.v = &valbase{t.e.Pos()} }
+				if t.v == nil { t.v = valbase{t.e.Pos()} }
 				parts = append(parts, t.v)
 			case gapseg:
 				switch len(t.rem) {
@@ -22224,7 +22254,7 @@ func concat(args ...any) (parts []Value) {
 					// FIXED: Restore empty boundary placeholder nodes to allow
 					// packPath to accurately synthesize trailing directory slases (/).
 					if t.bound {
-						parts = append(parts, &valbase{t.e.Pos()})
+						parts = append(parts, valbase{t.e.Pos()})
 					}
 				case 1:
 					parts = append(parts, t.rem[0])
@@ -22280,7 +22310,7 @@ func restoreStems(stems []Value, orig Value) {
 func packGap(atoms []Value, orig Value, bound bool, pos Pos) Value {
 	if len(atoms) == 0 {
 		if bound {
-			return &valbase{pos}
+			return valbase{pos}
 		}
 		return nil
 	}
@@ -23589,7 +23619,7 @@ func ts(i any, o ...any) (s string) {
 	case *boolean: t = _if(x.bool, "true", "false")
 	case *answer : t = _if(x.bool, "yes", "no")
 	case *option : t = _if(x.bool, "on", "off")
-	case *loc, *xloc, *valbase: if evaporation { t = "" }
+	case valbase, *loc, *xloc: if evaporation { t = "" }
 	default:
 		if t = typeof(i); strings.HasPrefix(t, "[]") {
 			v := reflect.ValueOf(i)
@@ -23618,40 +23648,32 @@ func ts(i any, o ...any) (s string) {
 		cc = &ts_ctx{Context: c, p: fat, showPos: showPos}
 	}
 
-	// 4. Evaluate Inner Content
-	// THE DOD FIX: Safely tie node evaporation to the feature flag!
-	var evaporate bool
-	switch i.(type) {
-	case *valbase, *loc, *xloc, self, slicer:
-		evaporate = evaporation // Only evaporate if the feature is enabled!
-	}
-
 	var interceptor Context
 	if evaporation && cc != nil {
-		var pre_spatial string
-		if showPos {
-			pre_spatial = tspre(c, p, "") // spatial prefix
-		}
-		if target, ok := cc.do(cc, ts_pre{p, pre_spatial}).(Context); ok {
+		var spatial_prefix string
+		if showPos { spatial_prefix = tspre(c, p, "") }
+		if target, ok := cc.do(cc, ts_pre{p, spatial_prefix}).(Context); ok {
 			interceptor = target // Lock onto the exact context that claimed it!
 		}
 	}
 
+	// 4. Evaluate Inner Content
+	var evaporate bool
 	var content string
 	switch x := i.(type) {
-	case          *none:
-	case          *null:
-	case        *answer:
-	case        *option:
-	case       *boolean:
-	case       *valbase:
-	case          *loc: content = _ts(x.Value)
-	case         *xloc: content = _ts(x.Value)
+	case         *none:
+	case         *null:
+	case       *answer:
+	case       *option:
+	case      *boolean:
+	case       valbase: evaporate = false
+	case          *loc: content = _ts(x.Value); evaporate = evaporation
+	case         *xloc: content = _ts(x.Value); evaporate = evaporation
 	case       skipped: content = _ts(x.Value)
 	case      negative: content = _ts(x.Value)
 	case           opt: content = _ts(x.Value)
 	case          flag: content = _ts(x.Value)
-	case      fullname: content = _ts(x.Value)
+	case      fullname: content = _ts(x.Value); evaporate = evaporation
 	case  matched_rule: content = _ts(x.target)
 	case         *rule: content = _ts(x.target)
 	case  *disjunction: content = _ts(x.val)
@@ -23664,7 +23686,7 @@ func ts(i any, o ...any) (s string) {
 	case         *auto: content = x.name.String()
 	case          *def: content = x.name.String()
 	case      *project: content = x.name.String()
-	case          self: content = x.name.String()
+	case          self: content = x.name.String(); evaporate = evaporation
 	case     *regexpat: content = x.regexcon.String()
 	case     *globmeta: content = x.token.String()
 	case    *globrange: content = x.Value.String()
@@ -23757,6 +23779,7 @@ func ts(i any, o ...any) (s string) {
 		return
 	case        slicer:
 		items := x.slice()
+		evaporate = evaporation
 
 		// Uniformly apply plain modifiers to the logical tag
 		if pl, ok := x.(*plain); ok && pl.name != symEmpty {
@@ -23815,7 +23838,7 @@ func ts(i any, o ...any) (s string) {
 
 	// 5. Assemble Output
 
-	if evaporation && interceptor != nil {
+	if evaporate && interceptor != nil {
 		if cc != nil { cc.do(cc, ts_tail{interceptor}) }
 
 		// Slicers wiped their 't', so they safely skip this.
@@ -23837,7 +23860,7 @@ func ts(i any, o ...any) (s string) {
 	}
 
 	if pre == "" {
-		if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. *valbase)
+		if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. valbase)
 		if evaporate { return content }  // Strip wrapper braces for empty anonymous container nodes
 		return "{" + content + "}"
 	}
@@ -23873,9 +23896,9 @@ func _globmeta(pos Pos, tok token) *globmeta { return &globmeta{valbase{pos},tok
 func _globrange(val Value) *globrange { return &globrange{val} }
 func _globpat(elems ...Value) *globpat { return &globpat{elements{elems}} }
 func _word(pos Pos, w Symbol) *word { return &word{valbase{pos},w} }
-func _raw(pos Pos, s string) Value { if s == "" { return &valbase{pos} } else { return &raw{valbase{pos},s} } }
+func _raw(pos Pos, s string) Value { if s == "" { return valbase{pos} } else { return &raw{valbase{pos},s} } }
 func _rw(pos Pos, s string) Value {
-	if s == "" { return &valbase{pos} }
+	if s == "" { return valbase{pos} }
 	if len(s) < 64 {
 		var ok bool
 		var sym Symbol
@@ -23890,7 +23913,7 @@ func _rw(pos Pos, s string) Value {
 	return &raw{valbase{pos}, s}
 }
 func _rw1(pos Pos, s string) Value {
-	if s == "" { return &valbase{pos} }
+	if s == "" { return valbase{pos} }
 
 	// Fast path: strings under 64 bytes are interned as *word.
 	if len(s) < 64 {
@@ -23953,8 +23976,8 @@ func makePair(k, v Value) (p *pair) { return &pair{k, v} }
 func makePath(segments ...Value) *path { return &path{elements{segments}} }
 func makePunct(pos Pos, t token) *punct { return &punct{valbase{pos}, t} }
 func makePercpat(pos Pos, prefix, suffix Value) *percpat {
-	if prefix == nil { prefix = &valbase{pos} }
-	if suffix == nil { suffix = &valbase{pos} }
+	if prefix == nil { prefix = valbase{pos} }
+	if suffix == nil { suffix = valbase{pos} }
 	return &percpat{valbase{pos},prefix,suffix}
 }
 func makeDelegate(pos Pos, tok token, obj Value, opts []Value, args ...Value) Value {
@@ -25500,7 +25523,7 @@ func map_files(ctx Context, p *project, patts, paths []Value) (res []filemap) {
 	var base = &_filemap{p, patts, paths}
 	for _, patt := range patts {
 		switch patt.(type) {
-		case *valbase, *null, *none:
+		case valbase, *null, *none:
 			continue
 		}
 		if c := hit(cache_t{ctx}, &p.filemap, patt); c != nil {
@@ -25596,14 +25619,14 @@ func unmap[T any](ctx Context, c *valcache, key any) (res []T) {
 		if t != symEmpty {
 			k = __symPath(pos, t)
 		} else {
-			k = &valbase{pos}
+			k = valbase{pos}
 		}
 	case string:
 		pos := _pos(ctx)
 		if t != "" {
 			k = __symPath(pos, intern(t))
 		} else {
-			k = &valbase{pos}
+			k = valbase{pos}
 		}
 	default:
 		// ARCHITECTURAL INVARIANT GATING: Fail-fast type enforcement.
@@ -35881,7 +35904,7 @@ func (ctx *__ext) x() (_ any) {
 		} else {
 			// If no extension, return an empty token to preserve array indices
 			// (matches standard Make/Ninja behavior)
-			res = append(res, &valbase{a.Pos()})
+			res = append(res, valbase{a.Pos()})
 		}
 	}
 
