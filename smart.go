@@ -1937,28 +1937,10 @@ func (s *symstr) step() {
 				}
 
 				if __symHasPrefix(target, sym) {
-					// If this is the last glob instruction and it leaves a fragment
-					// behind (e.g., *?y against yyy), it is destined to fail stream exhaustion.
-					// Fail immediately to instantly trigger the wildcard backtrack!
-					if false && len(s.ops) == 0 {
-						if (s.class&patGlobAstCross) != 0 && __symStrLen(sym) < __symStrLen(target) {
-							s.fail()
-							return
-						}
-					}
 					s.tie.str = target.String()
 					s.tie.advanceRune(__symStrLen(sym)) // Trim the prefix!
 					s.emit(sym)
 					return
-				}
-
-				if false && len(s.ops) == 0 {
-					if (s.class&patGlobAstGreed) != 0 && __symStrLen(sym) < __symStrLen(target) {
-						if !__symHasSuffix(target, sym) {
-							s.fail()
-							return
-						}
-					}
 				}
 
 				// NOTE: What if __symHasPrefix(sym, target) is true?
@@ -1967,10 +1949,7 @@ func (s *symstr) step() {
 				// The chunking loop perfectly consumes "foo", pulls the next target symbol,
 				// and matches the remaining "bar" across the boundary.
 
-				if false {
-					s.fail()
-					return // It's obviously a 'match failed'!
-				}
+				// Fall back onto fragmentation dissolve!
 			}
 		}
 
@@ -1984,7 +1963,7 @@ func (s *symstr) step() {
 				if len(s.tie.str) < n { n = len(s.tie.str) }
 
 				if str[:n] != s.tie.str[:n] {
-					s.fail()
+					s.unwind()
 					return
 				}
 
@@ -1995,7 +1974,7 @@ func (s *symstr) step() {
 				vr, _, err := s.tie.ReadRune()
 
 				if err != nil || pr != vr {
-					s.fail()
+					s.unwind()
 					return
 				}
 
@@ -2019,7 +1998,7 @@ func (s *symstr) step() {
 		for i := 0; i < count; i++ {
 			r, _, err := s.tie.ReadRune()
 			if err != nil || r == '/' {
-				s.fail()
+				s.unwind()
 				return
 			}
 		}
@@ -2131,7 +2110,7 @@ func (s *symstr) step() {
 		r, _, err := s.tie.ReadRune()
 		if err != nil || r == '/' {
 			// Standard globs usually prevent ranges from matching directory separators.
-			s.fail()
+			s.unwind()
 			return
 		}
 
@@ -2167,7 +2146,7 @@ func (s *symstr) step() {
 		}
 
 		if matched == negated {
-			s.fail()
+			s.unwind()
 			return
 		}
 
@@ -2221,7 +2200,7 @@ func (s *symstr) step() {
 			s.stems = append(s.stems, localStems...)
 		} else {
 			s.tie.vmcursors = snapCursors
-			s.fail()
+			s.unwind()
 		}
 
 	case opEvalValue:
@@ -2384,7 +2363,7 @@ func (s *symstr) step() {
 	}
 }
 
-func (s *symstr) fail() {
+func (s *symstr) unwind() {
 	for len(s.backtracks) > 0 {
 		top := len(s.backtracks) - 1
 		snap := s.backtracks[top]
@@ -2597,7 +2576,7 @@ func (s *symstr) exhaust() (int, []stemcap) {
 				// If it leaves a remainder, the glob fails. It MUST NOT backtrack to act greedy!
 				s.backtracks = nil
 			}
-			s.fail() // For ** (Greedy), this gracefully pops the next micro-snapshot.
+			s.unwind() // For ** (Greedy), this gracefully pops the next micro-snapshot.
 			continue
 		}
 
@@ -23491,7 +23470,7 @@ func (b ts_barrier) do(ctx Context, op any) any {
 	return nil
 }
 
-type ts_slice_ctx struct {
+type ts_wrap_ctx struct {
 	Context
 	discovering bool
 	common      []any
@@ -23503,7 +23482,7 @@ type ts_slice_ctx struct {
 	opened      int // THE DOD FIX: Tracks exactly how many spatial strings we added
 }
 
-func (p *ts_slice_ctx) do(ctx Context, op any) any {
+func (p *ts_wrap_ctx) do(ctx Context, op any) any {
 	switch x := op.(type) {
 	case ts_pre:
 		if p.discovering {
@@ -23544,38 +23523,6 @@ func (p *ts_slice_ctx) do(ctx Context, op any) any {
 	return nil
 }
 
-func ts_slice(cc Context, items []Value) *ts_slice_ctx {
-	w := &ts_slice_ctx{Context: cc, discovering: true}
-	if len(items) == 0 { return w }
-
-	// 1. Template Map via native recursion
-	ts(items[0], w)
-	w.common = w.current
-
-	// 2. Intersect against remaining items to lock unanimity
-	for _, item := range items[1:] {
-		w.current = nil
-		ts(item, w)
-
-		min := len(w.common)
-		if len(w.current) < min { min = len(w.current) }
-		for i := 0; i < min; i++ {
-			if w.common[i] != w.current[i] {
-				w.common = w.common[:i]
-				break
-			}
-		}
-		if len(w.common) > min {
-			w.common = w.common[:min]
-		}
-		if len(w.common) == 0 { break }
-	}
-
-	// Switch to Live Execution Mode!
-	w.discovering = false
-	return w
-}
-
 func ts(i any, o ...any) (s string) {
 	if i == nil { return "{}" }
 
@@ -23593,6 +23540,7 @@ func ts(i any, o ...any) (s string) {
 	}
 
 	var cc = c
+	var t string
 	var _ts, _tsb func(any) string
 	if evaporation && showPos {
 		_ts  = func(a any) string { return ts(a, cc) }
@@ -23608,8 +23556,82 @@ func ts(i any, o ...any) (s string) {
 		_tsb = func(a any) string { return ts(a, ts_barrier{cc}, ts_no_evaporation{}, ts_no_position{}) }
 	}
 
+	wrap := func(ctx Context, items []Value) (res string) {
+		// THE DOD FIX: Raw fallback loop for ts_no_evaporation!
+		if !evaporation {
+			for _, item := range items {
+				if res != "" { res += " " }
+				res += _ts(item) // Now perfectly uses the configured _ts closure
+			}
+			return
+		}
+
+		w := &ts_wrap_ctx{Context: ctx, discovering: true}
+
+		defer func(_cc Context) {
+			var inner string
+			for idx, a := range items {
+				if inner != "" { inner += " " }
+				w.first = (idx == 0)
+				w.layer = 0
+				inner += _ts(a)
+			}
+
+			if t != "" {
+				if w.pre != "" {
+					w.pre += " {" + t
+					w.tail += "}"
+				} else {
+					w.pre = t
+				}
+				t = ""
+			}
+
+			if w.pre != "" {
+				if inner != "" {
+					res = "{" + w.pre + " " + inner + w.tail + "}"
+				} else {
+					res = "{" + w.pre + w.tail + "}"
+				}
+			} else {
+				res = inner
+			}
+
+			cc = _cc
+		} (cc)
+
+		cc = w
+
+		if len(items) == 0 { return }
+
+		// Template Map via native recursion
+		_ts(items[0])
+		w.common = w.current
+
+		// Intersect against remaining items to lock unanimity
+		for _, item := range items[1:] {
+			w.current = nil
+			_ts(item)
+
+			min := len(w.common)
+			if len(w.current) < min { min = len(w.current) }
+			for i := 0; i < min; i++ {
+				if w.common[i] != w.current[i] {
+					w.common = w.common[:i]
+					break
+				}
+			}
+			if len(w.common) > min {
+				w.common = w.common[:min]
+			}
+			if len(w.common) == 0 { break }
+		}
+
+		w.discovering = false // Switch to Live Execution Mode!
+		return
+	}
+
 	// 1. Value tag/type
-	var t string
 	switch x := i.(type) {
 	case Symbol: t = "sym" // Push Symbol into the standard pipeline
 	case *globpat: t = "glob"
@@ -23658,7 +23680,7 @@ func ts(i any, o ...any) (s string) {
 	}
 
 	// 4. Evaluate Inner Content
-	var evaporate bool
+	var evaporate = evaporation
 	var content string
 	switch x := i.(type) {
 	case         *none:
@@ -23666,14 +23688,15 @@ func ts(i any, o ...any) (s string) {
 	case       *answer:
 	case       *option:
 	case      *boolean:
-	case       valbase: evaporate = false
-	case          *loc: content = _ts(x.Value); evaporate = evaporation
-	case         *xloc: content = _ts(x.Value); evaporate = evaporation
+	case       valbase: evaporate = false // It represents "{}" in test-string.
+	case         *word: content = x.s.String()
+	case          *loc: content = _ts(x.Value); evaporate = true
+	case         *xloc: content = _ts(x.Value); evaporate = true
 	case       skipped: content = _ts(x.Value)
 	case      negative: content = _ts(x.Value)
 	case           opt: content = _ts(x.Value)
 	case          flag: content = _ts(x.Value)
-	case      fullname: content = _ts(x.Value); evaporate = evaporation
+	case      fullname: content = _ts(x.Value)
 	case  matched_rule: content = _ts(x.target)
 	case         *rule: content = _ts(x.target)
 	case  *disjunction: content = _ts(x.val)
@@ -23686,7 +23709,7 @@ func ts(i any, o ...any) (s string) {
 	case         *auto: content = x.name.String()
 	case          *def: content = x.name.String()
 	case      *project: content = x.name.String()
-	case          self: content = x.name.String(); evaporate = evaporation
+	case          self: content = x.name.String()
 	case     *regexpat: content = x.regexcon.String()
 	case     *globmeta: content = x.token.String()
 	case    *globrange: content = x.Value.String()
@@ -23778,55 +23801,12 @@ func ts(i any, o ...any) (s string) {
 		}
 		return
 	case        slicer:
-		items := x.slice()
-		evaporate = evaporation
-
 		// Uniformly apply plain modifiers to the logical tag
 		if pl, ok := x.(*plain); ok && pl.name != symEmpty {
 			t += "(" + pl.name.String() + ")"
 		}
 
-		// THE DOD FIX: Raw fallback loop for ts_no_evaporation!
-		if !evaporation {
-			for _, item := range items {
-				if content != "" { content += " " }
-				content += _ts(item) // Now perfectly uses the configured _ts closure
-			}
-			break
-		}
-
-		w := ts_slice(cc, items)
-		cc_old := cc
-		cc = w
-
-		var inner string
-		for idx, a := range items {
-			if inner != "" { inner += " " }
-			w.first = (idx == 0)
-			w.layer = 0
-			inner += _ts(a)
-		}
-		cc = cc_old
-
-		if t != "" {
-			if w.pre != "" {
-				w.pre += " {" + t
-				w.tail += "}"
-			} else {
-				w.pre = t
-			}
-			t = ""
-		}
-
-		if w.pre != "" {
-			if inner != "" {
-				content = "{" + w.pre + " " + inner + w.tail + "}"
-			} else {
-				content = "{" + w.pre + w.tail + "}"
-			}
-		} else {
-			content = inner
-		}
+		content = wrap(cc, x.slice())
 
 	case         Value:
 		if str := x.String(); str != "" { content = strings.ReplaceAll(str, "\n", `\n`) }
@@ -23838,38 +23818,27 @@ func ts(i any, o ...any) (s string) {
 
 	// 5. Assemble Output
 
-	if evaporate && interceptor != nil {
+	if interceptor != nil {
 		if cc != nil { cc.do(cc, ts_tail{interceptor}) }
 
 		// Slicers wiped their 't', so they safely skip this.
-		// But native nodes (like 'list' or 'word') MUST wrap themselves here
-		// because their spatial position was absorbed by the parent!
-		if t != "" {
-			if content == "" { return "{" + t + "}" }
-			return "{" + t + " " + content + "}"
+		// Native nodes MUST wrap themselves because their spatial position was absorbed!
+		if t == "" { return content }
+
+	} else {
+
+		// If NOT intercepted, calculate the FULL prefix including the logical tag!
+		if showPos { t = tspre(c, p, t) }
+
+		if t == "" {
+			if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. valbase)
+			if evaporate { return content }  // Strip wrapper braces for empty anonymous container nodes
+			return "{" + content + "}"
 		}
-		return content
 	}
 
-	// If NOT intercepted, calculate the FULL prefix including the logical tag!
-	var pre string
-	if showPos {
-		pre = tspre(c, p, t)
-	} else {
-		pre = t
-	}
-
-	if pre == "" {
-		if content == "" { return "{}" } // Fallback for completely empty anchors (e.g. valbase)
-		if evaporate { return content }  // Strip wrapper braces for empty anonymous container nodes
-		return "{" + content + "}"
-	}
-
-	if content == "" {
-		return "{" + pre + "}"
-	} else {
-		return "{" + pre + " " + content + "}"
-	}
+	if content == "" { return "{" + t + "}" }
+	return "{" + t + " " + content + "}"
 }
 
 func slim_ts(i any, o ...any) string { return ts(i,append(o,ts_no_position{},ts_no_evaporation{})...) }
