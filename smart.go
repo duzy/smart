@@ -1768,15 +1768,15 @@ const (
 	opEvalValue evalop = iota // Initiates value-based JIT Compiler
 	opEmitSym
 	opCloseInterval
+	opUnwind // TODO: unwind vmsnapshot
 
 	// --- Match Mode Bytecodes ---
 	opRegexMatch       // Matches a precompiled regex block
 	opMatchLiteral     // Matches a literal symbol/string linearly
 	opGlobQues         // Handles '?' backtracking
 	opGlobAsterisk     // Handles '*' backtracking
-	opGlobAstGreed     // Handles '**' backtracking
+	opGlobAstGreed     // Handles '**' backtracking (including '%')
 	opGlobAstCross     // Handles '*?' backtracking
-	// opGlobPercent      // Handles '%' prefix/suffix matching or same as "**"
 	opGlobRange        // Handles '[a-z]' matching
 )
 
@@ -1815,7 +1815,7 @@ type vmsnapshot struct {
 	tieSymCursor int    // Tie symbol cursor
 	tieBytePos   int    // Tie byte cursor
 	tieStr       string // Tie cached string
-	tieMarkers   int    // Tracks the markers length of the target stream!
+	// tieMarkers   int    // Tracks the markers length of the target stream!
 	pStemsLen    int    // Tracks stems length before this wildcard
 	stemStart    int    // Start coordinate of the wildcard capture
 	stemEnd      int    // End coordinate of the wildcard capture
@@ -1837,7 +1837,7 @@ type symstr struct {
 	symCursor   int          // Which symbol we are currently processing
 	str         string       // The cached string representation of the current symbol
 	bytePos     int          // Tracks the virtual byte offset for the NFA engine (UTF-8 offsets)
-	symBytePos  int          // Tracks the symbol byte offset for ReadSymbol (Symbol boundaries)
+	symBytePos  int          // Tracks the symbol byte offset for symbol boundaries
 	markers     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
 	intervals   []interval   // AST tracking data injected from the flattener
 	ops         []evalop     // The Instruction Stream
@@ -1864,6 +1864,27 @@ func (s *symstr) step() {
 	op := s.ops[top]
 	s.ops = s.ops[:top]
 
+	snapshot := func() vmsnapshot {
+		snapOps := append([]evalop(nil), s.ops...)
+		snapOperands := append([]any(nil), s.operands...)
+		return vmsnapshot{
+			op:           op,
+			ops:          snapOps,
+			operands:     snapOperands,
+			pSymLen:      len(s.syms),
+			pIntervals:   len(s.intervals),
+			pMarkers:     len(s.markers),
+			pBytePos:     s.currentByte,
+			tieSymCursor: s.tie.symCursor,
+			tieBytePos:   s.tie.bytePos,
+			tieStr:       s.tie.str,
+			// tieMarkers:   len(s.tie.markers), // RECORD MARKERS
+			pStemsLen:    len(s.stems),
+			stemStart:    s.tie.bytePos,
+			stemEnd:      s.tie.bytePos,
+		}
+	}
+
 	switch l := len(s.operands); op {
 	case opCloseInterval:
 		val   := s.operands[l-1].(Value)
@@ -1879,10 +1900,61 @@ func (s *symstr) step() {
 		s.emit(sym)
 		if sym == symSlash { s.class = patNone }
 
+	case opUnwind:
+		erro(s, "TODO: unwind backtracks")
+
 	case opMatchLiteral:
 		sym := s.operands[l-1].(Symbol)
 		s.operands = s.operands[:l-1]
 
+		// FAST PATH: Are we perfectly aligned on a symbol boundary?
+		if len(s.tie.str) == 0 { // Only safe if the target is NOT fragmented!
+			if s.tie.symCursor >= len(s.tie.syms) {
+				s.tie.pump() // Ensure target has generated the next symbol
+			}
+		}
+		{
+			if s.tie.symCursor < len(s.tie.syms) {
+				target := s.tie.syms[s.tie.symCursor]
+
+				if sym == target { // O(1) uint32 Comparison!
+					s.tie.advance()
+					s.emit(sym)
+					return
+				}
+
+				if __symHasPrefix(target, sym) {
+					s.tie.str = target.String()
+					s.tie.advanceRune(__symStrLen(sym))
+					s.emit(sym)
+					return
+				}
+
+				// TODO: Suffix Fast Path (If you implement a 'trail' boolean for reverse matching)
+				/*
+				if trail && __symHasSuffix(target, sym) {
+					s.tie.str = target.String()
+					// TODO: Reverse chunking math here: s.tie.
+					s.emit(sym)
+					return
+				}
+				*/
+
+				// NOTE: What if __symHasPrefix(sym, target) is true?
+				// E.g. Pattern is "foobar", Target is "foo".
+				// We intentionally let that fall through to the slow path!
+				// The chunking loop perfectly consumes "foo", pulls the next target symbol,
+				// and matches the remaining "bar" across the boundary.
+
+				if false {
+					s.fail()
+					return // It's obviously a 'match failed'!
+				}
+			}
+		}
+
+		// SLOW PATH: Sub-symbol fragmentation (e.g. comparing "foo" to "foobar").
+		// Fall back to highly optimized chunked string comparison.
 		str := sym.String()
 
 		for len(str) > 0 {
@@ -1913,104 +1985,114 @@ func (s *symstr) step() {
 		s.emit(sym)
 
 	case opGlobQues: // ?
-		r, _, err := s.tie.ReadRune()
-		if err != nil || r == '/' {
-			s.fail()
-			return
+		// PEEPHOLE OPTIMIZATION: Consolidate sequential '?' ops
+		count := 1
+		for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opGlobQues {
+			count++
+			s.ops = s.ops[:len(s.ops)-1] // Destructively pop!
 		}
-		s.emit(symQues)
+
+		startByte := s.tie.bytePos
+
+		// 2. Consume exactly N valid characters
+		for i := 0; i < count; i++ {
+			r, _, err := s.tie.ReadRune()
+			if err != nil || r == '/' {
+				s.fail()
+				return
+			}
+		}
+
+		// 3. Extract the exact matched sequence natively from the target
+		matchedSyms := s.tie.symbolInRange(startByte, s.tie.bytePos)
+
+		// 4. Emit the consolidated stem!
+		if len(matchedSyms) == 1 {
+			// Fast path: it perfectly aligned within a single target symbol
+			s.emit(matchedSyms[0])
+		} else {
+			// Fragmented across multiple symbols: fuse them into one interned symbol!
+			var str string
+			for _, sym := range matchedSyms { str += sym.String() }
+			s.emit(intern(str))
+		}
 
 	case opGlobAsterisk, opGlobAstGreed: // * and ** (Greedy)
-		if op == opGlobAsterisk { s.emit(symAsterisk) } else { s.emit(symAsteriskAst) }
+		// NOTE: emit the wildcard metas is wrong!
+		// if op == opGlobAsterisk { s.emit(symAsterisk) } else { s.emit(symAsteriskAst) }
 
-		stemStart := s.tie.bytePos
-		baseStemsLen := len(s.stems)
-
-		snapOps := append([]evalop(nil), s.ops...)
-		snapOperands := append([]any(nil), s.operands...)
-
-		snap := vmsnapshot{
-			op:           op,
-			ops:          snapOps,
-			operands:     snapOperands,
-			pSymLen:      len(s.syms),
-			pIntervals:   len(s.intervals),
-			pMarkers:     len(s.markers),
-			pBytePos:     s.currentByte,
-			tieSymCursor: s.tie.symCursor,
-			tieBytePos:   s.tie.bytePos,
-			tieStr:       s.tie.str,
-			tieMarkers:   len(s.tie.markers), // RECORD MARKERS
-			pStemsLen:    baseStemsLen,
-			stemStart:    stemStart,
-			stemEnd:      stemStart,
-		}
+		snap := snapshot()
 
 		var localSnaps []vmsnapshot
 		localSnaps = append(localSnaps, snap)
 
 		for {
-			snapSymCursor, snapStr, snapBytePos := s.tie.symCursor, s.tie.str, s.tie.bytePos
-			snapTieMarkers := len(s.tie.markers) // RECORD READ-AHEAD MARKERS
-
-			r, _, err := s.tie.ReadRune()
-
-			if err != nil || (op == opGlobAsterisk && r == '/') {
-				s.tie.symCursor, s.tie.str, s.tie.bytePos = snapSymCursor, snapStr, snapBytePos
-				s.tie.markers = s.tie.markers[:snapTieMarkers] // REWIND READ-AHEAD MARKERS
-				break
+			if strings.Contains(s.tie.str, "/") {
+				debug(s, "%v: %v %v", op, s.tie.str, s.tie.syms)
+			}
+			if len(s.tie.str) == 0 && s.tie.symCursor >= len(s.tie.syms) {
+				s.tie.pump() // Ensure target has generated the next symbol
 			}
 
-			snap.tieSymCursor = s.tie.symCursor
-			snap.tieStr = s.tie.str
-			snap.tieBytePos = s.tie.bytePos
-			snap.tieMarkers = len(s.tie.markers) // RECORD FOR NEXT SNAPSHOT
-			snap.stemEnd = s.tie.bytePos
-			localSnaps = append(localSnaps, snap)
+			if s.tie.symCursor < len(s.tie.syms) {
+				target := s.tie.syms[s.tie.symCursor]
+
+				// Asterisk strictly stops at directory boundaries!
+				if op == opGlobAsterisk && target == symSlash {
+					break
+				}
+
+				// FAST LEAP: Devour the fragment or the whole symbol instantly!
+				if len(s.tie.str) > 0 {
+					s.tie.advanceRune(len(s.tie.str)) // Instantly swallow the leftover fragment!
+				} else {
+					s.tie.advance() // Instantly swallow the entire symbol!
+				}
+
+				snap.tieSymCursor = s.tie.symCursor
+				snap.tieStr = s.tie.str
+				snap.tieBytePos = s.tie.bytePos
+				// snap.tieMarkers = len(s.tie.markers)
+				snap.stemEnd = s.tie.bytePos
+				localSnaps = append(localSnaps, snap)
+				continue
+			}
+
+			break // EOF Reached!
 		}
 
 		s.backtracks = append(s.backtracks, localSnaps[:len(localSnaps)-1]...)
 
 		maxSnap := localSnaps[len(localSnaps)-1]
-		if maxSnap.stemEnd == stemStart {
+		if maxSnap.stemEnd == snap.stemStart {
 			s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 		} else {
-			s.stems = append(s.stems, stemcap{stemStart, maxSnap.stemEnd, symEmpty})
+			s.stems = append(s.stems, stemcap{snap.stemStart, maxSnap.stemEnd, symEmpty})
 		}
 
-	case opGlobAstCross:
-		s.emit(symAsteriskQues)
+	case opGlobAstCross: // *?
+		// 1. Initial State: Match exactly 0 characters (Non-greedy).
+		snap := snapshot()
 
-		stemStart := s.tie.bytePos
-		snapOps := append([]evalop(nil), s.ops...)
-		snapOperands := append([]any(nil), s.operands...)
-
-		snap := vmsnapshot{
-			op:           op,
-			ops:          snapOps,
-			operands:     snapOperands,
-			pSymLen:      len(s.syms),
-			pIntervals:   len(s.intervals),
-			pMarkers:     len(s.markers),
-			pBytePos:     s.currentByte,
-			tieSymCursor: s.tie.symCursor,
-			tieBytePos:   s.tie.bytePos,
-			tieStr:       s.tie.str,
-			tieMarkers:   len(s.tie.markers), // RECORD MARKERS
-			pStemsLen:    len(s.stems),
-			stemStart:    stemStart,
-			stemEnd:      stemStart,
-		}
-
+		// 2. Push the snapshot to backtracks so `fail()` can incrementally expand it later.
 		s.backtracks = append(s.backtracks, snap)
-		s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
 
-	case opGlobRange:
+		// 3. Register a 0-length capture group!
+		// (Do NOT use -1, -1. A 0-byte string is a valid match.)
+		s.stems = append(s.stems, stemcap{snap.stemStart, snap.stemStart, symEmpty})
+
+		// NOTE:
+		// We CANNOT emit anything to the ledger here! A reluctant wildcard doesn't know
+		// what it will ultimately match until the ENTIRE pattern finishes executing.
+		// Your `stemcap` tracking is all that is needed to extract the AST flawlessly.
+
+	case opGlobRange: // [a-z]
 		v := s.operands[l-1].(*globrange)
 		s.operands = s.operands[:l-1]
 
 		r, _, err := s.tie.ReadRune()
-		if err != nil {
+		if err != nil || r == '/' {
+			// Standard globs usually prevent ranges from matching directory separators.
 			s.fail()
 			return
 		}
@@ -2021,8 +2103,8 @@ func (s *symstr) step() {
 		matched, negated := false, false
 
 		if len(rangeStr) > 0 && (rangeStr[0] == '^' || rangeStr[0] == '!') {
-			negated = true
 			rangeStr = rangeStr[1:]
+			negated = true
 		}
 
 		var prevRune rune
@@ -2051,9 +2133,8 @@ func (s *symstr) step() {
 			return
 		}
 
-		s.emit(symLbrack)
-		s.emit(sym)
-		s.emit(symRbrack)
+		// This flawlessly syncs the pattern ledger with what was actually consumed.
+		s.emit(intern(string(r)))
 
 	case opRegexMatch:
 		rx  := s.operands[l-1].(*regexpat)
@@ -2114,15 +2195,43 @@ func (s *symstr) step() {
 
 		if val == nil { return }
 
-		start := s.currentByte
+		var pushSym func(Symbol)
+		var shatter func(Symbol)
+
+		shatter = func(sym Symbol) {
+			if sym != symEmpty {
+				if false { pushSym(sym); return }
+				vocab.RLock()
+				meta := vocab.symetas[sym]
+				vocab.RUnlock()
+				if meta.Kind() == SymSeq {
+					vocab.RLock()
+					seq := vocab.sequences[meta.Idx]
+					vocab.RUnlock()
+					// Push in reverse so they pop in order!
+					for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
+				} else {
+					pushSym(sym)
+				}
+			}
+		}
+
+		if s.tie != nil {
+			pushSym = func(sym Symbol) {
+				// Automatically route to Literal Matcher if tied!
+				s.ops = append(s.ops, opMatchLiteral)
+				s.operands = append(s.operands, sym)
+			}
+		} else {
+			pushSym = func(sym Symbol) {
+				s.ops = append(s.ops, opEmitSym)
+				s.operands = append(s.operands, sym)
+			}
+		}
 
 		pushClose := func(v Value) {
 			s.ops = append(s.ops, opCloseInterval)
-			s.operands = append(s.operands, start, v)
-		}
-		pushSym := func(sym Symbol) {
-			s.ops = append(s.ops, opEmitSym)
-			s.operands = append(s.operands, sym)
+			s.operands = append(s.operands, s.currentByte, v)
 		}
 		pushVal := func(v Value) {
 			s.ops = append(s.ops, opEvalValue)
@@ -2161,12 +2270,10 @@ func (s *symstr) step() {
 			pushSym(symQuotation)
 
 		case *globbrace:
-			s.class |= patGlob
 			pushClose(v)
 			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
 
 		case *globpat:
-			s.class |= patGlob
 			pushClose(v)
 			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
 
@@ -2221,15 +2328,14 @@ func (s *symstr) step() {
 				s.ops = append(s.ops, opRegexMatch)
 				s.operands = append(s.operands, v)
 			} else {
-				pushSym(intern(v.re.String()))
+				shatter(intern(v.re.String()))
 			}
 
 		case *list:
+			pushClose(v)
 			if v.len() == 1 {
-				pushClose(v)
 				pushVal(v.elems[0])
 			} else {
-				pushClose(v)
 				pushSym(symRbotcorner)
 				for i := len(v.elems) - 1; i >= 0; i-- {
 					pushVal(v.elems[i])
@@ -2238,14 +2344,8 @@ func (s *symstr) step() {
 				pushSym(symLtopcorner)
 			}
 		default:
-			sym := __symbol(s.Context, v)
 			pushClose(v)
-			if s.tie != nil {
-				s.ops = append(s.ops, opMatchLiteral)
-				s.operands = append(s.operands, sym)
-			} else {
-				pushSym(sym)
-			}
+			shatter(__symbol(s, v))
 		}
 	}
 }
@@ -2260,18 +2360,21 @@ func (s *symstr) fail() {
 		s.tie.symCursor = snap.tieSymCursor
 		s.tie.str = snap.tieStr
 		s.tie.bytePos = snap.tieBytePos
-		s.tie.markers = s.tie.markers[:snap.tieMarkers] // REWIND THE TARGET MARKERS!
+		// s.tie.markers = s.tie.markers[:snap.tieMarkers] // REWIND THE TARGET MARKERS!
 
 		// 2. Reluctant Expansion Check
 		if snap.op == opGlobAstCross {
-			r, _, err := s.tie.ReadRune()
-			if err != nil || r == '/' { continue }
+			_, _, err := s.tie.ReadRune()
+
+			// THE FIX: Because this is "cross-segments matching", it MUST be allowed
+			// to cross directory boundaries. Remove the `r == '/'` restriction!
+			if err != nil { continue }
 
 			newSnap := snap
 			newSnap.tieSymCursor = s.tie.symCursor
 			newSnap.tieStr = s.tie.str
 			newSnap.tieBytePos = s.tie.bytePos
-			newSnap.tieMarkers = len(s.tie.markers) // RECORD EXPANDED MARKERS
+			// newSnap.tieMarkers = len(s.tie.markers) // RECORD EXPANDED MARKERS
 			newSnap.stemEnd = s.tie.bytePos
 			s.backtracks = append(s.backtracks, newSnap)
 		}
@@ -2307,7 +2410,6 @@ func (s *symstr) fail() {
 }
 
 // advance pushes the VM exactly one full AST symbol forward.
-// This is the core stepper for the Symbol-First Stack VM.
 func (s *symstr) advance() {
 	if s.symCursor < len(s.syms) {
 		sym := s.syms[s.symCursor]
@@ -2318,8 +2420,7 @@ func (s *symstr) advance() {
 	}
 }
 
-// advance safely pushes the stream forward by `n` bytes natively,
-// updating the fast-cache and injecting structural markers precisely on symbol boundaries.
+// advanceRune safely pushes the stream forward by `n` bytes natively.
 func (s *symstr) advanceRune(n int) {
 	s.bytePos += n
 	s.str = s.str[n:]
@@ -2327,14 +2428,30 @@ func (s *symstr) advanceRune(n int) {
 	if len(s.str) == 0 {
 		s.symCursor++
 		s.flushClosures()
+	}
+}
 
-		// SPARSE TRACKING: Record boundary marker strictly on symbol transition
-		// (We check length to prevent double-insertions if multiple boundaries hit without pumps)
-		if s.symCursor < len(s.syms) && len(s.markers) <= s.symCursor {
+func (s *symstr) emit(sym Symbol) {
+	// __symFlatSeq guarantees nested SymSeq containers are unrolled
+	flat := __symFlatSeq(sym)
+	for _, fs := range flat {
+		// THE FIX: The Generator is the ultimate source of truth!
+		// Record the marker exactly when the symbol is generated.
+		if len(s.markers) == len(s.syms) {
 			s.markers = append(s.markers, offsetmark{
-				byteOffset: s.bytePos,
-				idx:        s.symCursor,
+				byteOffset: s.currentByte,
+				idx:        len(s.syms),
 			})
+		}
+
+		s.syms = append(s.syms, fs)
+		s.currentByte += fs.len() // O(1) tracking using your optimization!
+
+		// Keep the IP synchronized for the Pattern VM!
+		if s.tie != nil {
+			s.symCursor++
+			s.bytePos += fs.len()
+			s.flushClosures()
 		}
 	}
 }
@@ -2387,14 +2504,6 @@ func (s *symstr) ReadRune() (rune, int, error) {
 			return 0, 0, io.EOF
 		}
 
-		// SPARSE TRACKING: Record boundary marker strictly on symbol transition
-		if len(s.markers) <= s.symCursor {
-			s.markers = append(s.markers, offsetmark{
-				byteOffset: s.bytePos,
-				idx:        s.symCursor,
-			})
-		}
-
 		sym := s.syms[s.symCursor]
 
 		vocab.RLock()
@@ -2430,55 +2539,16 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	return r, size, nil
 }
 
-// ReadSymbol lazily evaluates the AST and yields the next sequential symbol.
-// Used natively by matching algorithms for zero-allocation linear traversal.
-func (s *symstr) ReadSymbol() (Symbol, error) {
-	for s.symCursor >= len(s.syms) { // Similar to pump(), but different.
-		// Catch errors triggered during step execution FIRST
-		if s.err != nil { return symEmpty, s.err }
-		if len(s.ops) == 0 { return symEmpty, io.EOF }
-		s.step()
-	}
-
-	sym := s.syms[s.symCursor]
-
-	// SPARSE TRACKING: Ensure markers align perfectly with the shared bytePos pointer!
-	if len(s.markers) <= s.symCursor {
-		s.markers = append(s.markers, offsetmark{
-			byteOffset: s.bytePos,
-			idx:        s.symCursor,
-		})
-	}
-
-	// Because ReadSymbol bypasses ReadRune's character-by-character advance,
-	// we must artificially fast-forward the VM byte cursor to the end of this symbol!
-	s.bytePos += sym.len()
-	s.str = "" // Clear the cache so ReadRune doesn't read stale data if called next
-	s.symCursor++
-	s.flushClosures()
-
-	return sym, nil
-}
-
 // exhaust forces the lazy evaluator to complete, fully populating s.syms.
 // Required before initiating a backward (trail) match.
 func (s *symstr) exhaust() {
-	for {
-		if _, err := s.ReadSymbol(); err != nil { break }
+	for len(s.ops) > 0 && s.err == nil {
+		s.step() // Just pump the generator natively!
 	}
 }
 
 func (s *symstr) exhausted() bool {
-	return len(s.ops) == 0 && s.symCursor >= len(s.syms)
-}
-
-func (s *symstr) emit(sym Symbol) {
-	// __symFlatSeq guarantees nested SymSeq containers are unrolled
-	flat := __symFlatSeq(sym)
-	for _, fs := range flat {
-		s.syms = append(s.syms, fs)
-		s.currentByte += fs.len() // O(1) tracking using your optimization!
-	}
+	return len(s.ops) == 0 && s.symCursor >= len(s.syms) && len(s.str) == 0
 }
 
 // byteToSymIdx safely translates a virtual byte boundary back to the symbol index.
@@ -2499,97 +2569,80 @@ func (s *symstr) byteToSymIdx(byteOffset int) int {
 	return len(s.syms)
 }
 
-// symLength computes the string length of a symbol in the stream using marker math.
-func (s *symstr) symLength(idx int) int {
+// distance computes the string length of a symbol in the stream using marker math.
+func (s *symstr) distance(idx int) int {
 	if idx < len(s.markers)-1 {
 		return s.markers[idx+1].byteOffset - s.markers[idx].byteOffset
 	}
-	return s.bytePos - s.markers[idx].byteOffset
+	// THE FIX: Use the Generator's cursor, not the NFA Execution cursor!
+	return s.currentByte - s.markers[idx].byteOffset
 }
 
-// symbolInRange safely extracts a slice of symbols given virtual byte coordinates.
-// It accurately slices the original sequence, handling partial regex string matches natively.
+// symbolInRange extracts the symbols within the exact byte boundaries.
+// It dynamically calculates spatial coordinates by summing intrinsic symbol lengths,
+// making it 100% immune to tracking array corruption or missing markers.
 func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
-	if startByte >= endByte || len(s.syms) == 0 {
-		return nil
-	}
+	if startByte >= endByte { return nil }
 
-	startSymIdx := s.byteToSymIdx(startByte)
-	endSymIdx := s.byteToSymIdx(endByte - 1) // -1 ensures we evaluate the symbol containing the last byte
+	startIdx := -1
+	endIdx := -1
 
-	// Clamp boundaries to prevent slice panics on incomplete streams
-	if startSymIdx < 0 { startSymIdx = 0 }
-	if endSymIdx >= len(s.syms) { endSymIdx = len(s.syms) - 1 }
-	if startSymIdx > endSymIdx { return nil }
+	// 1. Calculate pure mathematical boundaries
+	currentOffset := 0
+	for i := 0; i < len(s.syms); i++ {
+		// symStart := currentOffset
+		symEnd := currentOffset + s.syms[i].len()
+		currentOffset = symEnd
 
-	// Case 1: Match falls entirely within a single symbol
-	if startSymIdx == endSymIdx {
-		// Defensive guard against unrecorded markers
-		if startSymIdx >= len(s.markers) { return []Symbol{s.syms[startSymIdx]} }
-
-		sym := s.syms[startSymIdx]
-		marker := s.markers[startSymIdx]
-		length := s.symLength(startSymIdx)
-
-		relStart := startByte - marker.byteOffset
-		relEnd := endByte - marker.byteOffset
-
-		// Clamp relative coordinates
-		if relStart < 0 { relStart = 0 }
-		if relEnd > length { relEnd = length }
-
-		// FAST PATH: Zero string allocations if exact match
-		if relStart == 0 && relEnd == length {
-			return []Symbol{sym}
+		if startIdx == -1 && startByte < symEnd {
+			startIdx = i
 		}
-		if relStart >= relEnd { return nil }
-		return []Symbol{intern(sym.String()[relStart:relEnd])}
-	}
-
-	// Case 2: Spans multiple symbols
-	var matched []Symbol
-
-	// First symbol (check for partial start boundary slice)
-	if startSymIdx < len(s.markers) {
-		firstSym := s.syms[startSymIdx]
-		firstMarker := s.markers[startSymIdx]
-		relStart := startByte - firstMarker.byteOffset
-
-		if relStart > 0 {
-			str := firstSym.String()
-			if relStart < len(str) {
-				matched = append(matched, intern(str[relStart:]))
-			}
-		} else {
-			matched = append(matched, firstSym)
+		if endByte <= symEnd {
+			endIdx = i
+			break
 		}
 	}
 
-	// Middle symbols (fully consumed, completely intact!)
-	for i := startSymIdx + 1; i < endSymIdx; i++ {
-		matched = append(matched, s.syms[i])
-	}
+	// If the requested range is completely beyond the generated tape
+	if startIdx == -1 { return nil }
+	if endIdx == -1 { endIdx = len(s.syms) - 1 }
 
-	// Last symbol (check for partial end boundary slice)
-	if endSymIdx < len(s.markers) {
-		lastSym := s.syms[endSymIdx]
-		lastMarker := s.markers[endSymIdx]
-		relEnd := endByte - lastMarker.byteOffset
-		length := s.symLength(endSymIdx)
+	var syms []Symbol
+	currentOffset = 0
 
-		if relEnd > 0 && relEnd < length {
-			str := lastSym.String()
-			if relEnd <= len(str) {
-				matched = append(matched, intern(str[:relEnd]))
-			}
-		} else if relEnd >= length {
-			matched = append(matched, lastSym) // Reused intact
+	// 2. Extract and fractionally slice
+	for i := 0; i <= endIdx; i++ {
+		symStart := currentOffset
+		symEnd := currentOffset + s.syms[i].len()
+		currentOffset = symEnd
+
+		if i < startIdx { continue }
+
+		sym := s.syms[i]
+
+		// FAST PATH: Perfect symbol alignment
+		if startByte <= symStart && endByte >= symEnd {
+			syms = append(syms, sym)
+			continue
 		}
-	} else {
-		matched = append(matched, s.syms[endSymIdx])
+
+		// SLOW PATH: Fractional fragment extraction
+		str := sym.String()
+
+		sliceStart := 0
+		if startByte > symStart { sliceStart = startByte - symStart }
+
+		sliceEnd := len(str)
+		if endByte < symEnd { sliceEnd = endByte - symStart }
+
+		if sliceStart < sliceEnd {
+			frag := str[sliceStart:sliceEnd]
+			// Intern the fractional string so __symPackValue recognizes it!
+			syms = append(syms, intern(frag))
+		}
 	}
 
-	return matched
+	return syms
 }
 
 func (s *symstr) valueInRange(startByte, endByte int) Value {
@@ -2598,44 +2651,74 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	}
 
 	var wrappers []Value
-	var pristineStructured Value
+	var inheritedXloc *xloc
+	var pristine Value
+	var packPos Pos = -1
 
 	// 1. HIGH-FIDELITY EXACT MATCH LOOKUP
 	for _, inv := range s.intervals {
-		if inv.startByte == startByte && inv.endByte == endByte {
+		if inv.startByte <= startByte && endByte <= inv.endByte {
+			if packPos == -1 { packPos = inv.node.Pos() }
+			if x, ok := inv.node.(*xloc); ok { inheritedXloc = x }
+		}
+		if inv.startByte == startByte && endByte == inv.endByte {
 			switch w := inv.node.(type) {
 			case *loc, *xloc, fullname, fullfile, *defcaps:
 				wrappers = append(wrappers, w)
-			case *word, *raw, *integer, *decimal, *float, *punct, *binary, *octal, *hexadecimal, *file, *auto, flag:
-				// Flat nodes fall through to __symPackValue
 			default:
-				// Complex structured nodes (*list, *compound, *qualword) are preserved intact
-				pristineStructured = inv.node
+				pristine = inv.node
 			}
 		}
 	}
 
-	var val Value
-	if pristineStructured != nil {
-		val = pristineStructured
-	} else {
-		// 2. FALLBACK & UPGRADE: Shatter to flat symbols and parse via __symPackValue
-		var packPos Pos = -1
-		var inheritedXloc *xloc
+	// Repacking position is from the first interval node in the range, or NoPos.
+	if packPos == -1 { packPos = NoPos }
 
-		// Find the narrowest encompassing node to inherit spatial data!
-		for _, inv := range s.intervals {
-			if inv.startByte <= startByte && endByte <= inv.endByte {
-				if packPos == -1 { packPos = inv.node.Pos() }
-				if x, ok := inv.node.(*xloc); ok { inheritedXloc = x }
+	var val Value
+	if pristine == nil {
+		syms := s.symbolInRange(startByte, endByte)
+		val = __symPackValue(&force_pos_ctx{s, packPos}, syms)
+
+		// Catch dynamically sliced Regex fragments that the packer doesn't recognize!
+		if isNull(val) && len(syms) > 0 { val = &word{s: internSeq(syms)} }
+		if (isNull(val) || len(syms) == 0) && (packPos > 0 || len(wrappers) > 0) {
+			var cb compactbuilds
+			cb.writef("\n  Symbols: %v", s.syms)
+			cb.writef("\n  Markers: (%d)", len(s.markers))
+			for _, m := range s.markers {
+				cb.writef("\n   {%d, %d} ", m.byteOffset, m.idx)
+			}
+			cb.writef("\n  Intervals:")
+			for _, inv := range s.intervals {
+				cb.writef("\n    [%d,%d] → %s", inv.startByte, inv.endByte, ts(inv.node,s))
+			}
+			warn(pc(s, packPos),
+				_f("nil pack in [%d,%d], syms=%v,%s", startByte, endByte, syms, cb.shared()),
+				callstack{num:2})
+		}
+
+	} else {
+		switch v := pristine.(type) {
+		case *word:
+			if __symKind(v.s) == SymSeq {
+				val = __symPackValue(&force_pos_ctx{s, packPos}, __symFlatSeq(v.s))
+				goto non_pristine_val_set
+			}
+		case *file:
+			if __symKind(v.name) == SymSeq {
+				val = __symPackValue(&force_pos_ctx{s, packPos}, __symFlatSeq(v.name))
+				goto non_pristine_val_set
 			}
 		}
 
-		if packPos == -1 { packPos = NoPos }
-		val = __symPackValue(&force_pos_ctx{s, packPos}, s.symbolInRange(startByte, endByte))
+		val = pristine
 
+	non_pristine_val_set:
+	}
+
+	if inheritedXloc != nil && val != nil {
 		// Safely wrap the newly shattered substring in its parent's physical file location
-		if inheritedXloc != nil { val = &xloc{val, inheritedXloc.pos} }
+		val = &xloc{val, inheritedXloc.pos}
 	}
 
 	// 3. RE-WRAP: Safely apply outer metadata shells
@@ -22224,7 +22307,16 @@ func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Va
 
 	vStream.exhaust()
 	vStream.currentByte++ // FIXED: Insufficient range coverage bug.
-	matched = (pStream.err == nil)
+	matched = pStream.err == nil //&& vStream.exhausted()
+
+	if checkpoints && matched {
+		if !pStream.exhausted() {
+			warn(pc(ctx,pat), "pattern stream not exhausted: %v %v", pat, val)
+		}
+		if !vStream.exhausted() {
+			warn(pc(ctx,val), "value stream not exhausted: %v %v", pat, val)
+		}
+	}
 
 	if matched {
 		if vStream.bytePos > 0 {
