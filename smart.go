@@ -23448,16 +23448,6 @@ func tspre(ctx Context, ap any, tag string) string {
 	return s
 }
 
-func tspos(i any) (p any) {
-	switch x := i.(type) {
-	case *xloc: p = x.pos // Safely extracts the fat Position!
-	case Position: p = x
-	case Pos: p = x
-	case Poser: if x != nil { p = x.Pos() }
-	}
-	return
-}
-
 // Interceptor operations
 type ts_no_position struct {}
 type ts_no_evaporation struct {}
@@ -23547,7 +23537,6 @@ func ts(i any, o ...any) (s string) {
 	var c Context
 	var showPos = true
 	var evaporation = true
-	var p = tspos(i) // Unify Position Extraction
 	for _, opt := range o {
 		switch t := opt.(type) {
 		case ts_no_evaporation: evaporation = false
@@ -23569,6 +23558,25 @@ func ts(i any, o ...any) (s string) {
 		_ts = func(a any) string { return ts(a, cc, ts_no_evaporation{}) }
 	} else {
 		_ts = func(a any) string { return ts(a, cc, ts_no_evaporation{}, ts_no_position{}) }
+	}
+
+	// Unify Position Extraction & Context Stack
+	var p Position
+	switch x := i.(type) {
+	case *xloc:    p = x.pos // Safely extracts the fat Position!
+	case Position: p = x
+	case Pos:      if c != nil { p = _fatpos(c, x) }
+	case Poser:
+		// Safely guard against typed nil interfaces (e.g. `*word(nil)`)
+		v := reflect.ValueOf(x)
+		if v.IsValid() && (v.Kind() != reflect.Ptr || !v.IsNil()) {
+			if c != nil { p = _fatpos(c, x.Pos()) }
+		}
+	}
+
+	if c != nil {
+		if !p.valid() { p = _fatpos(c, NoPos) } // Instantly heals nil/unmatched types!
+		cc = &ts_ctx{Context: c, p: p, showPos: showPos}
 	}
 
 	wrap := func(ctx Context, seedPos any, items []Value) (res string) {
@@ -23647,7 +23655,11 @@ func ts(i any, o ...any) (s string) {
 
 			// Pure containers forfeit their outer prefix (e.g. `{list}`).
 			// Substantive nodes retain it (e.g. `{42:18:quote}`).
-			if seedPos == nil { p = nil }
+			if seedPos == nil {
+				// Preserve Filename but zero coordinates!
+				p.Line = 0
+				p.Column = 0
+			}
 
 			// Zero out the Line/Column anchor so children print their positions!
 			do(cc, ts_forfeit_pos{})
@@ -23729,17 +23741,6 @@ func ts(i any, o ...any) (s string) {
 			return
 		}
 		if s := "_ctx"; strings.HasSuffix(t,s) { t = strings.TrimSuffix(t,s) }
-	}
-
-	// 3. Build the AST context stack
-	if c != nil {
-		var fat Position
-		switch x := p.(type) {
-		case Position: fat = x
-		case Pos:      fat = _fatpos(c, x)
-		default:       fat = _fatpos(c, NoPos) // Instantly heals nil/unmatched types!
-		}
-		cc = &ts_ctx{Context: c, p: fat, showPos: showPos}
 	}
 
 	var interceptor Context
