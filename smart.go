@@ -2547,15 +2547,56 @@ func (s *symstr) ReadRune() (rune, int, error) {
 }
 
 // exhaust forces the lazy evaluator to complete, fully populating s.syms.
-// Required before initiating a backward (trail) match.
-func (s *symstr) exhaust() {
-	for len(s.ops) > 0 && s.err == nil {
-		s.step() // Just pump the generator natively!
+// For tied pattern streams, it executes the NFA until a valid final state is reached.
+// It returns the high-water mark (furthest byte reached) and the captured stems at that mark.
+func (s *symstr) exhaust() (int, []stemcap) {
+	var bestTieByte int
+	var bestStems []stemcap
+
+	for s.err == nil {
+		if len(s.ops) > 0 {
+			s.step()
+
+			// === HIGH-WATER MARK TRACKING ===
+			// Continuously record the furthest the NFA reaches into the target stream.
+			if s.tie != nil && s.tie.bytePos >= bestTieByte {
+				bestTieByte = s.tie.bytePos
+				if len(s.stems) > 0 {
+					bestStems = append([]stemcap(nil), s.stems...)
+				} else {
+					bestStems = nil
+				}
+			}
+			continue
+		}
+
+		// === FORCE FULL MATCH FOR GLOBS ===
+		// Globs inherently require the target stream to be perfectly exhausted.
+		// If the pattern VM stopped early (a prefix match), force it to backtrack
+		// and explore alternative greedy paths until it hits EOF or hard fails.
+		// NOTE: We don't need to unroll the target stream to know if it's exhausted!
+		if s.tie != nil && (s.class&patGlob) != 0 && !s.tie.exhausted() {
+			s.fail()
+			continue
+		}
+
+		break // No ops left, and valid termination state reached!
 	}
+
+	// === TARGET STREAM DELEGATION ===
+	// The driving stream takes full responsibility for finalizing its target ONLY AFTER
+	// the NFA has completely finished all its searching (success or failure).
+	// This ensures the target stream perfectly unrolls the remainder of its AST
+	// before control returns to the orchestrator, preserving maximum laziness!
+	if s.tie != nil { s.tie.exhaust() }
+
+	return bestTieByte, bestStems
 }
 
+// exhausted returns true if the engine has successfully completed its
+// instruction tape AND consumed every available byte in the target stream.
 func (s *symstr) exhausted() bool {
-	return len(s.ops) == 0 && s.symCursor >= len(s.syms) && len(s.str) == 0
+	return len(s.ops) == 0 && s.bytePos >= s.currentByte
 }
 
 // byteToSymIdx safely translates a virtual byte boundary back to the symbol index.
@@ -22296,25 +22337,9 @@ func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Va
 	pStream.ops = append(pStream.ops, opEvalValue)
 	pStream.operands = append(pStream.operands, pat)
 
-	var bestTieByte int
-	var bestStems []stemcap
+	bestTieByte, bestStems := pStream.exhaust()
 
-	for len(pStream.ops) > 0 && pStream.err == nil {
-		pStream.step()
-
-		if pStream.tie.bytePos >= bestTieByte {
-			bestTieByte = pStream.tie.bytePos
-			if len(pStream.stems) > 0 {
-				bestStems = append([]stemcap(nil), pStream.stems...)
-			} else {
-				bestStems = nil
-			}
-		}
-	}
-
-	vStream.exhaust()
-	vStream.currentByte++ // FIXED: Insufficient range coverage bug.
-	matched = pStream.err == nil //&& vStream.exhausted()
+	matched = pStream.err == nil && vStream.err == nil
 
 	if checkpoints && matched {
 		if !pStream.exhausted() {
