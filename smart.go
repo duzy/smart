@@ -1791,13 +1791,13 @@ const (
 
 const (
 	patNone         = 0
-	patRegex        = 1 << 0
-	patGlobChar     = 1 << 1 // ?, []
-	patGlobAst      = 1 << 2 // *
-	patGlobAstCross = 1 << 3 // *?
-	patGlobAstGreed = 1 << 4 // **
+	patBackwards    = 1 << 0
+	patRegex        = 1 << 1
+	patGlobChar     = 1 << 2 // ?, []
+	patGlobAst      = 1 << 3 // *
+	patGlobAstCross = 1 << 4 // *?
+	patGlobAstGreed = 1 << 5 // **
 	patGlob         = patGlobChar | patGlobAst | patGlobAstCross | patGlobAstGreed
-	patMixed = patGlob | patRegex
 )
 
 // offsetmark maps a global virtual byte position to an underlying slice index.
@@ -2365,13 +2365,28 @@ func (s *symstr) step() {
 
 		case *percpat:
 			s.class |= patGlobAstGreed // % behaves like **
+
+			// Flatten sequential %% patterns!
+			count := 1
+			suffix := v.Suffix
+			for {
+				if x, yes := suffix.(*percpat); yes {
+					if _, yes = x.Prefix.(valbase); yes {
+						count++
+						suffix = x.Suffix
+						continue
+					}
+				}
+				break
+			}
+
 			if s.tie != nil {
-				if v.Suffix != nil && !isEmpty(v.Suffix) { pushVal(v.Suffix) }
+				if suffix != nil && !isEmpty(suffix) { pushVal(suffix) }
 				s.ops = append(s.ops, opGlobAstGreed)
 				if v.Prefix != nil && !isEmpty(v.Prefix) { pushVal(v.Prefix) }
 			} else {
-				if v.Suffix != nil && !isEmpty(v.Suffix) { pushVal(v.Suffix) }
-				pushSym(symPercent)
+				if suffix != nil && !isEmpty(suffix) { pushVal(suffix) }
+				for i := 0; i < count; i++ { pushSym(symPercent) }
 				if v.Prefix != nil && !isEmpty(v.Prefix) { pushVal(v.Prefix) }
 			}
 
@@ -22423,12 +22438,25 @@ func extractStems(vStream *symstr, caps []stemcap) []Value {
 	return res
 }
 
-func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
+// match matches pattern `pat` against value `val`.
+// Returns matched=true if the pattern was completely satisfied, even if the target value has a remainder.
+// The unconsumed portion of the value is returned as `rem`, aka. the remainder.
+func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
 
+	switch p := pat.(type) {
+	case *loc: return match(ctx, p.Value, val)
+	case *xloc: return match(ctx, p.Value, val)
+	}
+
+	trail := truly(ctx, propReversal)
 	stream := &symstr{Context: ctx, tie: &symstr{Context: ctx}}
 	stream.tie.push(opEvalValue, val)
 	stream.push(opEvalValue, pat)
+	if trail {
+		stream.tie.class |= patBackwards
+		stream.class |= patBackwards
+	}
 
 	stopTieByte, stopTieSymCursor := stream.exhaust()
 
@@ -22441,7 +22469,7 @@ func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Va
 		if force_full_match_anchor && !stream.tie.exhausted() {
 			warn(pc(ctx,val), "value stream not exhausted: %v %v", pat, val)
 		}
-		if stopTieSymCursor == 0 {
+		if stopTieSymCursor == 0 && len(stream.tie.str) == 0 {
 			warn(pc(ctx,val), "zero tied sym-cursor: %v %v", pat, val)
 		}
 	}
@@ -22455,19 +22483,15 @@ func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Va
 		} else {
 			rem = val
 		}
-
-		// Convert the winning LIVE stems array!
-		stems = extractStems(stream.tie, stream.stems)
-		return
-	}
-
-	if stopTieByte > 0 {
-		res = stream.tie.valueInRange(0, stopTieByte)
-		if stopTieByte < stream.tie.currentByte {
-			rem = stream.tie.valueInRange(stopTieByte, stream.tie.currentByte)
-		}
 	} else {
-		rem = val
+		if stopTieByte > 0 {
+			res = stream.tie.valueInRange(0, stopTieByte)
+			if stopTieByte < stream.tie.currentByte {
+				rem = stream.tie.valueInRange(stopTieByte, stream.tie.currentByte)
+			}
+		} else {
+			rem = val
+		}
 	}
 
 	// Convert the telemetry stems array!
@@ -22475,84 +22499,6 @@ func match_forward(ctx Context, pat Value, val Value) (matched bool, res, rem Va
 
 	if !force_full_match_anchor && !matched { // === PURE PREFIX MATCHING ===
 		matched = res != nil && rem != nil && stopTieSymCursor >= len(stream.tie.syms)
-	}
-	return
-}
-
-func match_backward(ctx Context, pat Value, val Value) (matched bool, res, rem Value, stems []Value) {
-	if val == nil || pat == nil { return false, nil, val, nil }
-
-	// 1. Strict Stack VM Initialization
-	vStream := &symstr{Context: ctx}
-	vStream.ops = append(vStream.ops, opEvalValue)
-	vStream.operands = append(vStream.operands, val)
-
-	pStream := &symstr{Context: ctx, tie: vStream}
-	pStream.ops = append(pStream.ops, opEvalValue)
-	pStream.operands = append(pStream.operands, pat)
-
-	// Backward matching structurally requires physical exhaustion first
-	// to fully unroll the ASTs and populate the 1:1 markers array.
-	pStream.exhaust()
-	vStream.exhaust()
-
-	pCursor := len(pStream.syms) - 1
-	vCursor := len(vStream.syms) - 1
-
-	// 2. High-Speed Linear Backward Match
-	for pCursor >= 0 {
-		// Strict structural symbol comparison
-		if vCursor < 0 || pStream.syms[pCursor] != vStream.syms[vCursor] {
-			matched = false
-			break
-		}
-		pCursor--
-		vCursor--
-	}
-
-	if pCursor < 0 {
-		matched = true
-	}
-
-	// Safe O(1) marker extraction helper
-	offsetOf := func(idx int) int {
-		if idx < 0 { return 0 }
-		if idx < len(vStream.markers) { return vStream.markers[idx].byteOffset }
-		return vStream.currentByte
-	}
-
-	// 3. ALWAYS extract partial trailing progress, even on failure!
-	if vCursor < len(vStream.syms)-1 {
-		// vCursor+1 is the exact symbol where the match started succeeding backwards
-		matchStartByte := offsetOf(vCursor + 1)
-
-		res = vStream.valueInRange(matchStartByte, vStream.currentByte)
-
-		if matchStartByte > 0 {
-			rem = vStream.valueInRange(0, matchStartByte)
-		}
-	} else {
-		rem = val // Zero backward progress made
-	}
-
-	return matched, res, rem, stems
-}
-
-// match matches pattern `pat` against value `val`.
-// Returns matched=true if the pattern was completely satisfied, even if the target value has a remainder.
-// The unconsumed portion of the value is returned as `rem`, aka. the remainder.
-func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
-	switch p := pat.(type) {
-	case *loc: return match(ctx, p.Value, val)
-	case *xloc: return match(ctx, p.Value, val)
-	}
-
-	trail := truly(ctx, propReversal)
-
-	if trail {
-		matched, res, rem, stems = match_backward(ctx, pat, val)
-	} else {
-		matched, res, rem, stems = match_forward(ctx, pat, val)
 	}
 
 	if false && checkpoints { check_matchValueValue(ctx, pat, val, trail)(&matched, &res, &rem) }
