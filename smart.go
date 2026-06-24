@@ -2253,6 +2253,8 @@ func (s *symstr) step() {
 		var pushSym func(Symbol)
 		var shatter func(Symbol)
 
+		reverse := (s.class & patBackwards) != 0
+
 		shatter = func(sym Symbol) {
 			if sym != symEmpty {
 				if false { pushSym(sym); return }
@@ -2263,8 +2265,15 @@ func (s *symstr) step() {
 					vocab.RLock()
 					seq := vocab.sequences[meta.Idx]
 					vocab.RUnlock()
-					// Push in reverse so they pop in order!
-					for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
+					if reverse {
+						// BACKWARD STREAMING: Push 0 to N-1.
+						// The tail of the sequence (N-1) rests at the top of the stack and pops first!
+						for i := 0; i < len(seq); i++ { shatter(seq[i]) }
+					} else {
+						// FORWARD STREAMING: Push N-1 to 0.
+						// The head of the sequence (0) rests at the top of the stack and pops first!
+						for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
+					}
 				} else {
 					pushSym(sym)
 				}
@@ -2291,49 +2300,70 @@ func (s *symstr) step() {
 		case fullname:  pushVal(v.Value)
 		case fullfile:  pushVal(v.file)
 		case flag:
-			pushVal(v.Value)
-			pushSym(symDash)
+			if reverse {
+				pushSym(symDash)
+				pushVal(v.Value)
+			} else {
+				pushVal(v.Value)
+				pushSym(symDash)
+			}
 		case *compound:
-			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
 		case *qualword:
-			for i := len(v.elems) - 1; i >= 0; i-- {
-				pushVal(v.elems[i])
-				if i > 0 { pushSym(symDot) }
+			if reverse {
+				for i := 0; i < len(v.elems); i++ {
+					pushVal(v.elems[i])
+					if i < len(v.elems)-1 { pushSym(symDot) }
+				}
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					pushVal(v.elems[i])
+					if i > 0 { pushSym(symDot) }
+				}
 			}
 		case *path:
-			for i := len(v.elems) - 1; i >= 0; i-- {
-				pushVal(v.elems[i])
-				if i > 0 {
-					// Always emit the structural slash between elements:
-					//   PROOT is the empty before the root slash;
-					//   PTAIL is the empty after the tailing slash.
-					pushSym(symSlash)
+			if reverse {
+				for i := 0; i < len(v.elems); i++ {
+					pushVal(v.elems[i])
+					if i < len(v.elems)-1 { pushSym(symSlash) }
+				}
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					pushVal(v.elems[i])
+					if i > 0 {
+						// Always emit the structural slash between elements:
+						//   PROOT is the empty before the root slash;
+						//   PTAIL is the empty after the tailing slash.
+						pushSym(symSlash)
+					}
 				}
 			}
 		case *strcomp:
 			pushSym(symQuotation)
-			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
 			pushSym(symQuotation)
 
-		case *word:
-			shatter(v.s)
-
-		case *punct:
-			if v.token == PTAIL || v.token == PROOT {
-				// * PROOT is the empty before the root slash;
-				// * PTAIL is the empty after the tailing slash.
-				// We push symEmpty to record the boundary without consuming target runes!
-				pushSym(symEmpty) // NOTE __symbol(s, v) is symEmpty; pass symEmpty directly to optimize!
+		case *globbrace:
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
 			} else {
-				// Normal punctuation (like `.`, `-`, etc.) MUST be emitted!
-				pushSym(__symbol(s, v)) // FIXME: punctuation token mapping to symbols
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
 			}
 
-		case *globbrace:
-			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-
 		case *globpat:
-			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
 
 		case *globmeta:
 			if s.tie != nil {
@@ -2403,13 +2433,36 @@ func (s *symstr) step() {
 			if v.len() == 1 {
 				pushVal(v.elems[0])
 			} else {
-				pushSym(symRbotcorner)
-				for i := len(v.elems) - 1; i >= 0; i-- {
-					pushVal(v.elems[i])
-					if i > 0 { pushSym(symSpace) }
+				if reverse {
+					pushSym(symLtopcorner)
+					for i := 0; i < len(v.elems); i++ {
+						pushVal(v.elems[i])
+						if i < len(v.elems)-1 { pushSym(symSpace) }
+					}
+					pushSym(symRbotcorner)
+				} else {
+					pushSym(symRbotcorner)
+					for i := len(v.elems) - 1; i >= 0; i-- {
+						pushVal(v.elems[i])
+						if i > 0 { pushSym(symSpace) }
+					}
+					pushSym(symLtopcorner)
 				}
-				pushSym(symLtopcorner)
 			}
+
+		case *punct:
+			if v.token == PTAIL || v.token == PROOT {
+				// * PROOT is the empty before the root slash;
+				// * PTAIL is the empty after the tailing slash.
+				// We push symEmpty to record the boundary without consuming target runes!
+				pushSym(symEmpty) // NOTE __symbol(s, v) is symEmpty; pass symEmpty directly to optimize!
+			} else {
+				// Normal punctuation (like `.`, `-`, etc.) MUST be emitted!
+				pushSym(__symbol(s, v)) // FIXME: punctuation token mapping to symbols
+			}
+
+		case *word:
+			shatter(v.s)
 
 		default:
 			shatter(__symbol(s, v))
@@ -2801,9 +2854,28 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	// Repacking position is from the first interval node in the range, or NoPos.
 	if packPos == -1 { packPos = NoPos }
 
+	var restoreChronologicalOrder func([]Symbol) []Symbol
+	if (s.class & patBackwards) != 0 {
+		// THE DOD FIX: Restore Chronological Order!
+		// If the tape was built right-to-left, the symbols are physically backwards.
+		// We reverse the slice in-memory so __symPackValue yields the correct forward AST.
+		restoreChronologicalOrder = func(syms []Symbol) []Symbol {
+			if len(syms) > 1 {
+				rev := make([]Symbol, len(syms))
+				for i, j := 0, len(syms)-1; i < len(syms); i, j = i+1, j-1 {
+					rev[i] = syms[j]
+				}
+				syms = rev
+			}
+			return syms
+		}
+	} else {
+		restoreChronologicalOrder = func(syms []Symbol) []Symbol { return syms }
+	}
+
 	var val Value
 	if pristine == nil {
-		syms := s.symbolInRange(startByte, endByte)
+		syms := restoreChronologicalOrder(s.symbolInRange(startByte, endByte))
 		val = __symPackValue(&force_pos_ctx{s, packPos}, syms)
 
 		// Catch dynamically sliced Regex fragments that the packer doesn't recognize!
@@ -2825,17 +2897,14 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 		}
 
 	} else {
+		var syms []Symbol
 		switch v := pristine.(type) {
-		case *word:
-			if __symKind(v.s) == SymSeq {
-				val = __symPackValue(&force_pos_ctx{s, packPos}, __symFlatSeq(v.s))
-				goto non_pristine_val_set
-			}
-		case *file:
-			if __symKind(v.name) == SymSeq {
-				val = __symPackValue(&force_pos_ctx{s, packPos}, __symFlatSeq(v.name))
-				goto non_pristine_val_set
-			}
+		case *word: if __symKind(v.s) == SymSeq { syms = __symFlatSeq(v.s) }
+		case *file:	if __symKind(v.name) == SymSeq { syms = __symFlatSeq(v.name) }
+		}
+		if syms != nil {
+			val = __symPackValue(&force_pos_ctx{s, packPos}, restoreChronologicalOrder(syms))
+			goto non_pristine_val_set
 		}
 
 		val = pristine
@@ -22474,30 +22543,39 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 	}
 
+	// === UNIFIED BIDIRECTIONAL SLICING ===
+	// If fully matched, we use the absolute NFA head position.
 	if matched {
-		if stream.tie.bytePos > 0 {
-			res = stream.tie.valueInRange(0, stream.tie.bytePos)
-			if stream.tie.bytePos < stream.tie.currentByte {
-				rem = stream.tie.valueInRange(stream.tie.bytePos, stream.tie.currentByte)
-			}
-		} else {
-			rem = val
+		stopTieByte = stream.tie.bytePos
+	}
+
+	// FORWARD: 0 to stopTieByte is Prefix (res), stop to end is Suffix (rem).
+	// REVERSE: 0 to stopTieByte is Suffix (res), stop to end is Prefix (rem).
+	// valueInRange automatically flips the chronological order for us!
+	if stopTieByte > 0 {
+		res = stream.tie.valueInRange(0, stopTieByte)
+		if stopTieByte < stream.tie.currentByte {
+			rem = stream.tie.valueInRange(stopTieByte, stream.tie.currentByte)
 		}
 	} else {
-		if stopTieByte > 0 {
-			res = stream.tie.valueInRange(0, stopTieByte)
-			if stopTieByte < stream.tie.currentByte {
-				rem = stream.tie.valueInRange(stopTieByte, stream.tie.currentByte)
-			}
-		} else {
-			rem = val
-		}
+		rem = val
 	}
 
 	// Convert the telemetry stems array!
 	stems = extractStems(stream.tie, stream.stems)
 
+	if trail && len(stems) > 1 {
+		// THE DOD FIX: Restore Chronological Stems!
+		// Because wildcards evaluate right-to-left in trail mode, their
+		// captured stems are recorded in reverse chronological order.
+		for i, j := 0, len(stems)-1; i < j; i, j = i+1, j-1 {
+			stems[i], stems[j] = stems[j], stems[i]
+		}
+	}
+
 	if !force_full_match_anchor && !matched { // === PURE PREFIX MATCHING ===
+		// Note: The NFA natively sets `matched = true` (err == nil) upon cleanly satisfying
+		// the pattern. This fallback block handles forced-failures when investigating telemetry.
 		matched = res != nil && rem != nil && stopTieSymCursor >= len(stream.tie.syms)
 	}
 
