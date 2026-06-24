@@ -357,9 +357,13 @@ type vocabulary struct{
 
 var vocab vocabulary
 
-// unsafeByteLen returns atomic symbol byte-length without locking `vocab`,
-// See also __symStrLen for generic symbol length.
+// unsafeByteLen returns atomic symbol byte-length without locking `vocab`.
 func (sym Symbol) unsafeByteLen() int { // Unlocked!
+	// Ported from __symStrLen: Safe bounds checking
+	if sym == symEmpty || int(sym) >= len(vocab.symetas) {
+		return 0
+	}
+
 	switch meta := vocab.symetas[sym]; meta.Kind() {
 	case SymRaw:
 		return len(vocab.strings[meta.Idx])
@@ -371,6 +375,10 @@ func (sym Symbol) unsafeByteLen() int { // Unlocked!
 	case SymFlt:
 		var buf [64]byte
 		return len(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
+	case SymSeq:
+		var l int
+		for _, s := range vocab.sequences[meta.Idx] { l += s.unsafeByteLen() }
+		return l
 	default:
 		return 0
 	}
@@ -1911,6 +1919,7 @@ func (s *symstr) snapshot(op evalop) vmsnapshot {
 
 // step executes exactly ONE instruction from the VM task stack.
 func (s *symstr) step() {
+	reverse := (s.class & patBackwards) != 0
 	top := len(s.ops) - 1
 	op := s.ops[top]
 	s.ops = s.ops[:top]
@@ -1970,11 +1979,20 @@ func (s *symstr) step() {
 					return
 				}
 
-				if __symHasPrefix(target, sym) {
-					s.tie.str = target.String()
-					s.tie.advanceRune(__symStrLen(sym)) // Trim the prefix!
-					s.emit(sym)
-					return
+				if reverse {
+					if __symHasSuffix(target, sym) {
+						s.tie.str = target.String()
+						s.tie.recedeRune(sym.len()) // Trim the suffix!
+						s.emit(sym)
+						return
+					}
+				} else {
+					if __symHasPrefix(target, sym) {
+						s.tie.str = target.String()
+						s.tie.advanceRune(sym.len()) // Trim the prefix!
+						s.emit(sym)
+						return
+					}
 				}
 
 				// NOTE: What if __symHasPrefix(sym, target) is true?
@@ -1992,27 +2010,32 @@ func (s *symstr) step() {
 		str := sym.String()
 
 		for len(str) > 0 {
-			if len(s.tie.str) > 0 {
-				n := len(str)
-				if len(s.tie.str) < n { n = len(s.tie.str) }
+			if len(s.tie.str) == 0 {
+				s.tie.pump()
+				if s.tie.err != nil || s.tie.symCursor >= len(s.tie.syms) {
+					s.unwind()
+					return
+				}
+				s.tie.str = s.tie.syms[s.tie.symCursor].String()
+			}
 
+			n := len(str)
+			if len(s.tie.str) < n { n = len(s.tie.str) }
+
+			if reverse {
+				if str[len(str)-n:] != s.tie.str[len(s.tie.str)-n:] {
+					s.unwind()
+					return
+				}
+				str = str[:len(str)-n]
+				s.tie.recedeRune(n) // Natively handles the state bump!
+			} else {
 				if str[:n] != s.tie.str[:n] {
 					s.unwind()
 					return
 				}
-
 				str = str[n:]
 				s.tie.advanceRune(n)
-			} else {
-				pr, pSize := utf8.DecodeRuneInString(str)
-				vr, _, err := s.tie.ReadRune()
-
-				if err != nil || pr != vr {
-					s.unwind()
-					return
-				}
-
-				str = str[pSize:]
 			}
 		}
 
@@ -2081,14 +2104,23 @@ func (s *symstr) step() {
 
 				offset := 0
 				for offset < len(str) {
-					_, size := utf8.DecodeRuneInString(str[offset:])
+					var size int
+					if reverse {
+						_, size = utf8.DecodeLastRuneInString(str[:len(str)-offset])
+					} else {
+						_, size = utf8.DecodeRuneInString(str[offset:])
+					}
 					offset += size
 
 					if offset == len(str) { break } // Skip last char (covered by main snap)
 
 					microSnap := snap
 					microSnap.tie.symCursor = s.tie.symCursor
-					microSnap.tie.str = str[offset:]
+					if reverse {
+						microSnap.tie.str = str[:len(str)-offset] // Leave the prefix!
+					} else {
+						microSnap.tie.str = str[offset:] // Leave the suffix!
+					}
 					microSnap.tie.bytePos = s.tie.bytePos + offset
 					microSnap.stemEnd = microSnap.tie.bytePos
 					localSnaps = append(localSnaps, microSnap)
@@ -2097,7 +2129,11 @@ func (s *symstr) step() {
 
 				// FAST LEAP: Devour the fragment or the whole symbol instantly!
 				if len(s.tie.str) > 0 {
-					s.tie.advanceRune(len(s.tie.str)) // Instantly swallow the leftover fragment!
+					if reverse {
+						s.tie.recedeRune(len(s.tie.str)) // Instantly swallow the leftover suffix!
+					} else {
+						s.tie.advanceRune(len(s.tie.str)) // Instantly swallow the leftover prefix!
+					}
 				} else {
 					s.tie.advance() // Instantly swallow the entire symbol!
 				}
@@ -2252,8 +2288,6 @@ func (s *symstr) step() {
 
 		var pushSym func(Symbol)
 		var shatter func(Symbol)
-
-		reverse := (s.class & patBackwards) != 0
 
 		shatter = func(sym Symbol) {
 			if sym != symEmpty {
@@ -2602,7 +2636,7 @@ func (s *symstr) exhausted() bool {
 }
 
 // advance pushes the VM exactly one full AST symbol forward.
-func (s *symstr) advance() {
+func (s *symstr) advance() { // mathematically perfect for both directions!
 	if s.symCursor < len(s.syms) {
 		sym := s.syms[s.symCursor]
 		s.bytePos += sym.len()
@@ -2616,6 +2650,17 @@ func (s *symstr) advance() {
 func (s *symstr) advanceRune(n int) {
 	s.bytePos += n
 	s.str = s.str[n:]
+
+	if len(s.str) == 0 {
+		s.symCursor++
+		s.flushClosures()
+	}
+}
+
+// recedeRune safely consumes `n` bytes from the end of the fragmented string natively.
+func (s *symstr) recedeRune(n int) {
+	s.bytePos += n
+	s.str = s.str[:len(s.str)-n] // Leave the prefix!
 
 	if len(s.str) == 0 {
 		s.symCursor++
@@ -2722,11 +2767,17 @@ func (s *symstr) ReadRune() (rune, int, error) {
 		}
 	}
 
-	// Decode exactly one rune from the cached string
-	r, size := utf8.DecodeRuneInString(s.str)
+	var r rune
+	var size int
 
-	// Advance states safely
-	s.advanceRune(size)
+	// THE DOD FIX: Decode from the end if evaluating backward!
+	if (s.class & patBackwards) != 0 {
+		r, size = utf8.DecodeLastRuneInString(s.str)
+		s.recedeRune(size) // Consume from the end, leave the prefix!
+	} else {
+		r, size = utf8.DecodeRuneInString(s.str)
+		s.advanceRune(size) // Consume from the front, leave the suffix!
+	}
 
 	return r, size, nil
 }
@@ -2790,6 +2841,9 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	var syms []Symbol
 	currentOffset = 0
 
+	// Check if the tape coordinates are right-to-left!
+	reverse := (s.class & patBackwards) != 0
+
 	// 2. Extract and fractionally slice
 	for i := 0; i <= endIdx; i++ {
 		symStart := currentOffset
@@ -2816,7 +2870,17 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 		if endByte < symEnd { sliceEnd = endByte - symStart }
 
 		if sliceStart < sliceEnd {
-			frag := str[sliceStart:sliceEnd]
+			var frag string
+
+			if reverse {
+				// THE DOD FIX: Backward Coordinate String Mapping!
+				// A slice of [0:4] on a right-to-left tape maps to [len-4:len-0] in memory!
+				frag = str[len(str)-sliceEnd : len(str)-sliceStart]
+			} else {
+				// Forward coordinate mapping
+				frag = str[sliceStart:sliceEnd]
+			}
+
 			// Intern the fractional string so __symPackValue recognizes it!
 			syms = append(syms, intern(frag))
 		}
@@ -2985,59 +3049,6 @@ func __symFlatSeq(sym Symbol) []Symbol {
 	vocab.RUnlock()
 
 	return seq
-}
-
-// __symStrLen recursively calculates the exact character length of a Symbol
-// without performing any heap allocations, builder copying, or string constructions.
-// It minimizes lock contention by acquiring the vocabulary read lock exactly once.
-func __symStrLen(sym Symbol) int {
-	if sym == symEmpty {
-		return 0
-	}
-
-	var computeLength func(Symbol) int
-	computeLength = func(s Symbol) int {
-		if int(s) >= len(vocab.symetas) || s == symEmpty {
-			return 0
-		}
-
-		meta := vocab.symetas[s]
-		switch meta.Kind() {
-		case SymRaw:
-			return len(vocab.strings[meta.Idx])
-
-		case SymEph:
-			return len(vocab.ephemeral[meta.Idx])
-
-		case SymInt:
-			// Stack allocate a fixed backing array to calculate exact formatted
-			// integer character length with zero heap escape penalties.
-			var buf [24]byte
-			res := strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10)
-			return len(res)
-
-		case SymFlt:
-			// Stack allocate a fixed backing array to mirror the 'g' formatting
-			// dimensions with zero heap allocations.
-			var buf [64]byte
-			res := strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64)
-			return len(res)
-
-		case SymSeq:
-			var length int
-			for _, child := range vocab.sequences[meta.Idx] {
-				length += computeLength(child)
-			}
-			return length
-		}
-		return 0
-	}
-
-	vocab.RLock()
-	totalLength := computeLength(sym)
-	vocab.RUnlock()
-
-	return totalLength
 }
 
 // __symMatrix is the pristine 2D trie edge builder.
@@ -22260,212 +22271,6 @@ func (c swapped_ctx) do(ctx Context, op any) any {
 	case is_swapped: return true
 	}
 	return c.Context.do(ctx, op)
-}
-
-// globMatchCharSet checks if char matches the set pattern [range].
-func globMatchCharSet(pattern string, char rune) bool {
-	if len(pattern) < 3 { return false } // []]
-	inner := pattern[1 : len(pattern)-1]
-	negate := false
-	if len(inner) > 0 && inner[0] == '^' {
-		negate = true
-		inner = inner[1:]
-	}
-
-	match := false
-	for i := 0; i < len(inner); i++ {
-		if i+2 < len(inner) && inner[i+1] == '-' {
-			start, end := rune(inner[i]), rune(inner[i+2])
-			if char >= start && char <= end {
-				match = true
-				break
-			}
-			i += 2
-		} else {
-			if rune(inner[i]) == char {
-				match = true
-				break
-			}
-		}
-	}
-	return match != negate
-}
-
-// UNUSED:
-func getScalarLength(ctx Context, v Value) int {
-	if t, ok := v.(flag); ok {
-		// Maintain recursive coordinate offset wrapping for flag modifiers
-		return 1 + getScalarLength(ctx, t.Value)
-	}
-
-	// Direct symbol length execution with zero allocations
-	return __symStrLen(__symbol(ctx, v))
-}
-
-// getScalarSubstr extracts a substring from a scalar Value.
-// If end is -1, it returns the substring from start to the end of the string.
-// It returns false if the value is not a supported scalar type.
-func getScalarSubstr(ctx Context, v Value, start, end int) string {
-	if end != -1 && start >= end {
-		return ""
-	}
-
-	if t, ok := v.(flag); ok {
-		var vStart, vEnd int
-		var includeDash bool
-
-		if start <= 0 {
-			includeDash = true
-			vStart = 0
-		} else {
-			vStart = start - 1
-		}
-
-		if end == -1 {
-			vEnd = -1
-		} else {
-			if end <= 1 {
-				if includeDash && end == 1 { return "-" }
-				return ""
-			}
-			vEnd = end - 1
-		}
-
-		valStr := getScalarSubstr(ctx, t.Value, vStart, vEnd)
-		if includeDash { return "-" + valStr }
-		return valStr
-	}
-
-	s := __symbol(ctx, v).String()
-	if start < 0 { start = 0 }
-	if end < 0 || end > len(s) { end = len(s) }
-
-	if start > end || start >= len(s) {
-		return ""
-	}
-	return s[start:end]
-}
-
-func isPureWildcard(val Value) bool {
-	switch e := unloc(val).(type) {
-	case *globmeta:
-		// Any standalone wildcard node (*, **, or an exploded PERC) is pure by definition!
-		return true
-	case *percpat:
-		// A *percpat is only pure if it lacks both a prefix and a suffix
-		suf := e.Suffix
-		if pp, ok := unloc(e.Suffix).(*percpat); ok && isEmpty(pp.Prefix) { suf = pp.Suffix }
-		return isEmpty(e.Prefix) && isEmpty(suf)
-	}
-	return false
-}
-
-// Helper to unify *globmeta and *percpat logic
-func getGlobToken(v Value) token {
-	switch e := unloc(v).(type) {
-	case *globmeta: return e.token
-	case *percpat: return PERC
-	}
-	return ILLEGAL
-}
-
-type stemseg struct {
-	e, v Value
-}
-
-// gapseg handles the conditional boundary logic for wildcard gaps
-type gapseg struct {
-	bound bool
-	e      Value
-	rem    []Value
-}
-
-type optword struct {
-	b bool
-	p Pos
-	s Symbol // Migrated from string to native Symbol!
-}
-
-func concat(args ...any) (parts []Value) {
-	for _, arg := range args {
-		if arg != nil {
-			switch t := arg.(type) {
-			case []Value: parts = append(parts, t...)
-			case Value: parts = append(parts, t)
-			case optword:
-				if t.b {
-					parts = append(parts, _word(t.p, t.s))
-				}
-			case stemseg:
-				if t.v == nil { t.v = valbase{t.e.Pos()} }
-				parts = append(parts, t.v)
-			case gapseg:
-				switch len(t.rem) {
-				case 0:
-					// FIXED: Restore empty boundary placeholder nodes to allow
-					// packPath to accurately synthesize trailing directory slases (/).
-					if t.bound {
-						parts = append(parts, valbase{t.e.Pos()})
-					}
-				case 1:
-					parts = append(parts, t.rem[0])
-				default:
-					parts = append(parts, &compound{elements{t.rem}})
-				}
-			}
-		}
-	}
-	return
-}
-
-// =====================================================================
-// AST Preservation Helpers
-// =====================================================================
-
-func restore(atoms []Value, orig Value) Value {
-	switch len(atoms) {
-	case 0:
-		return nil
-	case 1:
-		return atoms[0]
-	}
-	if orig != nil {
-		origAtoms := unpack(orig)
-		if len(atoms) == len(origAtoms) {
-			same := true
-			for i, v := range atoms {
-				if v != origAtoms[i] {
-					same = false
-					break
-				}
-			}
-			if same {
-				return orig // Pristine AST Restoration
-			}
-		}
-	}
-	return &compound{elements{atoms}} // Coerce fragmented remainders
-}
-
-func restoreStems(stems []Value, orig Value) {
-	if orig == nil {
-		return
-	}
-	for i, s := range stems {
-		if s != nil {
-			stems[i] = restore(unpack(s), orig)
-		}
-	}
-}
-
-func packGap(atoms []Value, orig Value, bound bool, pos Pos) Value {
-	if len(atoms) == 0 {
-		if bound {
-			return valbase{pos}
-		}
-		return nil
-	}
-	return restore(atoms, orig)
 }
 
 func packComp(parts []Value) Value {
