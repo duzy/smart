@@ -22708,18 +22708,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	return
 }
 
-func correctMatchRes(v Value) Value {
-	for v != nil {
-		if isEmpty(v) { return nil }
-		switch t := v.(type) {
-		case *compound: if len(t.elems) == 1 { v = t.elems[0]; continue }
-		case *path:     if len(t.elems) == 1 { v = t.elems[0]; continue }
-		}
-		break
-	}
-	return v
-}
-
 func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
 	switch p := pat.(type) {
 	case *loc:
