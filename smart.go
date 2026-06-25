@@ -1771,7 +1771,7 @@ func internSeq(seq []Symbol) Symbol {
 	return sym
 }
 
-var ErrMatchFailed = errors.New("match failed")
+var errMatchFailed = errors.New("match failed")
 
 type evalop uint8
 
@@ -1810,6 +1810,18 @@ const (
 	clsTiePackerVM  = 1 << 7
 )
 
+const (
+	undoNone   = 0
+	undoStack  = 1 << 0 // Restores execution instructions (ops, operands)
+	undoTape   = 1 << 1 // Restores generated output tape (syms, offsets, currentByte)
+	undoTie    = 1 << 2 // Restores target read-head (tie.cursor, tie.bytePos)
+	undoOwn    = 1 << 3 // Restores matcher read-head (cursor, bytePos)
+	undoStems  = 1 << 4 // Restores captured wildcard stems
+
+	// undoBranch is a convenience mask for a full NFA state fork.
+	undoBranch = undoStack | undoTape | undoTie | undoOwn | undoStems
+)
+
 // offsetmark maps a global virtual byte position to an underlying slice index.
 // It is shared by both leafstr and symstr for O(log N) sparse coordinate lookups.
 type offsetmark struct {
@@ -1825,7 +1837,7 @@ type interval struct {
 	node      Value
 }
 
-type stemcap struct {
+type capture struct {
 	start, end int
 	name       Symbol
 }
@@ -1835,9 +1847,40 @@ type vmint uint64 // i.e., number, via int64(vmint)
 type vmflt uint64 // i.e., number, via Float64frombits(vmflt)
 type vmblb any    // pointer to arbitrary aggregate
 
-// vmpackast is a cascading state machine mirrors the structural hierarchy: Comp → Qual → Path → List.
-type vmpackast struct {
-	parent *vmpackast // Links to the outer scope (for nested brackets!)
+// vmcursors tracks the execution read-head state.
+type vmcursors struct {
+	cursor    int    // Which symbol we are currently processing
+	bytePos   int    // Tracks the virtual byte offset for the NFA engine
+	str       string // The cached string representation of the current symbol
+}
+
+// vmtape tracks the append-only generator state.
+type vmtape struct {
+	syms        []Symbol     // Flatten symbols from the value(s)
+	intervals   []interval   // AST tracking data injected from the flattener
+	offsets     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
+	stems       []capture    // Extracted capture groups
+	currentByte int          // Lazy flattening byte position
+}
+
+// vmstack tracks the mutable execution instructions.
+type vmstack struct {
+	opsDone  int      // Counter of executed ops (Instruction Retired Counter - IRC)
+	ops      []evalop // The Instruction Stream
+	operands []any    // The Strict Data Stack for VM execution
+}
+
+// vmwm is the high-water mark for telemetry tracking (Virtual Machine Watermark).
+type vmwm struct {
+	stopTieByte int       // High-water mark for tie.bytePos
+	stopTieSym  int       // High-water mark for tie.cursor
+	bestOpsDone int       // High-water mark for Instruction Retired Counter
+	bestStems   []capture // High-water mark for stems
+}
+
+// vmpack is a cascading state machine mirrors the structural hierarchy: Comp → Qual → Path → List.
+type vmpack struct {
+	parent *vmpack // Links to the outer scope (for nested brackets!)
 	closer Symbol     // The symbol that will pop this state (e.g., symRparen)
 
 	dash Pos // If valid, wraps the fully reduced segment in a flag
@@ -1851,11 +1894,11 @@ type vmpackast struct {
 	// TODO: arrow: obj→name
 }
 
-func (p *vmpackast) shift(val Value) {
+func (p *vmpack) shift(val Value) {
 	p.comp.append(val)
 }
 
-func (p *vmpackast) reduceQual(pos Pos) {
+func (p *vmpack) reduceQual(pos Pos) {
 	var v Value
 
 	if p.comp.len() > 0 {
@@ -1876,7 +1919,7 @@ func (p *vmpackast) reduceQual(pos Pos) {
 	}
 }
 
-func (p *vmpackast) reducePath(pos Pos) {
+func (p *vmpack) reducePath(pos Pos) {
 	p.reduceQual(pos) // Cascade upward
 
 	var res Value
@@ -1899,7 +1942,7 @@ func (p *vmpackast) reducePath(pos Pos) {
 	if res != nil { p.path.append(res) }
 }
 
-func (p *vmpackast) reduceList(pos Pos) {
+func (p *vmpack) reduceList(pos Pos) {
 	p.reducePath(pos) // Cascade upward
 
 	var res Value
@@ -1915,7 +1958,7 @@ func (p *vmpackast) reduceList(pos Pos) {
 }
 
 // reduce finalizes the current state (called on EOF or closing punctuation)
-func (p *vmpackast) reduce(pos Pos) Value {
+func (p *vmpack) reduce(pos Pos) Value {
 	p.reduceList(pos) // Cascade all the way up
 
 	var res Value
@@ -1930,48 +1973,6 @@ func (p *vmpackast) reduce(pos Pos) Value {
 	p.list.clear()
 
 	return res
-}
-
-// vmcursors tracks the execution read-head state.
-type vmcursors struct {
-	symCursor int    // Which symbol we are currently processing
-	str       string // The cached string representation of the current symbol
-	bytePos   int    // Tracks the virtual byte offset for the NFA engine
-}
-
-// vmtape tracks the append-only generator state.
-type vmtape struct {
-	syms        []Symbol     // Flatten symbols from the value(s)
-	intervals   []interval   // AST tracking data injected from the flattener
-	markers     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
-	stems       []stemcap    // Extracted capture groups
-	currentByte int          // Lazy flattening byte position
-}
-
-// vmstack tracks the mutable execution instructions.
-type vmstack struct {
-	opsDone  int      // Counter of executed ops (Instruction Retired Counter - IRC)
-	ops      []evalop // The Instruction Stream
-	operands []any    // The Strict Data Stack for VM execution
-}
-
-// vmsnapshot is a completely flattened, zero-overhead memory freeze.
-type vmsnapshot struct {
-	op        evalop    // The wildcard that generated this snapshot
-	stemStart int       // Start coordinate of the wildcard capture
-	stemEnd   int       // End coordinate of the wildcard capture
-	stemCount int       // Track stem ledger size
-	tie       vmcursors // Hard copy of the target stream's cursors
-	tape      vmtape    // Shallow copy of pattern tape (slice headers provide O(1) truncation)
-	stack     vmstack   // Deep copy of execution stack
-}
-
-// vmwm is the high-water mark for telemetry tracking (Virtual Machine Watermark).
-type vmwm struct {
-	stopTieByte int       // High-water mark for tie.bytePos
-	stopTieSym  int       // High-water mark for tie.symCursor
-	bestOpsDone int       // High-water mark for Instruction Retired Counter
-	bestStems   []stemcap // High-water mark for stems
 }
 
 // clone securely deep-copies the volatile execution stacks.
@@ -1990,6 +1991,30 @@ func (dst *vmstack) restore(src vmstack) {
 	dst.operands = append(dst.operands[:0], src.operands...)
 }
 
+// backtrack represents a granular, zero-allocation time-travel instruction.
+type backtrack struct {
+	kind uint32 // Bitmask of undo* constants dictating the recovery scope
+
+	// 1. Mutable Execution Stack (Requires Physical Clone!)
+	stack vmstack
+
+	// 2. Truncation Markers (O(1) Append-Only Slices)
+	symsDepth    int
+	offsetsDepth int
+	stemsDepth   int
+	currentByte  int
+
+	// 3. Exact Cursor Coordinates
+	own vmcursors
+	tie vmcursors
+
+	// 4. The Alternate Timeline Payload
+	altOp1  evalop
+	altOp2  evalop
+	altVal  any
+	altStem capture
+}
+
 // symstr is a fully self-contained Stack Virtual Machine.
 // It works with __symFlatSeq and treats syms like a string with zero heap-allocation!
 // It's high-fidelity virtual string view over an array of discrete leaf Values.
@@ -2002,8 +2027,8 @@ type symstr struct {
 	vmtape               // Generator state
 	vmstack              // Execution stacks
 	vmwm                 // Persistent telemetry tracking state
-	*vmpackast           // AST packer state
-	backtracks  []vmsnapshot // The VM State Machine Rewind Stack
+	*vmpack              // AST packer state
+	backtracks  []backtrack // The VM State Machine Rewind Stack
 	class       int      // Bitmask tracking AST structural composition
 	tie         *symstr  // Dynamically ties regular expressions to a target stream
 	err         error    // VM fatal error state
@@ -2017,43 +2042,30 @@ func (s *symstr) do(ctx Context, op any) any { // Optional!
     return s.Context.do(ctx, op)
 }
 
-func (s *symstr) snapshot(op evalop) vmsnapshot {
-	// Freeze the exact continuation bytecode state natively via the stack!
-	return vmsnapshot{
-		op:        op,
-		stemStart: s.tie.bytePos,
-		stemEnd:   s.tie.bytePos,
-		stemCount: len(s.stems), // Freeze the ledger size
-		tie:       s.tie.vmcursors,
-		tape:      s.vmtape,
-		stack:     s.vmstack.clone(),
-	}
-}
-
 // step executes exactly ONE instruction from the VM task stack.
 func (s *symstr) step() {
 	reverse := (s.class & clsBackwards) != 0
 
 	if (s.class & (clsTiePackerAST | clsTiePackerVM)) != 0 {
-		if s.tie.symCursor > len(s.tie.syms) {
+		if s.cursor > len(s.tie.syms) {
 			// === THE DOD FIX: ZERO-OVERHEAD EVENT SOURCING ===
 			// If our read-head is stranded in the future, the Matcher unwound its tape!
 
 			// 1. Wipe the AST state (Reuses existing slice capacities safely!)
-			s.vmpackast = &vmpackast{}
+			s.vmpack = &vmpack{}
 			s.operands = s.operands[:0] // Reset to base ops depth
 
 			// 2. Rewind the target cursors to the beginning of time
-			s.tie.symCursor = 0
+			s.tie.cursor = 0
 			s.tie.bytePos = 0
 
 			// 3. Replay the surviving tape to instantly rebuild the correct AST!
-			for s.tie.symCursor < len(s.tie.syms) {
+			for s.tie.cursor < len(s.tie.syms) {
 				startByte := s.tie.bytePos
-				sym := s.tie.syms[s.tie.symCursor]
+				sym := s.tie.syms[s.tie.cursor]
 				// s.tie.advance() // Natively drives the cursor and bytePos forward!
 				s.bytePos += sym.len()
-				s.symCursor++
+				s.cursor++
 
 				pos := s.tie.posInRange(startByte, s.tie.bytePos)
 				s.pack(pos, sym)
@@ -2061,13 +2073,13 @@ func (s *symstr) step() {
 		}
 
 		// 1. Pull exactly one symbol from the tie
-		if s.tie.symCursor >= len(s.tie.syms) {
+		if s.tie.cursor >= len(s.tie.syms) {
 			s.tie.pump() // Lazily evaluate the NFA!
 		}
 
-		if s.tie.symCursor >= len(s.tie.syms) {
+		if s.tie.cursor >= len(s.tie.syms) {
 			// EOF REACHED: Flush the packer state!
-			if s.vmpackast != nil {
+			if s.vmpack != nil {
 				pos := s.tie.posInRange(0, s.tie.bytePos)
 				res := s.reduce(pos)
 				s.operands = append(s.operands, res)
@@ -2077,7 +2089,7 @@ func (s *symstr) step() {
 		}
 
 		startByte := s.tie.bytePos // Ensure you use bytePos from your NFA Matcher
-		sym := s.tie.syms[s.tie.symCursor]
+		sym := s.tie.syms[s.tie.cursor]
 		s.tie.advance() // Consume the tie symbol
 		endByte := s.tie.bytePos
 
@@ -2096,8 +2108,8 @@ func (s *symstr) step() {
 
 		// Calculate Pos for the AST nodes
 		pos := s.tie.posInRange(startByte, endByte)
-		if s.vmpackast == nil {
-			s.vmpackast = &vmpackast{} // Ensure root state exists
+		if s.vmpack == nil {
+			s.vmpack = &vmpack{} // Ensure root state exists
 		}
 
 		s.pack(pos, sym)
@@ -2134,9 +2146,9 @@ func (s *symstr) step() {
 
 		// THE DOD FIX: True Zero-Width Structural Anchors!
 		if sym == symEmpty { // e.g., PROOT and PTAIL
-			if s.tie != nil && s.tie.symCursor < len(s.tie.syms) {
+			if s.tie != nil && s.tie.cursor < len(s.tie.syms) {
 				// If the target explicitly has an empty marker, cleanly consume it.
-				if s.tie.syms[s.tie.symCursor] == symEmpty {
+				if s.tie.syms[s.tie.cursor] == symEmpty {
 					s.tie.advance()
 				}
 			}
@@ -2151,11 +2163,11 @@ func (s *symstr) step() {
 
 		// FAST PATH: Are we perfectly aligned on a symbol boundary?
 		if len(s.tie.str) == 0 { // Only safe if the target is NOT fragmented!
-			if s.tie.symCursor >= len(s.tie.syms) {
+			if s.tie.cursor >= len(s.tie.syms) {
 				s.tie.pump() // Ensure target has generated the next symbol
 			}
-			if s.tie.symCursor < len(s.tie.syms) {
-				target := s.tie.syms[s.tie.symCursor]
+			if s.tie.cursor < len(s.tie.syms) {
+				target := s.tie.syms[s.tie.cursor]
 
 				switch target {
 				case sym: // Equality first!
@@ -2177,62 +2189,38 @@ func (s *symstr) step() {
 					s.emit(sym)
 					return
 
-				case symAsterisk, symAsteriskAst:
-					// THE DOD FIX: Passive wildcards only absorb if active tape is NOT a glob!
-					// If the active tape is a glob itself, allowing passive absorption creates false
-					// unifications (e.g., `**.def.am` improperly matching `*.def.in`).
-					if (s.class & (clsGlob | clsRegex)) != 0 {
-						s.unwind()
-						return
-					}
+				case symAsterisk, symAsteriskAst, symAsteriskQues:
+					// Passive wildcards only absorb if active tape is a pure literal.
+					if (s.class & (clsGlob | clsRegex)) != 0 { s.unwind(); return }
 
 					// Single asterisk strictly stops at directory boundaries!
 					if target == symAsterisk && sym == symSlash {
 						// Force Escape: It absorbs 0 and we move past the asterisk
-						skipped := s.tie.syms[s.tie.symCursor]
-						s.tie.symCursor++
+						skipped := s.tie.syms[s.tie.cursor]
+						s.tie.cursor++
 						s.tie.bytePos += skipped.len()
 
-						// Retry this exact literal slash against the next target symbol
 						s.ops = append(s.ops, opMatchLiteral)
 						s.operands = append(s.operands, sym)
 						return
 					}
 
-					// BRANCH A (Escape): Asterisk absorbs ZERO symbols.
-					snap := s.snapshot(opMatchLiteral)
-					snap.stack.ops = append(snap.stack.ops, opMatchLiteral)
-					snap.stack.operands = append(snap.stack.operands, sym)
+					// === THE DOD FIX: ESCAPE-FIRST (RELUCTANT) EVALUATION ===
 
-					// Read the skipped symbol from the live tape!
-					skipped := s.tie.syms[snap.tie.symCursor]
-					snap.tie.symCursor++
-					snap.tie.bytePos += skipped.len()
-					s.backtracks = append(s.backtracks, snap)
+					// BRANCH B (Absorb Fallback): Pushed to backtracks
+					bt := s.checkpoint(undoBranch)
+					// Simulate Branch B: If we backtrack, we emit the absorbed symbol
+					// and move on to the next literal, leaving the target cursor on the wildcard!
+					bt.altOp1 = opEmitSym
+					bt.altVal = sym
+					s.backtracks = append(s.backtracks, bt)
 
-					// BRANCH B (Absorb): Asterisk absorbs this literal.
-					s.emit(sym)
-					return
-
-				case symAsteriskQues:
-					// THE DOD FIX: Passive wildcards only absorb if active tape is NOT a glob!
-					if (s.class & (clsGlob | clsRegex)) != 0 {
-						s.unwind()
-						return
-					}
-
-					// Reluctant `*?`: We prioritize Escaping over Absorbing!
-
-					// BRANCH B (Absorb Fallback): Snapshot the state as if it absorbed!
-					snap := s.snapshot(opMatchLiteral)
-					snap.tape.syms = append(append([]Symbol(nil), snap.tape.syms...), sym)
-					snap.tape.currentByte += sym.len()
-					s.backtracks = append(s.backtracks, snap)
-
-					// BRANCH A (Escape Priority): Skip asterisk and evaluate!
-					skipped := s.tie.syms[s.tie.symCursor]
-					s.tie.symCursor++
+					// BRANCH A (Escape Priority): Executed immediately
+					// We skip the asterisk and test this literal against the NEXT target symbol!
+					skipped := s.tie.syms[s.tie.cursor]
+					s.tie.cursor++
 					s.tie.bytePos += skipped.len()
+
 					s.ops = append(s.ops, opMatchLiteral)
 					s.operands = append(s.operands, sym)
 					return
@@ -2271,11 +2259,11 @@ func (s *symstr) step() {
 		for len(str) > 0 {
 			if len(s.tie.str) == 0 {
 				s.tie.pump()
-				if s.tie.err != nil || s.tie.symCursor >= len(s.tie.syms) {
+				if s.tie.err != nil || s.tie.cursor >= len(s.tie.syms) {
 					s.unwind()
 					return
 				}
-				s.tie.str = s.tie.syms[s.tie.symCursor].String()
+				s.tie.str = s.tie.syms[s.tie.cursor].String()
 			}
 
 			n := len(str)
@@ -2322,7 +2310,7 @@ func (s *symstr) step() {
 		// === Register the captured stem!
 		// We must explicitly record the byte range we just consumed so the VM
 		// can extract the stem parameter (e.g., `1` from `v1.h`) at the end!
-		s.stems = append(s.stems, stemcap{startByte, s.tie.bytePos, symEmpty})
+		s.stems = append(s.stems, capture{startByte, s.tie.bytePos, symEmpty})
 
 		// 3. Extract the exact matched sequence natively from the target
 		matchedSyms := s.tie.symbolInRange(startByte, s.tie.bytePos)
@@ -2338,26 +2326,23 @@ func (s *symstr) step() {
 			s.emit(intern(str))
 		}
 
-	case opGlobAsterisk, opGlobAstGreed: // * and ** (Greedy)
-		snap := s.snapshot(op)
+	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross: // *, **, and *?
+		startByte := s.tie.bytePos // Freeze execution start byte!
+		bt := s.checkpoint(undoBranch)
 
-		var localSnaps []vmsnapshot
-		localSnaps = append(localSnaps, snap)
+		var localSnaps []backtrack
+		localSnaps = append(localSnaps, bt) // [0] = Escape branch (0 absorbed)
 
 		for {
-			if len(s.tie.str) == 0 && s.tie.symCursor >= len(s.tie.syms) {
-				s.tie.pump() // Ensure target has generated the next symbol
-			}
+			if len(s.tie.str) == 0 && s.tie.cursor >= len(s.tie.syms) { s.tie.pump() }
 
-			if s.tie.symCursor < len(s.tie.syms) {
-				target := s.tie.syms[s.tie.symCursor]
+			if s.tie.cursor < len(s.tie.syms) {
+				target := s.tie.syms[s.tie.cursor]
 
-				// Asterisk strictly stops at directory boundaries!
-				if op == opGlobAsterisk && target == symSlash {
-					break
-				}
+				// THE DOD FIX: Only single asterisk (*) strictly stops at directory boundaries!
+				// ** (Greed) and *? (Cross) are multi-directory wildcards.
+				if op == opGlobAsterisk && target == symSlash { break }
 
-				// --- THE FIX: INSTANT MICRO-SNAPSHOTS ---
 				str := s.tie.str
 				if len(str) == 0 { str = target.String() }
 
@@ -2371,65 +2356,72 @@ func (s *symstr) step() {
 					}
 					offset += size
 
-					if offset == len(str) { break } // Skip last char (covered by main snap)
+					if offset == len(str) { break }
 
-					microSnap := snap
-					microSnap.tie.symCursor = s.tie.symCursor
+					microSnap := bt // Clone base state
+					microSnap.tie.cursor = s.tie.cursor
 					if reverse {
-						microSnap.tie.str = str[:len(str)-offset] // Leave the prefix!
+						microSnap.tie.str = str[:len(str)-offset]
 					} else {
-						microSnap.tie.str = str[offset:] // Leave the suffix!
+						microSnap.tie.str = str[offset:]
 					}
 					microSnap.tie.bytePos = s.tie.bytePos + offset
-					microSnap.stemEnd = microSnap.tie.bytePos
+
+					// Pre-configure the matched stem for this exact fractional length!
+					microSnap.altStem = capture{startByte, microSnap.tie.bytePos, symEmpty}
 					localSnaps = append(localSnaps, microSnap)
 				}
-				// ----------------------------------------
 
-				// FAST LEAP: Devour the fragment or the whole symbol instantly!
 				if len(s.tie.str) > 0 {
 					if reverse {
-						s.tie.recedeRune(len(s.tie.str)) // Instantly swallow the leftover suffix!
+						s.tie.recedeRune(len(s.tie.str))
 					} else {
-						s.tie.advanceRune(len(s.tie.str)) // Instantly swallow the leftover prefix!
+						s.tie.advanceRune(len(s.tie.str))
 					}
 				} else {
-					s.tie.advance() // Instantly swallow the entire symbol!
+					s.tie.advance()
 				}
 
-				snap.tie = s.tie.vmcursors
-				snap.stemEnd = s.tie.bytePos
-				localSnaps = append(localSnaps, snap)
+				bt.tie = s.tie.vmcursors // Update base coordinate
+				bt.altStem = capture{startByte, s.tie.bytePos, symEmpty}
+				localSnaps = append(localSnaps, bt)
 				continue
 			}
 
 			break // EOF Reached!
 		}
 
-		s.backtracks = append(s.backtracks, localSnaps[:len(localSnaps)-1]...)
+		if op == opGlobAstCross {
+			// === RELUCTANT EXECUTION ===
+			// Push snapshots in reverse so [Absorb 1] is at the top of the stack and popped next!
+			for i := len(localSnaps) - 1; i >= 1; i-- {
+				s.backtracks = append(s.backtracks, localSnaps[i])
+			}
 
-		maxSnap := localSnaps[len(localSnaps)-1]
-		if maxSnap.stemEnd == snap.stemStart {
-			s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
+			// Restore the execution playhead back to the Escape snapshot (byte 0)
+			escapeSnap := localSnaps[0]
+			s.tie.vmcursors = escapeSnap.tie
+
+			if escapeSnap.altStem.start != -1 {
+				s.stems = append(s.stems, escapeSnap.altStem)
+			} else {
+				s.stems = append(s.stems, capture{startByte, startByte, symEmpty})
+			}
+
 		} else {
-			s.stems = append(s.stems, stemcap{snap.stemStart, maxSnap.stemEnd, symEmpty})
+			// === GREEDY EXECUTION ===
+			// Push snapshots so [Absorb N-1] is at the top of the stack!
+			s.backtracks = append(s.backtracks, localSnaps[:len(localSnaps)-1]...)
+
+			// Execute [Absorb N] immediately!
+			maxSnap := localSnaps[len(localSnaps)-1]
+			if maxSnap.altStem.start != -1 {
+				s.stems = append(s.stems, maxSnap.altStem)
+			} else {
+				s.stems = append(s.stems, capture{-1, -1, symEmpty})
+			}
+			// s.tie.vmcursors is already natively sitting at maxSnap.tie!
 		}
-
-	case opGlobAstCross: // *?
-		// 1. Initial State: Match exactly 0 characters (Non-greedy).
-		snap := s.snapshot(op)
-
-		// 2. Push the snapshot to backtracks so `fail()` can incrementally expand it later.
-		s.backtracks = append(s.backtracks, snap)
-
-		// 3. Register a 0-length capture group!
-		// (Do NOT use -1, -1. A 0-byte string is a valid match.)
-		s.stems = append(s.stems, stemcap{snap.stemStart, snap.stemStart, symEmpty})
-
-		// NOTE:
-		// We CANNOT emit anything to the ledger here! A reluctant wildcard doesn't know
-		// what it will ultimately match until the ENTIRE pattern finishes executing.
-		// Your `stemcap` tracking is all that is needed to extract the AST flawlessly.
 
 	case opGlobRange: // [a-z]
 		v := s.operands[l-1].(*globrange)
@@ -2508,12 +2500,12 @@ func (s *symstr) step() {
 			}
 
 			// PURE INTEGER TRACKING
-			var localStems []stemcap
+			var localStems []capture
 			for i := 2; i < len(locs); i += 2 {
 				if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-					localStems = append(localStems, stemcap{snapCursors.bytePos + locs[i], snapCursors.bytePos + locs[i+1], symEmpty})
+					localStems = append(localStems, capture{snapCursors.bytePos + locs[i], snapCursors.bytePos + locs[i+1], symEmpty})
 				} else {
-					localStems = append(localStems, stemcap{-1, -1, symEmpty})
+					localStems = append(localStems, capture{-1, -1, symEmpty})
 				}
 			}
 
@@ -2763,57 +2755,69 @@ func (s *symstr) step() {
 	}
 }
 
+// checkpoint acts as a zero-allocation builder for backtrack instructions.
+func (s *symstr) checkpoint(kind uint32) backtrack {
+	bt := backtrack{
+		kind:    kind,
+		altStem: capture{-1, -1, symEmpty}, // Default to empty
+	}
+	if (kind & undoStack) != 0 {
+		bt.stack = s.vmstack.clone()
+	}
+	if (kind & undoTape) != 0 {
+		bt.symsDepth = len(s.syms)
+		bt.offsetsDepth = len(s.offsets)
+		bt.currentByte = s.currentByte
+	}
+	if (kind & undoTie) != 0 && s.tie != nil {
+		bt.tie = s.tie.vmcursors
+	}
+	if (kind & undoOwn) != 0 {
+		bt.own = s.vmcursors
+	}
+	if (kind & undoStems) != 0 {
+		bt.stemsDepth = len(s.stems)
+	}
+	return bt
+}
+
 func (s *symstr) unwind() {
-	for len(s.backtracks) > 0 {
-		top := len(s.backtracks) - 1
-		snap := s.backtracks[top]
-		s.backtracks = s.backtracks[:top]
-
-		stemEnd := snap.stemEnd // Tracks the actual execution boundary!
-
-		// 1. Restore the target stream cursors
-		s.tie.vmcursors = snap.tie
-
-		// 2. Reluctant Expansion Check
-		if snap.op == opGlobAstCross {
-			_, _, err := s.tie.ReadRune()
-			if err != nil { continue } // Failed to expand, try next backtrack
-
-			newSnap := snap
-			newSnap.tie = s.tie.vmcursors
-			newSnap.stemEnd = s.tie.bytePos
-			s.backtracks = append(s.backtracks, newSnap)
-
-			stemEnd = newSnap.stemEnd // Fix the boundary!
-		}
-
-		// 3. Rewind the pattern tape (shallow slice restore = O(1) array truncation)
-		s.vmtape = snap.tape
-		s.vmstack.restore(snap.stack)
-		s.stems = s.stems[:snap.stemCount] // Erase leaked stems from dead branches!
-
-		// 4. Safely Append the Glob Stems!
-		switch snap.op {
-		case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
-			if stemEnd == snap.stemStart {
-				s.stems = append(s.stems, stemcap{-1, -1, symEmpty})
-			} else {
-				s.stems = append(s.stems, stemcap{snap.stemStart, stemEnd, symEmpty})
-			}
-		}
-
-		s.err = nil // Time-travel successful
+	if len(s.backtracks) == 0 {
+		s.err = errMatchFailed
 		return
 	}
 
-	// Total Failure State Wipe!
-	s.stems = s.stems[:0]
-	if s.tie != nil {
-		s.tie.bytePos = 0
-		s.tie.symCursor = 0
+	// Pop the latest instruction
+	top := len(s.backtracks) - 1
+	bt := s.backtracks[top]
+	s.backtracks = s.backtracks[:top]
+
+	// 1. Granular Recovery
+	if (bt.kind & undoStack) != 0 {
+		s.vmstack.restore(bt.stack)
 	}
-	s.ops = s.ops[:0] // Kill any remaining instructions
-	s.err = ErrMatchFailed
+	if (bt.kind & undoTape) != 0 {
+		s.syms = s.syms[:bt.symsDepth]
+		s.offsets = s.offsets[:bt.offsetsDepth]
+		s.currentByte = bt.currentByte
+	}
+	if (bt.kind & undoTie) != 0 && s.tie != nil {
+		s.tie.vmcursors = bt.tie
+	}
+	if (bt.kind & undoOwn) != 0 {
+		s.vmcursors = bt.own
+	}
+	if (bt.kind & undoStems) != 0 {
+		s.stems = s.stems[:bt.stemsDepth]
+	}
+
+	// 2. Inject the Alternate Timeline!
+	if bt.altStem.start != -1 {
+		s.stems = append(s.stems, bt.altStem) // Securely resolves backtracked stems
+	}
+	if bt.altOp1 != 0 { s.ops = append(s.ops, bt.altOp1) }
+	if bt.altOp2 != 0 { s.ops = append(s.ops, bt.altOp2) }
+	if bt.altVal != nil { s.operands = append(s.operands, bt.altVal) }
 }
 
 // trackTelemetry securely records the absolute deepest execution bounds of the NFA,
@@ -2835,7 +2839,7 @@ func (s *symstr) trackTelemetry() {
 		if better {
 			s.bestOpsDone = s.opsDone
 			s.stopTieByte = s.tie.bytePos
-			s.stopTieSym = s.tie.symCursor
+			s.stopTieSym = s.tie.cursor
 			if len(s.stems) > 0 {
 				s.bestStems = append(s.bestStems[:0], s.stems...) // Reuse capacity safely
 			} else {
@@ -2847,7 +2851,7 @@ func (s *symstr) trackTelemetry() {
 
 // pump delegates to step in a controlled evaluation loop.
 func (s *symstr) pump() {
-	for s.symCursor >= len(s.syms) && len(s.ops) > 0 && s.err == nil {
+	for s.cursor >= len(s.syms) && len(s.ops) > 0 && s.err == nil {
 		s.step()
 		s.trackTelemetry() // Capture watermark!
 	}
@@ -2864,22 +2868,26 @@ func (s *symstr) exhaust() {
 			continue
 		}
 
+		// === THE DOD FIX: UNIVERSAL TRAILING PASSIVE WILDCARDS ===
+		// If the active pattern finished successfully, any leftover passive asterisks
+		// on the target tape logically absorb 0 characters and must be cleared to
+		// accurately maximize `stopTieByte` for AST extraction!
+		if s.tie != nil {
+			for s.tie.cursor < len(s.tie.syms) {
+				t := s.tie.syms[s.tie.cursor]
+				if t == symAsterisk || t == symAsteriskAst || t == symAsteriskQues {
+					s.tie.cursor++
+					s.tie.bytePos += t.len()
+				} else {
+					break
+				}
+			}
+			s.trackTelemetry() // Capture final watermark including cleared wildcards!
+		}
+
 		// Prefix Matching vs. Full String Anchoring
 		if force_full_match_anchor {
 			if s.tie != nil && !s.tie.exhausted() {
-				// === THE DOD FIX: CLEAR TRAILING PASSIVE WILDCARDS ===
-				// If the active pattern finished, but the target tape has leftover
-				// asterisks, they logically absorb 0 characters and vanish!
-				for s.tie.symCursor < len(s.tie.syms) {
-					t := s.tie.syms[s.tie.symCursor]
-					if t == symAsterisk || t == symAsteriskAst {
-						s.tie.symCursor++
-						s.tie.bytePos += t.len() // THE DOD FIX
-					} else {
-						break
-					}
-				}
-
 				// === FORCE FULL MATCH FOR GLOBS ===
 				if (s.class & clsGlobAstCross) != 0 {
 					s.backtracks = nil // Reluctant fails instantly
@@ -2889,9 +2897,7 @@ func (s *symstr) exhaust() {
 			}
 		} else {
 			// === PURE PREFIX MATCHING ===
-			// The pattern instructions are empty, meaning the pattern is fully satisfied!
-			// We DO NOT force stream exhaustion here. The engine cleanly halts, allowing
-			// the caller to decide what to do with the unconsumed target stream (the remainder).
+			// The engine cleanly halts, allowing the caller to extract the exact slice.
 		}
 		break // Valid match reached and verified!
 	}
@@ -2901,7 +2907,7 @@ func (s *symstr) exhaust() {
 
 		if s.err == nil {
 			// Perfect match achieved! Update state to the absolute end.
-			s.stopTieByte, s.stopTieSym = s.tie.bytePos, s.tie.symCursor
+			s.stopTieByte, s.stopTieSym = s.tie.bytePos, s.tie.cursor
 		} else {
 			// Total failure occurred! Restore the telemetry for the wrapper.
 			s.stems = s.bestStems
@@ -2917,12 +2923,12 @@ func (s *symstr) exhausted() bool {
 
 // advance pushes the VM exactly one full AST symbol forward.
 func (s *symstr) advance() { // mathematically perfect for both directions!
-	if s.symCursor < len(s.syms) {
-		sym := s.syms[s.symCursor]
+	if s.cursor < len(s.syms) {
+		sym := s.syms[s.cursor]
 		s.bytePos += sym.len()
-		s.symCursor++
+		s.cursor++
 		s.str = "" // Instantly clear any fragmented rune state!
-		s.flushClosures()
+		s.closeIntervals()
 	}
 }
 
@@ -2932,8 +2938,8 @@ func (s *symstr) advanceRune(n int) {
 	s.str = s.str[n:]
 
 	if len(s.str) == 0 {
-		s.symCursor++
-		s.flushClosures()
+		s.cursor++
+		s.closeIntervals()
 	}
 }
 
@@ -2943,8 +2949,8 @@ func (s *symstr) recedeRune(n int) {
 	s.str = s.str[:len(s.str)-n] // Leave the prefix!
 
 	if len(s.str) == 0 {
-		s.symCursor++
-		s.flushClosures()
+		s.cursor++
+		s.closeIntervals()
 	}
 }
 
@@ -2959,10 +2965,10 @@ func (s *symstr) push(op evalop, a ...any) {
 func (s *symstr) emit(sym Symbol) {
 	// No __symFlatSeq unroll because step() has done shatter!
 
-	if len(s.markers) == len(s.syms) {
+	if len(s.offsets) == len(s.syms) {
 		// The Generator is the ultimate source of truth!
 		// Record the marker exactly when the symbol is generated.
-		s.markers = append(s.markers, offsetmark{
+		s.offsets = append(s.offsets, offsetmark{
 			byteOffset: s.currentByte,
 			idx:        len(s.syms),
 		})
@@ -2974,9 +2980,9 @@ func (s *symstr) emit(sym Symbol) {
 
 	// Keep the IP synchronized for the Pattern VM!
 	if s.tie != nil {
-		s.symCursor++
+		s.cursor++
 		s.bytePos += sl
-		s.flushClosures()
+		s.closeIntervals()
 	}
 }
 
@@ -2991,11 +2997,11 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 		s.reduceQual(pos)
 		return
 	case symSlash:
-		if s.tie.symCursor == 1 {
+		if s.tie.cursor == 1 {
 			s.shift(_punct(pos, PROOT))
 		} else {
 			s.reducePath(pos)
-			if s.tie.symCursor == len(s.tie.syms) {
+			if s.tie.cursor == len(s.tie.syms) {
 				s.shift(_punct(pos, PTAIL))
 			}
 		}
@@ -3014,47 +3020,47 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 
 		// QUOTATION (Toggles state)
 	case symQuotation:
-		if s.vmpackast.closer == symQuotation {
+		if s.vmpack.closer == symQuotation {
 			// We are closing a quote
-			inner := s.vmpackast.reduce(pos)
-			s.vmpackast = s.vmpackast.parent
-			s.vmpackast.shift(&strcomp{elements{[]Value{inner}}})
+			inner := s.vmpack.reduce(pos)
+			s.vmpack = s.vmpack.parent
+			s.vmpack.shift(&strcomp{elements{[]Value{inner}}})
 		} else {
 			// We are opening a quote
-			s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symQuotation}
+			s.vmpack = &vmpack{parent: s.vmpack, closer: symQuotation}
 		}
 		return
 
 		// GROUPING PUNCTUATION (Push State)
 	case symLparen: // (...)
-		s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symRparen}
+		s.vmpack = &vmpack{parent: s.vmpack, closer: symRparen}
 		return
 	case symLbrace: // {braced-op ...}
 		// TODO: braced-op
-		s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symRbrace}
+		s.vmpack = &vmpack{parent: s.vmpack, closer: symRbrace}
 		return
 	case symLbrack: // [...]
-		s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symRbrack}
+		s.vmpack = &vmpack{parent: s.vmpack, closer: symRbrack}
 		return
 	case symCornerTL: // ⌜...⌟
-		s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symCornerBR}
+		s.vmpack = &vmpack{parent: s.vmpack, closer: symCornerBR}
 		return
 	case symCornerBL: // ⌞...⌝
-		s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symCornerTR}
+		s.vmpack = &vmpack{parent: s.vmpack, closer: symCornerTR}
 		return
 		// case symLsingguil: // ‹...›
-		// 	s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symRsingguil}
+		// 	s.vmpack = &vmpack{parent: s.vmpack, closer: symRsingguil}
 		// 	return
 		// case symLguillemet: // «...»
-		// 	s.vmpackast = &vmpackast{parent: s.vmpackast, closer: symRguillemet}
+		// 	s.vmpack = &vmpack{parent: s.vmpack, closer: symRguillemet}
 		// 	return
 
 		// CLOSING PUNCTUATION (Pop State)
 	case symRparen, symRbrace, symRbrack, symCornerTR, symCornerBR:
 		if s.closer == sym {
 			inner := s.reduce(pos)
-			s.vmpackast = s.vmpackast.parent
-			if s.vmpackast != nil {
+			s.vmpack = s.vmpack.parent
+			if s.vmpack != nil {
 				s.shift(inner)
 			} else {
 				// Edge case: Unbalanced outer pop
@@ -3071,8 +3077,8 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 	}
 }
 
-// flushClosures precisely targets and flushes opCloseInterval wrappers natively via the VM.
-func (s *symstr) flushClosures() {
+// closeIntervals precisely targets and flushes opCloseInterval wrappers natively via the VM.
+func (s *symstr) closeIntervals() {
 	// A closure is exactly 1 instruction: opCloseInterval (which natively pops its 2 operands)
 	for len(s.ops) >= 1 {
 		top := len(s.ops) - 1
@@ -3088,7 +3094,7 @@ func (s *symstr) ReadRune() (rune, int, error) {
 	for len(s.str) == 0 {
 		// If the VM has already failed, abort the rune loop!
 		if s.err != nil {
-			if s.err == ErrMatchFailed { return 0, 0, io.EOF }
+			if s.err == errMatchFailed { return 0, 0, io.EOF }
 			return 0, 0, s.err
 		}
 
@@ -3097,15 +3103,15 @@ func (s *symstr) ReadRune() (rune, int, error) {
 
 		// Catch VM failures that occurred during the pump!
 		if s.err != nil {
-			if s.err == ErrMatchFailed { return 0, 0, io.EOF }
+			if s.err == errMatchFailed { return 0, 0, io.EOF }
 			return 0, 0, s.err
 		}
 
-		if s.symCursor >= len(s.syms) {
+		if s.cursor >= len(s.syms) {
 			return 0, 0, io.EOF
 		}
 
-		sym := s.syms[s.symCursor]
+		sym := s.syms[s.cursor]
 
 		vocab.RLock()
 		switch meta := vocab.symetas[sym]; meta.Kind() {
@@ -3127,7 +3133,7 @@ func (s *symstr) ReadRune() (rune, int, error) {
 
 		// If the symbol evaluated to an empty string, loop and grab the next one.
 		if len(s.str) == 0 {
-			s.symCursor++
+			s.cursor++
 		}
 	}
 
@@ -3152,25 +3158,25 @@ func (s *symstr) byteToSymIdx(byteOffset int) int {
 	if byteOffset <= 0 { return 0 }
 	if byteOffset >= s.currentByte { return len(s.syms) }
 
-	for i, m := range s.markers {
+	for i, m := range s.offsets {
 		if m.byteOffset == byteOffset { return m.idx }
 		if m.byteOffset > byteOffset {
-			if i > 0 { return s.markers[i-1].idx }
+			if i > 0 { return s.offsets[i-1].idx }
 			return 0
 		}
 	}
 
-	// If the offset is beyond recorded markers, default to the end of the active buffer
+	// If the offset is beyond recorded offsets, default to the end of the active buffer
 	return len(s.syms)
 }
 
 // distance computes the string length of a symbol in the stream using marker math.
 func (s *symstr) distance(idx int) int {
-	if idx < len(s.markers)-1 {
-		return s.markers[idx+1].byteOffset - s.markers[idx].byteOffset
+	if idx < len(s.offsets)-1 {
+		return s.offsets[idx+1].byteOffset - s.offsets[idx].byteOffset
 	}
 	// THE FIX: Use the Generator's cursor, not the NFA Execution cursor!
-	return s.currentByte - s.markers[idx].byteOffset
+	return s.currentByte - s.offsets[idx].byteOffset
 }
 
 func (s *symstr) posInRange(startByte, endByte int) Pos {
@@ -3189,7 +3195,7 @@ func (s *symstr) posInRange(startByte, endByte int) Pos {
 
 // symbolInRange extracts the symbols within the exact byte boundaries.
 // It dynamically calculates spatial coordinates by summing intrinsic symbol lengths,
-// making it 100% immune to tracking array corruption or missing markers.
+// making it 100% immune to tracking array corruption or missing offsets.
 func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	if startByte >= endByte { return nil }
 
@@ -3325,8 +3331,8 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 		if (isNull(val) || len(syms) == 0) && (packPos > 0 || len(wrappers) > 0) {
 			var cb compactbuilds
 			cb.writef("\n  Symbols: %v", s.syms)
-			cb.writef("\n  Markers: (%d)", len(s.markers))
-			for _, m := range s.markers {
+			cb.writef("\n  Offsets: (%d)", len(s.offsets))
+			for _, m := range s.offsets {
 				cb.writef("\n   {%d, %d} ", m.byteOffset, m.idx)
 			}
 			cb.writef("\n  Intervals:")
@@ -22616,7 +22622,7 @@ func packGlob(parts []Value) Value {
 type named_stem struct{ Value; name Symbol }
 func (p *named_stem) String() string { return p.Value.String() }
 
-func extractStems(vStream *symstr, caps []stemcap) []Value {
+func extractStems(vStream *symstr, caps []capture) []Value {
 	var res []Value
 	for _, c := range caps {
 		if c.start == -1 {
@@ -22645,12 +22651,12 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 
 	// LAYER 2: The Matcher (Executes the NFA)
 	// THE DOD FIX: Properly initialize telemetry state at the struct level!
-	matcher := &symstr{Context: ctx, tie: gen, vmwm: vmwm{bestOpsDone: -1}}
+	matcher := &symstr{Context: ctx, tie: gen}
 	if trail { matcher.class |= clsBackwards }
 	matcher.push(opEvalValue, pat)
 
 	// LAYER 3: The Packer (Synthesizes the Resulting AST)
-	packer := &symstr{Context: ctx, tie: matcher, class: clsTiePackerAST, vmwm: vmwm{bestOpsDone: -1}}
+	packer := &symstr{Context: ctx, tie: matcher, class: clsTiePackerAST}
 	if trail { packer.class |= clsBackwards }
 
 	// Execute the 3-Layer Pipeline!
@@ -22698,12 +22704,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 	}
 
-	if !force_full_match_anchor && !matched { // === PURE PREFIX MATCHING ===
-		matched = res != nil && rem != nil && matcher.stopTieSym >= len(gen.syms)
-	}
-
-	if checkpoints && false { check_matchValueValue(ctx, pat, val, trail)(&matched, &res, &rem) }
-	if !matched && res == nil && rem == nil { rem = val }
 	if checkpoints { check_match(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	return
 }
