@@ -60,7 +60,7 @@ const (
 	builds_fallback_ts = false && checkpoints
 	debug_new_scopes = false && checkpoints
 	force_full_match_anchor = false // Prefix Matching vs. Full String Anchoring
-	true_prefix_matching = true // "True NFA Prefix Matching" versus "Blind String Consumption"
+	true_nfa_prefix_matching = true // "True NFA Prefix Matching" versus "Blind String Consumption"
 	chain_new_scopes_with_compiling_project = false
 	project_resolve_cache = false
 
@@ -1002,6 +1002,7 @@ const (
 	symBaseTmpPath // Constant ID, late-bound sequence
 	// --- *END* Late-Binding Constant IDs ---
 
+	symEmptyName     = symEmpty
 	symPathSep       = symSlash
 	symUnderline     = symUnderscore
 	symWildcardOne   = symAsterisk // *
@@ -1771,6 +1772,10 @@ func internSeq(seq []Symbol) Symbol {
 	return sym
 }
 
+func isWildcardMeta(s Symbol) bool {
+	return s == symQues || s == symAsterisk || s == symAsteriskAst || s == symAsteriskQues || s == symPercent
+}
+
 var errMatchFailed = errors.New("match failed")
 
 type evalop uint8
@@ -1995,6 +2000,8 @@ func (dst *vmstack) restore(src vmstack) {
 type backtrack struct {
 	kind uint32 // Bitmask of undo* constants dictating the recovery scope
 
+	class int // Protect the volatile stream class bitmask
+
 	// 1. Mutable Execution Stack (Requires Physical Clone!)
 	stack vmstack
 
@@ -2029,7 +2036,7 @@ type symstr struct {
 	vmwm                 // Persistent telemetry tracking state
 	*vmpack              // AST packer state
 	backtracks  []backtrack // The VM State Machine Rewind Stack
-	class       int      // Bitmask tracking AST structural composition
+	class       int      // Bitmask tracking AST structural composition (volatile)
 	tie         *symstr  // Dynamically ties regular expressions to a target stream
 	err         error    // VM fatal error state
 }
@@ -2180,40 +2187,38 @@ func (s *symstr) step() {
 						s.unwind() // Hard mismatch
 						return
 					}
-					// THE DOD FIX: Passive wildcards only absorb if active tape is NOT a glob!
-					if (s.class & (clsGlob | clsRegex)) != 0 {
-						s.unwind()
-						return
-					}
 					s.tie.advance() // advance() automatically increments bytePos!
 					s.emit(sym)
 					return
 
 				case symAsterisk, symAsteriskAst, symAsteriskQues:
-					// Passive wildcards only absorb if active tape is a pure literal.
-					if (s.class & (clsGlob | clsRegex)) != 0 { s.unwind(); return }
-
-					// Single asterisk strictly stops at directory boundaries!
-					if target == symAsterisk && sym == symSlash {
-						// Force Escape: It absorbs 0 and we move past the asterisk
-						skipped := s.tie.syms[s.tie.cursor]
-						s.tie.cursor++
-						s.tie.bytePos += skipped.len()
-
-						s.ops = append(s.ops, opMatchLiteral)
-						s.operands = append(s.operands, sym)
-						return
+					// === THE SLASH EXEMPTION FOR CONDITIONAL ABSORB FALLBACK ===
+					canAbsorb := (s.tie.class & clsGlob) != 0 //true
+					if canAbsorb {
+						if target == symAsterisk && sym == symSlash {
+							// 1. Single asterisk strictly stops at directory boundaries!
+							canAbsorb = false
+						} else if sym != symSlash && (s.class & (clsGlob | clsRegex)) != 0 {
+							// 2. Active literals inside a glob MUST NOT be absorbed.
+							// (Exempts symSlash so `**` and `*?` can span directories!)
+							canAbsorb = false
+						}
 					}
 
-					// === THE DOD FIX: ESCAPE-FIRST (RELUCTANT) EVALUATION ===
+					// Active literals inside a glob MUST NOT be absorbed by passive wildcards.
+					// The active wildcards (like **, ?) are responsible for elasticity!
+					// We only push the Absorb Fallback if the active pattern is a pure literal.
+					if canAbsorb {
+						// === THE DOD FIX: ESCAPE-FIRST (RELUCTANT) EVALUATION ===
 
-					// BRANCH B (Absorb Fallback): Pushed to backtracks
-					bt := s.checkpoint(undoBranch)
-					// Simulate Branch B: If we backtrack, we emit the absorbed symbol
-					// and move on to the next literal, leaving the target cursor on the wildcard!
-					bt.altOp1 = opEmitSym
-					bt.altVal = sym
-					s.backtracks = append(s.backtracks, bt)
+						// BRANCH B (Absorb Fallback): Pushed to backtracks
+						bt := s.checkpoint(undoBranch)
+						// Simulate Branch B: If we backtrack, we emit the absorbed symbol
+						// and move on to the next literal, leaving the target cursor on the wildcard!
+						bt.altOp1 = opEmitSym
+						bt.altVal = sym
+						s.backtracks = append(s.backtracks, bt)
+					}
 
 					// BRANCH A (Escape Priority): Executed immediately
 					// We skip the asterisk and test this literal against the NEXT target symbol!
@@ -2296,34 +2301,112 @@ func (s *symstr) step() {
 			s.ops = s.ops[:len(s.ops)-1] // Destructively pop!
 		}
 
-		startByte := s.tie.bytePos
+		startByte := 0
 
-		// 2. Consume exactly N valid characters
-		for i := 0; i < count; i++ {
-			r, _, err := s.tie.ReadRune()
-			if err != nil || r == '/' {
-				s.unwind()
+		// === THE DOD FIX: UNIVERSAL META-SYMBOL ALIGNMENT ===
+		if len(s.tie.str) == 0 && s.tie.cursor < len(s.tie.syms) {
+			target := s.tie.syms[s.tie.cursor]
+
+			if isWildcardMeta(target) {
+				startByte = s.tie.bytePos // Freeze start position!
+
+				if target == symQues {
+					consumed := 0
+					var symLens []int // Track individual symbol lengths!
+
+					for i := 0; i < count; i++ {
+						if s.tie.cursor >= len(s.tie.syms) { s.tie.pump() }
+						if s.tie.cursor >= len(s.tie.syms) {
+							s.unwind() // Premature EOF
+							return
+						}
+
+						l := s.tie.syms[s.tie.cursor].len()
+						symLens = append(symLens, l)
+						consumed += l
+						s.tie.bytePos += l
+						s.tie.cursor++
+					}
+
+					if consumed > count {
+						s.unwind() // Structural misalignment
+						return
+					}
+
+					s.tie.str = ""
+					s.tie.closeIntervals()
+
+					// === LEDGER SYNC: Register exact individual stems ===
+					curr := startByte
+					for _, l := range symLens {
+						s.stems = append(s.stems, capture{curr, curr + l, symEmptyName})
+						curr += l
+					}
+					goto _EmitConsolidatedQueses
+				}
+
+				if target == symPercent {
+					if nxt := s.tie.cursor + 1; nxt < len(s.tie.syms) && s.tie.syms[nxt] == symPercent {
+						// Manually advance over BOTH percent symbols (%%)
+						s.tie.bytePos += s.tie.syms[s.tie.cursor].len() + s.tie.syms[nxt].len()
+						s.tie.cursor += 2
+					} else {
+						s.tie.advance() // Single percent
+					}
+					s.tie.str = ""
+					s.tie.closeIntervals()
+
+					// === LEDGER SYNC: Percents don't consume literal bytes ===
+					for i := 0; i < count; i++ {
+						s.stems = append(s.stems, capture{startByte, startByte, symEmptyName})
+					}
+					goto _EmitConsolidatedQueses
+				}
+
+				// === ELASTIC WILDCARD BRANCHING (*, **, *?) ===
+				bt := s.checkpoint(undoBranch)
+
+				// BRANCH B (Absorb Fallback): Passive wildcard absorbs exactly ONE `?`.
+				// We register ONE empty stem and emit ONE symbol, keeping the ledger perfectly synced!
+				bt.altStem = capture{startByte, startByte, symEmptyName}
+				for i := 1; i < count; i++ { bt.stack.ops = append(bt.stack.ops, opGlobQues) }
+				bt.altOp1 = opEmitSym
+				bt.altVal = symQues
+				s.backtracks = append(s.backtracks, bt)
+
+				// BRANCH A (Escape Priority): Skip passive wildcard!
+				skipped := s.tie.syms[s.tie.cursor]
+				s.tie.cursor++
+				s.tie.bytePos += skipped.len()
+
+				// Restore all `?`s to test against literal string. Zero stems registered here!
+				for i := 0; i < count; i++ { s.ops = append(s.ops, opGlobQues) }
 				return
 			}
 		}
 
-		// === Register the captured stem!
-		// We must explicitly record the byte range we just consumed so the VM
-		// can extract the stem parameter (e.g., `1` from `v1.h`) at the end!
-		s.stems = append(s.stems, capture{startByte, s.tie.bytePos, symEmpty})
+		// === LEDGER SYNC: Literal Rune Consumption ===
+		startByte = s.tie.bytePos
+		for i := 0; i < count; i++ {
+			r, size, err := s.tie.ReadRune()
+			if err != nil || r == '/' {
+				s.unwind()
+				return
+			}
+			// Register a distinct stem for EACH physical rune we read!
+			s.stems = append(s.stems, capture{startByte, startByte + size, symEmptyName})
+			startByte += size
+			s.tie.bytePos += size
+		}
 
-		// 3. Extract the exact matched sequence natively from the target
-		matchedSyms := s.tie.symbolInRange(startByte, s.tie.bytePos)
-
-		// 4. Emit the consolidated stem!
-		if len(matchedSyms) == 1 {
-			// Fast path: it perfectly aligned within a single target symbol
-			s.emit(matchedSyms[0])
+	_EmitConsolidatedQueses:
+		// === MATCHER ALWAYS EMITS PATTERN SYMBOLS ===
+		if count == 1 {
+			s.emit(symQues)
 		} else {
-			// Fragmented across multiple symbols: fuse them into one interned symbol!
-			var str string
-			for _, sym := range matchedSyms { str += sym.String() }
-			s.emit(intern(str))
+			seq := make([]Symbol, count)
+			for i := 0; i < count; i++ { seq[i] = symQues }
+			s.emit(internSeq(seq))
 		}
 
 	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross: // *, **, and *?
@@ -2339,9 +2422,28 @@ func (s *symstr) step() {
 			if s.tie.cursor < len(s.tie.syms) {
 				target := s.tie.syms[s.tie.cursor]
 
-				// THE DOD FIX: Only single asterisk (*) strictly stops at directory boundaries!
+				// Only single asterisk (*) strictly stops at directory boundaries!
 				// ** (Greed) and *? (Cross) are multi-directory wildcards.
 				if op == opGlobAsterisk && target == symSlash { break }
+
+				// === ATOMIC META-SYMBOL ABSORPTION ===
+				// Prevent passive wildcards from being decoded into literal strings.
+				// The active wildcard securely absorbs them whole and pushes the state!
+				if isWildcardMeta(target) {
+					if target == symPercent && s.tie.cursor+1 < len(s.tie.syms) && s.tie.syms[s.tie.cursor+1] == symPercent {
+						s.tie.bytePos += s.tie.syms[s.tie.cursor].len() + s.tie.syms[s.tie.cursor+1].len()
+						s.tie.cursor += 2
+					} else {
+						s.tie.advance()
+					}
+					s.tie.str = ""
+					s.tie.closeIntervals()
+
+					bt.tie = s.tie.vmcursors // Update base coordinate
+					bt.altStem = capture{startByte, s.tie.bytePos, symEmptyName}
+					localSnaps = append(localSnaps, bt)
+					continue
+				}
 
 				str := s.tie.str
 				if len(str) == 0 { str = target.String() }
@@ -2405,7 +2507,7 @@ func (s *symstr) step() {
 			if escapeSnap.altStem.start != -1 {
 				s.stems = append(s.stems, escapeSnap.altStem)
 			} else {
-				s.stems = append(s.stems, capture{startByte, startByte, symEmpty})
+				s.stems = append(s.stems, capture{startByte, startByte, symEmptyName})
 			}
 
 		} else {
@@ -2418,9 +2520,8 @@ func (s *symstr) step() {
 			if maxSnap.altStem.start != -1 {
 				s.stems = append(s.stems, maxSnap.altStem)
 			} else {
-				s.stems = append(s.stems, capture{-1, -1, symEmpty})
+				s.stems = append(s.stems, capture{-1, -1, symEmptyName})
 			}
-			// s.tie.vmcursors is already natively sitting at maxSnap.tie!
 		}
 
 	case opGlobRange: // [a-z]
@@ -2758,8 +2859,8 @@ func (s *symstr) step() {
 // checkpoint acts as a zero-allocation builder for backtrack instructions.
 func (s *symstr) checkpoint(kind uint32) backtrack {
 	bt := backtrack{
-		kind:    kind,
-		altStem: capture{-1, -1, symEmpty}, // Default to empty
+		kind: kind, class: s.class,
+		altStem: capture{-1, -1, symEmptyName},
 	}
 	if (kind & undoStack) != 0 {
 		bt.stack = s.vmstack.clone()
@@ -2791,6 +2892,7 @@ func (s *symstr) unwind() {
 	top := len(s.backtracks) - 1
 	bt := s.backtracks[top]
 	s.backtracks = s.backtracks[:top]
+	s.class = bt.class // Always recover the class bitmask.
 
 	// 1. Granular Recovery
 	if (bt.kind & undoStack) != 0 {
@@ -2828,7 +2930,7 @@ func (s *symstr) trackTelemetry() {
 	// If tied, we track the one that reached furthest into the target stream.
 	if s.err == nil && s.tie != nil {
 		var better bool
-		if true_prefix_matching { // True NFA Prefix Matching (Atomic Rollbacks)
+		if true_nfa_prefix_matching { // True NFA Prefix Matching (Atomic Rollbacks)
 			better = (s.opsDone > s.bestOpsDone) ||
 				(s.opsDone == s.bestOpsDone && s.tie.bytePos >= s.stopTieByte)
 		} else { // Blind String Consumption (Crash-Site Semantics)
@@ -22662,9 +22764,16 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	// Execute the 3-Layer Pipeline!
 	packer.exhaust()
 
-	matched = matcher.err == nil && gen.err == nil
+	// Stream Termination Symmetry Checks
+	matched = packer.err == io.EOF && // Fully Packed
+		(   (matcher.err == io.EOF && gen.err == io.EOF) || // Full Match
+			(matcher.err == nil    && gen.err == nil   ))   // Prefix Match
 
 	if checkpoints && matched {
+		if matcher.stopTieByte != matcher.tie.bytePos {
+			warn(pc(ctx,val), "diverged byte pos: %v %v: %d %d",
+				pat, val, matcher.stopTieByte, matcher.tie.bytePos)
+		}
 		if !matcher.exhausted() {
 			warn(pc(ctx,pat), "pattern stream not exhausted: %v %v", pat, val)
 		}
@@ -22684,11 +22793,17 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 
 	if matcher.stopTieByte > 0 {
 		if res == nil {
-			// Fallback: Repack manually if the Packer yielded nothing
+			// Fallback: Repack manually if the packer yielded nothing
 			res = gen.valueInRange(0, matcher.stopTieByte)
 		}
+
 		if matcher.stopTieByte < gen.currentByte {
 			rem = gen.valueInRange(matcher.stopTieByte, gen.currentByte)
+		} else if matched && len(gen.str) > 0 {
+			// === GUARDED FRACTIONAL SHATTERING ===
+			// If the match failed, `gen.str` contains volatile garbage from the last
+			// failed backtrack. We ONLY shatter the token on successful Prefix Matches!
+			rem = _word(val.Pos()+0, intern(gen.str))
 		}
 	} else {
 		rem = val
@@ -22704,6 +22819,11 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 	}
 
+	if checkpoints && matched && rem == nil && matcher.stopTieByte > 0 && len(gen.str) > 0 {
+		warn(pc(ctx,val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, currentByte=%d, %s",
+			pat, val, gen.str, matcher.stopTieByte, gen.currentByte,
+			gen.symbolInRange(matcher.stopTieByte, gen.currentByte))
+	}
 	if checkpoints { check_match(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	return
 }
@@ -25484,10 +25604,6 @@ func uncache(ctx Context, root *valcache, ss [][]Symbol) (r []*valcache) {
 	}
 
 	return
-}
-
-func isWildcardMeta(sym Symbol) bool {
-	return sym == symAsteriskAst || sym == symAsterisk || sym == symAsteriskQues || sym == symQues
 }
 
 func isCharSet(str string) bool {
