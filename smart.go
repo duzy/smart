@@ -2088,9 +2088,109 @@ func (s *symstr) step() {
 			// EOF REACHED: Flush the packer state!
 			if s.vmpack != nil {
 				pos := s.tie.posInRange(0, s.tie.bytePos)
-				res := s.reduce(pos)
-				s.operands = append(s.operands, res)
+				s.operands = append(s.operands, s.reduce(pos)) // The final result!
 			}
+
+			if gen := s.tie.tie; gen != nil {
+				// === STATE-PRESERVING CHAINED EXHAUSTION ===
+				// Because the streams are chained (Packer -> Matcher -> Generator),
+				// exhausting the Matcher naturally pulls and exhausts the Target tape!
+				// We must do this to finalize trackTelemetry() and lock in `bestStems`,
+				// and unroll the AST bounds.
+				if len(s.tie.ops) > 0 || len(gen.ops) > 0 {
+					err := gen.err  // Snapshot the symmetry truth!
+					gen.err = nil   // Must unset gen.err to let exhaust work.
+
+					// Finalize NFA timelines and High-Water Mark and Target Tape AST offsets
+					s.tie.exhaust() // Triggers the flawless chain reaction!
+
+					gen.err = err   // Restore symmetry truth for the Orchestrator!
+				}
+
+				pos := s.tie.posInRange(0, s.tie.bytePos)
+
+				if s.tie.err == nil && gen.err == nil { // Prefix Matched
+					if gen.bytePos == gen.currentByte && len(gen.str) > 0 {
+						if false { warn(pc(s,pos), "%v, %d %d %d, %v %v, %v %v", s.operands,
+							s.tie.stopTieByte, gen.bytePos, gen.currentByte,
+							s.tie.str, gen.str, s.tie.syms, gen.syms) }
+
+						if len(s.operands) == 0 {
+							// === GUARDED FRACTIONAL SHATTERING ===
+							// If the match failed, `gen.str` contains volatile garbage from the last
+							// failed backtrack. We ONLY shatter the token on successful Prefix Matches!
+							stopByte := gen.bytePos - len(gen.str)
+							res := gen.valueInRange(0, stopByte)
+							rem := _word(gen.posInRange(stopByte, gen.bytePos)+0, intern(gen.str))
+							s.operands = append(s.operands, res, rem)
+						}
+
+						if checkpoints && s.tie.stopTieByte != gen.bytePos {
+							warn(pc(s,pos),
+								_f("diverged stop byte: %d %d", s.tie.stopTieByte, gen.bytePos),
+								callstack{num:5})
+						}
+					}
+				} else if s.tie.err == io.EOF && gen.err == io.EOF { // Fully Matched
+					if len(gen.str) > 0 {
+						warn(pc(s,pos), "%v, %v %v, %v %v", s.vmpack, s.tie.str, gen.str, s.tie.syms, gen.syms)
+					}
+				} else if false && s.vmpack == nil && len(gen.str) > 0 {
+					warn(pc(s,pos), "%v %v %v; %v %v", s.tie.str, s.tie.syms, gen.syms,
+						s.tie.err, gen.err)
+				}
+
+				// Now `gen.currentByte` flawlessly represents the absolute end of the tape!
+				if s.tie.stopTieByte > 0 {
+					if s.tie.stopTieByte < gen.currentByte {
+						// PREFIX MATCH: The NFA halted midway through the tape.
+						switch len(s.operands) {
+						case 0: s.operands = append(s.operands, gen.valueInRange(0, s.tie.stopTieByte)); fallthrough
+						case 1:	s.operands = append(s.operands, gen.valueInRange(s.tie.stopTieByte, gen.currentByte))
+						}
+					} else {
+						// FULL MATCH: The NFA perfectly consumed the entire tape.
+						switch len(s.operands) {
+						case 0: s.operands = append(s.operands, gen.valueInRange(0, gen.currentByte)); fallthrough
+						case 1: s.operands = append(s.operands, Value(nil)) // rem is nil
+						}
+					}
+				} else {
+					// ZERO-WIDTH / INSTANT FAIL: The NFA bounced at byte 0.
+					switch len(s.operands) {
+					case 0: s.operands = append(s.operands, nil); fallthrough
+					case 1:	s.operands = append(s.operands, gen.valueInRange(0, gen.currentByte))
+					}
+				}
+
+				if len(s.tie.stems) > 0 && len(s.operands) < 3 {
+					captures := s.tie.stems
+					if /* s.tie.err != nil && */ len(s.tie.bestStems) > 0 {
+						captures = s.tie.bestStems // Retrieve the High-Water Mark ledger
+					}
+
+					stems := extractStems(gen, captures)
+					if reverse { // Restore Chronological Order!
+						for i, j := 0, len(stems)-1; i < j; i, j = i+1, j-1 {
+							stems[i], stems[j] = stems[j], stems[i]
+						}
+					}
+					switch len(s.operands) {
+					case 0: s.operands = append(s.operands, Value(nil), Value(nil), stems)
+					case 1: s.operands = append(s.operands, /*  res, */ Value(nil), stems)
+					case 2: s.operands = append(s.operands, /*  res, */ /*  rem, */ stems)
+					}
+				}
+
+				if checkpoints {
+					if false && s.tie.stopTieByte != gen.bytePos {
+						warn(pc(s,pos),
+							_f("diverged stop byte: %d %d", s.tie.stopTieByte, gen.bytePos),
+							callstack{num:5})
+					}
+				}
+			}
+
 			s.err = io.EOF
 			return
 		}
@@ -2925,7 +3025,7 @@ func (s *symstr) unwind() {
 // trackTelemetry securely records the absolute deepest execution bounds of the NFA,
 // completely immune to structural unwinds and backtracking tape erasure.
 func (s *symstr) trackTelemetry() {
-	// === TELEMETRY TRACKING (DEEPEST INSTRUCTION WATERMARK) ===
+	// === TELEMETRY TRACKING (DEEPEST INSTRUCTION WATERMARK - HIGH-WATERMARK) ===
 	// We track the state that successfully consumed the MOST pattern instructions!
 	// If tied, we track the one that reached furthest into the target stream.
 	if s.err == nil && s.tie != nil {
@@ -22787,36 +22887,10 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	}
 
 	// === UNIFIED BIDIRECTIONAL AST EXTRACTION ===
-	if len(packer.operands) > 0 {
-		res = packer.operands[0].(Value)
-	}
-
-	if matcher.stopTieByte > 0 {
-		if res == nil {
-			// Fallback: Repack manually if the packer yielded nothing
-			res = gen.valueInRange(0, matcher.stopTieByte)
-		}
-
-		if matcher.stopTieByte < gen.currentByte {
-			rem = gen.valueInRange(matcher.stopTieByte, gen.currentByte)
-		} else if matched && len(gen.str) > 0 {
-			// === GUARDED FRACTIONAL SHATTERING ===
-			// If the match failed, `gen.str` contains volatile garbage from the last
-			// failed backtrack. We ONLY shatter the token on successful Prefix Matches!
-			rem = _word(val.Pos()+0, intern(gen.str))
-		}
-	} else {
-		rem = val
-	}
-
-	// Convert the telemetry stems array!
-	stems = extractStems(gen, matcher.stems)
-
-	if trail && len(stems) > 1 {
-		// Restore Chronological Stems!
-		for i, j := 0, len(stems)-1; i < j; i, j = i+1, j-1 {
-			stems[i], stems[j] = stems[j], stems[i]
-		}
+	switch len(packer.operands) {
+	case 3: stems  = packer.operands[2].([]Value); fallthrough
+	case 2: rem, _ = packer.operands[1].(Value)  ; fallthrough
+	case 1: res, _ = packer.operands[0].(Value)
 	}
 
 	if checkpoints && matched && rem == nil && matcher.stopTieByte > 0 && len(gen.str) > 0 {
