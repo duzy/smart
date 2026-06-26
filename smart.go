@@ -1880,6 +1880,7 @@ type vmwm struct {
 	stopTieSym  int       // High-water mark for tie.cursor
 	bestOpsDone int       // High-water mark for Instruction Retired Counter
 	bestStems   []capture // High-water mark for stems
+	bestPack    *vmpack   // High-water mark for the AST!
 }
 
 // vmpack is a cascading state machine mirrors the structural hierarchy.
@@ -1993,6 +1994,22 @@ func (p *vmpack) reduce(pos Pos) Value {
 	return res
 }
 
+// clone safely snapshots the AST state machine against time-traveling backtracks.
+func (p *vmpack) clone() *vmpack {
+	if p == nil { return nil }
+	return &vmpack{
+		parent:   p.parent.clone(),
+		closer:   p.closer,
+		dash:     p.dash,
+		pairKey:  p.pairKey,   // AST nodes are immutable once reduced, safe to pass reference
+		arrowObj: p.arrowObj,
+		comp:     p.comp.copy(), // Natively isolates active slices!
+		qual:     p.qual.copy(),
+		path:     p.path.copy(),
+		list:     p.list.copy(),
+	}
+}
+
 // clone securely deep-copies the volatile execution stacks.
 func (st vmstack) clone() vmstack {
 	return vmstack{
@@ -2033,6 +2050,8 @@ type backtrack struct {
 	altOp2  evalop
 	altStem capture
 	altVal  any
+
+	pack *vmpack
 }
 
 // symstr is a fully self-contained Stack Virtual Machine.
@@ -2109,6 +2128,13 @@ func (s *symstr) step() {
 			if s.tie.err != nil || len(s.tie.ops) == 0 {
 				var res, rem Value
 
+				// Restore High-Water Mark on Failure!
+				// If err != nil, the regex failed and the active tape was securely unwound to 0.
+				// We restore the deepest valid AST packed before the collision!
+				if s.tie.err != nil && s.tie.bestPack != nil {
+					s.vmpack = s.tie.bestPack.clone()
+				}
+
 				// A. EXTRACT NATIVE PREFIX (res)
 				if s.vmpack != nil {
 					res = s.reduce(s.tie.posInRange(0, s.tie.bytePos))
@@ -2159,8 +2185,10 @@ func (s *symstr) step() {
 				return
 			}
 
+			s.tie.vmpack = s.vmpack
 			s.tie.step() // 1-D CASCADING PULL
 			s.tie.trackTelemetry() // Capture tie watermark!
+			s.vmpack = s.tie.vmpack
 
 			// === JIT SPARSE STEM EXTRACTION ===
 			if len(s.tie.bestStems) > 0 {
@@ -2193,7 +2221,7 @@ func (s *symstr) step() {
 				s.tie.bestStems = nil
 
 				// Push the sparse []Value chunk directly into operands!
-				s.operands = append(s.operands, stems)
+				s.operands = []any{stems}//append(s.operands, stems)// FIXME: what if many globs?
 
 				// Restore the active prefix/remnant packer
 				s.vmpack = snap_vmpack
@@ -2461,8 +2489,18 @@ func (s *symstr) step() {
 		startByte := s.tie.bytePos
 		bt := s.checkpoint(undoBranch)
 
-		var localSnaps []backtrack
-		localSnaps = append(localSnaps, bt)
+		// THE DOD FIX: Capture the base stack depth to prevent LIFO inversion!
+		baseOpsLen := len(bt.stack.ops)
+		baseOperandsLen := len(bt.stack.operands)
+
+		// TODO(architectural): Replace eager snapshotting with lazy suspension!
+		// Currently, this block eagerly allocates a backtrack snapshot for every single character
+		// the wildcard could possibly absorb (O(N) state explosion).
+		// Instead, wildcards should push a SINGLE "pending decision" snapshot and yield to the next
+		// pattern symbol (e.g., `/`). If `/` fails, the VM should rewind to the pending snapshot,
+		// pull one more character, and try again. This will reduce wildcard branching to O(1) memory.
+		var snaps []backtrack
+		snaps = append(snaps, bt)
 
 		for {
 			if len(s.tie.str) == 0 && s.tie.cursor >= len(s.tie.syms) { s.tie.pump() }
@@ -2473,19 +2511,26 @@ func (s *symstr) step() {
 				if op == opGlobAsterisk && target == symSlash { break }
 
 				if isWildcardMeta(target) {
-					newOps := append([]evalop(nil), bt.stack.ops...)
-					newOperands := append([]interface{}(nil), bt.stack.operands...)
+					newOps := append([]evalop(nil), bt.stack.ops[:baseOpsLen]...)
+					newOperands := append([]interface{}(nil), bt.stack.operands[:baseOperandsLen]...)
 
-					// THE DOD FIX: Push exact target meta-symbols to the ops stack!
-					// Because ops pop from end-to-front, push the LAST token FIRST.
 					if target == symPercent && s.tie.cursor+1 < len(s.tie.syms) && s.tie.syms[s.tie.cursor+1] == symPercent {
 						newOps = append(newOps, opEmitSym, opEmitSym)
+						newOps = append(newOps, bt.stack.ops[baseOpsLen:]...)
+
+						// Reverse order for LIFO pops!
 						newOperands = append(newOperands, s.tie.syms[s.tie.cursor+1], s.tie.syms[s.tie.cursor])
+						newOperands = append(newOperands, bt.stack.operands[baseOperandsLen:]...)
+
 						s.tie.bytePos += s.tie.syms[s.tie.cursor].len() + s.tie.syms[s.tie.cursor+1].len()
 						s.tie.cursor += 2
 					} else {
 						newOps = append(newOps, opEmitSym)
+						newOps = append(newOps, bt.stack.ops[baseOpsLen:]...)
+
 						newOperands = append(newOperands, target)
+						newOperands = append(newOperands, bt.stack.operands[baseOperandsLen:]...)
+
 						s.tie.advance()
 					}
 					s.tie.str = ""
@@ -2496,7 +2541,7 @@ func (s *symstr) step() {
 					bt.stack.ops = newOps
 					bt.stack.operands = newOperands
 
-					localSnaps = append(localSnaps, bt)
+					snaps = append(snaps, bt)
 					continue
 				}
 
@@ -2529,16 +2574,19 @@ func (s *symstr) step() {
 					microSnap.tie.bytePos = s.tie.bytePos + offset
 					microSnap.altStem = capture{startByte, microSnap.tie.bytePos, symEmpty}
 
-					// THE DOD FIX: Pre-load the absorbed target string fragment to be emitted!
-					newOps := append([]evalop(nil), bt.stack.ops...)
-					newOps = append(newOps, opEmitSym)
-					newOperands := append([]interface{}(nil), bt.stack.operands...)
-					newOperands = append(newOperands, intern(fullFrag))
+					// THE DOD FIX: Insert at base boundary for physical forward emission!
+					microOps := append([]evalop(nil), bt.stack.ops[:baseOpsLen]...)
+					microOps = append(microOps, opEmitSym)
+					microOps = append(microOps, bt.stack.ops[baseOpsLen:]...)
 
-					microSnap.stack.ops = newOps
-					microSnap.stack.operands = newOperands
+					microOperands := append([]any(nil), bt.stack.operands[:baseOperandsLen]...)
+					microOperands = append(microOperands, intern(fullFrag))
+					microOperands = append(microOperands, bt.stack.operands[baseOperandsLen:]...)
 
-					localSnaps = append(localSnaps, microSnap)
+					microSnap.stack.ops = microOps
+					microSnap.stack.operands = microOperands
+
+					snaps = append(snaps, microSnap)
 				}
 
 				if len(s.tie.str) > 0 {
@@ -2554,21 +2602,22 @@ func (s *symstr) step() {
 				bt.tie = s.tie.vmcursors
 				bt.altStem = capture{startByte, s.tie.bytePos, symEmpty}
 
-				// Apply full string absorption emission
-				newOps := append([]evalop(nil), bt.stack.ops...)
+				newOps := append([]evalop(nil), bt.stack.ops[:baseOpsLen]...)
 				newOps = append(newOps, opEmitSym)
-				newOperands := append([]interface{}(nil), bt.stack.operands...)
+				newOps = append(newOps, bt.stack.ops[baseOpsLen:]...)
+
+				newOperands := append([]interface{}(nil), bt.stack.operands[:baseOperandsLen]...)
 				if len(s.tie.str) == 0 {
-					// We safely absorbed the entire symbol! Preserve its identity.
 					newOperands = append(newOperands, target)
 				} else {
-					// We absorbed a fractional string slice.
 					newOperands = append(newOperands, intern(str))
 				}
+				newOperands = append(newOperands, bt.stack.operands[baseOperandsLen:]...)
+
 				bt.stack.ops = newOps
 				bt.stack.operands = newOperands
 
-				localSnaps = append(localSnaps, bt)
+				snaps = append(snaps, bt)
 				continue
 			}
 
@@ -2577,31 +2626,37 @@ func (s *symstr) step() {
 
 		if op == opGlobAstCross {
 			// Reluctant execution
-			for i := len(localSnaps) - 1; i >= 1; i-- {
-				s.backtracks = append(s.backtracks, localSnaps[i])
+			for i := len(snaps) - 1; i >= 1; i-- {
+				s.backtracks = append(s.backtracks, snaps[i])
 			}
 
-			escapeSnap := localSnaps[0]
-			s.tie.vmcursors = escapeSnap.tie
+			snap_escape := snaps[0]
+			s.tie.vmcursors = snap_escape.tie
 
-			if escapeSnap.altStem.start != -1 {
-				s.stems = append(s.stems, escapeSnap.altStem)
+			// THE DOD FIX: Restore pristine AST state!
+			if snap_escape.pack != nil { s.vmpack = snap_escape.pack.clone() }
+
+			if snap_escape.altStem.start != -1 {
+				s.stems = append(s.stems, snap_escape.altStem)
 			} else {
 				s.stems = append(s.stems, capture{startByte, startByte, symEmptyName})
 			}
 		} else {
 			// Greedy execution
-			s.backtracks = append(s.backtracks, localSnaps[:len(localSnaps)-1]...)
+			s.backtracks = append(s.backtracks, snaps[:len(snaps)-1]...)
 
-			maxSnap := localSnaps[len(localSnaps)-1]
+			snap_last := snaps[len(snaps)-1]
 
-			// THE DOD FIX: Instantly load maxSnap's operations to trigger target emission!
-			s.ops = maxSnap.stack.ops
-			s.operands = maxSnap.stack.operands
-			s.tie.vmcursors = maxSnap.tie
+			// THE DOD FIX: Restore pristine AST state!
+			if snap_last.pack != nil { s.vmpack = snap_last.pack.clone() }
 
-			if maxSnap.altStem.start != -1 {
-				s.stems = append(s.stems, maxSnap.altStem)
+			// THE DOD FIX: Instantly load snap_last's operations to trigger target emission!
+			s.ops = snap_last.stack.ops
+			s.operands = snap_last.stack.operands
+			s.tie.vmcursors = snap_last.tie
+
+			if snap_last.altStem.start != -1 {
+				s.stems = append(s.stems, snap_last.altStem)
 			} else {
 				s.stems = append(s.stems, capture{-1, -1, symEmptyName})
 			}
@@ -2954,6 +3009,9 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 	if (kind & undoStems) != 0 {
 		bt.stemsDepth = len(s.stems)
 	}
+	if s.vmpack != nil {
+		bt.pack = s.vmpack.clone()
+	}
 	return bt
 }
 
@@ -2995,6 +3053,12 @@ func (s *symstr) unwind() {
 	if bt.altOp1 != 0 { s.ops = append(s.ops, bt.altOp1) }
 	if bt.altOp2 != 0 { s.ops = append(s.ops, bt.altOp2) }
 	if bt.altVal != nil { s.operands = append(s.operands, bt.altVal) }
+
+	if bt.pack != nil {
+		s.vmpack = bt.pack.clone()
+	} else {
+		s.vmpack = nil
+	}
 }
 
 // trackTelemetry securely records the absolute deepest execution bounds of the NFA,
@@ -3017,6 +3081,7 @@ func (s *symstr) trackTelemetry() {
 			s.bestOpsDone = s.opsDone
 			s.stopTieByte = s.tie.bytePos
 			s.stopTieSym = s.tie.cursor
+			s.bestPack = s.vmpack.clone()
 			if len(s.stems) > 0 {
 				s.bestStems = append(s.bestStems[:0], s.stems...) // Reuse capacity safely
 				s.stems = s.stems[:0] // Accumulated, clear stems cache (reuse capacity safely)
@@ -3177,14 +3242,28 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 
 	case symSlash:
 		popFlags()
-		if s.tie.cursor == 1 {
-			s.vmpack.shift(_punct(pos, PROOT))
+
+		// THE DOD FIX: Seed the path directly to preserve the structural slash!
+		isLeading := s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 && s.vmpack.path.len() == 0
+
+		if isLeading {
+			// DO NOT shift into comp! Append directly to path elements!
+			s.vmpack.path.append(_punct(pos, PROOT))
 		} else {
 			s.vmpack.reducePath(pos)
-			if s.tie.cursor == len(s.tie.syms) {
-				s.vmpack.shift(_punct(pos, PTAIL))
-			}
 		}
+		return
+
+	case symEmpty:
+		// THE DOD FIX: Native PTAIL extraction!
+		// If a path exists but the current word buffer is empty, the trailing empty is a PTAIL!
+		if s.vmpack.path.len() > 0 && s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 {
+			// DO NOT shift into comp! Append directly to path elements!
+			s.vmpack.path.append(_punct(pos, PTAIL))
+			return
+		}
+		// Otherwise, shift as empty word
+		s.vmpack.shift(_word(pos, sym))
 		return
 
 	case symSpace:
