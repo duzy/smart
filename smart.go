@@ -7186,6 +7186,74 @@ func (s *fileset) Position(p Pos) Position {
 	return Position{symEmpty, 0, 0, 0}
 }
 
+// scanbuf fuses a standard bufio.Scanner with the 1-D coordinate universe.
+type scanbuf struct {
+	*bufio.Scanner
+	file   *os.File
+	lexf   *lexfile
+	offset int
+	pos    Pos
+}
+
+// openScanFile natively allocates a file in the universe and begins a spatial stream.
+func (s *fileset) openScanFile(filename Symbol) (*scanbuf, error) {
+	f, err := os.Open(filename.String())
+	if err != nil {
+		return nil, err
+	}
+
+	size := 0
+	if st, _ := f.Stat(); st != nil { size = int(st.Size()) }
+
+	// 1. Allocate the universe bounds
+	lf := s.add(filename, size)
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(bufio.ScanLines)
+
+	return &scanbuf{
+		Scanner: scanner,
+		file:    f,
+		lexf:    lf,
+		offset:  0,
+	}, nil
+}
+
+// Scan overrides bufio.Scanner.Scan to dynamically track universal coordinates!
+func (sb *scanbuf) Scan() bool {
+	if !sb.Scanner.Scan() {
+		return false
+	}
+
+	// 1. Register the line boundary (Line 1 at offset 0 is auto-registered by fileset.add)
+	if sb.offset > 0 {
+		sb.lexf.AddLine(sb.offset)
+	}
+
+	// 2. Lock in the absolute global Pos for this specific line
+	sb.pos = sb.lexf.Pos(sb.offset)
+
+	// 3. Advance the physical read-head for the *next* line.
+	// (Note: +1 assumes UNIX '\n' line endings. If dealing with Windows '\r\n',
+	// you may need a custom SplitFunc to track exact bytes consumed!)
+	sb.offset += len(sb.Scanner.Bytes()) + 1
+
+	return true
+}
+
+// Pos returns the mathematical global coordinate of the currently scanned line.
+func (sb *scanbuf) Pos() Pos {
+	return sb.pos
+}
+
+// Close safely disposes of the underlying file descriptor.
+func (sb *scanbuf) Close() error {
+	if sb.file != nil {
+		return sb.file.Close()
+	}
+	return nil
+}
+
 // =============================================================================
 // Lexical Scanner Data Structures & Functions
 // =============================================================================
@@ -28114,27 +28182,26 @@ func (ctx *modifier_extractconfiguration) x(exe *execution, args ...Value) (resu
 		}
 	}
 
+	var u = _universe(ctx)
 	var exprs = make(map[string]struct{})
 
 sourceloop:
 	for _, source := range sources {
-		var s string
+		var filename Symbol
 		switch t := source.(type) {
 		case *file:
 			// Fast extraction from the cached Symbol!
-			s = t.fullname().String()
+			filename = t.fullname()
 		default:
-			s = __symbol(ctx, t).String()
+			filename = __symbol(ctx, t)
 		}
 
-		var f *os.File
-		if f, err = os.Open(s); err != nil {
+		sc, err := u.fset.openScanFile(filename)
+		if err != nil {
 			prompt(ctx, "%v: (configure) %v: %v\n", pos, source, err)
 			continue sourceloop
 		}
 
-		sc := bufio.NewScanner(f)
-		sc.Split(bufio.ScanLines)
 	scanloop:
 		for sc.Scan() {
 			var s = sc.Text()
@@ -28145,7 +28212,7 @@ sourceloop:
 				}
 			}
 		}
-		f.Close() // Explicit close for high-throughput loop is safe here
+		sc.Close() // Explicit close for high-throughput loop is safe here
 	}
 
 	var keys []string
@@ -28502,14 +28569,13 @@ type universe struct {
 
 	launchTime time_pkg.Time
 
-    fset *fileset
-
     prefix  string // FIXME: prefix for distribution
 	workdir Symbol // FIXME: restore workdir for loading
     paths   searchlist
 
     statmutex sync.Mutex
 	statcache sync.Map // FIXED: Replaces map[Symbol]*filebase for lock-free scaling
+    fset *fileset
 
     hooks hooks
 }
@@ -30502,24 +30568,17 @@ func loadSavedGrepFile(ctx Context, gc *grep_ctx) (okay bool, err error) {
 	}
 
 	// Extract the system path string exactly once for the OS open boundary
-	savedGrepOSStr := gc.savedGrepFileName.String()
-
-	var savedGrepOSFile *os.File
-	if savedGrepOSFile, err = os.Open(savedGrepOSStr); err != nil {
-		erro(ctx, "open saved grep filename failed: %s - %v", savedGrepOSStr, err)
+	scanner, err := _universe(ctx).fset.openScanFile(gc.savedGrepFileName)
+	if err != nil {
+		erro(ctx, "open saved grep filename failed: %s - %v", scanner.lexf.name, err)
 		return
 	}
-	defer savedGrepOSFile.Close()
-
-	// 1. PERFECT ASSIGNMENT: Because Position.Filename is now a Symbol!
-	gp := Position{}
-	gp.Filename = gc.fullname
+	defer scanner.Close()
 
 	buf := make([]byte, 0, 64*1024)
-	scanner := bufio.NewScanner(savedGrepOSFile)
 	scanner.Buffer(buf, maxCapacity)
-	scanner.Split(bufio.ScanLines)
 
+	gp := Position{ Filename: gc.fullname }
 	for scanner.Scan() {
 		var (
 			s    = scanner.Text()
@@ -38295,9 +38354,8 @@ func (ctx *__grep) x() (_ any) {
 			return
 		}
 
-		var f *os.File
-		var e error
-		if f, e = os.Open(filename.String()); e != nil {
+		s, e := _universe(ctx).fset.openScanFile(filename)
+		if e != nil {
 			erro(c,
 				_f("%s", e),
 				_f("a=%s", a),
@@ -38306,28 +38364,9 @@ func (ctx *__grep) x() (_ any) {
 			return
 		}
 
-		st, _ := f.Stat()
-		lf := _universe(ctx).fset.add(filename, int(st.Size()))
-
-		s := bufio.NewScanner(f)
-		s.Split(bufio.ScanLines)
-
-		offset := 0 // Track the physical byte offset as we stream
-
 		for s.Scan() {
 			text := s.Text()
-			rawBytes := s.Bytes()
-
-			if offset > 0 { lf.AddLine(offset) }
-
-			pos := lf.Pos(offset)
-
-			// =================================================================
-			// THE DOD FIX 1: Bridge Pos and Position
-			// Create a word with a 0/default Pos, then bind the rich file Position
-			// (Filename, Line, Column) to it using xloc.
-			// =================================================================
-			lineVal := _word(pos, intern(text))
+			lineVal := _word(s.Pos(), intern(text))
 
 			setGroup := func(idx int, v Value) {
 				var sym Symbol
@@ -38336,7 +38375,7 @@ func (ctx *__grep) x() (_ any) {
 				} else {
 					sym = intern(strconv.Itoa(idx))
 				}
-				ctx.set(pc(c, pos), defVoid, sym, v)
+				ctx.set(pc(c, s.Pos()), defVoid, sym, v)
 			}
 
 			for _, pat := range rvs {
@@ -38362,7 +38401,7 @@ func (ctx *__grep) x() (_ any) {
 					// Unpack named_stem wrappers injected by the regex engine
 					if ns, isNamed := stem.(*named_stem); isNamed {
 						target = ns.Value // Extract the raw AST node
-						ctx.set(pc(c, pos), defVoid, ns.name, target)
+						ctx.set(pc(c, s.Pos()), defVoid, ns.name, target)
 					}
 
 					// Bind the unwrapped target to its standard numerical index
@@ -38382,12 +38421,9 @@ func (ctx *__grep) x() (_ any) {
 					// ctx.check(pat, text, result, val)
 				}
 			}
-
-			// Advance the streaming read-head (+1 for the stripped \n)
-			offset += len(rawBytes) + 1
 		}
 
-		f.Close() // Explicit close in loop since defer inside loop leaks descriptors
+		s.Close() // Explicit close in loop since defer inside loop leaks descriptors
 	}
 
 	return ease(ctx, res)
