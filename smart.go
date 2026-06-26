@@ -2020,9 +2020,9 @@ type backtrack struct {
 
 	// 2. Truncation Markers (O(1) Append-Only Slices)
 	symsDepth    int
-	offsetsDepth int
 	stemsDepth   int
-	offset  int
+	offsetsDepth int
+	offset       int
 
 	// 3. Exact Cursor Coordinates
 	own vmcursors
@@ -2031,8 +2031,8 @@ type backtrack struct {
 	// 4. The Alternate Timeline Payload
 	altOp1  evalop
 	altOp2  evalop
-	altVal  any
 	altStem capture
+	altVal  any
 }
 
 // symstr is a fully self-contained Stack Virtual Machine.
@@ -2129,18 +2129,18 @@ func (s *symstr) step() {
 					startRem := s.tie.stopTieByte
 					endRem := gen.offset
 					if startRem < endRem {
-						syms := s.tie.symbolInRange(startRem, endRem)
+						syms := gen.symbolInRange(startRem, endRem)
 
 						snap_vmpack := s.vmpack
 						s.vmpack = &vmpack{}
-						currByte := startRem
 
+						offset := startRem
 						for _, sym := range syms {
 							sl := sym.len()
-							s.pack(s.tie.posInRange(currByte, currByte+sl), sym)
-							currByte += sl
+							s.pack(gen.posInRange(offset, offset+sl), sym)
+							offset += sl
 						}
-						rem = s.reduce(s.tie.posInRange(startRem, endRem))
+						rem = s.reduce(gen.posInRange(startRem, endRem))
 						s.vmpack = snap_vmpack
 					}
 				}
@@ -2182,16 +2182,21 @@ func (s *symstr) step() {
 						s.pack(s.tie.posInRange(bytePos, bytePos+sl), sym)
 						bytePos += sl
 					}
-					stems = append(stems, s.reduce(s.tie.posInRange(capture.start, capture.end)))
-				}
 
-				// Push the sparse []Value chunk directly into operands!
-				s.operands = append(s.operands, stems)
-				s.vmpack = snap_vmpack // Restore the active prefix/remnant packer
+					stem := s.reduce(s.tie.posInRange(capture.start, capture.end))
+					if capture.name != symEmpty && stem != nil { stem = &named_stem{stem, capture.name} }
+					stems = append(stems, stem)
+				}
 
 				// Clear bestStems so we don't double-pack them on the next step.
 				// trackTelemetry will naturally repopulate it if the NFA advances further!
 				s.tie.bestStems = nil
+
+				// Push the sparse []Value chunk directly into operands!
+				s.operands = append(s.operands, stems)
+
+				// Restore the active prefix/remnant packer
+				s.vmpack = snap_vmpack
 			}
 
 			if s.vmpack == nil { s.vmpack = &vmpack{} }
@@ -2678,9 +2683,12 @@ func (s *symstr) step() {
 			for i := 2; i < len(locs); i += 2 {
 				if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
 					name := symEmptyName
-					if len(stems) < len(names) {
-						if s := names[len(stems)]; s != "" { name = intern(s) }
+
+					// SubexpNames Index Mapping
+					if expIdx := i / 2; expIdx < len(names) {
+						if s := names[expIdx]; s != "" { name = intern(s) }
 					}
+
 					stems = append(stems, capture{snap_cursors.bytePos + locs[i], snap_cursors.bytePos + locs[i+1], name})
 				} else {
 					stems = append(stems, capture{-1, -1, symEmptyName})
@@ -3398,7 +3406,7 @@ func (s *symstr) distance(idx int) int {
 }
 
 func (s *symstr) posInRange(startByte, endByte int) Pos {
-	// Look up the Pos from the Matcher's recorded execution intervals!
+	// Look up the Pos from the recorded execution intervals!
 	for _, inv := range s.intervals {
 		if inv.startByte <= startByte && endByte <= inv.endByte {
 			if inv.node != nil && inv.node.Pos().valid() {
@@ -3407,7 +3415,6 @@ func (s *symstr) posInRange(startByte, endByte int) Pos {
 		}
 	}
 	if s.tie == nil { return NoPos }
-	// Fallback to searching the Generator (if tied)
 	return s.tie.posInRange(startByte, endByte)
 }
 
@@ -3421,11 +3428,11 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	endIdx := -1
 
 	// 1. Calculate pure mathematical boundaries
-	currentOffset := 0
+	offset := 0
 	for i := 0; i < len(s.syms); i++ {
-		// symStart := currentOffset
-		symEnd := currentOffset + s.syms[i].len()
-		currentOffset = symEnd
+		// symStart := offset
+		symEnd := offset + s.syms[i].len()
+		offset = symEnd
 
 		if startIdx == -1 && startByte < symEnd {
 			startIdx = i
@@ -3449,16 +3456,16 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 	}
 
 	var syms []Symbol
-	currentOffset = 0
+	offset = 0
 
 	// Check if the tape coordinates are right-to-left!
 	reverse := (s.class & clsBackwards) != 0
 
 	// 2. Extract and fractionally slice
 	for i := 0; i <= endIdx; i++ {
-		symStart := currentOffset
-		symEnd := currentOffset + s.syms[i].len()
-		currentOffset = symEnd
+		symStart := offset
+		symEnd := offset + s.syms[i].len()
+		offset = symEnd
 
 		if i < startIdx { continue }
 
@@ -7023,13 +7030,22 @@ type lexfile struct {
 	mb    []mbInfo // Sparse multi-byte index
 }
 
-// AddLine records the offset of a newline.
+// AddLine records the offset of a newline, guarding against time-traveling scanners.
 func (f *lexfile) AddLine(offset int) {
+	// THE DOD FIX: Strict Monotonic Guard!
+	// If the scanner rewinds and re-parses a template, silently ignore the redundant \n
+	if len(f.lines) > 0 && offset <= f.lines[len(f.lines)-1] {
+		return
+	}
 	f.lines = append(f.lines, offset)
 }
 
-// AddSpan registers a multi-byte character.
+// AddSpan registers a multi-byte character, guarding against time-traveling scanners.
 func (f *lexfile) AddSpan(offset, extraBytes int) {
+	// THE DOD FIX: Strict Monotonic Guard!
+	if len(f.mb) > 0 && offset <= f.mb[len(f.mb)-1].offset {
+		return
+	}
 	f.mb = append(f.mb, mbInfo{offset: offset, extra: extraBytes})
 }
 
@@ -17266,9 +17282,9 @@ func isTrivial(v any) (_ bool) {
 	case *def: return isTrivial(t.value)
 	case *loc: return isTrivial(t.Value)
 	case *list: return isTrivial(t.elems)
-	case *path: return isTrivial(t.elems)
+	case *path: return t.len() == 0 || isTrivial(t.elems)
 	case *compound: return isTrivial(t.elems)
-	case *qualword: return isTrivial(t.elems)
+	case *qualword: return t.len() == 0 //isTrivial(t.elems)
 	case fullname: return isTrivial(t.Value)
 	case *raw: return t.s == ""
 	case *word: return t.s == symEmpty
@@ -17287,9 +17303,9 @@ func isEmpty(v any) (_ bool) {
 	case *loc: return isEmpty(t.Value)
 	case *list: return isEmpty(t.elems)
 	case *recipe: return isEmpty(t.elems)
-	case *path: return isEmpty(t.elems)
+	case *path: return t.len() == 0 || isEmpty(t.elems)
 	case *compound: return isEmpty(t.elems)
-	case *qualword: return isEmpty(t.elems)
+	case *qualword: return t.len() == 0 //isEmpty(t.elems)
 	case *strcomp: return isEmpty(t.elems)
 	case *strval: return isEmpty(t.v)//len(t.v) == 0
 	case *strlit: return t.s == ""
@@ -19607,7 +19623,11 @@ func (p *regexpat) String() string {
 func (p *regexpat) source(b *compactbuilds) {
 	b.setRaw(true) // CRITICAL: Prevent regex space squashing
 	b.writeString("{regex ")
-	builds(b, strsrc{}, p.elems)
+	if false {
+		builds(b, strsrc{}, p.elems)
+	} else {
+		b.writeString(p.re.String())
+	}
 	b.writeByte('}')
 }
 func (p *regexpat) build(b *compactbuilds) {
@@ -20772,17 +20792,25 @@ func (c *evoke_ctx) do(ctx Context, op any) (_ any) {
 }
 
 // TODO: eval needs full evaluate-mode implementation for symstr
-func eval(ctx Context, v Value) (res Value) {
-	stream := &symstr{Context: ctx}
-	stream.push(opEvalValue, v)
+func eval(ctx Context, v Value) Value {
+	stream := &symstr{Context: ctx, class: clsTiePackerAST, tie: &symstr{Context: ctx}}
+	stream.tie.push(opEvalValue, v)
 	stream.exhaust()
 
-	res = stream.valueInRange(0, stream.offset)
-	if len(stream.stems) > 0 {
-		tuple := extractStems(stream, stream.stems)
-		if tuple != nil {/* work with tuple */}
+	var vals []Value
+	for _, operand := range stream.operands {
+		if v, isValue := operand.(Value); isValue {
+			vals = append(vals, v)
+		} else {
+			erro(ctx, "%s", ts(operand,ctx))
+		}
 	}
-	return
+
+	switch len(vals) {
+	case 0: return nil
+	case 1: return vals[0]
+	}
+	return &list{elements{vals}}
 }
 
 func expand(ctx Context, v Value) (res Value) {
@@ -22876,22 +22904,6 @@ func packGlob(parts []Value) Value {
 type named_stem struct{ Value; name Symbol }
 func (p *named_stem) String() string { return p.Value.String() }
 
-func extractStems(vStream *symstr, caps []capture) []Value {
-	var res []Value
-	for _, c := range caps {
-		if c.start == -1 {
-			res = append(res, nil)
-		} else {
-			v := vStream.valueInRange(c.start, c.end)
-			if c.name != symEmpty && v != nil {
-				v = &named_stem{v, c.name}
-			}
-			res = append(res, v)
-		}
-	}
-	return res
-}
-
 // match matches pattern `pat` against value `val`.
 func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
 	if val == nil || pat == nil { return false, nil, val, nil }
@@ -22938,7 +22950,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 		}
 	}
 
-	// === UNIFIED BIDIRECTIONAL AST EXTRACTION ===
 	switch len(packer.operands) {
 	case 3: stems  = packer.operands[2].([]Value); fallthrough
 	case 2: rem, _ = packer.operands[1].(Value)  ; fallthrough
@@ -38354,7 +38365,8 @@ func (ctx *__grep) x() (_ any) {
 			return
 		}
 
-		s, e := _universe(ctx).fset.openScanFile(filename)
+		u := _universe(ctx)
+		s, e := u.fset.openScanFile(filename)
 		if e != nil {
 			erro(c,
 				_f("%s", e),
@@ -38376,6 +38388,12 @@ func (ctx *__grep) x() (_ any) {
 					sym = intern(strconv.Itoa(idx))
 				}
 				ctx.set(pc(c, s.Pos()), defVoid, sym, v)
+				if false && checkpoints && v != nil {
+					debug(ctx, "%v\n%v %v\n%v %v %s %v", sym,
+						u.fset.Position(s.Pos()), lineVal,
+						u.fset.Position(v.Pos()), v, ts(v,ctx), isEmpty(v),
+					)
+				}
 			}
 
 			for _, pat := range rvs {
