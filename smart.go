@@ -19,7 +19,6 @@ import (
     enc_xml "encoding/xml"
     // enc_csv "encoding/csv"
     // enc_yaml "encoding/yaml"
-	gt "go/token"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -1818,7 +1817,7 @@ const (
 const (
 	undoNone   = 0
 	undoStack  = 1 << 0 // Restores execution instructions (ops, operands)
-	undoTape   = 1 << 1 // Restores generated output tape (syms, offsets, currentByte)
+	undoTape   = 1 << 1 // Restores generated output tape (syms, offsets, offset)
 	undoTie    = 1 << 2 // Restores target read-head (tie.cursor, tie.bytePos)
 	undoOwn    = 1 << 3 // Restores matcher read-head (cursor, bytePos)
 	undoStems  = 1 << 4 // Restores captured wildcard stems
@@ -1865,7 +1864,7 @@ type vmtape struct {
 	intervals   []interval   // AST tracking data injected from the flattener
 	offsets     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
 	stems       []capture    // Extracted capture groups
-	currentByte int          // Lazy flattening byte position
+	offset      int          // The last symbol offset in byte position
 }
 
 // vmstack tracks the mutable execution instructions.
@@ -1883,20 +1882,20 @@ type vmwm struct {
 	bestStems   []capture // High-water mark for stems
 }
 
-// vmpack is a cascading state machine mirrors the structural hierarchy: Comp → Qual → Path → List.
+// vmpack is a cascading state machine mirrors the structural hierarchy.
 type vmpack struct {
 	parent *vmpack // Links to the outer scope (for nested brackets!)
-	closer Symbol     // The symbol that will pop this state (e.g., symRparen)
+	closer Symbol  // The symbol that will pop this state (e.g., symRparen)
 
 	dash Pos // If valid, wraps the fully reduced segment in a flag
+
+	pairKey  Value // Holds the LHS of an '=' pair
+	arrowObj Value // Holds the LHS of an '→' arrow
 
 	comp elements
 	qual elements
 	path elements
 	list elements
-
-	// TODO: pair: Name=Value
-	// TODO: arrow: obj→name
 }
 
 func (p *vmpack) shift(val Value) {
@@ -1908,7 +1907,7 @@ func (p *vmpack) reduceQual(pos Pos) {
 
 	if p.comp.len() > 0 {
 		if p.comp.len() == 1 {
-			v = p.comp.at(0)
+			v = p.comp.elems[0]
 		} else {
 			// THE DOD FIX: Prevent slice aliasing by allocating a distinct slice header!
 			v = &compound{p.comp.copy()}
@@ -1929,15 +1928,22 @@ func (p *vmpack) reducePath(pos Pos) {
 
 	var res Value
 	if p.qual.len() == 1 {
-		res = p.qual.at(0)
+		res = p.qual.elems[0]
 	} else if p.qual.len() > 1 {
 		res = &qualword{p.qual.copy()}
 	}
 
 	p.qual.clear()
 
-	// THE DOD FIX: Flag Wrapping!
-	// If symDash was encountered earlier in this segment, wrap the entire result.
+	// Arrow Wrapping
+	if p.arrowObj != nil {
+		if res == nil { res = valbase{pos} }
+		// Note: 't token' defaults to 0 as we bypass the raw lexer token here
+		res = &arrow{valbase: valbase{pos}, o: p.arrowObj, s: res}
+		p.arrowObj = nil
+	}
+
+	// Flag Wrapping
 	if p.dash != 0 {
 		if res == nil { res = valbase{p.dash} }
 		res = flag{res}
@@ -1952,12 +1958,19 @@ func (p *vmpack) reduceList(pos Pos) {
 
 	var res Value
 	if p.path.len() == 1 {
-		res = p.path.at(0)
+		res = p.path.elems[0]
 	} else if p.path.len() > 1 {
 		res = &path{p.path.copy()}
 	}
 
 	p.path.clear()
+
+	// Pair Wrapping
+	if p.pairKey != nil {
+		if res == nil { res = valbase{pos} }
+		res = &pair{key: p.pairKey, val: res}
+		p.pairKey = nil
+	}
 
 	if res != nil { p.list.append(res) }
 }
@@ -1968,7 +1981,7 @@ func (p *vmpack) reduce(pos Pos) Value {
 
 	var res Value
 	if p.list.len() == 1 {
-		res = p.list.at(0)
+		res = p.list.elems[0]
 	} else if p.list.len() > 1 {
 		res = &list{p.list.copy()}
 	} else {
@@ -2009,7 +2022,7 @@ type backtrack struct {
 	symsDepth    int
 	offsetsDepth int
 	stemsDepth   int
-	currentByte  int
+	offset  int
 
 	// 3. Exact Cursor Coordinates
 	own vmcursors
@@ -2053,154 +2066,29 @@ func (s *symstr) do(ctx Context, op any) any { // Optional!
 func (s *symstr) step() {
 	reverse := (s.class & clsBackwards) != 0
 
-	if (s.class & (clsTiePackerAST | clsTiePackerVM)) != 0 {
-		if s.cursor > len(s.tie.syms) {
-			// === THE DOD FIX: ZERO-OVERHEAD EVENT SOURCING ===
-			// If our read-head is stranded in the future, the Matcher unwound its tape!
-
-			// 1. Wipe the AST state (Reuses existing slice capacities safely!)
-			s.vmpack = &vmpack{}
-			s.operands = s.operands[:0] // Reset to base ops depth
-
-			// 2. Rewind the target cursors to the beginning of time
-			s.tie.cursor = 0
-			s.tie.bytePos = 0
-
-			// 3. Replay the surviving tape to instantly rebuild the correct AST!
-			for s.tie.cursor < len(s.tie.syms) {
-				startByte := s.tie.bytePos
-				sym := s.tie.syms[s.tie.cursor]
-				// s.tie.advance() // Natively drives the cursor and bytePos forward!
-				s.bytePos += sym.len()
-				s.cursor++
-
-				pos := s.tie.posInRange(startByte, s.tie.bytePos)
-				s.pack(pos, sym)
-			}
-		}
-
-		// 1. Pull exactly one symbol from the tie
+	if (s.class & clsTiePackerVM) != 0 {
 		if s.tie.cursor >= len(s.tie.syms) {
-			s.tie.pump() // Lazily evaluate the NFA!
-		}
-
-		if s.tie.cursor >= len(s.tie.syms) {
-			// EOF REACHED: Flush the packer state!
-			if s.vmpack != nil {
-				pos := s.tie.posInRange(0, s.tie.bytePos)
-				s.operands = append(s.operands, s.reduce(pos)) // The final result!
+			if len(s.tie.ops) == 0 {
+				s.err = io.EOF
+				return
 			}
 
-			if gen := s.tie.tie; gen != nil {
-				// === STATE-PRESERVING CHAINED EXHAUSTION ===
-				// Because the streams are chained (Packer -> Matcher -> Generator),
-				// exhausting the Matcher naturally pulls and exhausts the Target tape!
-				// We must do this to finalize trackTelemetry() and lock in `bestStems`,
-				// and unroll the AST bounds.
-				if len(s.tie.ops) > 0 || len(gen.ops) > 0 {
-					err := gen.err  // Snapshot the symmetry truth!
-					gen.err = nil   // Must unset gen.err to let exhaust work.
+			s.tie.step() // 1-D CASCADING PULL (for exactly ONE instruction)
+			s.tie.trackTelemetry() // Capture tie watermark!
 
-					// Finalize NFA timelines and High-Water Mark and Target Tape AST offsets
-					s.tie.exhaust() // Triggers the flawless chain reaction!
-
-					gen.err = err   // Restore symmetry truth for the Orchestrator!
-				}
-
-				pos := s.tie.posInRange(0, s.tie.bytePos)
-
-				if s.tie.err == nil && gen.err == nil { // Prefix Matched
-					if gen.bytePos == gen.currentByte && len(gen.str) > 0 {
-						if false { warn(pc(s,pos), "%v, %d %d %d, %v %v, %v %v", s.operands,
-							s.tie.stopTieByte, gen.bytePos, gen.currentByte,
-							s.tie.str, gen.str, s.tie.syms, gen.syms) }
-
-						if len(s.operands) == 0 {
-							// === GUARDED FRACTIONAL SHATTERING ===
-							// If the match failed, `gen.str` contains volatile garbage from the last
-							// failed backtrack. We ONLY shatter the token on successful Prefix Matches!
-							stopByte := gen.bytePos - len(gen.str)
-							res := gen.valueInRange(0, stopByte)
-							rem := _word(gen.posInRange(stopByte, gen.bytePos)+0, intern(gen.str))
-							s.operands = append(s.operands, res, rem)
-						}
-
-						if checkpoints && s.tie.stopTieByte != gen.bytePos {
-							warn(pc(s,pos),
-								_f("diverged stop byte: %d %d", s.tie.stopTieByte, gen.bytePos),
-								callstack{num:5})
-						}
-					}
-				} else if s.tie.err == io.EOF && gen.err == io.EOF { // Fully Matched
-					if len(gen.str) > 0 {
-						warn(pc(s,pos), "%v, %v %v, %v %v", s.vmpack, s.tie.str, gen.str, s.tie.syms, gen.syms)
-					}
-				} else if false && s.vmpack == nil && len(gen.str) > 0 {
-					warn(pc(s,pos), "%v %v %v; %v %v", s.tie.str, s.tie.syms, gen.syms,
-						s.tie.err, gen.err)
-				}
-
-				// Now `gen.currentByte` flawlessly represents the absolute end of the tape!
-				if s.tie.stopTieByte > 0 {
-					if s.tie.stopTieByte < gen.currentByte {
-						// PREFIX MATCH: The NFA halted midway through the tape.
-						switch len(s.operands) {
-						case 0: s.operands = append(s.operands, gen.valueInRange(0, s.tie.stopTieByte)); fallthrough
-						case 1:	s.operands = append(s.operands, gen.valueInRange(s.tie.stopTieByte, gen.currentByte))
-						}
-					} else {
-						// FULL MATCH: The NFA perfectly consumed the entire tape.
-						switch len(s.operands) {
-						case 0: s.operands = append(s.operands, gen.valueInRange(0, gen.currentByte)); fallthrough
-						case 1: s.operands = append(s.operands, Value(nil)) // rem is nil
-						}
-					}
+			if s.tie.err != nil {
+				if s.tie.err == io.EOF {
+					// FIXME: Cascade layer 2 EOF!
 				} else {
-					// ZERO-WIDTH / INSTANT FAIL: The NFA bounced at byte 0.
-					switch len(s.operands) {
-					case 0: s.operands = append(s.operands, nil); fallthrough
-					case 1:	s.operands = append(s.operands, gen.valueInRange(0, gen.currentByte))
-					}
+					erro(s, "early match halt!")
 				}
-
-				if len(s.tie.stems) > 0 && len(s.operands) < 3 {
-					captures := s.tie.stems
-					if /* s.tie.err != nil && */ len(s.tie.bestStems) > 0 {
-						captures = s.tie.bestStems // Retrieve the High-Water Mark ledger
-					}
-
-					stems := extractStems(gen, captures)
-					if reverse { // Restore Chronological Order!
-						for i, j := 0, len(stems)-1; i < j; i, j = i+1, j-1 {
-							stems[i], stems[j] = stems[j], stems[i]
-						}
-					}
-					switch len(s.operands) {
-					case 0: s.operands = append(s.operands, Value(nil), Value(nil), stems)
-					case 1: s.operands = append(s.operands, /*  res, */ Value(nil), stems)
-					case 2: s.operands = append(s.operands, /*  res, */ /*  rem, */ stems)
-					}
-				}
-
-				if checkpoints {
-					if false && s.tie.stopTieByte != gen.bytePos {
-						warn(pc(s,pos),
-							_f("diverged stop byte: %d %d", s.tie.stopTieByte, gen.bytePos),
-							callstack{num:5})
-					}
-				}
+				return
 			}
-
-			s.err = io.EOF
-			return
 		}
 
-		startByte := s.tie.bytePos // Ensure you use bytePos from your NFA Matcher
-		sym := s.tie.syms[s.tie.cursor]
-		s.tie.advance() // Consume the tie symbol
-		endByte := s.tie.bytePos
+		if s.tie.err == nil && s.tie.cursor < len(s.tie.syms) {
+			sym := s.tie.syms[s.tie.cursor]
 
-		if (s.class & clsTiePackerVM) != 0 {
 			switch __symKind(sym) {
 			case SymRaw, SymInt, SymFlt, SymEph:
 				// VM types prioritize density over AST source mapping
@@ -2208,18 +2096,114 @@ func (s *symstr) step() {
 			case SymSeq:
 				// TODO: shatter(sym)
 			}
+		}
+		return
+	}
 
-			erro(s, "TiePackerVM to be implemented: %v", sym, callstack{num:5})
-			return
+	if (s.class & clsTiePackerAST) != 0 {
+
+		// 1. STARVED: Pull the Matcher chain
+		if s.tie.cursor >= len(s.tie.syms) {
+			// === THE UNIFIED HALT BLOCK ===
+			// If the Matcher formally halted (Instant Fail, Prefix Match, or full EOF)
+			if s.tie.err != nil || len(s.tie.ops) == 0 {
+				var res, rem Value
+
+				// A. EXTRACT NATIVE PREFIX (res)
+				if s.vmpack != nil {
+					res = s.reduce(s.tie.posInRange(0, s.tie.bytePos))
+					s.vmpack = nil
+				}
+
+				// B. EXTRACT NATIVE REMAINDER (rem) - NO LATCH
+				if gen := s.tie.tie; gen != nil {
+					// State-Preserving Exhaustion: Force unroll the rest of the target tape
+					if len(gen.ops) > 0 {
+						err := gen.err
+						gen.err = nil
+						gen.exhaust()
+						gen.err = err
+					}
+
+					// Fetch exactly from the high-water mark to the end of the generator tape
+					startRem := s.tie.stopTieByte
+					endRem := gen.offset
+					if startRem < endRem {
+						syms := s.tie.symbolInRange(startRem, endRem)
+
+						snap_vmpack := s.vmpack
+						s.vmpack = &vmpack{}
+						currByte := startRem
+
+						for _, sym := range syms {
+							sl := sym.len()
+							s.pack(s.tie.posInRange(currByte, currByte+sl), sym)
+							currByte += sl
+						}
+						rem = s.reduce(s.tie.posInRange(startRem, endRem))
+						s.vmpack = snap_vmpack
+					}
+				}
+
+				// C. FORMULATE OPERANDS
+				// The wrapper explicitly expects: [res, rem, stems]
+				var stems []Value
+				for _, operand := range s.operands {
+					vals, okay := operand.([]Value)
+					if !okay { erro(s, "non-stems operand: %s", ts(operand,s)) }
+					stems = append(stems, vals...)
+				}
+				s.operands = []any{res, rem, stems}
+
+				s.err = io.EOF
+				return
+			}
+
+			s.tie.step() // 1-D CASCADING PULL
+			s.tie.trackTelemetry() // Capture tie watermark!
+
+			// === JIT SPARSE STEM EXTRACTION ===
+			if len(s.tie.bestStems) > 0 {
+				snap_vmpack := s.vmpack
+
+				var stems []Value
+				for _, capture := range s.tie.bestStems {
+					if capture.start == -1 {
+						stems = append(stems, Value(nil))
+						continue
+					}
+
+					syms := s.tie.symbolInRange(capture.start, capture.end)
+					bytePos := capture.start
+
+					s.vmpack = &vmpack{}
+					for _, sym := range syms {
+						sl := sym.len()
+						s.pack(s.tie.posInRange(bytePos, bytePos+sl), sym)
+						bytePos += sl
+					}
+					stems = append(stems, s.reduce(s.tie.posInRange(capture.start, capture.end)))
+				}
+
+				// Push the sparse []Value chunk directly into operands!
+				s.operands = append(s.operands, stems)
+				s.vmpack = snap_vmpack // Restore the active prefix/remnant packer
+
+				// Clear bestStems so we don't double-pack them on the next step.
+				// trackTelemetry will naturally repopulate it if the NFA advances further!
+				s.tie.bestStems = nil
+			}
+
+			if s.vmpack == nil { s.vmpack = &vmpack{} }
 		}
 
-		// Calculate Pos for the AST nodes
-		pos := s.tie.posInRange(startByte, endByte)
-		if s.vmpack == nil {
-			s.vmpack = &vmpack{} // Ensure root state exists
+		// 2. ACTIVE TAPE: Pack the available symbol
+		if s.tie.err == nil && s.tie.cursor < len(s.tie.syms) {
+			sym := s.tie.syms[s.tie.cursor]
+			endByte := s.tie.bytePos + sym.len()
+			s.pack(s.tie.posInRange(s.tie.bytePos, endByte), sym)
+			s.tie.advance() // Natively handles s.tie.cursor++ and s.tie.bytePos += sl
 		}
-
-		s.pack(pos, sym)
 		return
 	}
 
@@ -2234,7 +2218,7 @@ func (s *symstr) step() {
 		start := s.operands[l-2].(int)
 		s.operands = s.operands[:l-2]
 
-		s.intervals = append(s.intervals, interval{start, s.currentByte, val})
+		s.intervals = append(s.intervals, interval{start, s.offset, val})
 
 	case opEmitSym:
 		sym := s.operands[l-1].(Symbol)
@@ -2251,27 +2235,22 @@ func (s *symstr) step() {
 		sym := s.operands[l-1].(Symbol)
 		s.operands = s.operands[:l-1]
 
-		// THE DOD FIX: True Zero-Width Structural Anchors!
 		if sym == symEmpty { // e.g., PROOT and PTAIL
 			if s.tie != nil && s.tie.cursor < len(s.tie.syms) {
-				// If the target explicitly has an empty marker, cleanly consume it.
 				if s.tie.syms[s.tie.cursor] == symEmpty {
 					s.tie.advance()
+					s.emit(symEmpty) // THE DOD FIX: Emits target empty
+					return
 				}
 			}
-
-			// We DO NOT enforce that the target path ends here!
-			// The physical boundary (symSlash) has already been consumed by the pattern
-			// if it was required. PTAIL is a synthetic AST marker, and forcing it to
-			// unwind breaks valid prefix matching (e.g. trimming trailing slashes).
-			s.emit(sym)
+			s.emit(symEmpty)
 			return
 		}
 
-		// FAST PATH: Are we perfectly aligned on a symbol boundary?
-		if len(s.tie.str) == 0 { // Only safe if the target is NOT fragmented!
+		// FAST PATH: Perfectly aligned on a symbol boundary
+		if len(s.tie.str) == 0 {
 			if s.tie.cursor >= len(s.tie.syms) {
-				s.tie.pump() // Ensure target has generated the next symbol
+				s.tie.pump()
 			}
 			if s.tie.cursor < len(s.tie.syms) {
 				target := s.tie.syms[s.tie.cursor]
@@ -2279,49 +2258,35 @@ func (s *symstr) step() {
 				switch target {
 				case sym: // Equality first!
 					s.tie.advance()
-					s.emit(sym)
+					s.emit(target) // THE DOD FIX: Yield exact target symbol
 					return
 
 				case symQues:
 					if sym == symSlash {
-						s.unwind() // Hard mismatch
+						s.unwind()
 						return
 					}
-					s.tie.advance() // advance() automatically increments bytePos!
-					s.emit(sym)
+					s.tie.advance()
+					s.emit(target) // THE DOD FIX: Target ? absorbed literal, yield target ?
 					return
 
 				case symAsterisk, symAsteriskAst, symAsteriskQues:
-					// === THE SLASH EXEMPTION FOR CONDITIONAL ABSORB FALLBACK ===
-					canAbsorb := (s.tie.class & clsGlob) != 0 //true
+					canAbsorb := (s.tie.class & clsGlob) != 0
 					if canAbsorb {
 						if target == symAsterisk && sym == symSlash {
-							// 1. Single asterisk strictly stops at directory boundaries!
 							canAbsorb = false
 						} else if sym != symSlash && (s.class & (clsGlob | clsRegex)) != 0 {
-							// 2. Active literals inside a glob MUST NOT be absorbed.
-							// (Exempts symSlash so `**` and `*?` can span directories!)
 							canAbsorb = false
 						}
 					}
 
-					// Active literals inside a glob MUST NOT be absorbed by passive wildcards.
-					// The active wildcards (like **, ?) are responsible for elasticity!
-					// We only push the Absorb Fallback if the active pattern is a pure literal.
 					if canAbsorb {
-						// === THE DOD FIX: ESCAPE-FIRST (RELUCTANT) EVALUATION ===
-
-						// BRANCH B (Absorb Fallback): Pushed to backtracks
 						bt := s.checkpoint(undoBranch)
-						// Simulate Branch B: If we backtrack, we emit the absorbed symbol
-						// and move on to the next literal, leaving the target cursor on the wildcard!
 						bt.altOp1 = opEmitSym
-						bt.altVal = sym
+						bt.altVal = target // THE DOD FIX: Target * absorbed literal, yield target *
 						s.backtracks = append(s.backtracks, bt)
 					}
 
-					// BRANCH A (Escape Priority): Executed immediately
-					// We skip the asterisk and test this literal against the NEXT target symbol!
 					skipped := s.tie.syms[s.tie.cursor]
 					s.tie.cursor++
 					s.tie.bytePos += skipped.len()
@@ -2334,31 +2299,26 @@ func (s *symstr) step() {
 				if reverse {
 					if __symHasSuffix(target, sym) {
 						s.tie.str = target.String()
-						s.tie.recedeRune(sym.len()) // Trim the suffix!
-						s.emit(sym)
+						s.tie.recedeRune(sym.len())
+						// THE DOD FIX: Emit exactly the target suffix fragment consumed!
+						frag := target.String()[len(target.String())-sym.len():]
+						s.emit(intern(frag))
 						return
 					}
 				} else {
 					if __symHasPrefix(target, sym) {
 						s.tie.str = target.String()
-						s.tie.advanceRune(sym.len()) // Trim the prefix!
-						s.emit(sym)
+						s.tie.advanceRune(sym.len())
+						// THE DOD FIX: Emit exactly the target prefix fragment consumed!
+						frag := target.String()[:sym.len()]
+						s.emit(intern(frag))
 						return
 					}
 				}
-
-				// NOTE: What if __symHasPrefix(sym, target) is true?
-				// E.g. Pattern is "foobar", Target is "foo".
-				// We intentionally let that fall through to the slow path!
-				// The chunking loop perfectly consumes "foo", pulls the next target symbol,
-				// and matches the remaining "bar" across the boundary.
-
-				// Fall back onto fragmentation dissolve!
 			}
 		}
 
-		// SLOW PATH: Sub-symbol fragmentation (e.g. comparing "foo" to "foobar").
-		// Fall back to highly optimized chunked string comparison.
+		// SLOW PATH: Sub-symbol fragmentation
 		str := sym.String()
 
 		for len(str) > 0 {
@@ -2374,118 +2334,110 @@ func (s *symstr) step() {
 			n := len(str)
 			if len(s.tie.str) < n { n = len(s.tie.str) }
 
+			var frag string
 			if reverse {
-				if str[len(str)-n:] != s.tie.str[len(s.tie.str)-n:] {
+				frag = s.tie.str[len(s.tie.str)-n:]
+				if str[len(str)-n:] != frag {
 					s.unwind()
 					return
 				}
 				str = str[:len(str)-n]
-				s.tie.recedeRune(n) // Natively handles the state bump!
+				s.tie.recedeRune(n)
 			} else {
-				if str[:n] != s.tie.str[:n] {
+				frag = s.tie.str[:n]
+				if str[:n] != frag {
 					s.unwind()
 					return
 				}
 				str = str[n:]
 				s.tie.advanceRune(n)
 			}
+
+			// THE DOD FIX: Yield exactly the fractional slice consumed from the target string!
+			s.emit(intern(frag))
 		}
 
-		s.emit(sym)
-
 	case opGlobQues: // ?
-		// PEEPHOLE OPTIMIZATION: Consolidate sequential '?' ops
 		count := 1
 		for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opGlobQues {
 			count++
-			s.ops = s.ops[:len(s.ops)-1] // Destructively pop!
+			s.ops = s.ops[:len(s.ops)-1]
 		}
 
 		startByte := 0
 
-		// === THE DOD FIX: UNIVERSAL META-SYMBOL ALIGNMENT ===
 		if len(s.tie.str) == 0 && s.tie.cursor < len(s.tie.syms) {
 			target := s.tie.syms[s.tie.cursor]
 
 			if isWildcardMeta(target) {
-				startByte = s.tie.bytePos // Freeze start position!
+				startByte = s.tie.bytePos
 
 				if target == symQues {
 					consumed := 0
-					var symLens []int // Track individual symbol lengths!
+					var symLens []int
 
 					for i := 0; i < count; i++ {
 						if s.tie.cursor >= len(s.tie.syms) { s.tie.pump() }
-						if s.tie.cursor >= len(s.tie.syms) {
-							s.unwind() // Premature EOF
-							return
-						}
+						if s.tie.cursor >= len(s.tie.syms) { s.unwind(); return }
 
-						l := s.tie.syms[s.tie.cursor].len()
+						targetSym := s.tie.syms[s.tie.cursor]
+						l := targetSym.len()
 						symLens = append(symLens, l)
 						consumed += l
 						s.tie.bytePos += l
 						s.tie.cursor++
+
+						// THE DOD FIX: Emit exactly the target `?` symbol
+						s.emit(targetSym)
 					}
 
-					if consumed > count {
-						s.unwind() // Structural misalignment
-						return
-					}
-
+					if consumed > count { s.unwind(); return }
 					s.tie.str = ""
 					s.tie.closeIntervals()
 
-					// === LEDGER SYNC: Register exact individual stems ===
 					curr := startByte
 					for _, l := range symLens {
 						s.stems = append(s.stems, capture{curr, curr + l, symEmptyName})
 						curr += l
 					}
-					goto _EmitConsolidatedQueses
+					return // End cleanly!
 				}
 
 				if target == symPercent {
 					if nxt := s.tie.cursor + 1; nxt < len(s.tie.syms) && s.tie.syms[nxt] == symPercent {
-						// Manually advance over BOTH percent symbols (%%)
+						s.emit(s.tie.syms[s.tie.cursor]) // Yield Target %%
+						s.emit(s.tie.syms[nxt])
 						s.tie.bytePos += s.tie.syms[s.tie.cursor].len() + s.tie.syms[nxt].len()
 						s.tie.cursor += 2
 					} else {
-						s.tie.advance() // Single percent
+						s.emit(s.tie.syms[s.tie.cursor]) // Yield Target %
+						s.tie.advance()
 					}
 					s.tie.str = ""
 					s.tie.closeIntervals()
 
-					// === LEDGER SYNC: Percents don't consume literal bytes ===
 					for i := 0; i < count; i++ {
 						s.stems = append(s.stems, capture{startByte, startByte, symEmptyName})
 					}
-					goto _EmitConsolidatedQueses
+					return
 				}
 
-				// === ELASTIC WILDCARD BRANCHING (*, **, *?) ===
 				bt := s.checkpoint(undoBranch)
-
-				// BRANCH B (Absorb Fallback): Passive wildcard absorbs exactly ONE `?`.
-				// We register ONE empty stem and emit ONE symbol, keeping the ledger perfectly synced!
 				bt.altStem = capture{startByte, startByte, symEmptyName}
 				for i := 1; i < count; i++ { bt.stack.ops = append(bt.stack.ops, opGlobQues) }
 				bt.altOp1 = opEmitSym
-				bt.altVal = symQues
+				bt.altVal = target // Yield Target Wildcard!
 				s.backtracks = append(s.backtracks, bt)
 
-				// BRANCH A (Escape Priority): Skip passive wildcard!
 				skipped := s.tie.syms[s.tie.cursor]
 				s.tie.cursor++
 				s.tie.bytePos += skipped.len()
 
-				// Restore all `?`s to test against literal string. Zero stems registered here!
 				for i := 0; i < count; i++ { s.ops = append(s.ops, opGlobQues) }
 				return
 			}
 		}
 
-		// === LEDGER SYNC: Literal Rune Consumption ===
 		startByte = s.tie.bytePos
 		for i := 0; i < count; i++ {
 			r, size, err := s.tie.ReadRune()
@@ -2493,28 +2445,19 @@ func (s *symstr) step() {
 				s.unwind()
 				return
 			}
-			// Register a distinct stem for EACH physical rune we read!
 			s.stems = append(s.stems, capture{startByte, startByte + size, symEmptyName})
 			startByte += size
-			s.tie.bytePos += size
-		}
 
-	_EmitConsolidatedQueses:
-		// === MATCHER ALWAYS EMITS PATTERN SYMBOLS ===
-		if count == 1 {
-			s.emit(symQues)
-		} else {
-			seq := make([]Symbol, count)
-			for i := 0; i < count; i++ { seq[i] = symQues }
-			s.emit(internSeq(seq))
+			// THE DOD FIX: Emit exactly the target rune read from the buffer!
+			s.emit(intern(string(r)))
 		}
 
 	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross: // *, **, and *?
-		startByte := s.tie.bytePos // Freeze execution start byte!
+		startByte := s.tie.bytePos
 		bt := s.checkpoint(undoBranch)
 
 		var localSnaps []backtrack
-		localSnaps = append(localSnaps, bt) // [0] = Escape branch (0 absorbed)
+		localSnaps = append(localSnaps, bt)
 
 		for {
 			if len(s.tie.str) == 0 && s.tie.cursor >= len(s.tie.syms) { s.tie.pump() }
@@ -2522,25 +2465,32 @@ func (s *symstr) step() {
 			if s.tie.cursor < len(s.tie.syms) {
 				target := s.tie.syms[s.tie.cursor]
 
-				// Only single asterisk (*) strictly stops at directory boundaries!
-				// ** (Greed) and *? (Cross) are multi-directory wildcards.
 				if op == opGlobAsterisk && target == symSlash { break }
 
-				// === ATOMIC META-SYMBOL ABSORPTION ===
-				// Prevent passive wildcards from being decoded into literal strings.
-				// The active wildcard securely absorbs them whole and pushes the state!
 				if isWildcardMeta(target) {
+					newOps := append([]evalop(nil), bt.stack.ops...)
+					newOperands := append([]interface{}(nil), bt.stack.operands...)
+
+					// THE DOD FIX: Push exact target meta-symbols to the ops stack!
+					// Because ops pop from end-to-front, push the LAST token FIRST.
 					if target == symPercent && s.tie.cursor+1 < len(s.tie.syms) && s.tie.syms[s.tie.cursor+1] == symPercent {
+						newOps = append(newOps, opEmitSym, opEmitSym)
+						newOperands = append(newOperands, s.tie.syms[s.tie.cursor+1], s.tie.syms[s.tie.cursor])
 						s.tie.bytePos += s.tie.syms[s.tie.cursor].len() + s.tie.syms[s.tie.cursor+1].len()
 						s.tie.cursor += 2
 					} else {
+						newOps = append(newOps, opEmitSym)
+						newOperands = append(newOperands, target)
 						s.tie.advance()
 					}
 					s.tie.str = ""
 					s.tie.closeIntervals()
 
-					bt.tie = s.tie.vmcursors // Update base coordinate
+					bt.tie = s.tie.vmcursors
 					bt.altStem = capture{startByte, s.tie.bytePos, symEmptyName}
+					bt.stack.ops = newOps
+					bt.stack.operands = newOperands
+
 					localSnaps = append(localSnaps, bt)
 					continue
 				}
@@ -2560,17 +2510,29 @@ func (s *symstr) step() {
 
 					if offset == len(str) { break }
 
-					microSnap := bt // Clone base state
+					microSnap := bt
 					microSnap.tie.cursor = s.tie.cursor
+
+					var fullFrag string
 					if reverse {
 						microSnap.tie.str = str[:len(str)-offset]
+						fullFrag = str[len(str)-offset:]
 					} else {
 						microSnap.tie.str = str[offset:]
+						fullFrag = str[:offset]
 					}
 					microSnap.tie.bytePos = s.tie.bytePos + offset
-
-					// Pre-configure the matched stem for this exact fractional length!
 					microSnap.altStem = capture{startByte, microSnap.tie.bytePos, symEmpty}
+
+					// THE DOD FIX: Pre-load the absorbed target string fragment to be emitted!
+					newOps := append([]evalop(nil), bt.stack.ops...)
+					newOps = append(newOps, opEmitSym)
+					newOperands := append([]interface{}(nil), bt.stack.operands...)
+					newOperands = append(newOperands, intern(fullFrag))
+
+					microSnap.stack.ops = newOps
+					microSnap.stack.operands = newOperands
+
 					localSnaps = append(localSnaps, microSnap)
 				}
 
@@ -2584,8 +2546,23 @@ func (s *symstr) step() {
 					s.tie.advance()
 				}
 
-				bt.tie = s.tie.vmcursors // Update base coordinate
+				bt.tie = s.tie.vmcursors
 				bt.altStem = capture{startByte, s.tie.bytePos, symEmpty}
+
+				// Apply full string absorption emission
+				newOps := append([]evalop(nil), bt.stack.ops...)
+				newOps = append(newOps, opEmitSym)
+				newOperands := append([]interface{}(nil), bt.stack.operands...)
+				if len(s.tie.str) == 0 {
+					// We safely absorbed the entire symbol! Preserve its identity.
+					newOperands = append(newOperands, target)
+				} else {
+					// We absorbed a fractional string slice.
+					newOperands = append(newOperands, intern(str))
+				}
+				bt.stack.ops = newOps
+				bt.stack.operands = newOperands
+
 				localSnaps = append(localSnaps, bt)
 				continue
 			}
@@ -2594,13 +2571,11 @@ func (s *symstr) step() {
 		}
 
 		if op == opGlobAstCross {
-			// === RELUCTANT EXECUTION ===
-			// Push snapshots in reverse so [Absorb 1] is at the top of the stack and popped next!
+			// Reluctant execution
 			for i := len(localSnaps) - 1; i >= 1; i-- {
 				s.backtracks = append(s.backtracks, localSnaps[i])
 			}
 
-			// Restore the execution playhead back to the Escape snapshot (byte 0)
 			escapeSnap := localSnaps[0]
 			s.tie.vmcursors = escapeSnap.tie
 
@@ -2609,14 +2584,17 @@ func (s *symstr) step() {
 			} else {
 				s.stems = append(s.stems, capture{startByte, startByte, symEmptyName})
 			}
-
 		} else {
-			// === GREEDY EXECUTION ===
-			// Push snapshots so [Absorb N-1] is at the top of the stack!
+			// Greedy execution
 			s.backtracks = append(s.backtracks, localSnaps[:len(localSnaps)-1]...)
 
-			// Execute [Absorb N] immediately!
 			maxSnap := localSnaps[len(localSnaps)-1]
+
+			// THE DOD FIX: Instantly load maxSnap's operations to trigger target emission!
+			s.ops = maxSnap.stack.ops
+			s.operands = maxSnap.stack.operands
+			s.tie.vmcursors = maxSnap.tie
+
 			if maxSnap.altStem.start != -1 {
 				s.stems = append(s.stems, maxSnap.altStem)
 			} else {
@@ -2630,7 +2608,6 @@ func (s *symstr) step() {
 
 		r, _, err := s.tie.ReadRune()
 		if err != nil || r == '/' {
-			// Standard globs usually prevent ranges from matching directory separators.
 			s.unwind()
 			return
 		}
@@ -2639,7 +2616,6 @@ func (s *symstr) step() {
 		rangeStr := sym.String()
 
 		matched, negated := false, false
-
 		if len(rangeStr) > 0 && (rangeStr[0] == '^' || rangeStr[0] == '!') {
 			rangeStr = rangeStr[1:]
 			negated = true
@@ -2671,27 +2647,24 @@ func (s *symstr) step() {
 			return
 		}
 
-		// This flawlessly syncs the pattern ledger with what was actually consumed.
+		// Natively emits target exact rune
 		s.emit(intern(string(r)))
 
 	case opRegexMatch:
-		rx  := s.operands[l-1].(*regexpat)
+		rx := s.operands[l-1].(*regexpat)
 		s.operands = s.operands[:l-1]
 
-		snapCursors := s.tie.vmcursors // Freeze vmcursors
+		snap_cursors := s.tie.vmcursors
 
 		locs := rx.re.FindReaderSubmatchIndex(s.tie)
 
 		if locs != nil {
-			absEnd := snapCursors.bytePos + locs[1]
+			absEnd := snap_cursors.bytePos + locs[1]
 
-			// Fast symbol combination instead of valueInRange!
-			matchedSyms := s.tie.symbolInRange(snapCursors.bytePos, absEnd)
-			var str string
-			for _, sym := range matchedSyms { str += sym.String() }
-			s.emit(intern(str))
+			matchedSyms := s.tie.symbolInRange(snap_cursors.bytePos, absEnd)
+			for _, sym := range matchedSyms { s.emit(sym) }
 
-			s.tie.vmcursors = snapCursors
+			s.tie.vmcursors = snap_cursors
 
 			consumed := locs[1]
 			for consumed > 0 {
@@ -2700,27 +2673,22 @@ func (s *symstr) step() {
 				consumed -= size
 			}
 
-			// PURE INTEGER TRACKING
-			var localStems []capture
+			var stems []capture
+			var names = rx.re.SubexpNames()
 			for i := 2; i < len(locs); i += 2 {
 				if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-					localStems = append(localStems, capture{snapCursors.bytePos + locs[i], snapCursors.bytePos + locs[i+1], symEmpty})
-				} else {
-					localStems = append(localStems, capture{-1, -1, symEmpty})
-				}
-			}
-
-			names := rx.re.SubexpNames()
-			for i := 1; i < len(names); i++ {
-				if name := names[i]; name != "" && i-1 < len(localStems) {
-					if localStems[i-1].start != -1 {
-						localStems[i-1].name = intern(name)
+					name := symEmptyName
+					if len(stems) < len(names) {
+						if s := names[len(stems)]; s != "" { name = intern(s) }
 					}
+					stems = append(stems, capture{snap_cursors.bytePos + locs[i], snap_cursors.bytePos + locs[i+1], name})
+				} else {
+					stems = append(stems, capture{-1, -1, symEmptyName})
 				}
 			}
-			s.stems = append(s.stems, localStems...)
+			s.stems = append(s.stems, stems...)
 		} else {
-			s.tie.vmcursors = snapCursors
+			s.tie.vmcursors = snap_cursors
 			s.unwind()
 		}
 
@@ -2731,7 +2699,7 @@ func (s *symstr) step() {
 		if val == nil { return }
 
 		s.ops = append(s.ops, opCloseInterval)
-		s.operands = append(s.operands, s.currentByte, val)
+		s.operands = append(s.operands, s.offset, val)
 
 		pushVal := func(v Value) {
 			s.ops = append(s.ops, opEvalValue)
@@ -2781,7 +2749,6 @@ func (s *symstr) step() {
 
 		switch v := val.(type) {
 		case *loc:      pushVal(v.Value)
-		case *xloc:     pushVal(v.Value)
 		case *defcaps:  pushVal(v.Value)
 		case fullname:  pushVal(v.Value)
 		case fullfile:  pushVal(v.file)
@@ -2968,7 +2935,7 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 	if (kind & undoTape) != 0 {
 		bt.symsDepth = len(s.syms)
 		bt.offsetsDepth = len(s.offsets)
-		bt.currentByte = s.currentByte
+		bt.offset = s.offset
 	}
 	if (kind & undoTie) != 0 && s.tie != nil {
 		bt.tie = s.tie.vmcursors
@@ -3001,7 +2968,7 @@ func (s *symstr) unwind() {
 	if (bt.kind & undoTape) != 0 {
 		s.syms = s.syms[:bt.symsDepth]
 		s.offsets = s.offsets[:bt.offsetsDepth]
-		s.currentByte = bt.currentByte
+		s.offset = bt.offset
 	}
 	if (bt.kind & undoTie) != 0 && s.tie != nil {
 		s.tie.vmcursors = bt.tie
@@ -3044,6 +3011,7 @@ func (s *symstr) trackTelemetry() {
 			s.stopTieSym = s.tie.cursor
 			if len(s.stems) > 0 {
 				s.bestStems = append(s.bestStems[:0], s.stems...) // Reuse capacity safely
+				s.stems = s.stems[:0] // Accumulated, clear stems cache (reuse capacity safely)
 			} else {
 				s.bestStems = nil
 			}
@@ -3120,7 +3088,7 @@ func (s *symstr) exhaust() {
 // exhausted returns true if the engine has successfully completed its
 // instruction tape AND consumed every available byte in the target stream.
 func (s *symstr) exhausted() bool {
-	return len(s.ops) == 0 && s.bytePos >= s.currentByte && len(s.str) == 0
+	return len(s.ops) == 0 && s.bytePos >= s.offset && len(s.str) == 0
 }
 
 // advance pushes the VM exactly one full AST symbol forward.
@@ -3165,107 +3133,143 @@ func (s *symstr) push(op evalop, a ...any) {
 
 // emit cache a symbol for upstream.
 func (s *symstr) emit(sym Symbol) {
-	// No __symFlatSeq unroll because step() has done shatter!
-
 	if len(s.offsets) == len(s.syms) {
 		// The Generator is the ultimate source of truth!
 		// Record the marker exactly when the symbol is generated.
 		s.offsets = append(s.offsets, offsetmark{
-			byteOffset: s.currentByte,
+			byteOffset: s.offset,
 			idx:        len(s.syms),
 		})
 	}
 
 	sl := sym.len() // O(1) tracking using your optimization!
 	s.syms = append(s.syms, sym)
-	s.currentByte += sl
-
-	// Keep the IP synchronized for the Pattern VM!
-	if s.tie != nil {
-		s.cursor++
-		s.bytePos += sl
-		s.closeIntervals()
-	}
+	s.offset += sl
 }
 
 // pack evaluates a single symbol and shapes it into the AST state machine.
 func (s *symstr) pack(pos Pos, sym Symbol) {
-	// 1. Dispatch on-the-fly based on structural punctuations
+
+	popFlags := func() {
+		for s.vmpack != nil && s.vmpack.parent != nil && s.vmpack.closer == 0 && s.vmpack.dash != 0 {
+			inner := s.vmpack.reduce(pos)
+			s.vmpack = s.vmpack.parent
+			s.vmpack.shift(inner)
+		}
+	}
+
 	switch sym {
 	case symDash:
-		s.dash = pos // Applies to the rest of the segment
+		s.vmpack = &vmpack{parent: s.vmpack, dash: pos}
 		return
+
 	case symDot:
-		s.reduceQual(pos)
+		s.vmpack.reduceQual(pos)
 		return
+
 	case symSlash:
+		popFlags()
 		if s.tie.cursor == 1 {
-			s.shift(_punct(pos, PROOT))
+			s.vmpack.shift(_punct(pos, PROOT))
 		} else {
-			s.reducePath(pos)
+			s.vmpack.reducePath(pos)
 			if s.tie.cursor == len(s.tie.syms) {
-				s.shift(_punct(pos, PTAIL))
+				s.vmpack.shift(_punct(pos, PTAIL))
 			}
 		}
 		return
+
 	case symSpace:
-		s.reduceList(pos)
+		popFlags()
+		s.vmpack.reduceList(pos)
 		return
 
+	// === THE DOD FIX: PAIR LHS EXTRACTION ===
 	case symEqualSign:
-		// TODO: pair: name=value
-		return
+		popFlags()
+		s.vmpack.reducePath(pos) // Ensure everything below is promoted to path
 
-	case symArrow:
-		// TODO: foo→name
-		return
-
-		// QUOTATION (Toggles state)
-	case symQuotation:
-		if s.vmpack.closer == symQuotation {
-			// We are closing a quote
-			inner := s.vmpack.reduce(pos)
-			s.vmpack = s.vmpack.parent
-			s.vmpack.shift(&strcomp{elements{[]Value{inner}}})
+		var key Value
+		if s.vmpack.path.len() == 1 {
+			key = s.vmpack.path.elems[0]
+		} else if s.vmpack.path.len() > 1 {
+			key = &path{s.vmpack.path.copy()}
 		} else {
-			// We are opening a quote
+			key = valbase{pos} // Fallback for empty LHS
+		}
+		s.vmpack.path.clear()
+
+		// If pairs are somehow chained (a=b=c), default to left-associative
+		if s.vmpack.pairKey != nil {
+			key = &pair{key: s.vmpack.pairKey, val: key}
+		}
+		s.vmpack.pairKey = key
+		return
+
+	// === THE DOD FIX: ARROW LHS EXTRACTION ===
+	case symArrow:
+		popFlags()
+		s.vmpack.reduceQual(pos) // Ensure everything below is promoted to qual
+
+		var obj Value
+		if s.vmpack.qual.len() == 1 {
+			obj = s.vmpack.qual.elems[0]
+		} else if s.vmpack.qual.len() > 1 {
+			obj = &qualword{s.vmpack.qual.copy()}
+		} else {
+			obj = valbase{pos} // Fallback for empty LHS
+		}
+		s.vmpack.qual.clear()
+
+		// If arrows are chained (a→b→c), default to left-associative
+		if s.vmpack.arrowObj != nil {
+			obj = &arrow{valbase: valbase{pos}, o: s.vmpack.arrowObj, s: obj}
+		}
+		s.vmpack.arrowObj = obj
+		return
+
+	case symQuotation:
+		isClosing := false
+		for p := s.vmpack; p != nil; p = p.parent {
+			if p.closer == symQuotation { isClosing = true; break }
+		}
+
+		if isClosing {
+			popFlags()
+			if s.vmpack.closer == symQuotation {
+				inner := s.vmpack.reduce(pos)
+				s.vmpack = s.vmpack.parent
+				s.vmpack.shift(&strcomp{elements{[]Value{inner}}})
+			}
+		} else {
 			s.vmpack = &vmpack{parent: s.vmpack, closer: symQuotation}
 		}
 		return
 
-		// GROUPING PUNCTUATION (Push State)
-	case symLparen: // (...)
+	case symLparen:
 		s.vmpack = &vmpack{parent: s.vmpack, closer: symRparen}
 		return
-	case symLbrace: // {braced-op ...}
-		// TODO: braced-op
+	case symLbrace:
 		s.vmpack = &vmpack{parent: s.vmpack, closer: symRbrace}
 		return
-	case symLbrack: // [...]
+	case symLbrack:
 		s.vmpack = &vmpack{parent: s.vmpack, closer: symRbrack}
 		return
-	case symCornerTL: // ⌜...⌟
+	case symCornerTL:
 		s.vmpack = &vmpack{parent: s.vmpack, closer: symCornerBR}
 		return
-	case symCornerBL: // ⌞...⌝
+	case symCornerBL:
 		s.vmpack = &vmpack{parent: s.vmpack, closer: symCornerTR}
 		return
-		// case symLsingguil: // ‹...›
-		// 	s.vmpack = &vmpack{parent: s.vmpack, closer: symRsingguil}
-		// 	return
-		// case symLguillemet: // «...»
-		// 	s.vmpack = &vmpack{parent: s.vmpack, closer: symRguillemet}
-		// 	return
 
-		// CLOSING PUNCTUATION (Pop State)
 	case symRparen, symRbrace, symRbrack, symCornerTR, symCornerBR:
-		if s.closer == sym {
-			inner := s.reduce(pos)
+		popFlags()
+		if s.vmpack.closer == sym {
+			inner := s.vmpack.reduce(pos)
 			s.vmpack = s.vmpack.parent
 			if s.vmpack != nil {
-				s.shift(inner)
+				s.vmpack.shift(inner)
 			} else {
-				// Edge case: Unbalanced outer pop
 				s.operands = append(s.operands, inner)
 			}
 		}
@@ -3275,8 +3279,20 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 	// 2. Raw Symbol Shifting
 	switch __symKind(sym) {
 	case SymRaw, SymInt, SymFlt, SymEph, SymSeq:
-		s.shift(_word(pos, sym))
+		s.vmpack.shift(_word(pos, sym))
 	}
+}
+
+// reduce finalizes the packer stack at EOF
+func (s *symstr) reduce(pos Pos) Value {
+	if s.vmpack == nil { return nil }
+	// Flush any open flag or bracket states up to the root
+	for s.vmpack != nil && s.vmpack.parent != nil {
+		inner := s.vmpack.reduce(pos)
+		s.vmpack = s.vmpack.parent
+		s.vmpack.shift(inner)
+	}
+	return s.vmpack.reduce(pos)
 }
 
 // closeIntervals precisely targets and flushes opCloseInterval wrappers natively via the VM.
@@ -3358,7 +3374,7 @@ func (s *symstr) ReadRune() (rune, int, error) {
 // Includes strict boundary checks to prevent panics on un-exhausted streams.
 func (s *symstr) byteToSymIdx(byteOffset int) int {
 	if byteOffset <= 0 { return 0 }
-	if byteOffset >= s.currentByte { return len(s.syms) }
+	if byteOffset >= s.offset { return len(s.syms) }
 
 	for i, m := range s.offsets {
 		if m.byteOffset == byteOffset { return m.idx }
@@ -3378,7 +3394,7 @@ func (s *symstr) distance(idx int) int {
 		return s.offsets[idx+1].byteOffset - s.offsets[idx].byteOffset
 	}
 	// THE FIX: Use the Generator's cursor, not the NFA Execution cursor!
-	return s.currentByte - s.offsets[idx].byteOffset
+	return s.offset - s.offsets[idx].byteOffset
 }
 
 func (s *symstr) posInRange(startByte, endByte int) Pos {
@@ -3420,9 +3436,17 @@ func (s *symstr) symbolInRange(startByte, endByte int) []Symbol {
 		}
 	}
 
-	// If the requested range is completely beyond the generated tape
-	if startIdx == -1 { return nil }
-	if endIdx == -1 { endIdx = len(s.syms) - 1 }
+	// === THE DOD FIX: ON-CHAIN STREAM DELEGATION ===
+	// If the requested coordinates exceed our currently emitted tape (either completely
+	// or partially), delegate the extraction natively down the chain to the underlying stream!
+	if startIdx == -1 || endIdx == -1 {
+		if s.tie != nil {
+			return s.tie.symbolInRange(startByte, endByte)
+		}
+		// Fallback clamp if we are the absolute bottom of the chain
+		if startIdx == -1 { return nil }
+		endIdx = len(s.syms) - 1
+	}
 
 	var syms []Symbol
 	currentOffset = 0
@@ -3481,7 +3505,6 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	}
 
 	var wrappers []Value
-	var inheritedXloc *xloc
 	var pristine Value
 	var packPos Pos = -1
 
@@ -3489,11 +3512,10 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	for _, inv := range s.intervals {
 		if inv.startByte <= startByte && endByte <= inv.endByte {
 			if packPos == -1 { packPos = inv.node.Pos() }
-			if x, ok := inv.node.(*xloc); ok { inheritedXloc = x }
 		}
 		if inv.startByte == startByte && endByte == inv.endByte {
 			switch w := inv.node.(type) {
-			case *loc, *xloc, fullname, fullfile, *defcaps:
+			case *loc, fullname, fullfile, *defcaps:
 				wrappers = append(wrappers, w)
 			default:
 				pristine = inv.node
@@ -3562,18 +3584,11 @@ func (s *symstr) valueInRange(startByte, endByte int) Value {
 	non_pristine_val_set:
 	}
 
-	if inheritedXloc != nil && val != nil {
-		// Safely wrap the newly shattered substring in its parent's physical file location
-		val = &xloc{val, inheritedXloc.pos}
-	}
-
 	// 3. RE-WRAP: Safely apply outer metadata shells
 	for _, wrapper := range wrappers {
 		switch w := wrapper.(type) {
 		case *loc:
 			if val.Pos() != w.pos { val = &loc{val, w.pos} }
-		case *xloc:
-			if x, isXloc := val.(*xloc); !(isXloc && x.pos == w.pos) { val = &xloc{val, w.pos} }
 		case fullfile:
 			if f, isFile := val.(*file); isFile { val = fullfile{f} }
 		case fullname:
@@ -3758,7 +3773,6 @@ func _hash(ctx Context, h uint64, vs ...Value) uint64 {
 		case *float:       h = mixUint64(h, math.Float64bits(p.float64)) // FIXED: Zero-loss float hashing
 		case *escaped:     h = mixString(h, p.s)
 		case *loc:         h = _hash(ctx, h, p.Value)
-		case *xloc:        h = _hash(ctx, h, p.Value)
 		case *globrange:   h = _hash(ctx, h, p.Value)
 		case *rule:        h = _hash(ctx, h, p.target)
 		case matched_rule: h = _hash(ctx, h, p.target)
@@ -4958,7 +4972,6 @@ func __symbol(ctx Context, val Value) Symbol {
 	case fullname: return __symbol(ctx, v.Value)
 	case *defcaps: return __symbol(ctx, v.Value)
     case *loc:  return __symbol(ctx, v.Value)
-    case *xloc: return __symbol(ctx, v.Value)
 	case *pair: return __symbol(ctx, v.key)
 	case *rule: return __symbol(&ident_ctx{ctx,0}, v.target)
 	case *stemmed_rule: return __symbol(ctx, v.rule)
@@ -5080,7 +5093,6 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	switch t := v.(type) {
 	case valbase, *null, *none, *undef: return
 	case *loc: return symbolize(t.Value)
-	case *xloc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
 	case *globmeta: return []Symbol{intern(t.token.String())}
 	case *punct: return []Symbol{intern(t.token.String())}
@@ -5295,7 +5307,7 @@ func symbolize_string(ctx Context, str string) (res []Symbol) {
 	defer func () { if e := recover(); e != nil { erro(ctx, "%v", e, callstack{num:10}) } } ()
 
 	var s scanner
-	// Ensure you pass a dummy tokfile or valid pos to avoid nil pointers inside s.offsetPos
+	// Ensure you pass a dummy lexfile or valid pos to avoid nil pointers inside s.offsetPos
 	s.init(ctx, nil, []byte(str), 0)
 
 	s.scan(ctx) // Prime the scanner
@@ -5998,15 +6010,6 @@ func debug(ctx Context, f any, a ...any) *diagpoint {
 			} else {
 				v = nil; f = "auto(%v) → <nil>"; da = []any{t.name}
 			}
-		case *xloc:
-			if t.pos.Column == 0 {
-				f = "%s:%d: %v: %v →"
-				da = []any{t.pos.Filename, t.pos.Line, typeof(t), slsv{v}}
-			} else {
-				f = "%s:%d:%d: %v: %v →"
-				da = []any{t.pos.Filename, t.pos.Line, t.pos.Column, typeof(t), slsv{v}}
-			}
-			v = t.Value
 		case *file:
 			isFile = true
 			pos = t.pos
@@ -6965,22 +6968,23 @@ func (tok token) is_list_delim() bool {
 	return tok.is_rule_delim()
 }
 
+// Pos is the absolute global 1-D coordinate in the FileSet universe.
 type Pos int
 
+// NoPos indicates an invalid or uninitialized position.
 const NoPos Pos = 0
 
 func (p Pos) valid() bool { return p != NoPos }
 
-// Position is the Walled Garden equivalent of token.Position.
-// It uses a Symbol for the Filename to completely eliminate string allocation!
+// Position is the human-readable physical coordinate.
+// ZERO-ALLOCATION: Uses Symbol instead of string!
 type Position struct {
-	Filename Symbol // Upgraded from string to Walled Garden ID!
-	Offset   int    // offset, starting at 0
-	Line     int    // line number, starting at 1
-	Column   int    // column number, starting at 1 (byte count)
+	Filename Symbol
+	Offset   int // 0-based offset within the file
+	Line     int // 1-based line number
+	Column   int // 1-based rune column
 }
 
-// Optional: A fast String() method for error formatting
 func (p Position) String() string {
 	if p.Filename == symEmpty {
 		return fmt.Sprintf("%d:%d", p.Line, p.Column)
@@ -7003,131 +7007,182 @@ func (p Position) sameFile(o Position) bool {
 	return p == o || p.Filename == o.Filename
 }
 
-// mbInfo stores the byte offset of a multi-byte character and how many "extra"
-// bytes it consumes compared to a standard 1-byte ASCII character.
+// mbInfo tracks sparse multi-byte characters for O(log N) rune column correction.
 type mbInfo struct {
-	offset int
-	extra  int
+	offset int // Local byte offset
+	extra  int // Number of extra bytes to subtract to get rune length
 }
 
-type tokfile struct {
-	*gt.File
-	name Symbol  // DOD Upgrade: Cache the integer ID!
-	mb []mbInfo  // The sparse multibyte index
-	sync.RWMutex // Protects the slice during concurrent parsing/tracing
+// lexfile represents a single physical or virtual streaming file.
+type lexfile struct {
+	name Symbol
+	base int // The global Pos where this file begins
+	size int
+
+	lines []int    // Local byte offsets of the START of each line
+	mb    []mbInfo // Sparse multi-byte index
 }
 
-func (f *tokfile) Offset(p Pos) int { return f.File.Offset(gt.Pos(p)) }
-func (f *tokfile) Line(p Pos) int { return f.File.Line(gt.Pos(p)) }
-func (f *tokfile) Pos(offset int) Pos { return Pos(f.File.Pos(offset)) }
+// AddLine records the offset of a newline.
+func (f *lexfile) AddLine(offset int) {
+	f.lines = append(f.lines, offset)
+}
 
-// FIXED: Mathematical Correction for Rune Columns
-func (f *tokfile) Position(p Pos) Position {
-	gpos := gt.Pos(p)
-	pos := f.File.PositionFor(gpos, true)
+// AddSpan registers a multi-byte character.
+func (f *lexfile) AddSpan(offset, extraBytes int) {
+	f.mb = append(f.mb, mbInfo{offset: offset, extra: extraBytes})
+}
 
-	// Translate Byte Column to Rune Column using the sparse index
-	if pos.Column > 1 {
-		f.RLock() // Protect slice read
-		if len(f.mb) > 0 {
-			lineStartPos := f.File.LineStart(pos.Line)
-			lineStartOffset := f.File.Offset(lineStartPos)
-			targetOffset := f.File.Offset(gpos)
+// Pos mathematically projects a local file offset into the global FileSet universe.
+func (f *lexfile) Pos(offset int) Pos {
+	if offset > f.size { panic("offset out of bounds") }
+	return Pos(f.base + offset)
+}
 
-			// Binary search: Find the first multibyte char on or after this line
-			startIdx := sort.Search(len(f.mb), func(i int) bool {
-				return f.mb[i].offset >= lineStartOffset
-			})
-
-			// Accumulate the extra bytes occurring before our target token
-			extraBytes := 0
-			for i := startIdx; i < len(f.mb); i++ {
-				if f.mb[i].offset >= targetOffset { break }
-				extraBytes += f.mb[i].extra
-			}
-
-			// Mathematically collapse the byte column into a precise rune column!
-			pos.Column -= extraBytes
-		}
-		f.RUnlock()
+// Position computes the exact Line and Rune Column for a global Pos.
+func (f *lexfile) Position(p Pos) Position {
+	if p < Pos(f.base) || p > Pos(f.base+f.size) {
+		return Position{symEmpty, 0, 0, 0}
 	}
 
-	// ZERO-ALLOCATION FAST PATH: We use the cached integer ID!
-	return Position{f.name, pos.Offset, pos.Line, pos.Column}
+	offset := int(p) - f.base
+
+	// 1. Binary search for the Line
+	lineIdx := sort.Search(len(f.lines), func(i int) bool {
+		return f.lines[i] > offset
+	}) - 1
+
+	line := lineIdx + 1 // 1-based line
+	lineStartOffset := f.lines[lineIdx]
+	col := (offset - lineStartOffset) + 1 // 1-based byte column
+
+	// 2. Multibyte Rune Correction
+	if col > 1 && len(f.mb) > 0 {
+		startIdx := sort.Search(len(f.mb), func(i int) bool {
+			return f.mb[i].offset >= lineStartOffset
+		})
+
+		extraBytes := 0
+		for i := startIdx; i < len(f.mb); i++ {
+			if f.mb[i].offset >= offset { break }
+			extraBytes += f.mb[i].extra
+		}
+		col -= extraBytes
+	}
+
+	return Position{f.name, offset, line, col}
 }
 
-// AddSpan registers a multi-byte character during scanningt.
-func (f *tokfile) AddSpan(offset, extraBytes int) {
-	t := mbInfo{ offset:offset, extra:extraBytes }
-	f.Lock()
-	f.mb = append(f.mb, t)
-	f.Unlock()
+// Offset mathematically projects a global Pos back to a local file offset.
+func (f *lexfile) Offset(p Pos) int {
+	if int(p) < f.base || int(p) > f.base+f.size {
+		panic("illegal Pos")
+	}
+	return int(p) - f.base
 }
 
+// Line computes the 1-based line number for a global Pos using a fast binary search.
+func (f *lexfile) Line(p Pos) int {
+	if int(p) < f.base || int(p) > f.base+f.size {
+		return 0
+	}
+
+	offset := int(p) - f.base
+	lineIdx := sort.Search(len(f.lines), func(i int) bool {
+		return f.lines[i] > offset
+	}) - 1
+
+	return lineIdx + 1
+}
+
+// LineCount returns the current number of lines registered in the file.
+func (f *lexfile) LineCount() int {
+	return len(f.lines)
+}
+
+// SetLinesForContent automatically populates the line offsets by scanning the source bytes.
+// This is incredibly useful for instantly mapping test strings to line coordinates.
+func (f *lexfile) SetLinesForContent(content []byte) {
+	var lines []int
+	lines = append(lines, 0) // Line 1 always starts at offset 0
+	for i, b := range content {
+		if b == '\n' {
+			lines = append(lines, i+1)
+		}
+	}
+	f.lines = lines
+}
+
+// fileset is the global universe allocator.
 type fileset struct {
-	*gt.FileSet
-	files map[*gt.File]*tokfile
-	sync.RWMutex
+	mutex sync.RWMutex
+	files []*lexfile
+	base  int // The next available global Pos boundary
+
+	last atomic.Pointer[lexfile] // The O(1) Fast-Path Cache!
 }
 
-func new_fileset() *fileset { return &fileset{
-	FileSet: gt.NewFileSet(),
-	files: make(map[*gt.File]*tokfile),
-}}
+func new_fileset() *fileset {
+	return &fileset{
+		base: 1, // Start at 1 so NoPos (0) is invalid
+	}
+}
 
-// Upgraded to natively accept the Walled Garden Symbol
-func (s *fileset) AddFile(filename Symbol, base, size int) *tokfile {
-	// THE AIRLOCK: Extract the string exactly once for the legacy FileSet
-	gf := s.FileSet.AddFile(filename.String(), base, size)
-	tf := &tokfile{
-		File: gf,
-		name: filename, // Cache the ID!
+// AddFile registers a physical OR virtual file stream into the universe.
+func (s *fileset) add(name Symbol, size int) *lexfile {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	f := &lexfile{
+		name:  name,
+		base:  s.base,
+		size:  size,
+		lines: []int{0},
 	}
 
-	s.Lock()
-	s.files[gf] = tf
-	s.Unlock()
+	s.files = append(s.files, f)
+	s.base += size + 1 // Advance the global universe pointer (+1 buffer)
 
-	return tf
+	return f
 }
 
-func (s *fileset) Iterate(f func(*tokfile) bool) {
-	s.FileSet.Iterate(func(a *gt.File) bool {
-		s.RLock()
-		tf, ok := s.files[a]
-		s.RUnlock()
+// file mathematically finds which lexfile owns the global Pos.
+func (s *fileset) file(p Pos) *lexfile {
+	if p == NoPos { return nil }
 
-		if ok {
-			return f(tf)
+	// === 1. O(1) FAST PATH ===
+	if f := s.last.Load(); f != nil {
+		if int(p) >= f.base && int(p) <= f.base+f.size {
+			return f
 		}
+	}
 
-		// Fallback: If it's a raw gt.File, we must intern the string on the fly
-		return f(&tokfile{File: a, name: intern(a.Name())})
-	})
+	// === 2. O(log N) SLOW PATH ===
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	// Binary search the files array by their base address
+	i := sort.Search(len(s.files), func(i int) bool {
+		return s.files[i].base > int(p)
+	}) - 1
+
+	if i >= 0 && i < len(s.files) {
+		f := s.files[i]
+		if int(p) <= f.base+f.size {
+			// Update the lock-free cache!
+			s.last.Store(f)
+			return f
+		}
+	}
+
+	return nil
 }
 
+// Position delegates global resolution to the correct lexfile.
 func (s *fileset) Position(p Pos) Position {
-	gpos := gt.Pos(p)
-	if gf := s.FileSet.File(gpos); gf != nil {
-		s.RLock()
-		tf, ok := s.files[gf]
-		s.RUnlock()
-
-		if ok {
-			return tf.Position(p)
-		}
-
-		// RESOLVED COMPILER TRAP: Manual primitive extraction for the fallback
-		pos := gf.PositionFor(gpos, true)
-		return Position{
-			Filename: intern(pos.Filename),
-			Offset:   pos.Offset,
-			Line:     pos.Line,
-			Column:   pos.Column,
-		}
+	if f := s.file(p); f != nil {
+		return f.Position(p)
 	}
-
-	// Return a clean zero-value Position if completely invalid
 	return Position{symEmpty, 0, 0, 0}
 }
 
@@ -7312,8 +7367,8 @@ func (s *scanstate) bit(bits scanbits) (res bool) {
 //
 // (See go.token)
 type scanner struct { // immutable state
-	file *tokfile     // source file handle
-	dir  string       // directory portion of file.Name()
+	file *lexfile     // source file handle
+	dir  Symbol       // directory portion of file.Name()
 	src  []byte       // source
 	scanmode     // scanning mode
 	scanstate
@@ -7371,14 +7426,14 @@ func (s *scanner) pick(ctx Context, offset int) (ch rune, w int) {
 	return
 }
 
-func (s *scanner) init(ctx Context, file *tokfile, src []byte, mode scanmode) {
+func (s *scanner) init(ctx Context, file *lexfile, src []byte, mode scanmode) {
 	// Explicitly initialize all fields since a scanner may be reused.
-	if sz, l := file.Size(), len(src); sz != l {
+	if sz, l := file.size, len(src); sz != l {
 		debug(ctx, "file size (%d) does not match src len (%d)", sz, l, ctx)
 	}
 
 	s.file = file
-	s.dir, _ = filepath.Split(file.Name())
+	s.dir = __symPathJoin(__symSplit(file.name, symPathSep)...)
 	s.src = src
 	s.scanmode = mode
 
@@ -8418,10 +8473,6 @@ func (p *compiler) copystate() *compilestate {
 }
 
 func (p *compiler) trace(a ...any) { l_traverse.traceAt(p.Position(), a...) }
-func (p *compiler) ts(_t string) string {
-	t, s := p.tok.String(), p.scanner.file.Name()
-	return "{"+_t+" "+t+" "+s+"}"
-}
 func (p *compiler) filename() Symbol { return p.scanner.file.name }
 func (p *compiler) loc(a Pos) Position { return p.scanner.file.Position(a) }
 func (p *compiler) Position() (r Position) { return p.loc(p.pos) }
@@ -10563,8 +10614,6 @@ func ident(ctx Context, x Value) string {
 
 	switch t := x.(type) {
 	case *loc:
-		return ident(ctx, t.Value)
-	case *xloc:
 		return ident(ctx, t.Value)
 	case *closure:
 		s := ident_opt(ctx, "&", x, closure_ident{})
@@ -14106,7 +14155,7 @@ func (p *compiler) source(ctx Context, filename Symbol, text []byte) Value {
 	// _scope, _scanner, _state := p.scope, p.scanner, p.compilestate
 	// defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
 
-	p.scanner.init(ctx, u.fset.AddFile(filename, -1, len(text)), text, 0)
+	p.scanner.init(ctx, u.fset.add(filename, len(text)), text, 0)
 	p.next(ctx, true) // starts scanning
 	ctx = pc(ctx, p) // immediately push pos: ../app/do.smart:1:1
 
@@ -16441,8 +16490,6 @@ func normalizeFileInValue(ctx Context, v Value) Value {
 	switch t := v.(type) {
 	case *loc:
 		return normalizeFileInValue(ctx, t.Value)
-	case *xloc:
-		return normalizeFileInValue(ctx, t.Value)
 	case *file:
 		if unpacked := __symPath(t.pos, t.name); unpacked != nil {
 			return normalizeFileInValue(ctx, unpacked)
@@ -16477,7 +16524,6 @@ func to_file(v Value) (x *file, y bool) {
 		case *file: return t, true
 		case fullfile: return t.file, true
 		case *loc: v = t.Value; continue
-		case *xloc: v = t.Value; continue
 		case fullname: v = t.Value; continue
 		case *def: v = t.value; continue
 		case *list: if t.len() == 1 { v = t.elems[0]; continue }
@@ -16676,7 +16722,6 @@ func pc(ctx Context, a any, n ...int) Context {
 	if a != nil {
 		switch t := a.(type) {
 		case *loc : return &pos_ctx{pc(ctx,t.Value), t.pos}
-		case *xloc: return &pos_ctx{pc(ctx,t.Value), t.pos} // CRITICAL FIX: Extract fat Position
 		case []byte: a = string(t)
 		case  *file: a = t.fullname()
 		case  *exec_log: if t != nil { a = t.filename }
@@ -16819,7 +16864,6 @@ func hashPath(prefix, hashee0 string, hasheeN ...any) (string, error) {
 func optional(v Value) (_ bool) {
     switch t := v.(type) {
     case *loc: return optional(t.Value)
-    case *xloc: return optional(t.Value)
     case *arrow: return optional(t.o) || optional(t.s)
     case *list: for _, e := range t.elems { if optional(e) { return true } }
     case *compound: for _, e := range t.elems { if optional(e) { return true } }
@@ -16888,7 +16932,6 @@ func is(v Value, a any) bool {
 func unloc(a Value) Value {
 	switch a := a.(type) {
 	case *loc: return unloc(a.Value)
-	case *xloc: return unloc(a.Value)
 	default: return a
 	}
 }
@@ -16898,7 +16941,6 @@ func unbox(a Value) Value {
     case self: return t.project
 	case fullname: return unbox(t.Value)
     case *loc: return unbox(t.Value)
-    case *xloc: return unbox(t.Value)
 	case *argumented: return unbox(t.Value)
     case *list: if len(t.elems) == 1 { return unbox(t.elems[0]) }
     // case flag: return flag{unbox(t.Value)}
@@ -16911,7 +16953,6 @@ var implicitDot = &punct{valbase{}, DOT}
 func unpack(v Value) []Value {
 	switch t := v.(type) {
 	case *loc: return unpack(t.Value)
-	case *xloc: return unpack(t.Value)
 	case *compound: return t.elems
 	case *globpat: return t.elems
 	case *qualword:
@@ -17156,7 +17197,6 @@ func isTrivial(v any) (_ bool) {
 	case *pair: return isTrivial(t.key) && isTrivial(t.val) // CRITICAL FIX
 	case *def: return isTrivial(t.value)
 	case *loc: return isTrivial(t.Value)
-	case *xloc: return isTrivial(t.Value)
 	case *list: return isTrivial(t.elems)
 	case *path: return isTrivial(t.elems)
 	case *compound: return isTrivial(t.elems)
@@ -17177,7 +17217,6 @@ func isEmpty(v any) (_ bool) {
 	case *pair: return isEmpty(t.key) && isEmpty(t.val) // CRITICAL FIX
 	case *def: return isEmpty(t.value)
 	case *loc: return isEmpty(t.Value)
-	case *xloc: return isEmpty(t.Value)
 	case *list: return isEmpty(t.elems)
 	case *recipe: return isEmpty(t.elems)
 	case *path: return isEmpty(t.elems)
@@ -17198,7 +17237,6 @@ func isUndef(v any) (_ bool) {
     switch t := v.(type) {
     case *undef: return true
 	case *loc: return isUndef(t.Value)
-	case *xloc: return isUndef(t.Value)
     case *def: return t.value != nil && isUndef(t.value)
 	case *compound: return isUndef(t.elems)
 	case *qualword: return isUndef(t.elems)
@@ -17212,7 +17250,6 @@ func isNone(v any) (_ bool) {
 	switch t := v.(type) {
 	case *none: return true
 	case *loc: return isNone(t.Value)
-	case *xloc: return isNone(t.Value)
 	case *list: return isNone(t.elems)
 	case *compound: return isNone(t.elems)
 	case *qualword: return isNone(t.elems)
@@ -17227,7 +17264,6 @@ func isNull(v any) (_ bool) {
 	switch t := v.(type) {
 	case *null, nil: return true
 	case *loc: return isNull(t.Value)
-	case *xloc: return isNull(t.Value)
 	case *list: return isNull(t.elems)
 	case *compound: return isNull(t.elems)
 	case *qualword: return isNull(t.elems)
@@ -17247,8 +17283,6 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 	switch tx := x.(type) {
 	case *loc:
 		return &loc{prefix(ctx, tx.Value, y), tx.pos}
-	case *xloc:
-		return &xloc{prefix(ctx, tx.Value, y), tx.pos}
 	case flag:
 		switch tx.Value.(type) {
 		case valbase, *null, *none, nil: return flag{y}
@@ -17451,18 +17485,6 @@ func (p valbase) Pos() Pos { return p.pos }
 type loc struct{ Value ; pos Pos }
 func (p *loc) Pos() Pos { return p.pos }
 func (l *loc) String() string {
-	if l == nil || l.Value == nil {
-		return ""
-	}
-	return l.Value.String()
-}
-
-// xloc is a synthetic wrapper for values generated from external runtime
-// files (like grep) that do not exist in the compiler's FileSet.
-type xloc struct { Value ; pos Position }
-func (p *xloc) Pos() Pos { return NoPos }
-func (p *xloc) Position() Position { return p.pos }
-func (l *xloc) String() string {
 	if l == nil || l.Value == nil {
 		return ""
 	}
@@ -17847,10 +17869,6 @@ func _redis(v Value) (Value, bool) {
 		if res, dis := _redis(t.Value); dis {
 			return &loc{res, t.pos}, true
 		}
-	case *xloc:
-		if res, dis := _redis(t.Value); dis {
-			return &xloc{res, t.pos}, true
-		}
 	case flag:
 		if res, dis := _redis(t.Value); dis {
 			return flag{res}, true
@@ -17981,11 +17999,6 @@ func com(ctx *com_ctx, a, elems []Value) (res []Value) {
 				res = append(res, com(ctx, append(a, &loc{v,t.pos}), tail)...)
 			}
 			return
-		case *xloc:
-			for _, v := range com(ctx, nil, []Value{t.Value}) {
-				res = append(res, com(ctx, append(a, &xloc{v,t.pos}), tail)...)
-			}
-			return
 		case *pair:
 			var keys = com(ctx, nil, []Value{t.key})
 			var vals = com(ctx, nil, []Value{t.val})
@@ -18036,16 +18049,6 @@ func com_qualword(ctx *com_ctx, a, elems []Value) (res []Value) {
 				}
 			}
 			return
-		case *xloc:
-			for _, v := range com_qualword(ctx, nil, []Value{t.Value}) {
-				// CRITICAL FIX: Strip location wrappers ONLY for paths during concatenation!
-				if _, isPath := v.(*path); isPath && (len(a) > 0 || len(tail) > 0) {
-					res = append(res, com_qualword(ctx, dup(a), append([]Value{v}, tail...))...)
-				} else {
-					res = append(res, com_qualword(ctx, append(dup(a), &xloc{v, t.pos}), tail)...)
-				}
-			}
-			return
 		case *compound:
 			for _, v := range com(ctx, nil, t.elems) {
 				res = append(res, com_qualword(ctx, append(dup(a), v), tail)...)
@@ -18085,7 +18088,7 @@ func com_qualword(ctx *com_ctx, a, elems []Value) (res []Value) {
 
 			if val != nil && val != elem {
 				switch val.(type) {
-				case *disjunction, *loc, *xloc, *compound, *path:
+				case *disjunction, *loc, *compound, *path:
 					// CRITICAL RE-INJECTION: We must bounce structural wrappers (like *xloc)
 					// back to the top of the function so the switch can peel them open and find the path!
 					res = append(res, com_qualword(ctx, dup(a), append([]Value{val}, tail...))...)
@@ -19762,7 +19765,6 @@ func dmerge(disjunction bool, args ...Value) (elems []Value) {
     for _, a := range args {
         switch x := a.(type) {
         case *loc: for _, v := range dmerge(disjunction, x.Value) { elems = append(elems, &loc{v,x.pos}) }
-        case *xloc: for _, v := range dmerge(disjunction, x.Value) { elems = append(elems, &xloc{v,x.pos}) }
         case *list: elems = append(elems, dmerge(disjunction, x.elems...)...)
 		case fullname:
 			for _, v := range dmerge(disjunction, x.Value) {
@@ -19885,7 +19887,6 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		__builds(ctx, sb, t.Value)
 	case *disjunction: __builds(ctx, sb, t.val)
 	case *undetermined: __builds(ctx, sb, t.value)
-	case *xloc: __builds(ctx, sb, t.Value)
 	case *loc: __builds(ctx, sb, t.Value)
 	case *defcaps: __builds(ctx, sb, t.Value)
 	case *def: if t != nil { __builds(ctx, sb, t.value) }
@@ -20247,7 +20248,6 @@ func __true(ctx Context, v Value) (res bool) {
 	case *project: return t.name != symEmpty
 	case *file: return t.filestub.name != symEmpty
 	case *disjunction: return __true(ctx, t.val)
-	case *xloc: return __true(ctx, t.Value)
 	case *loc: return __true(ctx, t.Value)
 	case *def: return __true(ctx, t.value)
 	case *auto: return __true(ctx, t.def(ctx))
@@ -20300,7 +20300,6 @@ func __int(ctx Context, v Value) (res int64) {
 	case *time: return t.t.Unix()
 	case *pair: return __int(ctx, t.val)
 	case *auto: return __int(ctx, t.def(ctx))
-	case *xloc: return __int(ctx, t.Value)
 	case *loc: return __int(ctx, t.Value)
 	case *def: return __int(ctx, t.value)
 	case *exec_result: return int64(t.status)
@@ -20389,7 +20388,6 @@ func __float(ctx Context, v Value) (_ float64) {
 	case *auto: return __float(ctx, t.def(ctx))
 	case *def: return __float(ctx, t.value)
 	case *loc: return __float(ctx, t.Value)
-	case *xloc: return __float(ctx, t.Value)
 	case *float: return t.float64
 	case *list: if t.len() > 0 { return __float(ctx, t.elems[0]) }
 	case *plain: if t.len() > 0 { return __float(ctx, t.elems[0]) }
@@ -20492,7 +20490,6 @@ func (p *closure) resolve(ctx Context) (res []Value) {
 func selobjs(ctx Context, tok token, v Value) (res []Value) {
 	switch t := v.(type) {
 	case  *loc: return selobjs(ctx, tok, t.Value)
-	case *xloc: return selobjs(ctx, tok, t.Value)
 	case *def, *project, self, *use, *uselist, *auto: return []Value{t} // Added *auto here!
 	case *list: for _, e := range t.elems { res = append(res, selobjs(ctx, tok, e)...) }
 	default:
@@ -20550,7 +20547,6 @@ func selobjs(ctx Context, tok token, v Value) (res []Value) {
 func selprop(ctx Context, v Value) (res Symbol, okay bool) {
 	switch t := v.(type) {
 	case  *loc: return selprop(ctx, t.Value)
-	case *xloc: return selprop(ctx, t.Value)
 	case *globbrace: return selprop(ctx, &t.globpat)
 	case *globpat:
 		if l := t.len() - 1; 0 < l {
@@ -20579,7 +20575,6 @@ func sel(ctx Context, v any, s Symbol) (res Value) {
 	case *globpat  : g = t
 	case *word: return
 	case  *loc: return sel(ctx, t.Value, s)
-	case *xloc: return sel(ctx, t.Value, s)
 	case *list: return sel(ctx, t.elems, s)
 	case *project: return t.resolve(ctx, s)
 	case self:
@@ -20714,7 +20709,7 @@ func eval(ctx Context, v Value) (res Value) {
 	stream.push(opEvalValue, v)
 	stream.exhaust()
 
-	res = stream.valueInRange(0, stream.currentByte)
+	res = stream.valueInRange(0, stream.offset)
 	if len(stream.stems) > 0 {
 		tuple := extractStems(stream, stream.stems)
 		if tuple != nil {/* work with tuple */}
@@ -21006,7 +21001,6 @@ func expand(ctx Context, v Value) (res Value) {
 		}
 	case negative: return negative{expand(ctx, t.Value)}
 	case *loc: return &loc{expand(ctx, t.Value), t.pos}
-	case *xloc: return &xloc{expand(ctx, t.Value), t.pos}
 	case *list: return &list{elements{expands(ctx, t.elems...)}}
 	case *path: return &path{elements{expandp(ctx, t.elems...)}}
 	case *quote: return &quote{list{elements{expands(ctx, t.elems...)}}}
@@ -21061,7 +21055,6 @@ func expandp(ctx Context, v ...Value) (res []Value) {
 	for _, v := range expands(ctx, v...) {
 		switch t := v.(type) {
 		case  *loc: for _, v := range expandp(ctx, t.Value) { res = append(res,  &loc{v, t.pos}) }
-		case *xloc: for _, v := range expandp(ctx, t.Value) { res = append(res, &xloc{v, t.pos}) }
 		case *path: res = append(res, expandp(ctx, t.elems...)...)
 		default: res = append(res, t)
 		}
@@ -21192,7 +21185,6 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 	switch t := x.(type) {
 	case *project, self: return x
 	case *loc: return evoke(ctx, t.Value, o, a)
-	case *xloc: return evoke(ctx, t.Value, o, a)
 	case matched_rule: return evoke(ctx, t.rule, o, a)
 	case *stemmed_rule: return evoke(&stemmed_ctx{ctx, t}, &rule{t.target, t.arged, t.program}, o, a)
 
@@ -21318,7 +21310,6 @@ func eval_op(val Value) (op Value, oo, args []Value) {
 	for {
 		switch t := val.(type) {
 		case *loc:  val = t.Value; continue
-		case *xloc: val = t.Value; continue
 		case *list:
 			if len(t.elems) > 0 {
 				op, args = t.elems[0], t.elems[1:]
@@ -21332,9 +21323,6 @@ func eval_op(val Value) (op Value, oo, args []Value) {
 	for {
 		switch t := op.(type) {
 		case *loc:
-			op = t.Value
-			continue
-		case *xloc:
 			op = t.Value
 			continue
 		case *argumented:
@@ -21445,10 +21433,6 @@ func clone_shared(ctx Context, v Value, targets ...Value) Value {
 	case *loc:
 		val := clone_shared(ctx, t.Value, targets...)
 		if val != t.Value { return &loc{val, t.pos} }
-
-	case *xloc:
-		val := clone_shared(ctx, t.Value, targets...)
-		if val != t.Value { return &xloc{val, t.pos} }
 
 	case fullname:
 		val := clone_shared(ctx, t.Value, targets...)
@@ -22894,9 +22878,9 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	}
 
 	if checkpoints && matched && rem == nil && matcher.stopTieByte > 0 && len(gen.str) > 0 {
-		warn(pc(ctx,val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, currentByte=%d, %s",
-			pat, val, gen.str, matcher.stopTieByte, gen.currentByte,
-			gen.symbolInRange(matcher.stopTieByte, gen.currentByte))
+		warn(pc(ctx,val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, offset=%d, %s",
+			pat, val, gen.str, matcher.stopTieByte, gen.offset,
+			gen.symbolInRange(matcher.stopTieByte, gen.offset))
 	}
 	if checkpoints { check_match(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	return
@@ -22905,8 +22889,6 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
 	switch p := pat.(type) {
 	case *loc:
-		return stencil(ctx, p.Value, stems)
-	case *xloc:
 		return stencil(ctx, p.Value, stems)
 	case *rule:
 		return stencil(ctx, p.target, stems)
@@ -23010,7 +22992,6 @@ func classify_pattern(ctx Context, v any) int {
 	case *regexpat, *regexcon: return clsRegex
 	case *percpat, *globpat, *globrange, *globmeta: return clsGlob
 	case *loc: return classify_pattern(ctx, t.Value)
-	case *xloc: return classify_pattern(ctx, t.Value)
 	case flag: return classify_pattern(ctx, t.Value)
 	case *strval: return classify_pattern(ctx, t.v)
 	case *strcomp: return classify_pattern(ctx, t.elems)
@@ -23048,7 +23029,6 @@ func patterned(ctx Context, v any) bool {
 func stamp(ctx Context, a any) (res []*file) {
     switch t := a.(type) {
     case *loc: return stamp(ctx, t.Value)
-    case *xloc: return stamp(ctx, t.Value)
     case flag: return stamp(ctx, t.Value)
     case *strval: return stamp(ctx, t.v)
     case *strcomp: return stamp(ctx, t.elems)
@@ -23241,8 +23221,6 @@ func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
 	case *null, *none, *undef: // Ignored!
 	case *loc:
-		traverse(pc(ctx, p.pos), p.Value)
-	case *xloc:
 		traverse(pc(ctx, p.pos), p.Value)
 	case *list:
 		for _, e := range p.elems { traverse(ctx, e) }
@@ -23940,7 +23918,6 @@ func ts(i any, o ...any) (s string) {
 	var rawPos Pos
 	var p Position
 	switch x := i.(type) {
-	case *xloc:    p = x.pos // Safely extracts the fat Position!
 	case Position: p = x
 	case Pos: if rawPos = x; c != nil { p = _fatpos(c, x) }
 	case Poser:
@@ -24128,7 +24105,7 @@ func ts(i any, o ...any) (s string) {
 	case *boolean: t = _if(x.bool, "true", "false")
 	case *answer : t = _if(x.bool, "yes", "no")
 	case *option : t = _if(x.bool, "on", "off")
-	case valbase, *loc, *xloc: if evaporation { t = "" }
+	case valbase, *loc: if evaporation { t = "" }
 	default:
 		if t = typeof(i); strings.HasPrefix(t, "[]") {
 			v := reflect.ValueOf(i)
@@ -24169,7 +24146,6 @@ func ts(i any, o ...any) (s string) {
 	case       valbase: evaporate = false // It represents "{}" in test-string.
 	case         *word: content = x.s.String()
 	case          *loc: content = _ts(x.Value); evaporate = true
-	case         *xloc: content = _ts(x.Value); evaporate = true
 	case       skipped: content = _ts(x.Value)
 	case      negative: content = _ts(x.Value)
 	case           opt: content = _ts(x.Value)
@@ -28513,39 +28489,6 @@ const (
 type packageinfo struct {
     *project
     t packagetype // smart, pkgconfig, cmake, etc.
-}
-
-// ResolvePosition converts a compact AST 'Pos' back into a human-readable 'Position'
-func ResolvePosition(ctx Context, v Value) Position {
-	if v == nil {
-		return Position{}
-	}
-
-	// 1. Runtime / Synthetic Position Escape Hatch
-	// If the value is explicitly wrapped in an external location (*xloc), use its fat struct!
-	if l, ok := v.(*xloc); ok {
-		return l.pos
-	}
-
-	// (Optional but robust) Check if any other node implements the fat Position interface
-	if p, ok := v.(interface{ Position() Position }); ok {
-		if pos := p.Position(); pos.valid() {
-			return pos
-		}
-	}
-
-	// 2. Parse-Time Position Resolution
-	pos := v.Pos() // The compact integer
-	if !pos.valid() {
-		return Position{} // NoPos
-	}
-
-	// Safely retrieve the fset from the universe
-	if u := _universe(ctx); u != nil && u.fset != nil {
-		return u.fset.Position(pos)
-	}
-
-	return Position{}
 }
 
 func _universe(c Context) *universe { return cast[*universe](c) }
@@ -38337,24 +38280,24 @@ func (ctx *__grep) x() (_ any) {
 	// We no longer build or allocate standard *regexp.Regexp objects.
 	// =====================================================================
 
-	var p Position
+	var filename Symbol
 	var res []Value
 	for _, a := range merge(args...) {
 		var c = pc(ctx, a)
 		if x, y := a.(*file); y {
-			p.Filename = x.fullname()
+			filename = x.fullname()
 		} else {
-			p.Filename = __symbol(ctx, a)
+			filename = __symbol(ctx, a)
 		}
 
-		if p.Filename == symEmpty {
+		if filename == symEmpty {
 			erro(c, "empty filename: %s", ts(a, ctx), callstack{num: 16})
 			return
 		}
 
 		var f *os.File
 		var e error
-		if f, e = os.Open(p.Filename.String()); e != nil {
+		if f, e = os.Open(filename.String()); e != nil {
 			erro(c,
 				_f("%s", e),
 				_f("a=%s", a),
@@ -38363,21 +38306,28 @@ func (ctx *__grep) x() (_ any) {
 			return
 		}
 
+		st, _ := f.Stat()
+		lf := _universe(ctx).fset.add(filename, int(st.Size()))
+
 		s := bufio.NewScanner(f)
 		s.Split(bufio.ScanLines)
-		p.Line, p.Column = 0, 0
+
+		offset := 0 // Track the physical byte offset as we stream
 
 		for s.Scan() {
 			text := s.Text()
-			p.Line += 1
-			p.Column = 1
+			rawBytes := s.Bytes()
+
+			if offset > 0 { lf.AddLine(offset) }
+
+			pos := lf.Pos(offset)
 
 			// =================================================================
 			// THE DOD FIX 1: Bridge Pos and Position
 			// Create a word with a 0/default Pos, then bind the rich file Position
 			// (Filename, Line, Column) to it using xloc.
 			// =================================================================
-			lineVal := &xloc{_word(NoPos, intern(text)), p}
+			lineVal := _word(pos, intern(text))
 
 			setGroup := func(idx int, v Value) {
 				var sym Symbol
@@ -38386,7 +38336,7 @@ func (ctx *__grep) x() (_ any) {
 				} else {
 					sym = intern(strconv.Itoa(idx))
 				}
-				ctx.set(pc(c, p), defVoid, sym, v)
+				ctx.set(pc(c, pos), defVoid, sym, v)
 			}
 
 			for _, pat := range rvs {
@@ -38412,7 +38362,7 @@ func (ctx *__grep) x() (_ any) {
 					// Unpack named_stem wrappers injected by the regex engine
 					if ns, isNamed := stem.(*named_stem); isNamed {
 						target = ns.Value // Extract the raw AST node
-						ctx.set(pc(c, p), defVoid, ns.name, target)
+						ctx.set(pc(c, pos), defVoid, ns.name, target)
 					}
 
 					// Bind the unwrapped target to its standard numerical index
@@ -38432,6 +38382,9 @@ func (ctx *__grep) x() (_ any) {
 					// ctx.check(pat, text, result, val)
 				}
 			}
+
+			// Advance the streaming read-head (+1 for the stripped \n)
+			offset += len(rawBytes) + 1
 		}
 
 		f.Close() // Explicit close in loop since defer inside loop leaks descriptors
