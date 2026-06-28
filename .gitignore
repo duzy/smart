@@ -5,7 +5,7 @@
 /.emacs.desktop
 /.emacs.desktop.lock
 /Q.md
-/Ques.md
+/Ques*.md
 /TODO.pdf
 /TODO.tex
 /compilation.log
