@@ -1875,7 +1875,6 @@ type vmcursors struct {
 
 // vmtape tracks the append-only generator state.
 type vmtape struct {
-	syms_i      []Symbol     // Flatten symbols from value(s) waiting to be operated (e.g., matching)
 	syms_o      []Symbol     // Verified symbols waiting to be consumed (e.g., packing)
 	intervals   []interval   // AST tracking data injected from the flattener
 	offsets     []offsetmark // Sparse mapping table for O(log N) coordinate lookup
@@ -2180,6 +2179,7 @@ func (s *symstr) step() {
 			s.tie.err = nil // Temporarily clear error so Matcher can pump again
 			s.vmpack = &vmpack{}
 
+			var packedRem bool // THE DOD FIX: Tracks physical symbol flow!
 			for s.tie.err == nil {
 				if len(s.tie.syms_o) == 0 { s.tie.step() }
 				if len(s.tie.syms_o) > 0 {
@@ -2190,10 +2190,13 @@ func (s *symstr) step() {
 					endByte := s.bytePos + symBytes
 					s.pack(s.tie.posInRange(s.bytePos, endByte), sym)
 					s.bytePos += symBytes
+					packedRem = true
 				}
 			}
 
-			rem = s.reduce(s.tie.posInRange(startRem, s.bytePos))
+			if !packedRem { rem = nil } else {
+				rem = s.reduce(s.tie.posInRange(startRem, s.bytePos))
+			}
 			s.tie.err = snap_tie_err
 			s.tie.class &^= clsTieForwards
 
@@ -2272,38 +2275,35 @@ _op_switch_:
 		erro(s, "TODO: unwind backtracks")
 
 	case opMatchLiteral:
-		if len(s.tie.str) == 0 && len(s.tie.syms_o) == 0 { s.tie.pump() }
-		if len(s.tie.syms_o) == 0 {
-			s.err = errMatchFailed // Target starved!
-			break _op_switch_
-		}
+		// THE DOD FIX: No `syms_i`! Natively pop the literal from the JIT operands stack (LIFO synced!)
+		sym := s.operands[l-1].(Symbol)
+		s.operands = s.operands[:l-1]
 
-		if len(s.str) == 0 && len(s.syms_i) == 0 { s.pump() }
-		if len(s.syms_i) == 0 {
-			s.err = errMatchFailed // Pattern starved!
-			break _op_switch_
-		}
-
-		// THE DOD FIX: PEEK FIRST! Do not slice the tapes until we guarantee success!
-		target := s.tie.syms_o[0]
-		sym := s.syms_i[0]
-
+		// 1. PROCESS STRUCTURAL BOUNDARIES EAGERLY
 		if sym == symEmpty { // e.g., PROOT and PTAIL
-			s.syms_i = s.syms_i[1:] // Safe to consume pattern
 			if s.tie != nil && len(s.tie.syms_o) > 0 {
 				if s.tie.syms_o[0] == symEmpty {
 					s.tie.syms_o = s.tie.syms_o[1:] // Safe to consume target
-					s.tie.bytePos += target.len()
+					s.tie.bytePos += symEmpty.len() // advances 0
 				}
 			}
+			s.emit(symEmpty) // THE DOD FIX: Emits target empty for AST reconstruction
+			break _op_switch_
+		}
+
+		// 2. PEEK TARGET SAFELY
+		if len(s.tie.str) == 0 && len(s.tie.syms_o) == 0 { s.tie.pump() }
+		if len(s.tie.str) == 0 && len(s.tie.syms_o) == 0 {
+			s.err = errMatchFailed // Target starved!
 			break _op_switch_
 		}
 
 		// FAST PATH: Perfectly aligned on a symbol boundary
 		if len(s.tie.str) == 0 {
+			target := s.tie.syms_o[0] // THE DOD FIX: Only peek syms_o if str buffer is empty!
+
 			if target == sym { // Equality first!
 				s.emit(sym) // THE DOD FIX: Emit verified data!
-				s.syms_i = s.syms_i[1:] // Consume pattern
 				s.tie.syms_o = s.tie.syms_o[1:] // Consume target
 
 				l := sym.len()
@@ -2359,8 +2359,23 @@ _op_switch_:
 					for {
 						s.bytePos += symBytes
 
-						if len(s.syms_i) == 0 { s.pump() }
-						if len(s.syms_i) == 0 {
+						// THE DOD FIX: Native JIT Unrolling Lookahead for Target-Wildcard fallback!
+						var nextSym Symbol
+						for len(s.ops) > 0 {
+							top := s.ops[len(s.ops)-1]
+							if top == opEvalValue || top == opCloseInterval || top == opEmitSym {
+								s.step() // Unroll AST JIT!
+							} else if top == opMatchLiteral {
+								nextSym = s.operands[len(s.operands)-1].(Symbol) // Peek operand
+								s.operands = s.operands[:len(s.operands)-1]
+								s.ops = s.ops[:len(s.ops)-1]
+								break
+							} else {
+								break
+							}
+						}
+
+						if nextSym == symEmpty {
 							if target != symEmpty {
 								s.err = errMatchFailedWildback
 								break _op_switch_
@@ -2371,8 +2386,8 @@ _op_switch_:
 							}
 						}
 
-						sym = s.syms_i[0]
-						s.syms_i = s.syms_i[1:] // Consume pattern internally
+						// Consume the unrolled nextSym
+						sym = nextSym
 						symBytes = sym.len()
 
 						if target == sym {
@@ -2401,11 +2416,9 @@ _op_switch_:
 			if reverse {
 				if hasSuffixInReverse || __symHasSuffix(target, sym) {
 					size := sym.len()
-					// THE DOD FIX: Correct Reverse String Slicing Math!
 					s.tie.str = target.String()[:len(target.String())-size]
 					s.emit(sym)
 					s.bytePos -= size
-					s.syms_i = s.syms_i[1:] // Consume Pattern
 					s.tie.bytePos -= size
 					s.tie.syms_o = s.tie.syms_o[1:] // Consume Target
 					break _op_switch_
@@ -2416,7 +2429,6 @@ _op_switch_:
 					s.tie.str = target.String()[size:]
 					s.emit(sym)
 					s.bytePos += size
-					s.syms_i = s.syms_i[1:] // Consume Pattern
 					s.tie.bytePos += size
 					s.tie.syms_o = s.tie.syms_o[1:] // Consume Target
 					break _op_switch_
@@ -2450,6 +2462,8 @@ _op_switch_:
 					break _op_switch_
 				}
 				str = str[:len(str)-n]
+				s.tie.str = s.tie.str[:len(s.tie.str)-n] // THE DOD FIX: Target Tape String Slicing!
+				s.tie.bytePos -= n
 			} else {
 				frag := s.tie.str[:n]
 				if str[:n] != frag {
@@ -2457,14 +2471,13 @@ _op_switch_:
 					break _op_switch_
 				}
 				str = str[n:]
+				s.tie.str = s.tie.str[n:] // THE DOD FIX: Target Tape String Slicing!
+				s.tie.bytePos += n
 			}
-			s.tie.advanceRune(n)
 		}
 
-		s.emit(sym) // THE DOD FIX: Emit successful slow-path match!
-		s.syms_i = s.syms_i[1:] // Consume pattern
+		s.emit(sym) // Emit successful slow-path match!
 		s.bytePos += symBytes
-		s.str = ""
 
 	case opGlobQues: // ?
 		count := 1
@@ -2473,19 +2486,13 @@ _op_switch_:
 			s.ops = s.ops[:len(s.ops)-1]
 		}
 
-		// Advance pattern cursor over the `?` symbols on the Dual-Tape!
-		for i := 0; i < count && len(s.syms_i) > 0; i++ {
-			sym := s.syms_i[0]
-			if sym == symQues {
-				s.syms_i = s.syms_i[1:] // Consume pattern
-				s.bytePos += sym.len()
-			} else {
-				break
-			}
-		}
+		// THE DOD FIX: Native Pattern BytePos Increment!
+		// Without `syms_i`, we mathematically advance the Pattern Tape's byte offset.
+		s.bytePos += symQues.len() * count
 
 		startByte := s.tie.bytePos
 
+		// PEEK TARGET: Check for Meta-Wildcard Absorption
 		if len(s.tie.str) == 0 && len(s.tie.syms_o) > 0 {
 			target := s.tie.syms_o[0] // PEEK!
 
@@ -2558,6 +2565,7 @@ _op_switch_:
 			}
 		}
 
+		// NATIVE ABSORPTION: Read actual runes from the Target Buffer
 		var str string
 		startByte = s.tie.bytePos
 		endByte := startByte
@@ -2585,12 +2593,26 @@ _op_switch_:
 	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross: // *, **, and *?
 		s.stems = append(s.stems, capture{s.tie.bytePos, s.tie.bytePos, symEmptyName, nil})
 
-		// Advance pattern cursor over the wildcard symbol
-		for len(s.syms_i) > 0 {
-			sym := s.syms_i[0] // PEEK
-			if sym == symAsterisk || sym == symAsteriskAst || sym == symAsteriskQues || sym == symPercent {
-				s.syms_i = s.syms_i[1:] // Consume
-				s.bytePos += sym.len()
+		// THE DOD FIX: Native Pattern BytePos Increment!
+		// Without `syms_i`, we mathematically track byte lengths based on the executed op.
+		switch op {
+		case opGlobAsterisk: s.bytePos += symAsterisk.len()
+		case opGlobAstGreed: s.bytePos += symAsteriskAst.len() // Also safely covers % logic
+		case opGlobAstCross: s.bytePos += symAsteriskQues.len()
+		}
+
+		// Advance pattern cursor over any consecutive stacked wildcard ops on the JIT tape!
+		for len(s.ops) > 0 {
+			nextOp := s.ops[len(s.ops)-1]
+			if nextOp == opGlobAsterisk {
+				s.bytePos += symAsterisk.len()
+				s.ops = s.ops[:len(s.ops)-1]
+			} else if nextOp == opGlobAstGreed {
+				s.bytePos += symAsteriskAst.len()
+				s.ops = s.ops[:len(s.ops)-1]
+			} else if nextOp == opGlobAstCross {
+				s.bytePos += symAsteriskQues.len()
+				s.ops = s.ops[:len(s.ops)-1]
 			} else {
 				break
 			}
@@ -2602,33 +2624,23 @@ _op_switch_:
 		case opGlobAstCross: s.ops = append(s.ops, opConseqAstCross)
 		}
 
-	case opConseqAsterisk, opConseqAstGreed, opConseqAstCross:
-		if len(s.tie.str) > 0 {
+	if len(s.tie.str) > 0 {
 			size := len(s.tie.str)
-			if reverse {
-				s.tie.bytePos -= size
-			} else {
-				s.tie.bytePos += size
-			}
-			// THE DOD FIX: Drain left-over partial string before proceeding!
+			if reverse { s.tie.bytePos -= size } else { s.tie.bytePos += size }
 			sym := intern(s.tie.str)
 			s.tie.str = ""
 			s.emit(sym)
 			if len(s.stems) > 0 {
 				last := len(s.stems)-1
 				s.stems[last].syms = append(s.stems[last].syms, sym)
-				if reverse {
-					s.stems[last].start = s.tie.bytePos
-				} else {
-					s.stems[last].end = s.tie.bytePos
-				}
+				if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
 			}
 		}
 
 		if len(s.tie.str) == 0 && len(s.tie.syms_o) == 0 { s.tie.pump() }
 		if len(s.tie.syms_o) == 0 { break _op_switch_ }
 
-		target := s.tie.syms_o[0] // PEEK FIRST! (Fixes double pop panic)
+		target := s.tie.syms_o[0] // PEEK FIRST!
 
 		if op == opConseqAsterisk && target == symSlash { break _op_switch_ }
 
@@ -2645,62 +2657,163 @@ _op_switch_:
 			if len(s.stems) > 0 {
 				last := len(s.stems)-1
 				s.stems[last].syms = append(s.stems[last].syms, target)
-				if reverse {
-					s.stems[last].start = s.tie.bytePos
-				} else {
-					s.stems[last].end = s.tie.bytePos
-				}
+				if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
 			}
 			s.ops = append(s.ops, op)
 			break _op_switch_
 		}
 
-		if len(s.str) == 0 && len(s.syms_i) == 0 { s.pump() }
-
-		var frag Symbol
-		var repush bool
-
-		if len(s.syms_i) > 0 {
-			nextSym := s.syms_i[0] // PEEK! Do not pop until verify!
-
-			if nextSym != symEmpty {
-				if target == nextSym {
-					break _op_switch_ // Clean boundary found!
+		// THE DOD FIX: Native JIT Unrolling Lookahead!
+		var nextSym Symbol
+		for len(s.ops) > 0 {
+			top := s.ops[len(s.ops)-1]
+			if top == opEvalValue || top == opCloseInterval || top == opEmitSym {
+				s.step() // Unroll AST JIT without consuming target!
+			} else if top == opMatchLiteral {
+				sym := s.operands[len(s.operands)-1].(Symbol)
+				if sym == symEmpty {
+					s.step() // Consume symEmpty structural boundary
+					continue
 				}
-
-				if reverse {
-					if __symHasPrefix(target, nextSym) {
-						frag = __symTrimPrefix(target, nextSym)
-						s.tie.str = nextSym.String()
-						s.syms_i = s.syms_i[1:] // Pop Pattern!
-					} else {
-						frag = target
-						s.tie.syms_o = s.tie.syms_o[1:] // Pop Target!
-						repush = true
-					}
-				} else {
-					if __symHasSuffix(target, nextSym) {
-						frag = __symTrimSuffix(target, nextSym)
-						s.tie.str = nextSym.String()
-						s.syms_i = s.syms_i[1:] // Pop Pattern!
-					} else {
-						frag = target
-						s.tie.syms_o = s.tie.syms_o[1:] // Pop Target!
-						repush = true
-					}
-				}
+				nextSym = sym
+				break
 			} else {
-				frag = target
-				s.tie.syms_o = s.tie.syms_o[1:]
-				repush = true
+				break // Hit another wildcard or regex
 			}
-		} else {
-			frag = target
-			s.tie.syms_o = s.tie.syms_o[1:]
-			repush = true
 		}
 
-		if frag != symEmpty { s.emit(frag) } // THE DOD FIX: Emit wildcard match fragment!
+		if nextSym != 0 {
+			// Safely pump the Generator to fill the lookahead window incrementally!
+			for s.tie.err == nil {
+				if op == opConseqAsterisk {
+					var hasSlash bool
+					for _, t := range s.tie.syms_o {
+						if t == symSlash { hasSlash = true; break }
+					}
+					if hasSlash { break }
+				} else if op == opConseqAstCross {
+					var hasTarget bool
+					nStr := nextSym.String()
+					for _, t := range s.tie.syms_o {
+						if strings.Contains(t.String(), nStr) {
+							hasTarget = true; break
+						}
+					}
+					if hasTarget { break }
+				}
+
+				snap_o := len(s.tie.syms_o)
+				s.tie.pump()
+				if len(s.tie.syms_o) == snap_o { break } // EOF or starved
+			}
+
+			// Limit the search vision! Standard `*` cannot cross `/`
+			searchLimit := len(s.tie.syms_o)
+			if op == opConseqAsterisk {
+				for i := 0; i < searchLimit; i++ {
+					if s.tie.syms_o[i] == symSlash {
+						searchLimit = i
+						break
+					}
+				}
+			}
+
+			targetIdx := -1
+			var trimStr string
+			var leaveStr string
+
+			if op == opConseqAstCross { // Reluctant (*?): Find FIRST occurrence
+				for i := 0; i < searchLimit; i++ {
+					tStr := s.tie.syms_o[i].String()
+					nStr := nextSym.String()
+
+					idx := -1
+					if reverse {
+						idx = strings.LastIndex(tStr, nStr)
+					} else {
+						idx = strings.Index(tStr, nStr)
+					}
+
+					if idx != -1 {
+						targetIdx = i
+						if reverse {
+							trimStr = tStr[idx+len(nStr):]
+							leaveStr = tStr[:idx+len(nStr)]
+						} else {
+							trimStr = tStr[:idx]
+							leaveStr = tStr[idx:]
+						}
+						break
+					}
+				}
+			} else { // Greedy (*, **): Find LAST occurrence
+				for i := searchLimit - 1; i >= 0; i-- {
+					tStr := s.tie.syms_o[i].String()
+					nStr := nextSym.String()
+
+					idx := -1
+					if reverse {
+						idx = strings.Index(tStr, nStr)
+					} else {
+						idx = strings.LastIndex(tStr, nStr)
+					}
+
+					if idx != -1 {
+						targetIdx = i
+						if reverse {
+							trimStr = tStr[idx+len(nStr):]
+							leaveStr = tStr[:idx+len(nStr)]
+						} else {
+							trimStr = tStr[:idx]
+							leaveStr = tStr[idx:]
+						}
+						break
+					}
+				}
+			}
+
+			// If boundary found, instantly absorb exactly up to it!
+			if targetIdx != -1 {
+				for i := 0; i < targetIdx; i++ {
+					frag := s.tie.syms_o[0]
+					s.tie.syms_o = s.tie.syms_o[1:]
+					if frag != symEmpty { s.emit(frag) }
+					if reverse { s.tie.bytePos -= frag.len() } else { s.tie.bytePos += frag.len() }
+
+					if len(s.stems) > 0 {
+						last := len(s.stems) - 1
+						s.stems[last].syms = append(s.stems[last].syms, frag)
+						if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
+					}
+				}
+
+				// Process the Sub-Symbol Boundary
+				if trimStr != "" || leaveStr != "" {
+					s.tie.syms_o = s.tie.syms_o[1:] // Pop the shared target
+					if trimStr != "" {
+						trimFrag := intern(trimStr)
+						s.emit(trimFrag)
+						if reverse { s.tie.bytePos -= trimFrag.len() } else { s.tie.bytePos += trimFrag.len() }
+						if len(s.stems) > 0 {
+							last := len(s.stems) - 1
+							s.stems[last].syms = append(s.stems[last].syms, trimFrag)
+							if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
+						}
+					}
+					s.tie.str = leaveStr // Leave literal part for opMatchLiteral!
+				}
+
+				break _op_switch_ // Stop absorbing natively! No backtracks!
+			}
+		}
+
+		// If no terminator found, absorb 1 symbol and continue unrolling
+		if len(s.tie.syms_o) == 0 { break _op_switch_ }
+
+		frag := s.tie.syms_o[0]
+		s.tie.syms_o = s.tie.syms_o[1:]
+
+		if frag != symEmpty { s.emit(frag) }
 
 		if reverse {
 			s.tie.bytePos -= frag.len()
@@ -2718,7 +2831,7 @@ _op_switch_:
 			}
 		}
 
-		if repush { s.ops = append(s.ops, op) }
+		s.ops = append(s.ops, op) // Repush to absorb more
 		break _op_switch_
 
 	case opGlobRange: // [a-z]
@@ -2879,229 +2992,7 @@ _op_switch_:
 
 		if val == nil { break _op_switch_ }
 
-		s.ops = append(s.ops, opCloseInterval)
-		s.operands = append(s.operands, s.offset, val)
-
-		pushVal := func(v Value) {
-			s.ops = append(s.ops, opEvalValue)
-			s.operands = append(s.operands, v)
-		}
-
-		pushEmit := func(sym Symbol) { // Dedicated tape emitter
-			s.ops = append(s.ops, opEmitSym)
-			s.operands = append(s.operands, sym)
-		}
-
-		var pushSym func(Symbol)
-		var shatter func(Symbol)
-
-		shatter = func(sym Symbol) {
-			if sym != symEmpty {
-				if false { pushSym(sym); return }
-				vocab.RLock()
-				meta := vocab.symetas[sym]
-				vocab.RUnlock()
-				if meta.Kind() == SymSeq {
-					vocab.RLock()
-					seq := vocab.sequences[meta.Idx]
-					vocab.RUnlock()
-					if reverse {
-						// BACKWARD STREAMING: Push 0 to N-1.
-						for i := 0; i < len(seq); i++ { shatter(seq[i]) }
-					} else {
-						// FORWARD STREAMING: Push N-1 to 0.
-						for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
-					}
-				} else {
-					pushSym(sym)
-				}
-			}
-		}
-
-		pushSym = func(sym Symbol) {
-			if s.tie != nil {
-				// MATCHER MODE: Inject unverified pattern onto the IN tape!
-				s.syms_i = append(s.syms_i, sym)
-				s.ops = append(s.ops, opMatchLiteral) // Zero operands needed!
-			} else {
-				// GENERATOR MODE: Emit verified data directly to the OUT tape!
-				s.ops = append(s.ops, opEmitSym)
-				s.operands = append(s.operands, sym)
-			}
-		}
-
-		switch v := val.(type) {
-		case *loc:      pushVal(v.Value)
-		case *defcaps:  pushVal(v.Value)
-		case fullname:  pushVal(v.Value)
-		case fullfile:  pushVal(v.file)
-		case flag:
-			if reverse {
-				pushSym(symDash)
-				pushVal(v.Value)
-			} else {
-				pushVal(v.Value)
-				pushSym(symDash)
-			}
-		case *compound:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-		case *qualword:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ {
-					pushVal(v.elems[i])
-					if i < len(v.elems)-1 { pushSym(symDot) }
-				}
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- {
-					pushVal(v.elems[i])
-					if i > 0 { pushSym(symDot) }
-				}
-			}
-		case *path:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ {
-					pushVal(v.elems[i])
-					if i < len(v.elems)-1 { pushSym(symSlash) }
-				}
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- {
-					pushVal(v.elems[i])
-					if i > 0 {
-						// Always emit the structural slash between elements:
-						pushSym(symSlash)
-					}
-				}
-			}
-		case *strcomp:
-			pushSym(symQuotation)
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-			pushSym(symQuotation)
-
-		case *globbrace:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *globpat:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *globmeta:
-			// THE DOD FIX: JIT Meta Symbols!
-			// Match ops are queued FIRST, Pattern tape is emitted LAST.
-			if s.tie != nil {
-				switch v.token {
-				case QUE:  s.ops = append(s.ops, opGlobQues    ); s.class |= clsGlobChar;     s.syms_i = append(s.syms_i, symQues)
-				case SAST: s.ops = append(s.ops, opGlobAsterisk); s.class |= clsGlobAst;      s.syms_i = append(s.syms_i, symAsterisk)
-				case DAST: s.ops = append(s.ops, opGlobAstGreed); s.class |= clsGlobAstGreed; s.syms_i = append(s.syms_i, symAsteriskAst)
-				case ASTQ: s.ops = append(s.ops, opGlobAstCross); s.class |= clsGlobAstCross; s.syms_i = append(s.syms_i, symAsteriskQues)
-				}
-			} else {
-				switch v.token {
-				case QUE:  pushEmit(symQues)
-				case SAST: pushEmit(symAsterisk)
-				case DAST: pushEmit(symAsteriskAst)
-				case ASTQ: pushEmit(symAsteriskQues)
-				}
-			}
-
-		case *globrange:
-			s.class |= clsGlobChar
-			if s.tie != nil {
-				s.ops = append(s.ops, opGlobRange)
-				s.operands = append(s.operands, v)
-			} else {
-				// Natively build the `[a-z]` structure on the Pattern Tape using pure pushEmit!
-				// We do NOT use pushSym because we don't want opMatchLiteral executing on the brackets.
-				pushEmit(symLbrack)
-				pushVal(v.Value)
-				pushEmit(symRbrack)
-			}
-
-		case *percpat:
-			s.class |= clsGlobAstGreed // % behaves like **
-
-			count := 1
-			suffix := v.Suffix
-			for {
-				if x, yes := suffix.(*percpat); yes {
-					if _, yes = x.Prefix.(valbase); yes {
-						count++
-						suffix = x.Suffix
-						continue
-					}
-				}
-				break
-			}
-
-			if suffix != nil && !isEmpty(suffix) { pushVal(suffix) }
-			if s.tie != nil {
-				s.ops = append(s.ops, opGlobAstGreed)
-				// THE DOD FIX: Sync the Pattern tape!
-				for i := 0; i < count; i++ { s.syms_i = append(s.syms_i, symPercent) }
-			} else {
-				for i := 0; i < count; i++ { pushEmit(symPercent) }
-			}
-			if v.Prefix != nil && !isEmpty(v.Prefix) { pushVal(v.Prefix) }
-
-		case *regexpat:
-			s.class |= clsRegex
-			if s.tie != nil {
-				s.ops = append(s.ops, opRegexMatch)
-				s.operands = append(s.operands, v)
-			} else if false {
-				// NOTE: we don't have native regex implementation, so no shattering
-				// Shards the regex string literal entirely onto the Pattern Tape!
-				shatter(intern(v.re.String()))
-			}
-
-		case *list:
-			if v.len() == 1 {
-				pushVal(v.elems[0])
-			} else {
-				if reverse {
-					pushSym(symLtopcorner)
-					for i := 0; i < len(v.elems); i++ {
-						pushVal(v.elems[i])
-						if i < len(v.elems)-1 { pushSym(symSpace) }
-					}
-					pushSym(symRbotcorner)
-				} else {
-					pushSym(symRbotcorner)
-					for i := len(v.elems) - 1; i >= 0; i-- {
-						pushVal(v.elems[i])
-						if i > 0 { pushSym(symSpace) }
-					}
-					pushSym(symLtopcorner)
-				}
-			}
-
-		case *punct:
-			if v.token == PTAIL || v.token == PROOT {
-				pushSym(symEmpty)
-			} else {
-				pushSym(__symbol(s, v))
-			}
-
-		case *word:
-			shatter(v.s)
-
-		default:
-			shatter(__symbol(s, v))
-		}
+		s.eval(val, reverse)
 
 	case opEnd:
 		s.err = io.EOF
@@ -3140,12 +3031,12 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 		bt.stack = s.vmstack.clone()
 	}
 	if (kind & undoTape) != 0 {
-		bt.symsDepth = len(s.syms_i)
 		bt.offsetsDepth = len(s.offsets)
 		bt.offset = s.offset
 	}
 	if (kind & undoTie) != 0 && s.tie != nil {
 		bt.tie = s.tie.vmcursors
+		bt.pack = s.tie.bestPack // tie's AST tracking
 	}
 	if (kind & undoOwn) != 0 {
 		bt.own = s.vmcursors
@@ -3153,99 +3044,98 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 	if (kind & undoStems) != 0 {
 		bt.stemsDepth = len(s.stems)
 	}
-	if s.vmpack != nil {
-		bt.pack = s.vmpack.clone()
-	}
 	return bt
 }
 
 func (s *symstr) unwind() {
 	if len(s.backtracks) == 0 {
 		if s.err == nil {
-			debug(s, "unwind: no backtracks, no err set; cursor=%d syms=%v ops=%v",
-				s.syms_i, s.syms_o, s.ops, callstack{num:5})
+			debug(s, "unwind: no backtracks, no err set; syms_o=%v ops=%v",
+				s.syms_o, s.ops, callstack{num:5})
 		} else {
-			debug(s, "unwind: no backtracks; cursor=%d syms=%v ops=%v, err=%v",
-				s.syms_i, s.syms_o, s.ops, s.err, callstack{num:5})
+			debug(s, "unwind: no backtracks; syms_o=%v ops=%v, err=%v",
+				s.syms_o, s.ops, s.err, callstack{num:5})
 		}
 		return
 	}
+
+	s.err = nil // Clear error to resurrect the timeline
 
 	// Pop the latest instruction
 	top := len(s.backtracks) - 1
 	bt := s.backtracks[top]
 	s.backtracks = s.backtracks[:top]
-	s.class = bt.class // Always recover the class bitmask.
 
-	// 1. Granular Recovery
+	s.class = bt.class
+
 	if (bt.kind & undoStack) != 0 {
 		s.vmstack.restore(bt.stack)
 	}
 	if (bt.kind & undoTape) != 0 {
-		s.syms_i = s.syms_i[:bt.symsDepth]
 		s.offsets = s.offsets[:bt.offsetsDepth]
 		s.offset = bt.offset
 	}
 	if (bt.kind & undoTie) != 0 && s.tie != nil {
 		s.tie.vmcursors = bt.tie
+		if bt.pack != nil {
+			s.tie.bestPack = bt.pack.clone()
+		}
 	}
 	if (bt.kind & undoOwn) != 0 {
 		s.vmcursors = bt.own
 	}
 	if (bt.kind & undoStems) != 0 {
 		s.stems = s.stems[:bt.stemsDepth]
+		if bt.altStem.start != -1 {
+			s.stems = append(s.stems, bt.altStem)
+		}
 	}
 
-	// 2. Inject the Alternate Timeline!
-	if bt.altStem.start != -1 {
-		s.stems = append(s.stems, bt.altStem) // Securely resolves backtracked stems
-	}
 	if bt.altOp1 != 0 { s.ops = append(s.ops, bt.altOp1) }
 	if bt.altOp2 != 0 { s.ops = append(s.ops, bt.altOp2) }
 	if bt.altVal != nil { s.operands = append(s.operands, bt.altVal) }
-
-	if bt.pack != nil {
-		s.vmpack = bt.pack.clone()
-	} else {
-		s.vmpack = nil
-	}
 }
 
 // pump delegates to step in a controlled evaluation loop.
 func (s *symstr) pump() {
-	snap_i := len(s.syms_i)
+	snap_ops := len(s.ops)
 	snap_o := len(s.syms_o)
 	for s.err == nil {
 		if len(s.ops) > 0 || ((s.class & (clsTiePackAST | clsTiePackVM | clsTieForwards)) != 0 && s.tie != nil) {
 			s.step()
 
-			// Stop pumping as soon as data arrives on EITHER tape!
-			if len(s.syms_i) > snap_i || len(s.syms_o) > snap_o { break }
+			// Stop pumping as soon as data arrives on the target tape,
+			// or the pattern stack grows (unrolled JIT evaluation).
+			if len(s.ops) > snap_ops || len(s.syms_o) > snap_o { break }
 		} else {
 			break
 		}
 	}
 }
 
-// exhaust forces the lazy evaluator to complete, fully populating s.syms.
+// exhaust forces the lazy evaluator to complete, fully populating s.syms_o.
 // For tied pattern streams, it executes the NFA until a valid final state is reached.
 // It returns the high-water mark (furthest byte reached) and the captured stems at that mark.
 func (s *symstr) exhaust() {
 	for s.err == nil {
-		// THE DOD FIX: Remove `&& s.tie.err == nil`
-		// The Packer must be allowed to step so it can natively trigger its Halt Block!
 		if len(s.ops) > 0 || ((s.class & (clsTiePackAST | clsTiePackVM | clsTieForwards)) != 0 && s.tie != nil) {
 			s.step()
 			continue
 		}
 
-		// === THE DOD FIX: UNIVERSAL TRAILING PASSIVE WILDCARDS ===
+		// === UNIVERSAL TRAILING PASSIVE WILDCARDS ===
 		if s.tie != nil {
-			for len(s.syms_i) > 0 {
-				t := s.syms_i[0]
-				if t == symAsterisk || t == symAsteriskAst || t == symAsteriskQues {
-					s.syms_i = s.syms_i[1:]
-					s.bytePos += t.len() // Correctly advances Pattern offset!
+			for len(s.ops) > 0 {
+				topOp := s.ops[len(s.ops)-1]
+				if topOp == opGlobAsterisk {
+					s.ops = s.ops[:len(s.ops)-1]
+					s.bytePos += symAsterisk.len()
+				} else if topOp == opGlobAstGreed {
+					s.ops = s.ops[:len(s.ops)-1]
+					s.bytePos += symAsteriskAst.len()
+				} else if topOp == opGlobAstCross {
+					s.ops = s.ops[:len(s.ops)-1]
+					s.bytePos += symAsteriskQues.len()
 				} else {
 					break
 				}
@@ -3286,21 +3176,10 @@ func (s *symstr) exhaust() {
 func (s *symstr) exhausted() bool {
 	if s.tie != nil {
 		// MATCHER: Exhausted when no ops and pattern tape is fully consumed.
-		return len(s.ops) == 0 && len(s.syms_i) == 0 && len(s.str) == 0
+		return len(s.ops) == 0 && len(s.str) == 0
 	} else {
 		// GENERATOR/PACKER: Exhausted when bytePos catches up to offset.
 		return len(s.ops) == 0 && s.bytePos >= s.offset && len(s.str) == 0
-	}
-}
-
-// advanceRune safely pushes the stream forward (or backward) by n bytes natively.
-func (s *symstr) advanceRune(size int) {
-	if (s.class & clsBackwards) != 0 {
-		s.str = s.str[:len(s.str)-size]
-		s.bytePos -= size
-	} else {
-		s.str = s.str[size:]
-		s.bytePos += size
 	}
 }
 
@@ -3337,6 +3216,224 @@ func (s *symstr) emit(sym Symbol) {
 	s.offset += sym.len() // O(1) tracking using your optimization!
 
 	if sym == symSlash { s.class &^= clsGlobChar | clsGlobAst }
+}
+
+func (s *symstr) eval(val Value, reverse bool) {
+	s.ops = append(s.ops, opCloseInterval)
+	s.operands = append(s.operands, s.offset, val)
+
+	pushVal := func(v Value) {
+		s.ops = append(s.ops, opEvalValue)
+		s.operands = append(s.operands, v)
+	}
+
+	pushEmit := func(sym Symbol) { // Dedicated tape emitter
+		s.ops = append(s.ops, opEmitSym)
+		s.operands = append(s.operands, sym)
+	}
+
+	var pushSym func(Symbol)
+	var shatter func(Symbol)
+
+	shatter = func(sym Symbol) {
+		if sym != symEmpty {
+			if false { pushSym(sym); return }
+			vocab.RLock()
+			meta := vocab.symetas[sym]
+			vocab.RUnlock()
+			if meta.Kind() == SymSeq {
+				vocab.RLock()
+				seq := vocab.sequences[meta.Idx]
+				vocab.RUnlock()
+				if reverse {
+					// BACKWARD STREAMING: Push 0 to N-1.
+					for i := 0; i < len(seq); i++ { shatter(seq[i]) }
+				} else {
+					// FORWARD STREAMING: Push N-1 to 0.
+					for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
+				}
+			} else {
+				pushSym(sym)
+			}
+		}
+	}
+
+	pushSym = func(sym Symbol) {
+		if s.tie != nil {
+			// MATCHER MODE: Inject unverified pattern onto the IN tape!
+			s.ops = append(s.ops, opMatchLiteral) // Zero operands needed!
+		} else {
+			// GENERATOR MODE: Emit verified data directly to the OUT tape!
+			s.ops = append(s.ops, opEmitSym)
+		}
+		s.operands = append(s.operands, sym)
+	}
+
+	switch v := val.(type) {
+	case *loc:      pushVal(v.Value)
+	case *defcaps:  pushVal(v.Value)
+	case fullname:  pushVal(v.Value)
+	case fullfile:  pushVal(v.file)
+	case flag:
+		if reverse {
+			pushSym(symDash)
+			pushVal(v.Value)
+		} else {
+			pushVal(v.Value)
+			pushSym(symDash)
+		}
+	case *compound:
+		if reverse {
+			for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+		} else {
+			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+		}
+	case *qualword:
+		if reverse {
+			for i := 0; i < len(v.elems); i++ {
+				pushVal(v.elems[i])
+				if i < len(v.elems)-1 { pushSym(symDot) }
+			}
+		} else {
+			for i := len(v.elems) - 1; i >= 0; i-- {
+				pushVal(v.elems[i])
+				if i > 0 { pushSym(symDot) }
+			}
+		}
+	case *path:
+		if reverse {
+			for i := 0; i < len(v.elems); i++ {
+				pushVal(v.elems[i])
+				if i < len(v.elems)-1 { pushSym(symSlash) }
+			}
+		} else {
+			for i := len(v.elems) - 1; i >= 0; i-- {
+				pushVal(v.elems[i])
+				if i > 0 { pushSym(symSlash) }
+			}
+		}
+	case *strcomp:
+		pushSym(symQuotation)
+		if reverse {
+			for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+		} else {
+			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+		}
+		pushSym(symQuotation)
+
+	case *globbrace:
+		if reverse {
+			for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+		} else {
+			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+		}
+
+	case *globpat:
+		if reverse {
+			for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+		} else {
+			for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+		}
+
+	case *globmeta:
+		if s.tie != nil {
+			switch v.token {
+			case QUE:  s.ops = append(s.ops, opGlobQues    ); s.class |= clsGlobChar
+			case SAST: s.ops = append(s.ops, opGlobAsterisk); s.class |= clsGlobAst
+			case DAST: s.ops = append(s.ops, opGlobAstGreed); s.class |= clsGlobAstGreed
+			case ASTQ: s.ops = append(s.ops, opGlobAstCross); s.class |= clsGlobAstCross
+			}
+		} else {
+			switch v.token {
+			case QUE:  pushEmit(symQues)
+			case SAST: pushEmit(symAsterisk)
+			case DAST: pushEmit(symAsteriskAst)
+			case ASTQ: pushEmit(symAsteriskQues)
+			}
+		}
+
+	case *globrange:
+		s.class |= clsGlobChar
+		if s.tie != nil {
+			s.ops = append(s.ops, opGlobRange)
+			s.operands = append(s.operands, v)
+		} else {
+			// Natively build the `[a-z]` structure on the Pattern Tape using pure pushEmit!
+			// We do NOT use pushSym because we don't want opMatchLiteral executing on the brackets.
+			pushEmit(symLbrack)
+			pushVal(v.Value)
+			pushEmit(symRbrack)
+		}
+
+	case *percpat:
+		s.class |= clsGlobAstGreed // % behaves like **
+
+		count := 1
+		suffix := v.Suffix
+		for {
+			if x, yes := suffix.(*percpat); yes {
+				if _, yes = x.Prefix.(valbase); yes {
+					count++
+					suffix = x.Suffix
+					continue
+				}
+			}
+			break
+		}
+
+		if suffix != nil && !isEmpty(suffix) { pushVal(suffix) }
+		if s.tie != nil {
+			s.ops = append(s.ops, opGlobAstGreed)
+		} else {
+			for i := 0; i < count; i++ { pushEmit(symPercent) }
+		}
+		if v.Prefix != nil && !isEmpty(v.Prefix) { pushVal(v.Prefix) }
+
+	case *regexpat:
+		s.class |= clsRegex
+		if s.tie != nil {
+			s.ops = append(s.ops, opRegexMatch)
+			s.operands = append(s.operands, v)
+		} else if false {
+			// NOTE: we don't have native regex implementation, so no shattering
+			// Shards the regex string literal entirely onto the Pattern Tape!
+			shatter(intern(v.re.String()))
+		}
+
+	case *list:
+		if v.len() == 1 {
+			pushVal(v.elems[0])
+		} else {
+			if reverse {
+				pushSym(symLtopcorner)
+				for i := 0; i < len(v.elems); i++ {
+					pushVal(v.elems[i])
+					if i < len(v.elems)-1 { pushSym(symSpace) }
+				}
+				pushSym(symRbotcorner)
+			} else {
+				pushSym(symRbotcorner)
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					pushVal(v.elems[i])
+					if i > 0 { pushSym(symSpace) }
+				}
+				pushSym(symLtopcorner)
+			}
+		}
+
+	case *punct:
+		if v.token == PTAIL || v.token == PROOT {
+			pushSym(symEmpty)
+		} else {
+			pushSym(__symbol(s, v))
+		}
+
+	case *word:
+		shatter(v.s)
+
+	default:
+		shatter(__symbol(s, v))
+	}
 }
 
 // pack evaluates a single symbol and shapes it into the AST state machine.
@@ -3499,24 +3596,6 @@ func (s *symstr) reduce(pos Pos) Value {
 		s.vmpack.shift(inner)
 	}
 	return s.vmpack.reduce(pos)
-}
-
-// byteToSymIdx safely translates a virtual byte boundary back to the symbol index.
-// Includes strict boundary checks to prevent panics on un-exhausted streams.
-func (s *symstr) byteToSymIdx(byteOffset int) int {
-	if byteOffset <= 0 { return 0 }
-	if byteOffset >= s.offset { return len(s.syms_i) }
-
-	for i, m := range s.offsets {
-		if m.byteOffset == byteOffset { return m.idx }
-		if m.byteOffset > byteOffset {
-			if i > 0 { return s.offsets[i-1].idx }
-			return 0
-		}
-	}
-
-	// If the offset is beyond recorded offsets, default to the end of the active buffer
-	return len(s.syms_i)
 }
 
 // distance computes the string length of a symbol in the stream using marker math.
@@ -22951,9 +23030,12 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	packer.exhaust()
 
 	// Stream Termination Symmetry Checks
-	matched = packer.err == io.EOF && // Fully Packed
-		(   (matcher.err == io.EOF && gen.err == io.EOF) || // Full Match
-			(matcher.err == nil    && gen.err == nil   ))   // Prefix Match
+	// A match is successful if the Packer finished and the Pattern was fully consumed!
+	if force_full_match_anchor {
+		matched = packer.err == io.EOF && matcher.exhausted() && gen.exhausted()
+	} else {
+		matched = packer.err == io.EOF && matcher.exhausted()
+	}
 
 	if checkpoints && matched {
 		if matcher.stopTieByte != matcher.tie.bytePos {
