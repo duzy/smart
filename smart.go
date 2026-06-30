@@ -321,226 +321,35 @@ func builds(cb *compactbuilds, args ...any) {
 
 const (
 	SymRaw uint8 = 0 // Idx points to `vocab.strings`
-	SymInt uint8 = 1 // Idx points to `vocab.numbers` as int64
-	SymFlt uint8 = 2 // Idx points to `vocab.numbers` as float64
-	SymPct uint8 = 3 // Idx can be decode into a rune of punctuation directly (TODO: ...)
-	SymSeq uint8 = 4 // Idx points to `vocab.sequences`
-	SymEph uint8 = 5 // Idx points to `vocab.ephemeral`
-	SymBlb uint8 = 6 // Idx points to context blob registry (TODO: symbol to Go object bridge; or use SymEph with `[]any`)
+	SymPct uint8 = 1 // Idx points to `vocab.strings`
+	SymInl uint8 = 2 // Idx holds the bits of values (TODO: encode ASCII and three bytes chars into Idx bits)
+	SymInt uint8 = 3 // Idx points to `vocab.numbers` as int64
+	SymFlt uint8 = 4 // Idx points to `vocab.numbers` as float64
+	SymSeq uint8 = 5 // Idx points to `vocab.sequences`
+	SymEph uint8 = 6 // Idx points to `vocab.ephemeral`
+	SymBlb uint8 = 7 // Idx points to context blob registry
 )
 
-// SymMeta is precisely 8 bytes. Fits exactly 8 per 64-byte CPU cache line!
-//  * Bits 0-2 (3 bits): Kind (Supports up to 8 types: 0-7)
-//  * Bits 3-6 (4 bits): Rank (Supports up to 16 ranks: 0-15)
-//  * Bit 7 (1 bit): Unused/Reserved for future flags.
-type SymMeta struct {
-	Idx   int32 // 4 bytes (Index into side-tables based on Kind)
-	Flags uint8 // 1 byte  (Bits 0-2 for Kind, Bits 3-6 for Rank)
-	// 3 bytes implicit compiler padding
-}
-func (m  SymMeta) Kind() uint8 { return m.Flags & 0x07 } // 3 bits
-func (m  SymMeta) Rank() int { return int((m.Flags >> 3) & 0x0F) }
-func (m *SymMeta) flags(k uint8, s string) { m.Flags = k | (uint8(globRank(s)) << 3) }
-
-type Symbol uint32 // TODO: use uint64 and fuse SymMeta with Symbol into `uint64{ Flags uint8; Idx uint28; Sym uint28 }`
-type vocabulary struct{
-	sync.RWMutex
-	symetas   []SymMeta  // TODO Eliminate since SymMeta and Symbol can be merged into uint64 of a `bit-struct`!
-	strings   []string   // Side-table for monolithic/atomic strings!
-	ephemeral []string   // Side-table for ephemeral strings (for hash/timestamp etc.)!
-	numbers   []uint64   // Side-table for numbers!
-	sequences [][]Symbol // Side-table for shredded sequences, and late-bound constants!
-	seqsyms map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
-	strsyms map[uint64][]Symbol // maps a string hash to a Symbol list (to resolve collisions)
-	freeEph []Symbol // free pool for recycled SymEph symbols so SymMeta slots can be reused.
-}
-
-var vocab vocabulary
-
-// unsafeByteLen returns atomic symbol byte-length without locking `vocab`.
-func (sym Symbol) unsafeByteLen() int { // Unlocked!
-	// Ported from __symStrLen: Safe bounds checking
-	if sym == symEmpty || int(sym) >= len(vocab.symetas) {
-		return 0
-	}
-
-	switch meta := vocab.symetas[sym]; meta.Kind() {
-	case SymRaw:
-		return len(vocab.strings[meta.Idx])
-	case SymEph:
-		return len(vocab.ephemeral[meta.Idx])
-	case SymInt:
-		var buf [24]byte
-		return len(strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10))
-	case SymFlt:
-		var buf [64]byte
-		return len(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
-	case SymSeq:
-		var l int
-		for _, s := range vocab.sequences[meta.Idx] { l += s.unsafeByteLen() }
-		return l
-	default:
-		return 0
-	}
-}
-
-// build is a zero-allocation recursive string builder.
-// By passing the pointer, we write directly to the final memory buffer!
-func (sym Symbol) build(b *compactbuilds) { // Unlocked!
-	switch meta := vocab.symetas[sym]; meta.Kind() {
-	case SymRaw:
-		b.writeString(vocab.strings[meta.Idx])
-	case SymEph:
-		b.writeString(vocab.ephemeral[meta.Idx])
-	case SymInt:
-		// ZERO-ALLOCATION OPTIMIZATION: Format to a stack buffer.
-		// unsafe.String is safe here because writeString immediately copies the bytes.
-		var buf [24]byte
-		res := strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10)
-		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
-	case SymFlt:
-		var buf [64]byte
-		res := strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64)
-		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
-	case SymSeq:
-		for _, s := range vocab.sequences[meta.Idx] { s.build(b) }
-	}
-}
-
-func (sym Symbol) string() string { // Unlocked!
-	var cb compactbuilds
-	sym.build(&cb)
-	return cb.shared()
-}
-
-func (sym Symbol) String() (s string) {
-	vocab.RLock()
-	if int(sym) < len(vocab.symetas) {
-		// Fast-path bypass for monolithic strings.
-		// FormatInt/Float allocate here, which is unavoidable since a new string must be returned.
-		switch meta := vocab.symetas[sym]; meta.Kind() {
-		case SymRaw: s = vocab.strings[meta.Idx]
-		case SymEph: s = vocab.ephemeral[meta.Idx]
-		case SymInt: s = strconv.FormatInt(int64(vocab.numbers[meta.Idx]), 10)
-		case SymFlt: s = strconv.FormatFloat(math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64)
-		default: s = sym.string()
-		}
-	} else {
-		s = "<invalid-symbol-id>"
-	}
-	vocab.RUnlock()
-	return s
-}
-
-func (sym Symbol) len() int {
-	vocab.RLock()
-	res := sym.unsafeByteLen()
-	vocab.RUnlock()
-	return res
-}
-
 const (
-	symEmpty Symbol = iota // ""
+	// ==========================================
+	// 0. RAW SYMBOLS (Kind = 0: SymRaw)
+	// Idx maps to vocab.strings
+	// ==========================================
+
+	// Bit-struct Fusing Formula!
+	// Bits 63-56: Flags (0 = SymRaw)
+	// Bits 55-28: Idx (iota)
+	// Bits 27-0:  ID (iota)
+
+	// symEmpty is mathematically absolute 0!
+	symEmpty Symbol = (Symbol(SymRaw) << 56) | ((iota + 0) << 28) | (iota + 0) // ""
 	symSpace
-
-	sym_0
-	sym_1
-	sym_2
-	sym_3
-	sym_4
-	sym_5
-	sym_6
-	sym_7
-	sym_8
-	sym_9
-
-	symAmpersand    // &
-	symDollarSign   // $
-	symDash         // -     $-    the execution result
-	symUnderscore   // _
-	symBackquote    // `
-	symApostrophe   // '
-	symQuotation    // "
-	symColon        // :     ASCII Colon Symbol (U+003A)
-	symRatio        // ∶     Mathematical Ratio Symbol (U+2236)
-	symWideColon    // ：    Fullwidth Colon Symbol (U+FF1A)
-	symComma        // ,
-	symTilde        // ~     $~    the grep modifier result
-	symDot          // .
-	symDotDot       // ..
-	symSlash        // /
-	symSlashSlash   // //
-	symBackslash    // \
-	symBackslash2   // \\
-	symLparen       // (    symLeftParen
-	symRparen       // )    symRightParen
-	symLbrace       // {    symLeftBrace
-	symRbrace       // }    symRightBrace
-	symLbrack       // [    symLeftBracket
-	symRbrack       // ]    symRightBracket
-	symCornerTL     // ⌜    symLtopcorner
-	symCornerTR     // ⌝    symRtopcorner
-	symCornerBL     // ⌞    symLbotcorner
-	symCornerBR     // ⌟    symRbotcorner
-	symLsingguil    // ‹    symAngleQuoteSingleL
-	symRsingguil    // ›    symAngleQuoteSingleR
-	symLguillemet   // «    symAngleQuoteDoubleL
-	symRguillemet   // »    symAngleQuoteDoubleR
-	symArrow        // →
-	symHash         // #
-	symEqualSign    //  =   ASSIGN
-	symUnshiSign    //  =+  ASSIGN_USH
-	symAddeqSign    // +=   ASSIGN_ADD
-	symExclamation  // !
-
-	symAt           // @     - the name of the target of the rule
-	symAtD          // @D
-	symAtF          // @F
-	symAtA          // @'
-	symBar          // |     - all the order-only prerequisites
-	symBarD         // |D
-	symBarF         // |F
-	symBarA         // |'
-	symCaret        // ^     - all the prerequisites
-	symCaretD       // ^D
-	symCaretF       // ^F
-	symCaretA       // ^'
-	symLangle       // <     - the first prerequisite
-	symLangleD      // <D
-	symLangleF      // <F
-	symLangleA      // <'
-	symRangle       // >     - the last prerequisite
-	symRangleD      // >D
-	symRangleF      // >F
-	symRangleA      // >'
-	symPercent      // %     - target archive member name
-	symPercentD     // %D
-	symPercentF     // %F
-	symPercentA     // %'
-	symAsterisk     // *     - the stem with which an implicit rule matches
-	symAsteriskD    // *D
-	symAsteriskF    // *F
-	symAsteriskA    // *'
-	symQues         // ?     - all the prerequisites that are newer than the target
-	symQuesD        // ?D
-	symQuesF        // ?F
-	symQuesA        // ?'
-	symPlus         // +     - like ‘$^’, all listed prerequisites as present
-	symPlusD        // +D
-	symPlusF        // +F
-	symPlusA        // +'
-
-	symDashDash     // --
-	symPlusPlus     // ++
-	symAsteriskQues // *?
-	symAsteriskAst  // **
 
 	symCWD //  $/    Current Work Directory
 	symCRD //  $.    Current Relative Directory
 	symCTD //  $,    Current Temp Directory
 	symARGS
 	symSMART      // aka os.Args[0]
-	symSMART_ARGS // aka os.Args[1:], NOTE: "_" is a shredder, SMART_ARGS must be after ARGS and SMART
 
 	symTrue
 	symFalse
@@ -733,35 +542,10 @@ const (
 
 	symBase
 	symBases
-	symBase2
-	symBase3
-	symBase4
-	symBase5
-	symBase6
-	symBase7
-	symBase8
-	symBase9
-	symBase64
 	symDir
 	symDirs
-	symDir2
-	symDir3
-	symDir4
-	symDir5
-	symDir6
-	symDir7
-	symDir8
-	symDir9
 	symUndir
 	symUndirs
-	symUndir2
-	symUndir3
-	symUndir4
-	symUndir5
-	symUndir6
-	symUndir7
-	symUndir8
-	symUndir9
 
 	symRel
 	symRelative
@@ -847,7 +631,6 @@ const (
 
 	sym_c   // c
 	sym_cc  // cc
-	sym_cxx // c++
 	sym_o   // o
 	sym_O   // O
 	sym_Os  // Os
@@ -902,6 +685,155 @@ const (
 	symSYM
 	symEXIT
 	symSTDLIB
+
+	_id_raw_end = iota + 0
+)
+
+const (
+	// ==========================================
+	// 1. INTEGER SYMBOLS (Kind = 1: SymInt)
+	// Idx maps to vocab.numbers
+	// ==========================================
+	sym_0 Symbol = (Symbol(SymInt) << 56) | ((iota + 0) << 28) | (iota + _id_raw_end)
+	sym_1
+	sym_2
+	sym_3
+	sym_4
+	sym_5
+	sym_6
+	sym_7
+	sym_8
+	sym_9
+
+	_id_int_end = iota + _id_raw_end
+)
+
+const (
+	// ==========================================
+	// 3. PUNCTUATION SYMBOLS (Kind = 3: SymPct)
+	// Idx maps to vocab.strings (for now, until rune-decoding)
+	// ==========================================
+	symAmpersand Symbol = (Symbol(SymPct) << 56) | ((iota + _id_raw_end) << 28) | (iota + _id_int_end)
+	symDollarSign   // $
+	symDash         // -     $-    the execution result
+	symUnderscore   // _
+	symBackquote    // `
+	symApostrophe   // '
+	symQuotation    // "
+	symColon        // :     ASCII Colon Symbol (U+003A)
+	symRatio        // ∶     Mathematical Ratio Symbol (U+2236)
+	symWideColon    // ：    Fullwidth Colon Symbol (U+FF1A)
+	symComma        // ,
+	symTilde        // ~     $~    the grep modifier result
+	symDot          // .
+	symDotDot       // ..
+	symSlash        // /
+	symSlashSlash   // //
+	symBackslash    // \
+	symBackslash2   // \\
+	symLparen       // (    symLeftParen
+	symRparen       // )    symRightParen
+	symLbrace       // {    symLeftBrace
+	symRbrace       // }    symRightBrace
+	symLbrack       // [    symLeftBracket
+	symRbrack       // ]    symRightBracket
+	symCornerTL     // ⌜    symLtopcorner
+	symCornerTR     // ⌝    symRtopcorner
+	symCornerBL     // ⌞    symLbotcorner
+	symCornerBR     // ⌟    symRbotcorner
+	symLsingguil    // ‹    symAngleQuoteSingleL
+	symRsingguil    // ›    symAngleQuoteSingleR
+	symLguillemet   // «    symAngleQuoteDoubleL
+	symRguillemet   // »    symAngleQuoteDoubleR
+	symArrow        // →
+	symHash         // #
+	symEqualSign    //  =   ASSIGN
+	symUnshiSign    //  =+  ASSIGN_USH
+	symAddeqSign    // +=   ASSIGN_ADD
+	symExclamation  // !
+
+	symAt           // @     - the name of the target of the rule
+	symAtD          // @D
+	symAtF          // @F
+	symAtA          // @'
+	symBar          // |     - all the order-only prerequisites
+	symBarD         // |D
+	symBarF         // |F
+	symBarA         // |'
+	symCaret        // ^     - all the prerequisites
+	symCaretD       // ^D
+	symCaretF       // ^F
+	symCaretA       // ^'
+	symLangle       // <     - the first prerequisite
+	symLangleD      // <D
+	symLangleF      // <F
+	symLangleA      // <'
+	symRangle       // >     - the last prerequisite
+	symRangleD      // >D
+	symRangleF      // >F
+	symRangleA      // >'
+	symPercent      // %     - target archive member name
+	symPercentD     // %D
+	symPercentF     // %F
+	symPercentA     // %'
+
+	symAsterisk     // * - the stem with which an implicit rule matches
+	symAsteriskD    // *D
+	symAsteriskF    // *F
+	symAsteriskA    // *'
+	symQues         // ?     - all the prerequisites that are newer than the target
+	symQuesD        // ?D
+	symQuesF        // ?F
+	symQuesA        // ?'
+	symPlus         // +     - like ‘$^’, all listed prerequisites as present
+	symPlusD        // +D
+	symPlusF        // +F
+	symPlusA        // +'
+
+	symDashDash     // --
+	symPlusPlus     // ++
+	symAsteriskQues // *?
+	symAsteriskAst  // **
+
+	_id_pct_end = iota + _id_int_end
+)
+
+const (
+	// ==========================================
+	// 4. SEQUENCE SYMBOLS (Kind = 4: SymSeq)
+	// Idx maps to vocab.sequences
+	// ==========================================
+	symSMART_ARGS Symbol = (Symbol(SymSeq) << 56) | ((iota + 0) << 28) | (iota + _id_pct_end)
+
+	symBase2
+	symBase3
+	symBase4
+	symBase5
+	symBase6
+	symBase7
+	symBase8
+	symBase9
+	symBase64
+
+	symDir2
+	symDir3
+	symDir4
+	symDir5
+	symDir6
+	symDir7
+	symDir8
+	symDir9
+
+	symUndir2
+	symUndir3
+	symUndir4
+	symUndir5
+	symUndir6
+	symUndir7
+	symUndir8
+	symUndir9
+
+	sym_cxx // c++
 
 	symReadDir
 	symRelativeDir
@@ -997,11 +929,16 @@ const (
 	symDashFmodulesTs
 	symDashConfiguration
 
-	// --- *START* Late-Binding Constant IDs ---
-	symBaseWorkDir // Constant ID, late-bound sequence
-	symBaseTmpPath // Constant ID, late-bound sequence
-	// --- *END* Late-Binding Constant IDs ---
+	symBaseWorkDir // Late bound <workdir> (shreds <, workdir, >)
+	symBaseTmpPath // Late bound <tmppath>
 
+	_id_seq_end = iota + _id_pct_end
+)
+
+const (
+	// ==========================================
+	// 4. ALIASES (No iota needed, perfectly inherits the packed values)
+	// ==========================================
 	symEmptyName     = symEmpty
 	symPathSep       = symSlash
 	symUnderline     = symUnderscore
@@ -1045,13 +982,63 @@ const (
 )
 
 // WARNING: The order of this slice is strictly mapped to the integer consts above.
-// ALL atomic primitives (punctuation, keywords) MUST be placed at the top.
-// ALL composite words (like "copy-file") MUST be placed at the bottom.
-// Do not mix them, or recursive shredding will shift the hardcoded IDs!
+// It is partitioned strictly by Kind to align with the iota blocks.
 var coreSymbols = []string{
-	"", " ", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+	// --- 0. RAW SYMBOLS (SymRaw) ---
+	"", " ",
+	"CWD", "CRD", "CTD", "ARGS", "SMART",
 
-	// --- *START* punctuations ---
+	"true", "false", "yes", "no", "on", "off",
+	"os", "mo", "mode", "go", "goals", "sm", "smart",
+	"mailto", "ftp", "ftps", "http", "https", "bit", "bitcoin", "extbit", "ExtBit",
+
+	"do", "dock", "sh", "shell", "py", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
+	"assert", "append", "eval", "value", "config", "configure", "configuration", "compile", "build",
+
+	"auto", "autoload", "answer", "bool", "boolean", "defer", "var", "set", "dep", "env",
+	"str", "self", "here", "word", "words", "quote", "defs", "glob", "r", "re", "regex", "fullname", "name",
+
+	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
+	"print", "printf", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
+	"closure", "cd", "mkdir", "sudo", "fork", "wait", "stamp", "touch", "extract", "deps",
+
+	"check", "case", "cond", "if", "where", "once", "dirty", "by", "db", "dbs", "dbstub",
+
+	"type", "types", "typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace",
+	"def", "defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "matched", "greater", "less",
+	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which", "bare",
+	"div", "divide", "mul", "multiply", "minus",
+
+	"element", "field", "fields", "split", "search", "usee", "user", "uses", "path", "finalize",
+	"resolve", "strip", "trim", "ext", "chop", "chopdir",
+	"title", "indent", "uppercase", "lowercase", "subst", "substitute", "substring", "patsubst", "contains",
+
+	"base", "bases", "dir", "dirs", "undir", "undirs",
+
+	"rel", "relative", "reldir", "rule", "file", "stat", "wildcard", "clean", "ch", "chdir",
+	"git", "gitdir", "rename", "remove", "link", "readlink", "sym", "symlink", "truncate", "return",
+	"copy", "out", "outbin", "outlib", "outobj", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
+
+	"read", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
+	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
+
+	"app", "ahead", "shared", "static", "inlines", "hidden", "work", "workout", "workspace", "modified",
+	"test", "bugs", "bug", "dev", "silent",
+
+	"src", "bin", "log", "exe", "dyn", "llc", "cpp", "cxx",
+	"c", "cc", "o", "O", "Os", "m", "mm", "s", "S", "so", "h", "hh",
+
+	"package", "version", "vendor", "url", "bugreport", "tar", "tarname", "have",
+	"fPIC", "fcxx", "fmodules", "fvisibility",
+
+	"M", "MM", "MG", "MD", "MV", "MP", "INFO", "MESSAGE", "MSG", "TARGET", "VALUE", "VAL", "LANGUAGE", "LANG",
+	"PACKAGE", "NAME", "VERSION", "VENDOR", "STRING", "URL", "BUGREPORT", "TARNAME", "HAVE", "H",
+	"FUN", "SYM", "EXIT", "STDLIB",
+
+	// --- 1. INTEGER SYMBOLS (SymInt) ---
+	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+
+	// --- 3. PUNCTUATION SYMBOLS (SymPct) ---
 	"&", "$", "-", "_", "`", "'", `"`, ":", "∶", "：", ",", "~", ".", "..", "/", "//", `\`, `\\`,
 	"(", ")", "{", "}", "[", "]", "⌜","⌝","⌞","⌟","‹","›","«","»","→", "#","=", "=+", "+=", "!",
 
@@ -1066,62 +1053,13 @@ var coreSymbols = []string{
 	"+", "+D", "+F", "+'",
 
 	"--", "++", "*?", "**",
-	// --- *END* punctuations ---
 
-	// --- *START* monolithic strings ---
-	"CWD", "CRD", "CTD", "ARGS", "SMART", "SMART_ARGS"/* NOTE: MUST behind the prior two! */,
-
-	"true", "false", "yes", "no", "on", "off",
-
-	"os", "mo", "mode", "go", "goals", "sm", "smart",
-
-	"mailto", "ftp", "ftps", "http", "https", "bit", "bitcoin", "extbit", "ExtBit",
-
-	"do", "dock", "sh", "shell", "py", "python", "perl", "plain", "plainline", "text", "json", "xml", "yaml",
-	"assert", "append", "eval", "value", "config", "configure", "configuration", "compile", "build",
-
-	"auto", "autoload", "answer", "bool", "boolean", "defer", "var", "set", "dep", "env", "str",
-	"self", "here", "word", "words", "quote", "defs", "glob", "r", "re", "regex", "fullname", "name",
-
-	"foreach", "unique", "grep", "addprefix", "addsuffix", "conjunct", "filter", "join", "select", "debug",
-	"print", "printf", "prompt", "preserve", "collapse", "expand", "string", "stringify", "reveal", "disclose",
-	"closure", "cd", "mkdir", "sudo", "fork", "wait", "stamp", "touch", "extract", "deps", "check",
-	"case", "cond", "if", "where", "once", "dirty", "by", "db", "dbs", "dbstub",
-
-	"type", "types", "typeof", "origin", "defined", "position", "date", "error", "warning", "sure", "trace",
-	"def", "defor", "or", "and", "not", "xor", "eq", "equal", "ne", "match", "matched", "greater", "less",
-	"ifeq", "ifne", "ifarg", "ifdef", "for", "count", "call", "list", "which", "bare",
-	"div", "divide", "mul", "multiply", "minus", "element", "field", "fields", "split", "search",
-	"usee", "user", "uses", "path", "finalize", "resolve", "strip", "trim", "ext", "chop", "chopdir",
-	"title", "indent", "uppercase", "lowercase", "subst", "substitute", "substring", "patsubst", "contains",
-
-	"base", "bases", "base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "base64",
-	"dir", "dirs", "dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9",
-	"undir", "undirs", "undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9",
-
-	"rel", "relative", "reldir", "rule", "file", "stat", "wildcard", "clean", "ch", "chdir",
-	"git", "gitdir", "rename", "remove", "link", "readlink", "sym", "symlink", "truncate", "return",
-
-	"copy", "out", "outbin", "outlib", "outobj", "outtmp", "outinc", "decode", "left", "right", "prefix", "suffix",
-	"read", "write", "update", "input", "cache", "container", "modules", "universe", "globe",
-	"plugin", "plugins", "remnant", "variant", "tag", "target", "triple", "temp", "tmp", "ts",
-
-	"app", "ahead", "shared", "static", "inlines", "hidden", "work", "workout", "workspace", "modified",
-	"test", "bugs", "bug", "dev", "silent",
-
-	"src", "bin", "log", "exe", "dyn", "llc", "cpp", "cxx",
-	"c", "cc", "c++", "o", "O", "Os", "m", "mm", "s", "S", "so", "h", "hh",
-
-	"package", "version", "vendor", "url", "bugreport", "tar", "tarname", "have",
-
-	"fPIC", "fcxx", "fmodules", "fvisibility",
-
-	"M", "MM", "MG", "MD", "MV", "MP", "INFO", "MESSAGE", "MSG", "TARGET", "VALUE", "VAL", "LANGUAGE", "LANG",
-	"PACKAGE", "NAME", "VERSION", "VENDOR", "STRING", "URL", "BUGREPORT", "TARNAME", "HAVE", "H",
-	"FUN", "SYM", "EXIT", "STDLIB",
-
-	// --- *END* monolithic strings ---
-	// --- *SEPARATOR* of Atomic and Composite Symbols (ID shifting occurs after this point) ---
+	// --- 4. SEQUENCE SYMBOLS (SymSeq) ---
+	"SMART_ARGS", // Shredder splits at '_'
+	"base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "base64",
+	"dir2", "dir3", "dir4", "dir5", "dir6", "dir7", "dir8", "dir9",
+	"undir2", "undir3", "undir4", "undir5", "undir6", "undir7", "undir8", "undir9",
+	"c++",
 
 	"read-dir", "relative-dir", "not-equal", "filter-out", "decode-base64", "encode-base64",
 	"trim-left", "trim-right", "trim-prefix", "trim-suffix", "trim-ext",
@@ -1135,120 +1073,244 @@ var coreSymbols = []string{
 	"./", "../",
 	".base", ".configure", ".container", ".self", ".usee", ".mode", ".goals", ".go", ".search",
 	".smart", ".sm", ".os",
-
-	// --- common file suffixes ---
 	".tmp", ".src", ".bin", ".log", ".exe", ".dyn", ".so", ".cc", ".c", ".o", ".mm", ".m",
 
-	// --- common compiler flags ---
 	"-c", "-M", "-MM", "-MG", "-MD", "-MV", "-MP", "-Os", "-O1", "-O2", "-O3",
 	"-shared", "-static", "-file", "-fPIC", "-fvisibility-inlines-hidden",
 	"-fcxx-modules", "-fmodules", "-fmodules-ts",
 	"-configuration",
 
-	// Poison Pills:
-	// "\x00‹MATCH_FAILED›",
-
-	// PLACEHOLDERS: These guarantee the 2-pass init aligns with symBaseWorkDir and symBaseTmpPath
 	"<workdir>", "<tmppath>",
+}
+
+// Symbol is a 64-bit bit-struct! Fits perfectly in a CPU register.
+//  * Bits 63-56 (8 bits):  Flags (Kind 3 bits, Rank 4 bits)
+//  * Bits 55-28 (28 bits): Idx   (Index into side-tables)
+//  * Bits 27-0  (28 bits): ID    (Unique global symbol identifier)
+type Symbol uint64
+
+// Bitwise extractors (Inlined by the compiler for zero overhead)
+func (s Symbol) id() uint32   { return uint32(s & 0xFFFFFFF) }
+func (s Symbol) Idx() int32   { return int32((s >> 28) & 0xFFFFFFF) }
+func (s Symbol) Flags() uint8 { return uint8(s >> 56) }
+func (s Symbol) Kind() uint8  { return s.Flags() & 0x07 }
+func (s Symbol) Rank() int    { return int((s.Flags() >> 3) & 0x0F) }
+
+// Define the bit-shift offsets as single sources of truth
+const (
+	symIdShift  = 0
+	symIdxShift = 28
+	symKindShift = 56
+)
+
+// add mathematically increments both the ID and Idx planes of a packed Symbol.
+// Use this instead of raw integer addition to maintain bit-struct integrity
+// when dynamically offsetting contiguous iota constants (like sym_0 to sym_9).
+func (sym Symbol) add(offset int) Symbol {
+	if offset == 0 { return sym }
+	o := Symbol(offset)
+	return sym + (o << symIdShift) + (o << symIdxShift)
+}
+
+// packSymbol securely packs the bit-struct.
+func packSymbol(id uint32, idx int32, kind uint8, rank int) Symbol {
+	flags := kind | (uint8(rank) << 3)
+	return Symbol((uint64(flags) << 56) | ((uint64(idx) & 0xFFFFFFF) << 28) | (uint64(id) & 0xFFFFFFF))
+}
+
+type vocabulary struct {
+	sync.RWMutex
+	symCount  uint32              // Tracks the next available Symbol ID (replaces len(symetas))
+	strings   []string            // Side-table for monolithic/atomic strings!
+	ephemeral []string            // Side-table for ephemeral strings (for hash/timestamp etc.)!
+	numbers   []uint64            // Side-table for numbers!
+	sequences [][]Symbol          // Side-table for shredded sequences, and late-bound constants!
+	seqsyms   map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
+	strsyms   map[uint64][]Symbol // maps a string hash to a Symbol list (to resolve collisions)
+	freeEph   []Symbol            // free pool for recycled SymEph symbols
+}
+
+var vocab vocabulary
+
+// unsafeByteLen returns atomic symbol byte-length without locking `vocab`.
+func (sym Symbol) unsafeByteLen() int { // Unlocked!
+	if sym == 0 || sym.id() >= vocab.symCount {
+		return 0
+	}
+
+	switch sym.Kind() {
+	case SymRaw, SymPct:
+		return len(vocab.strings[sym.Idx()])
+	case SymEph:
+		return len(vocab.ephemeral[sym.Idx()])
+	case SymInt:
+		var buf [24]byte
+		return len(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
+	case SymFlt:
+		var buf [64]byte
+		return len(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
+	case SymSeq:
+		var l int
+		for _, s := range vocab.sequences[sym.Idx()] {
+			l += s.unsafeByteLen()
+		}
+		return l
+	default:
+		return 0
+	}
+}
+
+// build is a zero-allocation recursive string builder.
+func (sym Symbol) build(b *compactbuilds) { // Unlocked!
+	switch sym.Kind() {
+	case SymRaw, SymPct:
+		b.writeString(vocab.strings[sym.Idx()])
+	case SymEph:
+		b.writeString(vocab.ephemeral[sym.Idx()])
+	case SymInt:
+		var buf [24]byte
+		res := strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10)
+		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
+	case SymFlt:
+		var buf [64]byte
+		res := strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64)
+		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
+	case SymSeq:
+		for _, s := range vocab.sequences[sym.Idx()] {
+			s.build(b)
+		}
+	}
+}
+
+func (sym Symbol) string() string { // Unlocked!
+	var cb compactbuilds
+	sym.build(&cb)
+	return cb.shared()
+}
+
+func (sym Symbol) String() (s string) {
+	vocab.RLock()
+	if sym.id() < vocab.symCount {
+		switch sym.Kind() {
+		case SymRaw, SymPct:
+			s = vocab.strings[sym.Idx()]
+		case SymEph:
+			s = vocab.ephemeral[sym.Idx()]
+		case SymInt:
+			s = strconv.FormatInt(int64(vocab.numbers[sym.Idx()]), 10)
+		case SymFlt:
+			s = strconv.FormatFloat(math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64)
+		default:
+			s = sym.string()
+		}
+	} else {
+		s = "<invalid-symbol-id>"
+	}
+	vocab.RUnlock()
+	return s
+}
+
+func (sym Symbol) len() int {
+	vocab.RLock()
+	res := sym.unsafeByteLen()
+	vocab.RUnlock()
+	return res
 }
 
 func init() {
 	size := len(coreSymbols) + mapThreshold
 
-	// 1. Initialize globals immediately
+	vocab.symCount = uint32(len(coreSymbols))
 	vocab.strsyms = make(map[uint64][]Symbol, size)
-	vocab.seqsyms = make(map[uint64][]Symbol)     // sequence index to symbol
-	vocab.symetas = make([]SymMeta, 0, size)      // symbol to meta
-	vocab.strings = make([]string, 0, size)       // meta.Idx to monolithic/atomic string
-	vocab.numbers = make([]uint64, 0, size/20)    // meta.Idx to number
-	vocab.sequences = make([][]Symbol, 0, size/2) // meta.Idx to sequence
+	vocab.seqsyms = make(map[uint64][]Symbol)
+	vocab.strings = make([]string, 0, size)
+	vocab.numbers = make([]uint64, 0, size/20)
+	vocab.sequences = make([][]Symbol, 0, size/2)
 
-	// PASS 1: Reserve the EXACT integer IDs for core constants (0, 1, 2...)
-	// This ensures `symDot` is exactly where it belongs, even if later
-	// symbols trigger recursive shredding.
+	// SINGLE PASS: Safely calculate metadata and construct fully formed Symbols instantly!
+	// THE DOD FIX: No more unpacked Symbol(i) placeholders. makeSymbolLocked guarantees
+	// the correct packed bits are immediately injected into the map!
 	for i, s := range coreSymbols {
+		sym := makeSymbolLocked(s, uint32(i))
+
 		h := hashStr(s)
-		vocab.strsyms[h] = append(vocab.strsyms[h], Symbol(i))
-		vocab.symetas = append(vocab.symetas, SymMeta{Idx: -1}) // Placeholder
-	}
+		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
 
-	// PASS 2: Safely calculate metadata and shred sequences.
-	// If "copy-file" recursively calls internLocked("copy"), "copy" will
-	// safely be appended to the END of the vocab slice!
-	for i, s := range coreSymbols {
-		vocab.symetas[i] = makeSymMetaLocked(s, Symbol(i))
+		if sym.Kind() == SymSeq {
+			hSeq := hashSeq(vocab.sequences[sym.Idx()])
+			vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
+		}
 	}
 
 	// PASS 3: Late-Binding Physical OS Constants!
 	var cwd string
-	if s, e := os.Getwd(); e == nil { cwd = s } else { panic(e) }
+	if s, e := os.Getwd(); e == nil {
+		cwd = s
+	} else {
+		panic(e)
+	}
 
-	// Bind the working directory, might re-bind later.
 	bindLateConstantLocked(symBaseWorkDir, cwd)
-
-	// Bind the temp path (using standard cross-platform Go), will re-bind later.
 	bindLateConstantLocked(symBaseTmpPath, filepath.Join(os.TempDir(), "smart"))
 
 	// PASS 4: Keywords and others...
-	keywords = make(map[Symbol]token, OFF - PROJECT)
+	keywords = make(map[Symbol]token, OFF-PROJECT)
 	for i := PROJECT; i <= OFF; i++ {
-		if s := tokens[i]; s != "" { keywords[internLocked(s, hashStr(s))] = i }
+		if s := tokens[i]; s != "" {
+			keywords[internLocked(s, hashStr(s))] = i
+		}
 	}
 
 	if info, ok := langInfos["c"]; ok {
-        langInfos["c++"] = info
-        langInfos["clang"] = info
-        langInfos["objc"] = info
-        langInfos["objc++"] = info
-    }
+		langInfos["c++"] = info
+		langInfos["clang"] = info
+		langInfos["objc"] = info
+		langInfos["objc++"] = info
+	}
 
-    if info, ok := langInfos["i"]; ok {
-        langInfos["include"] = info
-        langInfos["TableGen"] = info
-        langInfos["td"] = info
-    }
+	if info, ok := langInfos["i"]; ok {
+		langInfos["include"] = info
+		langInfos["TableGen"] = info
+		langInfos["td"] = info
+	}
 }
 
-// makeSymMetaLocked isolates the logic so it can be used by both
-// internLocked AND the init() Two-Pass bootstrap.
-func makeSymMetaLocked(s string, sym Symbol) SymMeta {
-	meta := SymMeta{ Idx: -1 }
+// makeSymbolLocked isolates the logic so it constructs the final uint64 Symbol
+func makeSymbolLocked(s string, id uint32) Symbol {
+	idx := int32(-1)
 	kind := SymRaw
 
 	// 0. The Ultimate O(1) Atomic Bypass!
-	if symAmpersand <= sym && sym < symCWD {
-		// CRITICAL: Must append to side-table and record the index!
-		meta.Idx = int32(len(vocab.strings))
+	// THE DOD FIX: Use .id() to safely extract the 28-bit identifier!
+	if id >= symAmpersand.id() && id < symSMART_ARGS.id() {
+		idx = int32(len(vocab.strings))
 		vocab.strings = append(vocab.strings, s)
-		meta.flags(kind, s)
-		return meta
+		return packSymbol(id, idx, SymPct, globRank(s))
 	}
 
 	// 1. Fast boundary check for pure numbers
 	if len(s) > 0 && (s[0] == '-' || s[0] == '.' || ('0' <= s[0] && s[0] <= '9')) {
 		if val, err := strconv.ParseInt(s, 10, 64); err == nil {
-			// THE DOD FIX: Prevent data loss from leading zeros (e.g., "01" != "1")
-			// Only elevate to SymInt if a strict round-trip conversion matches identically!
 			if strconv.FormatInt(val, 10) == s {
 				kind = SymInt
-				meta.Idx = int32(len(vocab.numbers))
+				idx = int32(len(vocab.numbers))
 				vocab.numbers = append(vocab.numbers, uint64(val))
 			}
 		} else if val, err := strconv.ParseFloat(s, 64); err == nil {
-			// THE DOD FIX: Prevent data loss from trailing zeros or omitted leading zeros (e.g., ".1" != "0.1")
 			if strconv.FormatFloat(val, 'g', -1, 64) == s {
 				kind = SymFlt
-				meta.Idx = int32(len(vocab.numbers))
+				idx = int32(len(vocab.numbers))
 				vocab.numbers = append(vocab.numbers, math.Float64bits(val))
 			}
 		}
 	}
 
+	var didShred bool
+	var seq []Symbol
+
 	// 2. Shredding (Sequences & Natural Number Extraction)
 	if kind == SymRaw {
 		var start int
-		var seq []Symbol
-		var didShred bool
 
 		for i := 0; i < len(s); i++ {
 			ch := s[i]
@@ -1259,7 +1321,6 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 			if isPunct {
 				split = true
 			} else if i > start {
-				// Detect transition between letters and digits (Natural Sort boundary)
 				prev := s[i-1]
 				prevIsDigit := '0' <= prev && prev <= '9'
 				prevIsPunct := isShredderChar(prev)
@@ -1276,59 +1337,43 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 					seq = append(seq, internLocked(part, hashStr(part)))
 				}
 				if isPunct {
-					// =====================================================================
-					// PHASE 1: MULTI-BYTE UTF-8 COMPOSITE LOOKAHEAD
-					// =====================================================================
 					if ch == 0xE2 && i+1 < len(s) {
-						// A. Corner Bracket Metas (3-Byte Sequences: 0xE2 0x8C 0x9C-0x9F)
 						if s[i+1] == 0x8C && i+2 < len(s) {
 							switch s[i+2] {
-							case 0x9C: seq = append(seq, symCornerTL); i += 2; start = i + 1; continue // ⌜
-							case 0x9D: seq = append(seq, symCornerTR); i += 2; start = i + 1; continue // ⌝
-							case 0x9E: seq = append(seq, symCornerBL); i += 2; start = i + 1; continue // ⌞
-							case 0x9F: seq = append(seq, symCornerBR); i += 2; start = i + 1; continue // ⌟
+							case 0x9C: seq = append(seq, symCornerTL); i += 2; start = i + 1; continue
+							case 0x9D: seq = append(seq, symCornerTR); i += 2; start = i + 1; continue
+							case 0x9E: seq = append(seq, symCornerBL); i += 2; start = i + 1; continue
+							case 0x9F: seq = append(seq, symCornerBR); i += 2; start = i + 1; continue
 							}
 						}
-						// B. Single Angle Quotes (3-Byte Sequences: 0xE2 0x80 0xB9/0xBA)
 						if s[i+1] == 0x80 && i+2 < len(s) {
 							switch s[i+2] {
-							case 0xB9: seq = append(seq, symAngleQuoteSingleL); i += 2; start = i + 1; continue // ‹
-							case 0xBA: seq = append(seq, symAngleQuoteSingleR); i += 2; start = i + 1; continue // ›
+							case 0xB9: seq = append(seq, symAngleQuoteSingleL); i += 2; start = i + 1; continue
+							case 0xBA: seq = append(seq, symAngleQuoteSingleR); i += 2; start = i + 1; continue
 							}
 						}
-						// C. Rightwards Arrow (3-Byte Sequence: 0xE2 0x86 0x92)
 						if s[i+1] == 0x86 && i+2 < len(s) {
-							if s[i+2] == 0x92 { seq = append(seq, symArrow); i += 2; start = i + 1; continue } // →
+							if s[i+2] == 0x92 { seq = append(seq, symArrow); i += 2; start = i + 1; continue }
 						}
-						// D. Ratio Symbol (3-Byte Sequence: 0xE2 0x88 0xB6)
 						if s[i+1] == 0x88 && i+2 < len(s) {
-							if s[i+2] == 0xB6 { seq = append(seq, symRatio); i += 2; start = i + 1; continue } // ∶
+							if s[i+2] == 0xB6 { seq = append(seq, symRatio); i += 2; start = i + 1; continue }
 						}
 					}
-					// E. Double Angle Quotes (2-Byte Sequences: 0xC2 0xAB/0xBB)
 					if ch == 0xC2 && i+1 < len(s) {
 						switch s[i+1] {
-						case 0xAB: seq = append(seq, symAngleQuoteDoubleL); i++; start = i + 1; continue // «
-						case 0xBB: seq = append(seq, symAngleQuoteDoubleR); i++; start = i + 1; continue // »
+						case 0xAB: seq = append(seq, symAngleQuoteDoubleL); i++; start = i + 1; continue
+						case 0xBB: seq = append(seq, symAngleQuoteDoubleR); i++; start = i + 1; continue
 						}
 					}
 
-					// =====================================================================
-					// PHASE 2: ATOMIC BRACKET LOOKAHEAD SHIELD (Character Classes)
-					// =====================================================================
 					if ch == '[' && i+1 < len(s) {
 						end := strings.IndexByte(s[i:], ']')
 						if end != -1 {
 							fullSet := s[i : i+end+1]
-
-							// CRITICAL FIX: Prevent Infinite Recursion!
-							// If the extracted set is the entire string, it's already an atomic token.
-							// Abort shredding to treat it as a pure SymRaw.
 							if len(fullSet) == len(s) {
 								didShred = false
 								break
 							}
-
 							seq = append(seq, internLocked(fullSet, hashStr(fullSet)))
 							i += end
 							start = i + 1
@@ -1336,15 +1381,10 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 						}
 					}
 
-					// =====================================================================
-					// PHASE 3: CONTEXTUAL TARGET MODIFIERS PEER-LOOKAHEAD
-					// =====================================================================
 					if i+1 < len(s) {
 						nc := s[i+1]
 						if nc == 'D' || nc == 'F' || nc == '\'' {
 							var modSym Symbol
-
-							// Maps structural macros symmetrically: (@D -> Destination Dir, @F -> Full Path)
 							switch ch {
 							case '@':
 								switch nc { case 'D': modSym = symAtD; case 'F': modSym = symAtF; case '\'': modSym = symAtQuote }
@@ -1370,14 +1410,10 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 								seq = append(seq, modSym)
 								i++
 								start = i + 1
-								// modifierMapped = true
 								continue
 							}
 						}
 
-						// =====================================================================
-						// PHASE 4: ASCII DOUBLE-BYTE OPERATORS / COMPOSITES LOOKAHEAD
-						// =====================================================================
 						switch ch {
 						case '.': if nc == '.' { seq = append(seq, symDotDot); i++; start = i + 1; continue }
 						case '/': if nc == '/' { seq = append(seq, symSlashSlash); i++; start = i + 1; continue }
@@ -1393,9 +1429,6 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 						}
 					}
 
-					// =====================================================================
-					// PHASE 5: ASCII SINGLE-BYTE BOUNDARY FALLBACKS
-					// =====================================================================
 					switch ch {
 					case '&': seq = append(seq, symAmpersand)
 					case '$': seq = append(seq, symDollar)
@@ -1436,60 +1469,68 @@ func makeSymMetaLocked(s string, sym Symbol) SymMeta {
 
 		if didShred {
 			kind = SymSeq
-			meta.Idx = int32(len(vocab.sequences))
+			idx = int32(len(vocab.sequences))
 			if start < len(s) {
-				// FIXED: Provide the pre-computed hash for the tail substring!
 				part := s[start:]
 				seq = append(seq, internLocked(part, hashStr(part)))
 			}
 			vocab.sequences = append(vocab.sequences, seq)
 		} else {
-			meta.Idx = int32(len(vocab.strings))
+			idx = int32(len(vocab.strings))
 			vocab.strings = append(vocab.strings, s)
 		}
 	}
 
-	meta.flags(kind, s)
-	return meta
+	return packSymbol(id, idx, kind, globRank(s))
 }
 
-// bindLateConstantLocked shreds a dynamic OS string and forcefully binds
-// or replaces it to a pre-allocated Constant ID.
+// bindLateConstantLocked forcefuly assigns dynamic OS strings.
 func bindLateConstantLocked(sym Symbol, s string) {
-	if sym < symBaseWorkDir || sym > symBaseTmpPath {
-		panic(fmt.Sprintf("not late-constant symbol: %d (%s)", sym, s))
+	id := sym.id()
+
+	// 1. Safe boundary comparison
+	if id < symBaseWorkDir.id() || id > symBaseTmpPath.id() {
+		panic(fmt.Sprintf("not late-constant symbol: %d (%s)", id, s))
 	}
 
+	// 2. Synchronize the core string resolver immediately!
+	// Because sym is a hardcoded ID, String() skips side-tables and directly reads this array.
+	coreSymbols[id] = s
 	h := hashStr(s)
 
-	for _, target := range vocab.strsyms[h] {
-		if symEqualsStringLocked(target, s) {
-			if target == sym { return }
-
-			meta := vocab.symetas[target]
-			vocab.symetas[sym] = meta
-			vocab.strsyms[h] = append(vocab.strsyms[h], sym)
-
-			if meta.Kind() == SymSeq {
-				hSeq := hashSeq(vocab.sequences[meta.Idx])
-				vocab.seqsyms[hSeq] = append([]Symbol{sym}, vocab.seqsyms[hSeq]...)
-			}
-			return
+	var target Symbol
+	var found bool
+	for _, t := range vocab.strsyms[h] {
+		if symEqualsStringLocked(t, s) {
+			if t.id() == id { return } // Already aliased
+			target = t
+			found = true
+			break
 		}
 	}
 
-	vocab.strsyms[h] = append(vocab.strsyms[h], sym)
-
-	meta := makeSymMetaLocked(s, sym)
-	vocab.symetas[sym] = meta
-
-	k := meta.Kind()
-	if k == SymSeq {
-		hSeq := hashSeq(vocab.sequences[meta.Idx])
-		vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
-	} else if k != SymRaw {
-		panic(fmt.Sprintf("invalid late-constant kind: %v for %d (%s)", k, sym, s))
+	if !found {
+		targetID := vocab.symCount
+		vocab.symCount++
+		target = makeSymbolLocked(s, targetID)
+		vocab.strsyms[h] = append(vocab.strsyms[h], target)
 	}
+
+	// 3. The Memory Hijack!
+	// We cannot change the bits of the Go const, so we overwrite the underlying
+	// sequence memory that its hardcoded Idx points to!
+	if target.Kind() == SymSeq {
+		vocab.sequences[sym.Idx()] = vocab.sequences[target.Idx()]
+	} else {
+		// If the new path is a raw string, wrap it in a 1-element slice
+		// because the constant's Kind is permanently locked as SymSeq!
+		vocab.sequences[sym.Idx()] = []Symbol{target}
+	}
+
+	// 4. Register the aliases to resolve future collisions natively
+	vocab.strsyms[h] = append(vocab.strsyms[h], sym)
+	hSeq := hashSeq(vocab.sequences[sym.Idx()])
+	vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
 }
 
 // bindLateConstant safely wraps the locked late-constant string binder.
@@ -1501,48 +1542,40 @@ func bindLateConstant(sym Symbol, s string) {
 
 // bindLateConstantAlias forcefully aliases a runtime Symbol to a compiler Constant.
 func bindLateConstantAlias(constantID Symbol, target Symbol) {
-	if constantID == target { return }
+	if constantID.id() == target.id() { return }
 
 	vocab.Lock()
 	defer vocab.Unlock()
 
-	meta := vocab.symetas[target]
-	vocab.symetas[constantID] = meta
+	newSym := packSymbol(constantID.id(), target.Idx(), target.Kind(), target.Rank())
 
 	var cb compactbuilds
 	target.build(&cb)
 	str := cb.shared()
 	h := hashStr(str)
 
-	vocab.strsyms[h] = append(vocab.strsyms[h], constantID)
+	vocab.strsyms[h] = append(vocab.strsyms[h], newSym)
 
-	if meta.Kind() == SymSeq {
-		hSeq := hashSeq(vocab.sequences[meta.Idx])
-		vocab.seqsyms[hSeq] = append([]Symbol{constantID}, vocab.seqsyms[hSeq]...)
+	if newSym.Kind() == SymSeq {
+		hSeq := hashSeq(vocab.sequences[newSym.Idx()])
+		vocab.seqsyms[hSeq] = append([]Symbol{newSym}, vocab.seqsyms[hSeq]...)
 	}
 }
 
 // internLocked assumes vocab.Lock() is already held by the caller!
 func internLocked(s string, h uint64) Symbol {
-	// Re-check under lock
 	for _, sym := range vocab.strsyms[h] {
 		if symEqualsStringLocked(sym, s) { return sym }
 	}
 
-	// 1. Claim ID and reserve slot immediately
-	sym := Symbol(len(vocab.symetas))
-	vocab.symetas = append(vocab.symetas, SymMeta{Idx: -1}) // Placeholder
-	vocab.strsyms[h] = append(vocab.strsyms[h], sym) // Poison the uint64 map
+	id := vocab.symCount
+	vocab.symCount++
 
-	// 2. Evaluate metadata safely
-	meta := makeSymMetaLocked(s, sym)
+	sym := makeSymbolLocked(s, id)
 
-	// 3. Overwrite placeholder
-	vocab.symetas[sym] = meta
-
-	// 4. Register newly shredded strings into the fast-path map!
-	if meta.Kind() == SymSeq {
-		hSeq := hashSeq(vocab.sequences[meta.Idx])
+	vocab.strsyms[h] = append(vocab.strsyms[h], sym)
+	if sym.Kind() == SymSeq {
+		hSeq := hashSeq(vocab.sequences[sym.Idx()])
 		vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
 	}
 	return sym
@@ -1550,7 +1583,6 @@ func internLocked(s string, h uint64) Symbol {
 
 // intern takes a string, registers it if new, and returns its unique Symbol ID.
 func intern(s string) Symbol {
-	// Fast Path: Bypass Map Hashing for Core Constants
 	switch s {
 	case "":   return symEmpty
 	case "*":  return symWildcardOne
@@ -1564,7 +1596,6 @@ func intern(s string) Symbol {
 
 	h := hashStr(s)
 
-	// Zero-allocation fast-path lookup
 	vocab.RLock()
 	for _, sym = range vocab.strsyms[h] {
 		if ok = symEqualsStringLocked(sym, s); ok { break }
@@ -1573,7 +1604,6 @@ func intern(s string) Symbol {
 
 	if ok { return sym }
 
-	// Slow-path registration
 	vocab.Lock()
 	sym = internLocked(s, h)
 	vocab.Unlock()
@@ -1582,7 +1612,6 @@ func intern(s string) Symbol {
 
 // internBytes is optimized for scanner loops to avoid allocating strings.
 func internBytes(b []byte) Symbol {
-	// Hardware-Level Fast Path
 	if len(b) == 0 {
 		return symEmpty
 	} else if len(b) == 1 {
@@ -1602,7 +1631,6 @@ func internBytes(b []byte) Symbol {
 
 	h := hashBytes(b)
 
-	// Zero-allocation map lookup
 	vocab.RLock()
 	for _, sym = range vocab.strsyms[h] {
 		if ok = symEqualsBytesLocked(sym, b); ok { break }
@@ -1626,7 +1654,6 @@ func internEphemeral(s string) Symbol {
 
 	h := hashStr(s)
 
-	// 1. THE FAST PATH (Read-Only)
 	vocab.RLock()
 	for _, sym = range vocab.strsyms[h] {
 		if ok = symEqualsStringLocked(sym, s); ok { break }
@@ -1635,36 +1662,35 @@ func internEphemeral(s string) Symbol {
 
 	if ok { return sym }
 
-	// 2. THE SLOW PATH (Write)
 	vocab.Lock()
 	defer vocab.Unlock()
 
-	// Double-Checked Locking!
-	// Another goroutine might have interned this exact string in the fraction
-	// of a millisecond between our RUnlock() and Lock().
 	bucket := vocab.strsyms[h]
 	for _, sym = range bucket {
 		if symEqualsStringLocked(sym, s) { return sym }
 	}
 
-	// FAST ALLOCATION: Pop a recycled Symbol ID off the Free List!
+	var id uint32
+	var idx int32
+
 	if last := len(vocab.freeEph) - 1; last >= 0 {
-		sym = vocab.freeEph[last]
+		oldSym := vocab.freeEph[last]
 		vocab.freeEph = vocab.freeEph[:last]
-		vocab.ephemeral[vocab.symetas[sym].Idx] = s
-		vocab.symetas[sym].flags(SymEph, s)
+
+		id = oldSym.id()
+		idx = oldSym.Idx()
+
+		vocab.ephemeral[idx] = s
 	} else {
-		// SLOW ALLOCATION: Grow the arrays
-		sym = Symbol(len(vocab.symetas))
+		id = vocab.symCount
+		vocab.symCount++
 
-		meta := SymMeta{ Idx: int32(len(vocab.ephemeral)) }
-		meta.flags(SymEph, s)
-
+		idx = int32(len(vocab.ephemeral))
 		vocab.ephemeral = append(vocab.ephemeral, s)
-		vocab.symetas = append(vocab.symetas, meta)
 	}
 
-	vocab.strsyms[h] = append(bucket, sym)
+	sym = packSymbol(id, idx, SymEph, globRank(s))
+	vocab.strsyms[h] = append(vocab.strsyms[h], sym)
 	return sym
 }
 
@@ -1672,45 +1698,29 @@ func internEphemeral(s string) Symbol {
 // back to the Go GC, and pushes the integer ID to the Free List.
 // Returns true if successfully recycled, false if ignored.
 func recycleEphemeral(sym Symbol) bool {
-	// PURE WRITE LOCK: We are guaranteed to mutate the map/slices
-	// if this is a valid recycle operation.
 	vocab.Lock()
 	defer vocab.Unlock()
 
-	// 1. Out of bounds check
-	if int(sym) >= len(vocab.symetas) {
-		return false
-	}
+	if sym.id() >= vocab.symCount { return false }
+	if sym.Kind() != SymEph { return false }
 
-	meta := vocab.symetas[sym]
+	idx := sym.Idx()
+	s := vocab.ephemeral[idx]
 
-	// 2. Safely ignore non-ephemeral symbols
-	if meta.Kind() != SymEph {
-		return false
-	}
-
-	s := vocab.ephemeral[meta.Idx]
-
-	// 3. Double-free protection
-	// If the string is already "", this slot was already recycled!
 	if s == "" { return false }
 
-	// 4. THE MUTATIONS
 	h := hashStr(s)
-
-	// Un-poison the strsyms bucket cleanly
 	bucket := vocab.strsyms[h]
 	for i, c := range bucket {
-		if c == sym {
-			bucket[i] = bucket[len(bucket)-1] // Swap with last
+		if c.id() == sym.id() {
+			bucket[i] = bucket[len(bucket)-1]
 			vocab.strsyms[h] = bucket[:len(bucket)-1]
 			break
 		}
 	}
 
-	vocab.ephemeral[meta.Idx] = "" // Release to the GC Heap
+	vocab.ephemeral[idx] = "" // GC
 
-	// Push ID to the dedicated Ephemeral Free List
 	vocab.freeEph = append(vocab.freeEph, sym)
 	return true
 }
@@ -1724,8 +1734,7 @@ func internSeq(seq []Symbol) Symbol {
 
 	vocab.RLock()
 	for _, sym := range vocab.seqsyms[hSeq] {
-		meta := vocab.symetas[sym]
-		if meta.Kind() == SymSeq && isSeqEqual(vocab.sequences[meta.Idx], seq) {
+		if sym.Kind() == SymSeq && isSeqEqual(vocab.sequences[sym.Idx()], seq) {
 			vocab.RUnlock()
 			return sym
 		}
@@ -1736,8 +1745,7 @@ func internSeq(seq []Symbol) Symbol {
 	defer vocab.Unlock()
 
 	for _, sym := range vocab.seqsyms[hSeq] {
-		meta := vocab.symetas[sym]
-		if meta.Kind() == SymSeq && isSeqEqual(vocab.sequences[meta.Idx], seq) {
+		if sym.Kind() == SymSeq && isSeqEqual(vocab.sequences[sym.Idx()], seq) {
 			return sym
 		}
 	}
@@ -1747,28 +1755,28 @@ func internSeq(seq []Symbol) Symbol {
 	str := cb.shared()
 	hStr := hashStr(str)
 
-	// If the string form exists, bind it!
 	for _, existing := range vocab.strsyms[hStr] {
 		if symEqualsStringLocked(existing, str) {
-			if vocab.symetas[existing].Kind() == SymSeq {
+			if existing.Kind() == SymSeq {
 				vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], existing)
 			}
 			return existing
 		}
 	}
 
-	sym := Symbol(len(vocab.symetas))
-	vocab.strsyms[hStr] = append(vocab.strsyms[hStr], sym)
+	id := vocab.symCount
+	vocab.symCount++
 
+	idx := int32(len(vocab.sequences))
 	permSeq := make([]Symbol, len(seq))
 	copy(permSeq, seq)
 
-	meta := SymMeta{ Idx: int32(len(vocab.sequences)) }
-	meta.flags(SymSeq, str)
+	sym := packSymbol(id, idx, SymSeq, globRank(str))
 
-	vocab.symetas = append(vocab.symetas, meta)
+	vocab.strsyms[hStr] = append(vocab.strsyms[hStr], sym)
 	vocab.sequences = append(vocab.sequences, permSeq)
 	vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
+
 	return sym
 }
 
@@ -2137,8 +2145,8 @@ func (s *symstr) step() {
 		if len(s.tie.syms) > 0 {
 			sym := s.tie.syms[0] // Peek
 			s.tie.syms = s.tie.syms[1:] // Consume from Matcher
-			switch __symKind(sym) {
-			case SymRaw, SymInt, SymFlt, SymEph:
+			switch sym.Kind() {
+			case SymRaw, SymPct, SymInl, SymInt, SymFlt, SymEph:
 				// VM types prioritize density over AST source mapping
 				// TODO: emit(vmstr(sym.String())) etc.
 			case SymSeq:
@@ -3275,12 +3283,9 @@ func (s *symstr) eval(val Value, reverse bool) {
 	shatter = func(sym Symbol) {
 		if sym != symEmpty {
 			if false { pushSym(sym); return }
-			vocab.RLock()
-			meta := vocab.symetas[sym]
-			vocab.RUnlock()
-			if meta.Kind() == SymSeq {
+			if sym.Kind() == SymSeq {
 				vocab.RLock()
-				seq := vocab.sequences[meta.Idx]
+				seq := vocab.sequences[sym.Idx()]
 				vocab.RUnlock()
 				if reverse {
 					// BACKWARD STREAMING: Push 0 to N-1.
@@ -3487,7 +3492,7 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 	switch sym {
 	case symDash:
 		// THE DOD FIX: AST Zero-Pos Collapse Prevention!
-		// If the pattern/target tape byte mapping resolves to 0, enforce a minimum 
+		// If the pattern/target tape byte mapping resolves to 0, enforce a minimum
 		// valid Pos (1) so `reducePath` doesn't silently swallow the flag state!
 		if pos == 0 {
 			pos = _pos(s)
@@ -3624,8 +3629,8 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 	}
 
 	// 2. Raw Symbol Shifting
-	switch __symKind(sym) {
-	case SymRaw, SymInt, SymFlt, SymEph, SymSeq:
+	switch sym.Kind() {
+	case SymRaw, SymPct, SymInl, SymInt, SymFlt, SymEph, SymSeq:
 		s.vmpack.shift(_word(pos, sym))
 	}
 }
@@ -3687,17 +3692,17 @@ func (s *symstr) ReadRune() (rune, int, error) {
 		s.syms = s.syms[1:] // THE DOD FIX: Pop instantly to prevent double-reads!
 
 		vocab.RLock()
-		switch meta := vocab.symetas[sym]; meta.Kind() {
-		case SymRaw:
-			s.str = vocab.strings[meta.Idx]
+		switch sym.Kind() {
+		case SymRaw, SymPct:
+			s.str = vocab.strings[sym.Idx()]
 		case SymEph:
-			s.str = vocab.ephemeral[meta.Idx]
+			s.str = vocab.ephemeral[sym.Idx()]
 		case SymInt:
 			var buf [24]byte
-			s.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10))
+			s.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
 		case SymFlt:
 			var buf [64]byte
-			s.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
+			s.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
 		case SymSeq:
 			vocab.RUnlock()
 			panic("nested SymSeq for symstr")
@@ -3733,15 +3738,15 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 		p.syms = p.syms[1:]        // Safely consume from the underlying stream
 
 		vocab.RLock()
-		switch meta := vocab.symetas[sym]; meta.Kind() {
-		case SymRaw:      p.str = vocab.strings[meta.Idx]
-		case SymEph:      p.str = vocab.ephemeral[meta.Idx]
+		switch sym.Kind() {
+		case SymRaw, SymPct: p.str = vocab.strings[sym.Idx()]
+		case SymEph:         p.str = vocab.ephemeral[sym.Idx()]
 		case SymInt:
 			var buf [24]byte
-			p.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[meta.Idx]), 10))
+			p.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
 		case SymFlt:
 			var buf [64]byte
-			p.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64))
+			p.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
 		case SymSeq:
 			vocab.RUnlock()
 			panic("nested SymSeq for symstr")
@@ -3753,18 +3758,10 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 	return r, size, nil
 }
 
-func __symKind(sym Symbol) (k uint8) {
-	vocab.RLock()
-	k = vocab.symetas[sym].Kind()
-	vocab.RUnlock()
-	return
-}
-
 func __symSeq(sym Symbol) (seq []Symbol) {
 	vocab.RLock()
-	meta := vocab.symetas[sym]
-	if meta.Kind() == SymSeq {
-		seq = vocab.sequences[meta.Idx]
+	if sym.Kind() == SymSeq {
+		seq = vocab.sequences[sym.Idx()]
 	} else {
 		seq = []Symbol{sym}
 	}
@@ -3781,8 +3778,8 @@ func __symFlatSeq(sym Symbol) []Symbol {
 
 	var flatten func(Symbol, []Symbol) []Symbol
 	flatten = func(s Symbol, acc []Symbol) []Symbol {
-		if meta := vocab.symetas[s]; meta.Kind() == SymSeq {
-			for _, p := range vocab.sequences[meta.Idx] {
+		if s.Kind() == SymSeq {
+			for _, p := range vocab.sequences[s.Idx()] {
 				if p != symEmpty {
 					acc = flatten(p, acc)
 				}
@@ -3977,55 +3974,53 @@ func hash(ctx Context, v Value) uint64 { return _hash(ctx, uint64(fnvOffset), v)
 
 // symEqualsStringLocked resolves hash collisions perfectly with zero allocations for strings.
 func symEqualsStringLocked(sym Symbol, s string) bool {
-	if int(sym) >= len(vocab.symetas) { return false }
+	idx := sym.Idx()
 
-	meta := vocab.symetas[sym]
-
-	// FIX: If Idx is -1, this symbol is currently being built in this
-    // stack frame. Treating it as 'false' prevents the panic and
-    // allows the shredder to continue creating the required sub-symbols.
-    if meta.Idx == -1 {
+	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
+	// being built in this stack frame. Treating it as 'false' prevents the panic and
+	// allows the shredder to continue creating the required sub-symbols.
+	if idx == -1 || idx == 0xFFFFFFF {
 		if false {
 			var cs string
-			if int(sym) < len(coreSymbols) { cs = coreSymbols[int(sym)] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym, len(coreSymbols), cs, s))
+			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
+			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym.id(), len(coreSymbols), cs, s))
 		}
-        return false
-    }
+		return false
+	}
 
-	switch meta.Kind() {
-	case SymRaw: return vocab.strings[meta.Idx] == s
-	case SymEph: return vocab.ephemeral[meta.Idx] == s
-	case SymInt: return strconv.FormatInt(int64(vocab.numbers[meta.Idx]), 10) == s
-	case SymFlt: return strconv.FormatFloat(math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64) == s
+	switch sym.Kind() {
+	case SymRaw, SymPct: return vocab.strings[idx] == s
+	case SymEph: return vocab.ephemeral[idx] == s
+	case SymInt: return strconv.FormatInt(int64(vocab.numbers[idx]), 10) == s
+	case SymFlt: return strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64) == s
 	default:     return sym.string() == s // Safely unlocked builder for sequences
 	}
 }
 
 // symEqualsBytesLocked resolves hash collisions perfectly with zero allocations for bytes.
 func symEqualsBytesLocked(sym Symbol, b []byte) bool {
-	if int(sym) >= len(vocab.symetas) { return false }
+	if sym.id() >= vocab.symCount { return false }
 
-	meta := vocab.symetas[sym]
+	idx := sym.Idx()
 
-	// FIX: If Idx is -1, this symbol is currently being built in this
-    // stack frame. Treating it as 'false' prevents the panic and
-    // allows the shredder to continue creating the required sub-symbols.
-    if meta.Idx == -1 {
+	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
+	// being built in this stack frame. Treating it as 'false' prevents the panic and
+	// allows the shredder to continue creating the required sub-symbols.
+	if idx == -1 || idx == 0xFFFFFFF {
 		if false {
 			var cs string
-			if int(sym) < len(coreSymbols) { cs = coreSymbols[int(sym)] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym, len(coreSymbols), cs, string(b)))
+			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
+			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym.id(), len(coreSymbols), cs, string(b)))
 		}
-        return false
-    }
+		return false
+	}
 
 	var str string
-	switch meta.Kind() {
-	case SymRaw: str = vocab.strings[meta.Idx]
-	case SymEph: str = vocab.ephemeral[meta.Idx]
-	case SymInt: str = strconv.FormatInt(int64(vocab.numbers[meta.Idx]), 10)
-	case SymFlt: str = strconv.FormatFloat(math.Float64frombits(vocab.numbers[meta.Idx]), 'g', -1, 64)
+	switch sym.Kind() {
+	case SymRaw, SymPct: str = vocab.strings[idx]
+	case SymEph: str = vocab.ephemeral[idx]
+	case SymInt: str = strconv.FormatInt(int64(vocab.numbers[idx]), 10)
+	case SymFlt: str = strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64)
 	default:     str = sym.string() // Build it once
 	}
 
@@ -4065,14 +4060,10 @@ func isSeqSuffix(sSeq, sufSeq []Symbol) bool {
 	return true
 }
 
-func isRuleAuto(s Symbol) bool { return s == symDash || s == symTilde || symAt <= s && s <= symPlusA }
+func isRuleAuto(s Symbol) bool { return s == symDash || s == symTilde || symAt.id() <= s.id() && s.id() <= symPlusA.id() }
 
 func isSymKind(s Symbol, ns ...uint8) bool {
-	vocab.RLock()
-	meta := vocab.symetas[s]
-	vocab.RUnlock()
-
-	var k = meta.Kind()
+	var k = s.Kind()
 	for _, n := range ns { if k == n { return true } }
 	return false
 }
@@ -4176,14 +4167,15 @@ func __symUnDir(n int, sym Symbol) Symbol {
 		return sym
 	}
 
-	meta := vocab.symetas[sym]
-	if meta.Kind() != SymSeq {
+	if sym.Kind() != SymSeq {
 		// Fast Path: A single word. Stripping or keeping segments from a base
 		// name simply leaves the base name intact.
 		return sym
 	}
 
-	seq := vocab.sequences[meta.Idx]
+	vocab.RLock()
+	seq := vocab.sequences[sym.Idx()]
+	vocab.RUnlock()
 
 	// Dynamic Reverse-Symmetry Translation Path
 	if n < 0 {
@@ -4262,14 +4254,16 @@ func __symNDir(n int, sym Symbol) Symbol {
 		return symSlash
 	}
 
-	meta := vocab.symetas[sym]
-	if meta.Kind() != SymSeq {
+	if sym.Kind() != SymSeq {
 		// Fast Path: A single word (e.g., "filename.txt").
 		// Stepping up from a single word always yields "."
 		return symDot
 	}
 
-	seq := vocab.sequences[meta.Idx]
+	vocab.RLock()
+	seq := vocab.sequences[sym.Idx()]
+	vocab.RUnlock()
+
 	end := len(seq)
 
 	// Step backwards N times
@@ -4337,12 +4331,14 @@ func __symNBase(n int, sym Symbol) Symbol {
 		return sym
 	}
 
-	meta := vocab.symetas[sym]
-	if meta.Kind() != SymSeq {
+	if sym.Kind() != SymSeq {
 		return sym // A single raw word is its own N-base
 	}
 
-	seq := vocab.sequences[meta.Idx]
+	vocab.RLock()
+	seq := vocab.sequences[sym.Idx()]
+	vocab.RUnlock()
+
 	end := len(seq)
 
 	for end > 0 && seq[end-1] == symSlash {
@@ -4985,7 +4981,7 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 		sym := syms[i]
 
 		// 1. FAST-PATH: Non-raw symbols are NEVER structural punctuation.
-		kind := __symKind(sym)
+		kind := sym.Kind()
 		if kind == SymInt || kind == SymFlt || kind == SymEph || kind == SymSeq {
 			compVals = append(compVals, _word(pos, sym))
 			continue
@@ -5012,7 +5008,7 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 			depth := 1
 
 			for j := i + 1; j < len(syms); j++ {
-				if __symKind(syms[j]) != SymRaw { continue }
+				if syms[j].Kind() != SymRaw { continue }
 
 				if syms[j] == closing {
 					depth--
@@ -5195,14 +5191,14 @@ func __symbol(ctx Context, val Value) Symbol {
 	case *integer: // Base struct, in case the parser ever emits it directly
 		if v.sym != 0 { return v.sym }
 		if 0 <= v.int64 && v.int64 <= 9 {
-			return sym_0 + Symbol(v.int64)
+			return sym_0.add(int(v.int64))
 		}
 		return intern(strconv.FormatInt(v.int64, 10))
 
 	case *decimal:
 		if v.sym != 0 { return v.sym }
 		if 0 <= v.int64 && v.int64 <= 9 {
-			return sym_0 + Symbol(v.int64)
+			return sym_0.add(int(v.int64))
 		}
 		return intern(v.String()) // Safe fallback using the struct's String() method
 
@@ -5210,7 +5206,7 @@ func __symbol(ctx Context, val Value) Symbol {
 		if v.sym != 0 { return v.sym }
 		// Check if the float represents a clean single-digit integer (e.g., 1.0 -> 1)
 		if v.float64 == float64(int64(v.float64)) && 0 <= v.float64 && v.float64 <= 9 {
-			return sym_0 + Symbol(int64(v.float64))
+			return sym_0.add(int(v.float64))
 		}
 		return intern(v.String())
 
@@ -5264,7 +5260,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *integer: // Base struct, in case the parser ever emits it directly
 		var s Symbol
 		if 0 <= t.int64 && t.int64 <= 9 {
-			s = sym_0 + Symbol(t.int64)
+			s = sym_0.add(int(t.int64))
 		} else {
 			s = intern(strconv.FormatInt(t.int64, 10))
 		}
@@ -5272,7 +5268,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *decimal:
 		var s Symbol
 		if 0 <= t.int64 && t.int64 <= 9 {
-			s = sym_0 + Symbol(t.int64)
+			s = sym_0.add(int(t.int64))
 		} else {
 			s = intern(t.String())
 		}
@@ -5280,7 +5276,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *float:
 		var s Symbol
 		if t.float64 == float64(int64(t.float64)) && 0 <= t.float64 && t.float64 <= 9 {
-			s = sym_0 + Symbol(int64(t.float64))
+			s = sym_0.add(int(t.float64))
 		} else {
 			s = intern(t.String())
 		}
@@ -9335,7 +9331,6 @@ func (p parse_auto_ctx) do(ctx Context, op any) (_ any) {
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case keep_autos: return true
 	case is_auto_braced: return true // Alerts compiler we are currying
-
 	case is_auto_sym:
 		// Strict Explicit Shield: Only claim variables in `auto(a=3)`!
 		// This prevents greedy macros from stealing `val1`.
@@ -10597,6 +10592,11 @@ func (p *compiler) promptCachedConfigs(ctx Context) bool { return p.check(ctx, "
 func (p *compiler) promptConfigurationLoads(ctx Context) bool { return p.check(ctx, "prompt-configuration-loads") }
 
 func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (result Value) {
+	if id := sym.id(); uint64(sym) == uint64(id) && id < uint32(len(coreSymbols)) {
+		erro(ctx, "incorrect symbol bit-struct: %v, %064[1]b", sym)
+		panic("Bit-struct leak detected!")
+	}
+
 	switch sym {
 	case symEmpty:
 		erro(pc(ctx,pos), "resolving empty name")
@@ -10635,7 +10635,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 
 	var s = _scope(ctx)
 
-	if isRuleAuto(sym) || isSymKind(sym, SymInt) {
+	if isRuleAuto(sym) || sym.Kind() == SymInt {
 		return &auto{knownobject{objbase{valbase{pos}, s}, sym}}
 	}
 
@@ -11230,7 +11230,7 @@ func (p *compiler) calling(ctx Context) (result Value) {
 		sym = __symbol(ctx, name)
 		obj = p.resolve(ctx, name.Pos(), sym, closure)
 		if checkpoints {
-			if sym_0 < sym && sym <= sym_9 {
+			if sym_0.id() < sym.id() && sym.id() <= sym_9.id() {
 				if !isSymKind(sym,SymInt) {
 					erro(pc(ctx,p),
 						_f("%v %v → obj=%v", sym, ts(name), ts(obj)),
@@ -11886,7 +11886,7 @@ defsloop:
 						var sSym Symbol
 						// ZERO-ALLOCATION MATH: sym_0 to sym_9 are sequential iotas!
 						if i < 9 {
-							sSym = sym_1 + Symbol(i)
+							sSym = sym_1.add(i)
 						} else {
 							sSym = intern(strconv.Itoa(i + 1))
 						}
@@ -11908,7 +11908,7 @@ defsloop:
 					if len(capture) == 1 {
 						sym := capture[0]
 						// Fast-path index extraction for numeric captures $1-$9
-						if sym >= sym_1 && sym <= sym_9 {
+						if sym.id() >= sym_1.id() && sym.id() <= sym_9.id() {
 							if idx := int(sym - sym_0); idx <= len(stems) {
 								main = stems[idx-1]
 							}
@@ -12544,7 +12544,7 @@ func (p parse_rule_ctx) do(ctx Context, op any) (_ any) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case is_rule_parser: return true
-	case is_auto_sym: if isRuleAuto(t.s) || (sym_0 < t.s && t.s <= sym_9) { return true }
+	case is_auto_sym: if isRuleAuto(t.s) || (sym_0.id() < t.s.id() && t.s.id() <= sym_9.id()) { return true }
 	}
 	return p.Context.do(ctx, op)
 }
@@ -14888,9 +14888,9 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 		return
 	}
 
-	// altrFileName := coreSymbols[symAltrFileName]
-	mainFileName := coreSymbols[symMainFileName]
-	deprFileName := coreSymbols[symDeprFileName]
+	// altrFileName := coreSymbols[symAltrFileName.id()]
+	mainFileName := coreSymbols[symMainFileName.id()]
+	deprFileName := coreSymbols[symDeprFileName.id()]
 
 	// 2. Bubble the main project file to the front of the list
 	for i := 1; i < len(entries); i++ {
@@ -15139,9 +15139,9 @@ func (p assign_ctx) do(ctx Context, op any) any {
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case is_auto_sym:
 		// THE DOD FIX: Only Interned Symbol IDs sym_0 to sym_9 are contiguous!
-		// Use isSymKind to mathematically guarantee SymInts are shielded from dirty
-		// project-scope aliases during AST parsing.
-		if (sym_0 < t.s && t.s <= sym_9) || isSymKind(t.s, SymInt) { return true }
+		if isRuleAuto(t.s) || (t.s.id() >= sym_0.id() && t.s.id() <= sym_9.id()) {
+			return true
+		}
 	}
 	return p.Context.do(ctx, op)
 }
@@ -15173,7 +15173,7 @@ func (p *def_value_ctx) do(ctx Context, op any) any {
 	case origin    : if p.d.o&(t) != 0 { return true }
 	case origin_def: return p.d
 	case keep_autos: return true
-	case is_auto_sym: return sym_0 < t.s && t.s <= sym_9
+	case is_auto_sym: return isRuleAuto(t.s) || (sym_0.id() < t.s.id() && t.s.id() <= sym_9.id())
 	case absolute_path: return p.d.scope.project.absPath
     case get_project: return p.d.scope.project
 	case get_scope: return p.d.scope
@@ -17285,19 +17285,20 @@ func cmp_symbol(ctx Context, x, y Symbol) (result cmpres, sx, sy string) {
 	var iL, iR int64
 	var fL, fR float64
 
-	vocab.RLock()
-	metaL := vocab.symetas[x]
-	metaR := vocab.symetas[y]
-	kL := metaL.Kind()
-	kR := metaR.Kind()
+	// THE DOD FIX: Native Bit-Struct Extraction (Zero Memory Indirection!)
+	kL := x.Kind()
+	kR := y.Kind()
 
-	// Safely extract numbers matching legacy bounds
-	if kL == SymInt { iL = int64(vocab.numbers[metaL.Idx]) } else if kL == SymFlt { fL = math.Float64frombits(vocab.numbers[metaL.Idx]) }
-	if kR == SymInt { iR = int64(vocab.numbers[metaR.Idx]) } else if kR == SymFlt { fR = math.Float64frombits(vocab.numbers[metaR.Idx]) }
-	vocab.RUnlock()
+	// Safely extract numbers ONLY if necessary to minimize lock contention
+	if kL == SymInt || kL == SymFlt || kR == SymInt || kR == SymFlt {
+		vocab.RLock()
+		if kL == SymInt { iL = int64(vocab.numbers[x.Idx()]) } else if kL == SymFlt { fL = math.Float64frombits(vocab.numbers[x.Idx()]) }
+		if kR == SymInt { iR = int64(vocab.numbers[y.Idx()]) } else if kR == SymFlt { fR = math.Float64frombits(vocab.numbers[y.Idx()]) }
+		vocab.RUnlock()
+	}
 
 	// 1. Rank comparison (Globs)
-	if rL, rR := metaL.Rank(), metaR.Rank(); rL > 0 || rR > 0 {
+	if rL, rR := x.Rank(), y.Rank(); rL > 0 || rR > 0 {
 		if res := cmp_rank(rL, rR); res != cmpEqual {
 			// Note: sx, sy remain "" here, perfectly safe for rank tie-breakers
 			return res, sx, sy
@@ -18648,7 +18649,7 @@ LoopJSON:
                     err = errorIllJson; break LoopJSON
                 }
                 if k := stack[x-1].at(0); k == nil {
-                    if s = __string(ctx, k); s != coreSymbols[int(symObject)] {
+                    if s = __string(ctx, k); s != coreSymbols[symObject.id()] {
                         err = errorIllJson; break LoopJSON
                     }
                 }
@@ -18659,7 +18660,7 @@ LoopJSON:
                     err = errorIllJson; break LoopJSON
                 }
                 if k := stack[x-1].at(0); k == nil {
-                    if s = __string(ctx, k); s != coreSymbols[int(symArray)] {
+                    if s = __string(ctx, k); s != coreSymbols[symArray.id()] {
                         err = errorIllJson; break LoopJSON
                     }
                 }
@@ -18678,9 +18679,9 @@ LoopJSON:
             node = stack[x-1]
             if k := node.at(0); k != nil {
                 var kind string
-                if kind = __string(ctx, k); kind == coreSymbols[int(symArray)] {
+                if kind = __string(ctx, k); kind == coreSymbols[symArray.id()] {
                     node.append(sv); continue
-                } else if kind != coreSymbols[int(symObject)] {
+                } else if kind != coreSymbols[symObject.id()] {
                     err = errorIllJson; break LoopJSON
                 }
             }
@@ -24870,7 +24871,7 @@ func (ac *automatic) do(ctx Context, op any) (_ any) {
 	case clone_shared_targets:
 		var targets []Value
 		for _, d := range ac.defs {
-			if d.value != nil && __symKind(d.name) == SymInt {
+			if d.value != nil && d.name.Kind() == SymInt {
 				targets = append(targets, d.value)
 			}
 		}
@@ -28442,6 +28443,9 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 		})
 
 		if s == symEmpty {
+			// FIXME: optimize for paths like:
+			//   /var/folders/6l/hhs6f1cj07j82qy6hdph9cs40000gn/T/smart/.smart/tmp/_/_/_/_/_/_/Volumes/workspace/go/src/extbit.io/smart/testdata/value/configuration.sm
+			// Where `hhs6f1cj07j82qy6hdph9cs40000gn` should never be interned!
 			s = intern(os.TempDir())
 		}
 
@@ -38491,7 +38495,7 @@ func (ctx *__grep) x() (_ any) {
 			setGroup := func(idx int, v Value) {
 				var sym Symbol
 				if idx < 10 {
-					sym = Symbol(int(sym_0) + idx)
+					sym = sym_0.add(idx)
 				} else {
 					sym = intern(strconv.Itoa(idx))
 				}
