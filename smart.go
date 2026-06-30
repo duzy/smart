@@ -710,90 +710,91 @@ const (
 
 const (
 	// ==========================================
-	// 3. PUNCTUATION SYMBOLS (Kind = 3: SymPct)
-	// Idx maps to vocab.strings (for now, until rune-decoding)
+	// 3. PUNCTUATION SYMBOLS (Kind = 1: SymPct)
+	// Idx holds up to 3 bytes of INLINE string data!
+	// Any future punctuation > 3 bytes gracefully degrades to SymRaw/SymSeq.
 	// ==========================================
-	symAmpersand Symbol = (Symbol(SymPct) << 56) | ((iota + _id_raw_end) << 28) | (iota + _id_int_end)
-	symDollarSign   // $
-	symDash         // -     $-    the execution result
-	symUnderscore   // _
-	symBackquote    // `
-	symApostrophe   // '
-	symQuotation    // "
-	symColon        // :     ASCII Colon Symbol (U+003A)
-	symRatio        // ∶     Mathematical Ratio Symbol (U+2236)
-	symWideColon    // ：    Fullwidth Colon Symbol (U+FF1A)
-	symComma        // ,
-	symTilde        // ~     $~    the grep modifier result
-	symDot          // .
-	symDotDot       // ..
-	symSlash        // /
-	symSlashSlash   // //
-	symBackslash    // \
-	symBackslash2   // \\
-	symLparen       // (    symLeftParen
-	symRparen       // )    symRightParen
-	symLbrace       // {    symLeftBrace
-	symRbrace       // }    symRightBrace
-	symLbrack       // [    symLeftBracket
-	symRbrack       // ]    symRightBracket
-	symCornerTL     // ⌜    symLtopcorner
-	symCornerTR     // ⌝    symRtopcorner
-	symCornerBL     // ⌞    symLbotcorner
-	symCornerBR     // ⌟    symRbotcorner
-	symLsingguil    // ‹    symAngleQuoteSingleL
-	symRsingguil    // ›    symAngleQuoteSingleR
-	symLguillemet   // «    symAngleQuoteDoubleL
-	symRguillemet   // »    symAngleQuoteDoubleR
-	symArrow        // →
-	symHash         // #
-	symEqualSign    //  =   ASSIGN
-	symUnshiSign    //  =+  ASSIGN_USH
-	symAddeqSign    // +=   ASSIGN_ADD
-	symExclamation  // !
+	symAmpersand    Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '&') << 28) | (iota + _id_int_end) // &
+	symDollarSign   Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '$') << 28) | (iota + _id_int_end) // $
+	symDash         Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '-') << 28) | (iota + _id_int_end) // -
+	symUnderscore   Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '_') << 28) | (iota + _id_int_end) // _
+	symBackquote    Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '`') << 28) | (iota + _id_int_end) // `
+	symApostrophe   Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '\'') << 28) | (iota + _id_int_end) // '
+	symQuotation    Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '"') << 28) | (iota + _id_int_end) // "
+	symColon        Symbol = (Symbol(SymPct) << 56) | ((1<<24 | ':') << 28) | (iota + _id_int_end) // :
+	symRatio        Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x88<<8 | 0xB6<<16) << 28) | (iota + _id_int_end) // ∶
+	symWideColon    Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xEF | 0xBC<<8 | 0x9A<<16) << 28) | (iota + _id_int_end) // ：
+	symComma        Symbol = (Symbol(SymPct) << 56) | ((1<<24 | ',') << 28) | (iota + _id_int_end) // ,
+	symTilde        Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '~') << 28) | (iota + _id_int_end) // ~
+	symDot          Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '.') << 28) | (iota + _id_int_end) // .
+	symDotDot       Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '.' | '.'<<8) << 28) | (iota + _id_int_end) // ..
+	symSlash        Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '/') << 28) | (iota + _id_int_end) // /
+	symSlashSlash   Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '/' | '/'<<8) << 28) | (iota + _id_int_end) // //
+	symBackslash    Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '\\') << 28) | (iota + _id_int_end) // \
+	symBackslash2   Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '\\' | '\\'<<8) << 28) | (iota + _id_int_end) // \\
+	symLparen       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '(') << 28) | (iota + _id_int_end) // (
+	symRparen       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | ')') << 28) | (iota + _id_int_end) // )
+	symLbrace       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '{') << 28) | (iota + _id_int_end) // {
+	symRbrace       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '}') << 28) | (iota + _id_int_end) // }
+	symLbrack       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '[') << 28) | (iota + _id_int_end) // [
+	symRbrack       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | ']') << 28) | (iota + _id_int_end) // ]
+	symCornerTL     Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x8C<<8 | 0x9C<<16) << 28) | (iota + _id_int_end) // ⌜
+	symCornerTR     Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x8C<<8 | 0x9D<<16) << 28) | (iota + _id_int_end) // ⌝
+	symCornerBL     Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x8C<<8 | 0x9E<<16) << 28) | (iota + _id_int_end) // ⌞
+	symCornerBR     Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x8C<<8 | 0x9F<<16) << 28) | (iota + _id_int_end) // ⌟
+	symLsingguil    Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x80<<8 | 0xB9<<16) << 28) | (iota + _id_int_end) // ‹
+	symRsingguil    Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x80<<8 | 0xBA<<16) << 28) | (iota + _id_int_end) // ›
+	symLguillemet   Symbol = (Symbol(SymPct) << 56) | ((2<<24 | 0xC2 | 0xAB<<8) << 28) | (iota + _id_int_end) // «
+	symRguillemet   Symbol = (Symbol(SymPct) << 56) | ((2<<24 | 0xC2 | 0xBB<<8) << 28) | (iota + _id_int_end) // »
+	symArrow        Symbol = (Symbol(SymPct) << 56) | ((3<<24 | 0xE2 | 0x86<<8 | 0x92<<16) << 28) | (iota + _id_int_end) // →
+	symHash         Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '#') << 28) | (iota + _id_int_end) // #
+	symEqualSign    Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '=') << 28) | (iota + _id_int_end) // =
+	symUnshiSign    Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '=' | '+'<<8) << 28) | (iota + _id_int_end) // =+
+	symAddeqSign    Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '+' | '='<<8) << 28) | (iota + _id_int_end) // +=
+	symExclamation  Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '!') << 28) | (iota + _id_int_end) // !
 
-	symAt           // @     - the name of the target of the rule
-	symAtD          // @D
-	symAtF          // @F
-	symAtA          // @'
-	symBar          // |     - all the order-only prerequisites
-	symBarD         // |D
-	symBarF         // |F
-	symBarA         // |'
-	symCaret        // ^     - all the prerequisites
-	symCaretD       // ^D
-	symCaretF       // ^F
-	symCaretA       // ^'
-	symLangle       // <     - the first prerequisite
-	symLangleD      // <D
-	symLangleF      // <F
-	symLangleA      // <'
-	symRangle       // >     - the last prerequisite
-	symRangleD      // >D
-	symRangleF      // >F
-	symRangleA      // >'
-	symPercent      // %     - target archive member name
-	symPercentD     // %D
-	symPercentF     // %F
-	symPercentA     // %'
+	symAt           Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '@') << 28) | (iota + _id_int_end) // @
+	symAtD          Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '@' | 'D'<<8) << 28) | (iota + _id_int_end) // @D
+	symAtF          Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '@' | 'F'<<8) << 28) | (iota + _id_int_end) // @F
+	symAtA          Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '@' | '\''<<8) << 28) | (iota + _id_int_end) // @'
+	symBar          Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '|') << 28) | (iota + _id_int_end) // |
+	symBarD         Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '|' | 'D'<<8) << 28) | (iota + _id_int_end) // |D
+	symBarF         Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '|' | 'F'<<8) << 28) | (iota + _id_int_end) // |F
+	symBarA         Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '|' | '\''<<8) << 28) | (iota + _id_int_end) // |'
+	symCaret        Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '^') << 28) | (iota + _id_int_end) // ^
+	symCaretD       Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '^' | 'D'<<8) << 28) | (iota + _id_int_end) // ^D
+	symCaretF       Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '^' | 'F'<<8) << 28) | (iota + _id_int_end) // ^F
+	symCaretA       Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '^' | '\''<<8) << 28) | (iota + _id_int_end) // ^'
+	symLangle       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '<') << 28) | (iota + _id_int_end) // <
+	symLangleD      Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '<' | 'D'<<8) << 28) | (iota + _id_int_end) // <D
+	symLangleF      Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '<' | 'F'<<8) << 28) | (iota + _id_int_end) // <F
+	symLangleA      Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '<' | '\''<<8) << 28) | (iota + _id_int_end) // <'
+	symRangle       Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '>') << 28) | (iota + _id_int_end) // >
+	symRangleD      Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '>' | 'D'<<8) << 28) | (iota + _id_int_end) // >D
+	symRangleF      Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '>' | 'F'<<8) << 28) | (iota + _id_int_end) // >F
+	symRangleA      Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '>' | '\''<<8) << 28) | (iota + _id_int_end) // >'
+	symPercent      Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '%') << 28) | (iota + _id_int_end) // %
+	symPercentD     Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '%' | 'D'<<8) << 28) | (iota + _id_int_end) // %D
+	symPercentF     Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '%' | 'F'<<8) << 28) | (iota + _id_int_end) // %F
+	symPercentA     Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '%' | '\''<<8) << 28) | (iota + _id_int_end) // %'
 
-	symAsterisk     // * - the stem with which an implicit rule matches
-	symAsteriskD    // *D
-	symAsteriskF    // *F
-	symAsteriskA    // *'
-	symQues         // ?     - all the prerequisites that are newer than the target
-	symQuesD        // ?D
-	symQuesF        // ?F
-	symQuesA        // ?'
-	symPlus         // +     - like ‘$^’, all listed prerequisites as present
-	symPlusD        // +D
-	symPlusF        // +F
-	symPlusA        // +'
+	symAsterisk     Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '*') << 28) | (iota + _id_int_end) // *
+	symAsteriskD    Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '*' | 'D'<<8) << 28) | (iota + _id_int_end) // *D
+	symAsteriskF    Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '*' | 'F'<<8) << 28) | (iota + _id_int_end) // *F
+	symAsteriskA    Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '*' | '\''<<8) << 28) | (iota + _id_int_end) // *'
+	symQues         Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '?') << 28) | (iota + _id_int_end) // ?
+	symQuesD        Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '?' | 'D'<<8) << 28) | (iota + _id_int_end) // ?D
+	symQuesF        Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '?' | 'F'<<8) << 28) | (iota + _id_int_end) // ?F
+	symQuesA        Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '?' | '\''<<8) << 28) | (iota + _id_int_end) // ?'
+	symPlus         Symbol = (Symbol(SymPct) << 56) | ((1<<24 | '+') << 28) | (iota + _id_int_end) // +
+	symPlusD        Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '+' | 'D'<<8) << 28) | (iota + _id_int_end) // +D
+	symPlusF        Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '+' | 'F'<<8) << 28) | (iota + _id_int_end) // +F
+	symPlusA        Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '+' | '\''<<8) << 28) | (iota + _id_int_end) // +'
 
-	symDashDash     // --
-	symPlusPlus     // ++
-	symAsteriskQues // *?
-	symAsteriskAst  // **
+	symDashDash     Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '-' | '-'<<8) << 28) | (iota + _id_int_end) // --
+	symPlusPlus     Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '+' | '+'<<8) << 28) | (iota + _id_int_end) // ++
+	symAsteriskQues Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '*' | '?'<<8) << 28) | (iota + _id_int_end) // *?
+	symAsteriskAst  Symbol = (Symbol(SymPct) << 56) | ((2<<24 | '*' | '*'<<8) << 28) | (iota + _id_int_end) // **
 
 	_id_pct_end = iota + _id_int_end
 )
@@ -1120,7 +1121,7 @@ func packSymbol(id uint32, idx int32, kind uint8, rank int) Symbol {
 
 type vocabulary struct {
 	sync.RWMutex
-	symCount  uint32              // Tracks the next available Symbol ID (replaces len(symetas))
+	symcount  uint32              // Tracks the next available Symbol ID (replaces len(symetas))
 	strings   []string            // Side-table for monolithic/atomic strings!
 	ephemeral []string            // Side-table for ephemeral strings (for hash/timestamp etc.)!
 	numbers   []uint64            // Side-table for numbers!
@@ -1134,12 +1135,14 @@ var vocab vocabulary
 
 // unsafeByteLen returns atomic symbol byte-length without locking `vocab`.
 func (sym Symbol) unsafeByteLen() int { // Unlocked!
-	if sym == 0 || sym.id() >= vocab.symCount {
+	if sym == 0 || sym.id() >= vocab.symcount {
 		return 0
 	}
 
 	switch sym.Kind() {
-	case SymRaw, SymPct:
+	case SymPct, SymInl:
+		return int((uint32(sym.Idx()) >> 24) & 0x3)
+	case SymRaw:
 		return len(vocab.strings[sym.Idx()])
 	case SymEph:
 		return len(vocab.ephemeral[sym.Idx()])
@@ -1163,7 +1166,15 @@ func (sym Symbol) unsafeByteLen() int { // Unlocked!
 // build is a zero-allocation recursive string builder.
 func (sym Symbol) build(b *compactbuilds) { // Unlocked!
 	switch sym.Kind() {
-	case SymRaw, SymPct:
+	case SymPct, SymInl:
+		u := uint32(sym.Idx())
+		ln := (u >> 24) & 0x3
+		var buf [3]byte
+		if ln > 0 { buf[0] = byte(u) }
+		if ln > 1 { buf[1] = byte(u >> 8) }
+		if ln > 2 { buf[2] = byte(u >> 16) }
+		b.writeString(unsafe.String(&buf[0], int(ln)))
+	case SymRaw:
 		b.writeString(vocab.strings[sym.Idx()])
 	case SymEph:
 		b.writeString(vocab.ephemeral[sym.Idx()])
@@ -1189,24 +1200,40 @@ func (sym Symbol) string() string { // Unlocked!
 }
 
 func (sym Symbol) String() (s string) {
-	vocab.RLock()
-	if sym.id() < vocab.symCount {
+	if sym.id() < vocab.symcount {
 		switch sym.Kind() {
-		case SymRaw, SymPct:
+		case SymPct, SymInl:
+			u := uint32(sym.Idx())
+			ln := (u >> 24) & 0x3
+			buf := make([]byte, ln)
+			if ln > 0 { buf[0] = byte(u) }
+			if ln > 1 { buf[1] = byte(u >> 8) }
+			if ln > 2 { buf[2] = byte(u >> 16) }
+			s = string(buf)
+		case SymRaw:
+			vocab.RLock()
 			s = vocab.strings[sym.Idx()]
+			vocab.RUnlock()
 		case SymEph:
+			vocab.RLock()
 			s = vocab.ephemeral[sym.Idx()]
+			vocab.RUnlock()
 		case SymInt:
+			vocab.RLock()
 			s = strconv.FormatInt(int64(vocab.numbers[sym.Idx()]), 10)
+			vocab.RUnlock()
 		case SymFlt:
+			vocab.RLock()
 			s = strconv.FormatFloat(math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64)
+			vocab.RUnlock()
 		default:
+			vocab.RLock()
 			s = sym.string()
+			vocab.RUnlock()
 		}
 	} else {
 		s = "<invalid-symbol-id>"
 	}
-	vocab.RUnlock()
 	return s
 }
 
@@ -1220,7 +1247,7 @@ func (sym Symbol) len() int {
 func init() {
 	size := len(coreSymbols) + mapThreshold
 
-	vocab.symCount = uint32(len(coreSymbols))
+	vocab.symcount = uint32(len(coreSymbols))
 	vocab.strsyms = make(map[uint64][]Symbol, size)
 	vocab.seqsyms = make(map[uint64][]Symbol)
 	vocab.strings = make([]string, 0, size)
@@ -1281,11 +1308,13 @@ func makeSymbolLocked(s string, id uint32) Symbol {
 	kind := SymRaw
 
 	// 0. The Ultimate O(1) Atomic Bypass!
-	// THE DOD FIX: Use .id() to safely extract the 28-bit identifier!
 	if id >= symAmpersand.id() && id < symSMART_ARGS.id() {
-		idx = int32(len(vocab.strings))
-		vocab.strings = append(vocab.strings, s)
-		return packSymbol(id, idx, SymPct, globRank(s))
+		var u uint32 = uint32(len(s)) << 24
+		u |= uint32(s[0])
+		if len(s) > 1 { u |= uint32(s[1]) << 8 }
+		if len(s) > 2 { u |= uint32(s[2]) << 16 }
+		// NO append to vocab.strings!
+		return packSymbol(id, int32(u & 0xFFFFFFF), SymPct, globRank(s))
 	}
 
 	// 1. Fast boundary check for pure numbers
@@ -1510,8 +1539,8 @@ func bindLateConstantLocked(sym Symbol, s string) {
 	}
 
 	if !found {
-		targetID := vocab.symCount
-		vocab.symCount++
+		targetID := vocab.symcount
+		vocab.symcount++
 		target = makeSymbolLocked(s, targetID)
 		vocab.strsyms[h] = append(vocab.strsyms[h], target)
 	}
@@ -1568,8 +1597,8 @@ func internLocked(s string, h uint64) Symbol {
 		if symEqualsStringLocked(sym, s) { return sym }
 	}
 
-	id := vocab.symCount
-	vocab.symCount++
+	id := vocab.symcount
+	vocab.symcount++
 
 	sym := makeSymbolLocked(s, id)
 
@@ -1682,8 +1711,8 @@ func internEphemeral(s string) Symbol {
 
 		vocab.ephemeral[idx] = s
 	} else {
-		id = vocab.symCount
-		vocab.symCount++
+		id = vocab.symcount
+		vocab.symcount++
 
 		idx = int32(len(vocab.ephemeral))
 		vocab.ephemeral = append(vocab.ephemeral, s)
@@ -1701,7 +1730,7 @@ func recycleEphemeral(sym Symbol) bool {
 	vocab.Lock()
 	defer vocab.Unlock()
 
-	if sym.id() >= vocab.symCount { return false }
+	if sym.id() >= vocab.symcount { return false }
 	if sym.Kind() != SymEph { return false }
 
 	idx := sym.Idx()
@@ -1764,8 +1793,8 @@ func internSeq(seq []Symbol) Symbol {
 		}
 	}
 
-	id := vocab.symCount
-	vocab.symCount++
+	id := vocab.symcount
+	vocab.symcount++
 
 	idx := int32(len(vocab.sequences))
 	permSeq := make([]Symbol, len(seq))
@@ -3691,23 +3720,36 @@ func (s *symstr) ReadRune() (rune, int, error) {
 		sym := s.syms[0]
 		s.syms = s.syms[1:] // THE DOD FIX: Pop instantly to prevent double-reads!
 
-		vocab.RLock()
 		switch sym.Kind() {
-		case SymRaw, SymPct:
+		case SymPct, SymInl:
+			u := uint32(sym.Idx())
+			ln := (u >> 24) & 0x3
+			buf := make([]byte, ln)
+			if ln > 0 { buf[0] = byte(u) }
+			if ln > 1 { buf[1] = byte(u >> 8) }
+			if ln > 2 { buf[2] = byte(u >> 16) }
+			s.str = string(buf)
+		case SymRaw:
+			vocab.RLock()
 			s.str = vocab.strings[sym.Idx()]
+			vocab.RUnlock()
 		case SymEph:
+			vocab.RLock()
 			s.str = vocab.ephemeral[sym.Idx()]
+			vocab.RUnlock()
 		case SymInt:
 			var buf [24]byte
+			vocab.RLock()
 			s.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
+			vocab.RUnlock()
 		case SymFlt:
 			var buf [64]byte
+			vocab.RLock()
 			s.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
-		case SymSeq:
 			vocab.RUnlock()
+		case SymSeq:
 			panic("nested SymSeq for symstr")
 		}
-		vocab.RUnlock()
 	}
 
 	r, size := s.decodeRune()
@@ -3737,21 +3779,36 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 		p.mem = append(p.mem, sym) // Collect the symbol securely!
 		p.syms = p.syms[1:]        // Safely consume from the underlying stream
 
-		vocab.RLock()
 		switch sym.Kind() {
-		case SymRaw, SymPct: p.str = vocab.strings[sym.Idx()]
-		case SymEph:         p.str = vocab.ephemeral[sym.Idx()]
+		case SymPct, SymInl:
+			u := uint32(sym.Idx())
+			ln := (u >> 24) & 0x3
+			buf := make([]byte, ln)
+			if ln > 0 { buf[0] = byte(u) }
+			if ln > 1 { buf[1] = byte(u >> 8) }
+			if ln > 2 { buf[2] = byte(u >> 16) }
+			p.str = string(buf)
+		case SymRaw:
+			vocab.RLock()
+			p.str = vocab.strings[sym.Idx()]
+			vocab.RUnlock()
+		case SymEph:
+			vocab.RLock()
+			p.str = vocab.ephemeral[sym.Idx()]
+			vocab.RUnlock()
 		case SymInt:
 			var buf [24]byte
+			vocab.RLock()
 			p.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
+			vocab.RUnlock()
 		case SymFlt:
 			var buf [64]byte
+			vocab.RLock()
 			p.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
-		case SymSeq:
 			vocab.RUnlock()
+		case SymSeq:
 			panic("nested SymSeq for symstr")
 		}
-		vocab.RUnlock()
 	}
 
 	r, size := p.decodeRune()
@@ -3759,13 +3816,13 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 }
 
 func __symSeq(sym Symbol) (seq []Symbol) {
-	vocab.RLock()
 	if sym.Kind() == SymSeq {
+		vocab.RLock()
 		seq = vocab.sequences[sym.Idx()]
+		vocab.RUnlock()
 	} else {
 		seq = []Symbol{sym}
 	}
-	vocab.RUnlock()
 	return
 }
 
@@ -3989,7 +4046,17 @@ func symEqualsStringLocked(sym Symbol, s string) bool {
 	}
 
 	switch sym.Kind() {
-	case SymRaw, SymPct: return vocab.strings[idx] == s
+	case SymPct, SymInl:
+		u := uint32(idx)
+		ln := int((u >> 24) & 0x3)
+
+		if len(s) != ln { return false }
+		if ln > 0 && s[0] != byte(u) { return false }
+		if ln > 1 && s[1] != byte(u>>8) { return false }
+		if ln > 2 && s[2] != byte(u>>16) { return false }
+		return true
+
+	case SymRaw: return vocab.strings[idx] == s
 	case SymEph: return vocab.ephemeral[idx] == s
 	case SymInt: return strconv.FormatInt(int64(vocab.numbers[idx]), 10) == s
 	case SymFlt: return strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64) == s
@@ -3999,7 +4066,7 @@ func symEqualsStringLocked(sym Symbol, s string) bool {
 
 // symEqualsBytesLocked resolves hash collisions perfectly with zero allocations for bytes.
 func symEqualsBytesLocked(sym Symbol, b []byte) bool {
-	if sym.id() >= vocab.symCount { return false }
+	if sym.id() >= vocab.symcount { return false }
 
 	idx := sym.Idx()
 
@@ -4017,7 +4084,17 @@ func symEqualsBytesLocked(sym Symbol, b []byte) bool {
 
 	var str string
 	switch sym.Kind() {
-	case SymRaw, SymPct: str = vocab.strings[idx]
+	case SymPct, SymInl:
+		u := uint32(idx)
+		ln := int((u >> 24) & 0x3)
+
+		if len(b) != ln { return false }
+		if ln > 0 && b[0] != byte(u) { return false }
+		if ln > 1 && b[1] != byte(u>>8) { return false }
+		if ln > 2 && b[2] != byte(u>>16) { return false }
+		return true
+
+	case SymRaw: str = vocab.strings[idx]
 	case SymEph: str = vocab.ephemeral[idx]
 	case SymInt: str = strconv.FormatInt(int64(vocab.numbers[idx]), 10)
 	case SymFlt: str = strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64)
