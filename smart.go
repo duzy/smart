@@ -1824,32 +1824,36 @@ var (
 
 type evalop uint8
 
+// Bitwise extractors (inlined by the compiler)
+func (op evalop) nargs() int { return int(op >> 6) }
+func (op evalop) id() uint8  { return uint8(op & 0x3F) }
+
 const (
-	opEnd evalop = iota // 0, end
-	opEvalValue  // Initiates value-based JIT Compiler
-	opEmitSym
-	opCloseInterval
-	opUnwind // TODO: unwind backtracks
+	opEnd           evalop = (0 << 6) | iota // 0 operands
+	opEvalValue     evalop = (1 << 6) | iota // 1 operand  (val Value)
+	opEmitSym       evalop = (1 << 6) | iota // 1 operand  (sym Symbol)
+	opCloseInterval evalop = (2 << 6) | iota // 2 operands (start int, val Value)
+	opUnwind        evalop = (0 << 6) | iota // 0 operands
 
 	// --- Match Mode Bytecodes ---
-	opRegexMatch       // Matches a precompiled regex block
-	opRegexCon         // Matches regex concatenation - TODO
-	opMatchLiteral     // Matches a literal symbol/string linearly
-	opGlobQues         // Handles '?' backtracking
-	opGlobAsterisk     // Handles '*' backtracking
-	opGlobAstGreed     // Handles '**' backtracking (including '%')
-	opGlobAstCross     // Handles '*?' backtracking
-	opGlobRange        // Handles '[a-z]' matching
+	opRegexMatch    evalop = (1 << 6) | iota // 1 operand  (rx *regexpat)
+	opRegexCon      evalop = (0 << 6) | iota // 0 operands
+	opMatchLiteral  evalop = (1 << 6) | iota // 1 operand  (sym Symbol)
+	opGlobQues      evalop = (0 << 6) | iota // 0 operands
+	opGlobAsterisk  evalop = (0 << 6) | iota // 0 operands
+	opGlobAstGreed  evalop = (0 << 6) | iota // 0 operands
+	opGlobAstCross  evalop = (0 << 6) | iota // 0 operands
+	opGlobRange     evalop = (1 << 6) | iota // 1 operand  (v *globrange)
 
-	opConseqAsterisk
-	opConseqAstGreed
-	opConseqAstCross
+	opConseqAsterisk evalop = (0 << 6) | iota // 0 operands
+	opConseqAstGreed evalop = (0 << 6) | iota // 0 operands
+	opConseqAstCross evalop = (0 << 6) | iota // 0 operands
 
-	// --- TODO: Evaluate Mode Bytecodes ---
-	opResolve      // i.e., project.resolve or scope.resolve
-	opEvokeDef     // i.e., `case *def` of func evoke
-	opEvokeBuiltin // i.e., `case *builtin` of func evoke
-	opEvokeRule    // i.e., `case *rule` of func evoke, aka. traverse
+	// --- Evaluate Mode Bytecodes ---
+	opResolve       evalop = (0 << 6) | iota // 0 operands (Update if operands added)
+	opEvokeDef      evalop = (0 << 6) | iota
+	opEvokeBuiltin  evalop = (0 << 6) | iota
+	opEvokeRule     evalop = (0 << 6) | iota
 )
 
 const (
@@ -2551,7 +2555,8 @@ _op_switch_:
 		if len(s.tie.str) == 0 && len(s.tie.syms) > 0 {
 			target := s.tie.syms[0] // PEEK!
 
-			if isWildcardMeta(target) {
+			switch target {
+			case symQues, symAsterisk, symAsteriskAst, symAsteriskQues, symPercent:
 				startByte = s.tie.bytePos
 
 				if target == symQues {
@@ -2681,19 +2686,13 @@ _op_switch_:
 
 	case opConseqAsterisk, opConseqAstGreed, opConseqAstCross:
 		if len(s.tie.str) > 0 {
-			size := len(s.tie.str)
-			if reverse { s.tie.bytePos -= size } else { s.tie.bytePos += size }
-			sym := intern(s.tie.str)
+			// THE DOD FIX: Native Partial String Lookahead!
+			// Prevent greedy wildcards from blindly swallowing the partial literal remainder.
+			s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
 			s.tie.str = ""
-			s.emit(sym)
-			if len(s.stems) > 0 {
-				last := len(s.stems)-1
-				s.stems[last].syms = append(s.stems[last].syms, sym)
-				if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
-			}
 		}
 
-		if len(s.tie.str) == 0 && len(s.tie.syms) == 0 { s.tie.pump() }
+		if len(s.tie.syms) == 0 && len(s.tie.str) == 0 { s.tie.pump() }
 		if len(s.tie.syms) == 0 { break _op_switch_ }
 
 		target := s.tie.syms[0] // PEEK FIRST!
@@ -2719,7 +2718,7 @@ _op_switch_:
 			break _op_switch_
 		}
 
-		// THE DOD FIX: Native JIT Unrolling Lookahead!
+		// Native JIT Unrolling Lookahead!
 		var nextSym Symbol
 		for len(s.ops) > 0 {
 			top := s.ops[len(s.ops)-1]
@@ -2738,7 +2737,79 @@ _op_switch_:
 			}
 		}
 
+		// THE DOD FIX 2: Deep Pattern Validation Extraction!
+		var lookahead []Symbol
+		var joinedLookahead string
+		var mandatorySubstrings []string
+		var currentSub string
+
 		if nextSym != 0 {
+			lookahead = append(lookahead, nextSym)
+			joinedLookahead += nextSym.String()
+
+			opIdx := len(s.operands) - 1
+			foundNextWildcard := false
+
+			// Peek deeply into the AST to extract ALL mandatory future string requirements
+			for j := len(s.ops) - 2; j >= 0; j-- {
+				top := s.ops[j]
+				opIdx -= top.nargs() // Natively subtract the embedded operand count!
+
+				if top == opCloseInterval || top == opEmitSym || top == opEnd {
+					continue
+				} else if top == opMatchLiteral {
+					if opIdx >= 0 {
+						sym := s.operands[opIdx].(Symbol)
+						if sym != symEmpty {
+							if !foundNextWildcard {
+								lookahead = append(lookahead, sym)
+								joinedLookahead += sym.String()
+							} else {
+								currentSub += sym.String()
+							}
+						}
+					}
+				} else if top == opEvalValue {
+					if opIdx >= 0 {
+						switch v := s.operands[opIdx].(type) {
+						case *word:
+							if v.s != symEmpty {
+								if !foundNextWildcard {
+									lookahead = append(lookahead, v.s)
+									joinedLookahead += v.s.String()
+								} else {
+									currentSub += v.s.String()
+								}
+							}
+						case Symbol:
+							if v != symEmpty {
+								if !foundNextWildcard {
+									lookahead = append(lookahead, v)
+									joinedLookahead += v.String()
+								} else {
+									currentSub += v.String()
+								}
+							}
+						default:
+							foundNextWildcard = true
+							if currentSub != "" {
+								mandatorySubstrings = append(mandatorySubstrings, currentSub)
+								currentSub = ""
+							}
+						}
+					}
+				} else {
+					foundNextWildcard = true
+					if currentSub != "" {
+						mandatorySubstrings = append(mandatorySubstrings, currentSub)
+						currentSub = ""
+					}
+				}
+			}
+			if currentSub != "" {
+				mandatorySubstrings = append(mandatorySubstrings, currentSub)
+			}
+
 			// Safely pump the Generator to fill the lookahead window incrementally!
 			for s.tie.err == nil {
 				if op == opConseqAsterisk {
@@ -2750,9 +2821,15 @@ _op_switch_:
 				} else if op == opConseqAstCross {
 					var hasTarget bool
 					nStr := nextSym.String()
-					for _, t := range s.tie.syms {
+					for k, t := range s.tie.syms {
 						if strings.Contains(t.String(), nStr) {
-							hasTarget = true; break
+							window := t.String()
+							for m := k + 1; m < len(s.tie.syms) && len(window) < len(joinedLookahead); m++ {
+								window += s.tie.syms[m].String()
+							}
+							if strings.Contains(window, joinedLookahead) {
+								hasTarget = true; break
+							}
 						}
 					}
 					if hasTarget { break }
@@ -2762,6 +2839,15 @@ _op_switch_:
 				s.tie.pump()
 				if len(s.tie.syms) == snap { break } // EOF or starved
 			}
+
+			// Pre-build the complete flattened stream map for lightning-fast zero-math validation
+			var fullStream string
+			var streamOffsets []int
+			for _, sym := range s.tie.syms {
+				streamOffsets = append(streamOffsets, len(fullStream))
+				fullStream += sym.String()
+			}
+			streamOffsets = append(streamOffsets, len(fullStream))
 
 			// Limit the search vision! Standard `*` cannot cross `/`
 			searchLimit := len(s.tie.syms)
@@ -2784,10 +2870,51 @@ _op_switch_:
 					nStr := nextSym.String()
 
 					idx := -1
-					if reverse {
-						idx = strings.LastIndex(tStr, nStr)
-					} else {
-						idx = strings.Index(tStr, nStr)
+					searchOffset := 0
+					for searchOffset < len(tStr) {
+						var tempIdx int
+						if reverse {
+							tempIdx = strings.LastIndex(tStr[:len(tStr)-searchOffset], nStr)
+						} else {
+							tempIdx = strings.Index(tStr[searchOffset:], nStr)
+						}
+
+						if tempIdx == -1 { break }
+						if !reverse { tempIdx += searchOffset }
+
+						absIdx := streamOffsets[i] + tempIdx
+						valid := true
+
+						// 1. Verify Immediate Lookahead matches entirely
+						if len(fullStream) < absIdx+len(joinedLookahead) {
+							valid = false
+						} else if fullStream[absIdx:absIdx+len(joinedLookahead)] != joinedLookahead {
+							valid = false
+						}
+
+						// 2. Deep Validation: Ensure all future wildcards won't starve!
+						if valid && len(mandatorySubstrings) > 0 {
+							remainder := fullStream[absIdx+len(joinedLookahead):]
+							for _, sub := range mandatorySubstrings {
+								subIdx := strings.Index(remainder, sub)
+								if subIdx == -1 {
+									valid = false
+									break
+								}
+								remainder = remainder[subIdx+len(sub):]
+							}
+						}
+
+						if valid {
+							idx = tempIdx
+							break
+						}
+
+						if reverse {
+							searchOffset = len(tStr) - tempIdx
+						} else {
+							searchOffset = tempIdx + 1
+						}
 					}
 
 					if idx != -1 {
@@ -2802,16 +2929,60 @@ _op_switch_:
 						break
 					}
 				}
-			} else { // Greedy (*, **): Find LAST occurrence
+			} else { // Greedy (*, **): Find LAST occurrence that satisfies future AST ops!
 				for i := searchLimit - 1; i >= 0; i-- {
 					tStr := s.tie.syms[i].String()
 					nStr := nextSym.String()
 
 					idx := -1
-					if reverse {
-						idx = strings.Index(tStr, nStr)
-					} else {
-						idx = strings.LastIndex(tStr, nStr)
+					searchOffset := len(tStr)
+					if reverse { searchOffset = 0 }
+
+					for {
+						var tempIdx int
+						if reverse {
+							tempIdx = strings.Index(tStr[searchOffset:], nStr)
+							if tempIdx != -1 { tempIdx += searchOffset }
+						} else {
+							tempIdx = strings.LastIndex(tStr[:searchOffset], nStr)
+						}
+
+						if tempIdx == -1 { break }
+
+						absIdx := streamOffsets[i] + tempIdx
+						valid := true
+
+						// 1. Verify Immediate Lookahead matches entirely
+						if len(fullStream) < absIdx+len(joinedLookahead) {
+							valid = false
+						} else if fullStream[absIdx:absIdx+len(joinedLookahead)] != joinedLookahead {
+							valid = false
+						}
+
+						// 2. Deep Validation: Ensure all future wildcards won't starve!
+						if valid && len(mandatorySubstrings) > 0 {
+							remainder := fullStream[absIdx+len(joinedLookahead):]
+							for _, sub := range mandatorySubstrings {
+								subIdx := strings.Index(remainder, sub)
+								if subIdx == -1 {
+									valid = false
+									break
+								}
+								remainder = remainder[subIdx+len(sub):] // Shrink window forward
+							}
+						}
+
+						if valid {
+							idx = tempIdx
+							break
+						}
+
+						if reverse {
+							searchOffset = tempIdx + 1
+						} else {
+							searchOffset = tempIdx
+							if searchOffset == 0 { break }
+						}
 					}
 
 					if idx != -1 {
@@ -2835,7 +3006,7 @@ _op_switch_:
 					s.tie.syms = s.tie.syms[1:]
 					if frag != symEmpty { s.emit(frag) }
 
-					// THE DOD FIX: Advance pattern tape to prevent AST overwrite collapse!
+					// Advance pattern tape to prevent AST overwrite collapse!
 					if reverse {
 						s.tie.bytePos -= frag.len()
 						s.bytePos -= frag.len()
@@ -2853,7 +3024,6 @@ _op_switch_:
 
 				// Process the Sub-Symbol Boundary
 				if trimStr != "" || leaveStr != "" {
-					// THE DOD FIX: Prevent structural AST collapse!
 					if trimStr == "" {
 						break _op_switch_
 					}
@@ -2894,10 +3064,13 @@ _op_switch_:
 
 		if frag != symEmpty { s.emit(frag) }
 
+		// Synchronize BOTH byte coordinates in the fallback
 		if reverse {
 			s.tie.bytePos -= frag.len()
+			s.bytePos -= frag.len()
 		} else {
 			s.tie.bytePos += frag.len()
+			s.bytePos += frag.len()
 		}
 
 		if len(s.stems) > 0 {
@@ -3523,10 +3696,9 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 		// THE DOD FIX: AST Zero-Pos Collapse Prevention!
 		// If the pattern/target tape byte mapping resolves to 0, enforce a minimum
 		// valid Pos (1) so `reducePath` doesn't silently swallow the flag state!
-		if pos == 0 {
-			pos = _pos(s)
-			warn(s, "zero flag pos converted!", callstack{num:5})
-		}
+		if pos == NoPos { pos = _pos(s); if true {
+			warn(s, "no pos for flag, force @%d", pos, callstack{num:5})
+		}}
 		s.vmpack = &vmpack{parent: s.vmpack, flag: pos}
 		return
 
@@ -3688,14 +3860,19 @@ func (s *symstr) distance(idx int) int {
 func (s *symstr) posInRange(startByte, endByte int) Pos {
 	// Look up the Pos from the recorded execution intervals!
 	for _, inv := range s.intervals {
-		if inv.startByte <= startByte && endByte <= inv.endByte {
-			if inv.node != nil && inv.node.Pos().valid() {
-				return inv.node.Pos()
-			}
+		if inv.startByte <= startByte && endByte <= inv.endByte && inv.node != nil {
+			if pos := inv.node.Pos(); pos != NoPos { return pos }
 		}
 	}
-	if s.tie == nil { return NoPos }
-	return s.tie.posInRange(startByte, endByte)
+
+	if s.tie != nil {
+		pos := s.tie.posInRange(startByte, endByte)
+		if pos == NoPos { pos = _pos(s.Context); if false {
+			warn(s, "no pos in range [%d,%d), use @%d", startByte, endByte, pos, callstack{num:6})
+		}}
+		return pos
+	}
+	return NoPos
 }
 
 func (s *symstr) ReadRune() (rune, int, error) {
