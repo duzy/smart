@@ -330,6 +330,13 @@ const (
 	SymBlb uint8 = 7 // Idx points to context blob registry
 )
 
+// Define the bit-shift offsets as single sources of truth
+const (
+	sym_shift_id   = 0
+	sym_shift_idx  = 28
+	sym_shift_kind = 56
+)
+
 const (
 	// ==========================================
 	// 0. RAW SYMBOLS (Kind = 0: SymRaw)
@@ -1097,20 +1104,13 @@ func (s Symbol) Flags() uint8 { return uint8(s >> 56) }
 func (s Symbol) Kind() uint8  { return s.Flags() & 0x07 }
 func (s Symbol) Rank() int    { return int((s.Flags() >> 3) & 0x0F) }
 
-// Define the bit-shift offsets as single sources of truth
-const (
-	symIdShift  = 0
-	symIdxShift = 28
-	symKindShift = 56
-)
-
 // add mathematically increments both the ID and Idx planes of a packed Symbol.
 // Use this instead of raw integer addition to maintain bit-struct integrity
 // when dynamically offsetting contiguous iota constants (like sym_0 to sym_9).
 func (sym Symbol) add(offset int) Symbol {
 	if offset == 0 { return sym }
 	o := Symbol(offset)
-	return sym + (o << symIdShift) + (o << symIdxShift)
+	return sym + (o << sym_shift_id) + (o << sym_shift_idx)
 }
 
 // packSymbol securely packs the bit-struct.
@@ -1120,22 +1120,70 @@ func packSymbol(id uint32, idx int32, kind uint8, rank int) Symbol {
 }
 
 type vocabulary struct {
-	sync.RWMutex
-	symcount  uint32              // Tracks the next available Symbol ID (replaces len(symetas))
-	strings   []string            // Side-table for monolithic/atomic strings!
-	ephemeral []string            // Side-table for ephemeral strings (for hash/timestamp etc.)!
-	numbers   []uint64            // Side-table for numbers!
-	sequences [][]Symbol          // Side-table for shredded sequences, and late-bound constants!
+	// 1. Lock-Free Global Counter
+	// Use atomic.Uint32 for zero-blocking global ID generation.
+	symcount atomic.Uint32 // Tracks the next available Symbol ID (replaces len(symetas))
+
+	// 2. String Domain
+	strmut  sync.RWMutex
+	strings []string // Side-table for monolithic/atomic strings!
+	strsyms map[uint64][]Symbol // maps a string hash to a Symbol list (to resolve collisions)
+
+	// 3. Sequence Domain
+	seqmut    sync.RWMutex
+	sequences [][]Symbol // Side-table for shredded sequences, and late-bound constants!
 	seqsyms   map[uint64][]Symbol // maps a sequence hash to a Symbol list (to resolve collisions)
-	strsyms   map[uint64][]Symbol // maps a string hash to a Symbol list (to resolve collisions)
-	freeEph   []Symbol            // free pool for recycled SymEph symbols
+
+	// 4. Number Domain
+	nummut  sync.RWMutex
+	numbers []uint64 // Side-table for numbers!
+
+	// 5. Ephemeral Domain
+	ephmut    sync.Mutex // Mutex is usually enough here (no maps to read concurrently)
+	ephemeral []string // Side-table for ephemeral strings (for hash/timestamp etc.)!
+	freeeph   []Symbol // free pool for recycled SymEph symbols
+}
+
+// Lock acquires all domain locks in a strictly defined hierarchical order 
+// to mathematically guarantee zero deadlocks across the VM.
+// Order: Strings -> Sequences -> Numbers -> Ephemerals
+func (v *vocabulary) Lock() {
+	v.strmut.Lock()
+	v.seqmut.Lock()
+	v.nummut.Lock()
+	v.ephmut.Lock() // ephmut is a standard Mutex
+}
+
+// Unlock releases all domain locks in exact reverse order (LIFO).
+func (v *vocabulary) Unlock() {
+	v.ephmut.Unlock()
+	v.nummut.Unlock()
+	v.seqmut.Unlock()
+	v.strmut.Unlock()
+}
+
+// RLock acquires all domain read-locks in the same strict hierarchy.
+func (v *vocabulary) RLock() {
+	v.strmut.RLock()
+	v.seqmut.RLock()
+	v.nummut.RLock()
+	v.ephmut.Lock() // Ephemeral only has Mutex, so we exclusively lock it
+}
+
+// RUnlock releases all domain read-locks in exact reverse order (LIFO).
+func (v *vocabulary) RUnlock() {
+	v.ephmut.Unlock()
+	v.nummut.RUnlock()
+	v.seqmut.RUnlock()
+	v.strmut.RUnlock()
 }
 
 var vocab vocabulary
 
-// unsafeByteLen returns atomic symbol byte-length without locking `vocab`.
-func (sym Symbol) unsafeByteLen() int { // Unlocked!
-	if sym == 0 || sym.id() >= vocab.symcount {
+// unsafe_len returns atomic symbol byte-length.
+// Caller MUST hold the appropriate domain lock!
+func (sym Symbol) unsafe_len() int {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() {
 		return 0
 	}
 
@@ -1154,8 +1202,49 @@ func (sym Symbol) unsafeByteLen() int { // Unlocked!
 		return len(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
 	case SymSeq:
 		var l int
-		for _, s := range vocab.sequences[sym.Idx()] {
-			l += s.unsafeByteLen()
+		for _, s := range vocab.sequences[sym.Idx()] { l += s.unsafe_len() }
+		return l
+	default:
+		return 0
+	}
+}
+
+// len safely acquires ONLY the specific domain lock needed without defer overhead.
+func (sym Symbol) len() int {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return 0 }
+
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		return int((uint32(sym.Idx()) >> 24) & 0x3)
+	case SymRaw:
+		vocab.strmut.RLock()
+		l := len(vocab.strings[sym.Idx()])
+		vocab.strmut.RUnlock()
+		return l
+	case SymEph:
+		vocab.ephmut.Lock()
+		l := len(vocab.ephemeral[sym.Idx()])
+		vocab.ephmut.Unlock()
+		return l
+	case SymInt, SymFlt:
+		vocab.nummut.RLock()
+		num := vocab.numbers[sym.Idx()]
+		vocab.nummut.RUnlock()
+		if sym.Kind() == SymInt {
+			var buf [24]byte
+			return len(strconv.AppendInt(buf[:0], int64(num), 10))
+		} else {
+			var buf [64]byte
+			return len(strconv.AppendFloat(buf[:0], math.Float64frombits(num), 'g', -1, 64))
+		}
+	case SymSeq:
+		vocab.seqmut.RLock()
+		parts := vocab.sequences[sym.Idx()]
+		vocab.seqmut.RUnlock() // Unlock IMMEDIATELY before the loop to prevent holding during recursion!
+		
+		var l int
+		for _, s := range parts {
+			l += s.len() // Safely resolves leaf locks iteratively!
 		}
 		return l
 	default:
@@ -1163,91 +1252,459 @@ func (sym Symbol) unsafeByteLen() int { // Unlocked!
 	}
 }
 
-// build is a zero-allocation recursive string builder.
-func (sym Symbol) build(b *compactbuilds) { // Unlocked!
+func (sym Symbol) unsafe_view(buf *[64]byte) string {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return "" }
+
 	switch sym.Kind() {
+	case SymRaw:
+		s := vocab.strings[sym.Idx()]
+		return s
+	case SymEph:
+		s := vocab.ephemeral[sym.Idx()]
+		return s
 	case SymPct, SymInl:
 		u := uint32(sym.Idx())
-		ln := (u >> 24) & 0x3
-		var buf [3]byte
+		ln := int((u >> 24) & 0x3)
 		if ln > 0 { buf[0] = byte(u) }
 		if ln > 1 { buf[1] = byte(u >> 8) }
 		if ln > 2 { buf[2] = byte(u >> 16) }
-		b.writeString(unsafe.String(&buf[0], int(ln)))
-	case SymRaw:
-		b.writeString(vocab.strings[sym.Idx()])
-	case SymEph:
-		b.writeString(vocab.ephemeral[sym.Idx()])
+		return unsafe.String(&buf[0], ln)
 	case SymInt:
-		var buf [24]byte
-		res := strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10)
-		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
+		n := vocab.numbers[sym.Idx()]
+		b := strconv.AppendInt(buf[:0], int64(n), 10)
+		return unsafe.String(unsafe.SliceData(b), len(b))
 	case SymFlt:
-		var buf [64]byte
-		res := strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64)
-		b.writeString(unsafe.String(unsafe.SliceData(res), len(res)))
-	case SymSeq:
-		for _, s := range vocab.sequences[sym.Idx()] {
-			s.build(b)
-		}
+		f := vocab.numbers[sym.Idx()]
+		b := strconv.AppendFloat(buf[:0], math.Float64frombits(f), 'g', -1, 64)
+		return unsafe.String(unsafe.SliceData(b), len(b))
+	default:
+		return ""
 	}
 }
 
-func (sym Symbol) string() string { // Unlocked!
+func (sym Symbol) unsafe_view_append(buf []byte) []byte {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return buf }
+
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		u := uint32(sym.Idx())
+		ln := int((u >> 24) & 0x3)
+		if ln > 0 { buf = append(buf, byte(u)) }
+		if ln > 1 { buf = append(buf, byte(u >> 8)) }
+		if ln > 2 { buf = append(buf, byte(u >> 16)) }
+		return buf
+	case SymRaw:
+		buf = append(buf, vocab.strings[sym.Idx()]...)
+		return buf
+	case SymEph:
+		buf = append(buf, vocab.ephemeral[sym.Idx()]...)
+		return buf
+	case SymInt:
+		n := vocab.numbers[sym.Idx()]
+		return strconv.AppendInt(buf, int64(n), 10)
+	case SymFlt:
+		f := vocab.numbers[sym.Idx()]
+		return strconv.AppendFloat(buf, math.Float64frombits(f), 'g', -1, 64)
+	case SymSeq:
+		seq := vocab.sequences[sym.Idx()]
+		for _, p := range seq { buf = p.unsafe_view_append(buf) }
+		return buf
+	default:
+		return buf
+	}
+}
+
+// view projects an atomic symbol as a zero-allocation string.
+// It uses a caller-provided stack buffer for transient numeric/inline formatting.
+func (sym Symbol) view(buf *[64]byte) string {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return "" }
+
+	switch sym.Kind() {
+	case SymRaw:
+		vocab.strmut.RLock()
+		s := vocab.strings[sym.Idx()]
+		vocab.strmut.RUnlock()
+		return s
+	case SymEph:
+		vocab.ephmut.Lock()
+		s := vocab.ephemeral[sym.Idx()]
+		vocab.ephmut.Unlock()
+		return s
+	case SymPct, SymInl:
+		u := uint32(sym.Idx())
+		ln := int((u >> 24) & 0x3)
+		if ln > 0 { buf[0] = byte(u) }
+		if ln > 1 { buf[1] = byte(u >> 8) }
+		if ln > 2 { buf[2] = byte(u >> 16) }
+		return unsafe.String(&buf[0], ln)
+	case SymInt:
+		vocab.nummut.RLock()
+		n := vocab.numbers[sym.Idx()]
+		vocab.nummut.RUnlock()
+		b := strconv.AppendInt(buf[:0], int64(n), 10)
+		return unsafe.String(unsafe.SliceData(b), len(b))
+	case SymFlt:
+		vocab.nummut.RLock()
+		f := vocab.numbers[sym.Idx()]
+		vocab.nummut.RUnlock()
+		b := strconv.AppendFloat(buf[:0], math.Float64frombits(f), 'g', -1, 64)
+		return unsafe.String(unsafe.SliceData(b), len(b))
+	default:
+		return ""
+	}
+}
+
+// view_append recursively flattens a Symbol directly into a byte buffer.
+func (sym Symbol) view_append(buf []byte) []byte {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return buf }
+
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		u := uint32(sym.Idx())
+		ln := int((u >> 24) & 0x3)
+		if ln > 0 { buf = append(buf, byte(u)) }
+		if ln > 1 { buf = append(buf, byte(u >> 8)) }
+		if ln > 2 { buf = append(buf, byte(u >> 16)) }
+		return buf
+	case SymRaw:
+		vocab.strmut.RLock()
+		buf = append(buf, vocab.strings[sym.Idx()]...)
+		vocab.strmut.RUnlock()
+		return buf
+	case SymEph:
+		vocab.ephmut.Lock()
+		buf = append(buf, vocab.ephemeral[sym.Idx()]...)
+		vocab.ephmut.Unlock()
+		return buf
+	case SymInt:
+		vocab.nummut.RLock()
+		n := vocab.numbers[sym.Idx()]
+		vocab.nummut.RUnlock()
+		return strconv.AppendInt(buf, int64(n), 10)
+	case SymFlt:
+		vocab.nummut.RLock()
+		f := vocab.numbers[sym.Idx()]
+		vocab.nummut.RUnlock()
+		return strconv.AppendFloat(buf, math.Float64frombits(f), 'g', -1, 64)
+	case SymSeq:
+		vocab.seqmut.RLock()
+		seq := vocab.sequences[sym.Idx()]
+		vocab.seqmut.RUnlock() // Safely unlock before recursion
+		for _, p := range seq { buf = p.view_append(buf) }
+		return buf
+	default:
+		return buf
+	}
+}
+
+// views is a generic wrapper that projects two symbols as contiguous strings
+// and evaluates them. It guarantees zero allocations for both atomic leaves 
+// and sequences up to 512 bytes.
+func views[T any](f func(string, string) T, s1, s2 Symbol) T {
+	// Fast-path: Both are atomic leaves
+	if s1.Kind() != SymSeq && s2.Kind() != SymSeq {
+		var b1, b2 [64]byte
+		return f(s1.view(&b1), s2.view(&b2))
+	}
+
+	// Slow-path: Dynamic Sequence Projection (Zero Allocation up to 512 bytes)
+	var seqBuf [512]byte
+	mem := seqBuf[:0]
+
+	var i int
+
+	i = len(mem)
+	mem = s1.view_append(mem)
+	str1 := unsafe.String(unsafe.SliceData(mem[i:]), len(mem)-i)
+
+	i = len(mem)
+	mem = s2.view_append(mem)
+	str2 := unsafe.String(unsafe.SliceData(mem[i:]), len(mem)-i)
+
+	return f(str1, str2)
+}
+
+// unsafe_equal_string resolves hash collisions perfectly with zero allocations for strings.
+func (sym Symbol) unsafe_equal_string(s string) bool {
+	idx := sym.Idx()
+
+	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
+	// being built in this stack frame. Treating it as 'false' prevents the panic and
+	// allows the shredder to continue creating the required sub-symbols.
+	if idx == -1 || idx == 0xFFFFFFF {
+		if false {
+			var cs string
+			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
+			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym.id(), len(coreSymbols), cs, s))
+		}
+		return false
+	}
+
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		u := uint32(idx)
+		ln := int((u >> 24) & 0x3)
+
+		if len(s) != ln { return false }
+		if ln > 0 && s[0] != byte(u) { return false }
+		if ln > 1 && s[1] != byte(u>>8) { return false }
+		if ln > 2 && s[2] != byte(u>>16) { return false }
+		return true
+
+	case SymRaw: return vocab.strings[idx] == s
+	case SymEph: return vocab.ephemeral[idx] == s
+	case SymInt: return strconv.FormatInt(int64(vocab.numbers[idx]), 10) == s
+	case SymFlt: return strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64) == s
+	default:     return sym.unsafe_string() == s // Safely unlocked builder for sequences
+	}
+}
+
+// unsafe_equal_bytes resolves hash collisions perfectly with zero allocations for bytes.
+func (sym Symbol) unsafe_equal_bytes(b []byte) bool {
+	if sym.id() >= vocab.symcount.Load() { return false }
+
+	idx := sym.Idx()
+
+	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
+	// being built in this stack frame. Treating it as 'false' prevents the panic and
+	// allows the shredder to continue creating the required sub-symbols.
+	if idx == -1 || idx == 0xFFFFFFF {
+		if false {
+			var cs string
+			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
+			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym.id(), len(coreSymbols), cs, string(b)))
+		}
+		return false
+	}
+
+	var str string
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		u := uint32(idx)
+		ln := int((u >> 24) & 0x3)
+
+		if len(b) != ln { return false }
+		if ln > 0 && b[0] != byte(u) { return false }
+		if ln > 1 && b[1] != byte(u>>8) { return false }
+		if ln > 2 && b[2] != byte(u>>16) { return false }
+		return true
+
+	case SymRaw: str = vocab.strings[idx]
+	case SymEph: str = vocab.ephemeral[idx]
+	case SymInt: str = strconv.FormatInt(int64(vocab.numbers[idx]), 10)
+	case SymFlt: str = strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64)
+	default:     str = sym.unsafe_string() // Build it once
+	}
+
+	// ZERO-ALLOCATION BYTE COMPARISON
+	if len(str) != len(b) { return false }
+	for i := 0; i < len(b); i++ {
+		if str[i] != b[i] { return false }
+	}
+	return true
+}
+
+// equal_string resolves hash collisions perfectly with zero allocations for strings.
+func (sym Symbol) equal_string(s string) bool {
+	idx := sym.Idx()
+
+	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
+	// being built in this stack frame. Treating it as 'false' prevents the panic and
+	// allows the shredder to continue creating the required sub-symbols.
+	if idx == -1 || idx == 0xFFFFFFF {
+		if false {
+			var cs string
+			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
+			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym.id(), len(coreSymbols), cs, s))
+		}
+		return false
+	}
+
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		u := uint32(idx)
+		ln := int((u >> 24) & 0x3)
+
+		if len(s) != ln { return false }
+		if ln > 0 && s[0] != byte(u) { return false }
+		if ln > 1 && s[1] != byte(u>>8) { return false }
+		if ln > 2 && s[2] != byte(u>>16) { return false }
+		return true
+
+	case SymRaw:
+		vocab.strmut.RLock()
+		res := vocab.strings[idx] == s
+		vocab.strmut.RUnlock()
+		return res
+
+	case SymEph:
+		vocab.ephmut.Lock()
+		res := vocab.ephemeral[idx] == s
+		vocab.ephmut.Unlock()
+		return res
+		
+	case SymInt:
+		vocab.nummut.RLock()
+		res := strconv.FormatInt(int64(vocab.numbers[idx]), 10) == s
+		vocab.nummut.RUnlock()
+		return res
+		
+	case SymFlt:
+		vocab.nummut.RLock()
+		res := strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64) == s
+		vocab.nummut.RUnlock()
+		return res
+		
+	default:
+		return sym.string() == s // Safely unlocked builder for sequences
+	}
+}
+
+// equal_bytes resolves hash collisions perfectly with zero allocations for bytes.
+func (sym Symbol) equal_bytes(b []byte) bool {
+	if sym.id() >= vocab.symcount.Load() { return false }
+
+	idx := sym.Idx()
+
+	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
+	// being built in this stack frame. Treating it as 'false' prevents the panic and
+	// allows the shredder to continue creating the required sub-symbols.
+	if idx == -1 || idx == 0xFFFFFFF {
+		if false {
+			var cs string
+			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
+			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym.id(), len(coreSymbols), cs, string(b)))
+		}
+		return false
+	}
+
+	var str string
+	switch sym.Kind() {
+	case SymPct, SymInl:
+		u := uint32(idx)
+		ln := int((u >> 24) & 0x3)
+
+		if len(b) != ln { return false }
+		if ln > 0 && b[0] != byte(u) { return false }
+		if ln > 1 && b[1] != byte(u>>8) { return false }
+		if ln > 2 && b[2] != byte(u>>16) { return false }
+		return true
+
+	case SymRaw:
+		vocab.strmut.RLock()
+		str = vocab.strings[idx]
+		vocab.strmut.RUnlock()
+		
+	case SymEph:
+		vocab.ephmut.Lock()
+		str = vocab.ephemeral[idx]
+		vocab.ephmut.Unlock()
+		
+	case SymInt:
+		vocab.nummut.RLock()
+		str = strconv.FormatInt(int64(vocab.numbers[idx]), 10)
+		vocab.nummut.RUnlock()
+		
+	case SymFlt:
+		vocab.nummut.RLock()
+		str = strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64)
+		vocab.nummut.RUnlock()
+
+	default:
+		str = sym.string()
+	}
+
+	// ZERO-ALLOCATION BYTE COMPARISON
+	if len(str) != len(b) { return false }
+	for i := 0; i < len(b); i++ {
+		if str[i] != b[i] { return false }
+	}
+	return true
+}
+
+func (s Symbol) has_prefix(prefix Symbol) bool { return views[bool](strings.HasPrefix, s, prefix) }
+func (s Symbol) has_suffix(suffix Symbol) bool { return views[bool](strings.HasSuffix, s, suffix) }
+func (s Symbol) contains(needle Symbol) bool { return views[bool](strings.Contains, s, needle) }
+func (s Symbol) last_index(needle Symbol) int { return views[int](strings.LastIndex, s, needle) }
+func (s Symbol) index(needle Symbol) int { return views[int](strings.Index, s, needle) }
+
+// build implements the builds interface, streaming the symbol directly 
+// into the compactbuilds accumulator with zero intermediate allocations.
+func (sym Symbol) build(b *compactbuilds) {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return }
+
+	if sym.Kind() == SymSeq {
+		vocab.seqmut.RLock()
+		seq := vocab.sequences[sym.Idx()]
+		vocab.seqmut.RUnlock() // Safely unlock before recursion
+		for _, p := range seq { p.build(b) }
+		return
+	}
+
+	// For all atomic leaves, project them onto the stack and write instantly!
+	var buf [64]byte
+	b.writeString(sym.view(&buf))
+}
+
+func (sym Symbol) unsafe_build(b *compactbuilds) {
+	if sym == 0 || sym.id() >= vocab.symcount.Load() { return }
+
+	if sym.Kind() == SymSeq {
+		seq := vocab.sequences[sym.Idx()]
+		for _, p := range seq { p.unsafe_build(b) }
+		return
+	}
+
+	// For all atomic leaves, project them onto the stack and write instantly!
+	var buf [64]byte
+	b.writeString(sym.unsafe_view(&buf))
+}
+
+func (sym Symbol) unsafe_string() string {
+	var cb compactbuilds
+	sym.unsafe_build(&cb)
+	return cb.shared()
+}
+
+func (sym Symbol) string() string {
 	var cb compactbuilds
 	sym.build(&cb)
 	return cb.shared()
 }
 
-func (sym Symbol) String() (s string) {
-	if sym.id() < vocab.symcount {
-		switch sym.Kind() {
-		case SymPct, SymInl:
-			u := uint32(sym.Idx())
-			ln := (u >> 24) & 0x3
-			buf := make([]byte, ln)
-			if ln > 0 { buf[0] = byte(u) }
-			if ln > 1 { buf[1] = byte(u >> 8) }
-			if ln > 2 { buf[2] = byte(u >> 16) }
-			s = string(buf)
-		case SymRaw:
-			vocab.RLock()
-			s = vocab.strings[sym.Idx()]
-			vocab.RUnlock()
-		case SymEph:
-			vocab.RLock()
-			s = vocab.ephemeral[sym.Idx()]
-			vocab.RUnlock()
-		case SymInt:
-			vocab.RLock()
-			s = strconv.FormatInt(int64(vocab.numbers[sym.Idx()]), 10)
-			vocab.RUnlock()
-		case SymFlt:
-			vocab.RLock()
-			s = strconv.FormatFloat(math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64)
-			vocab.RUnlock()
-		default:
-			vocab.RLock()
-			s = sym.string()
-			vocab.RUnlock()
-		}
-	} else {
-		s = "<invalid-symbol-id>"
-	}
-	return s
-}
+// String returns the string representation of the symbol.
+// It guarantees exactly zero allocations for interned strings, and exactly 
+// ONE perfectly sized allocation for constructed sequences/numbers.
+func (sym Symbol) String() string {
+	if sym.id() >= vocab.symcount.Load() { return "<invalid-symbol-id>" }
 
-func (sym Symbol) len() int {
-	vocab.RLock()
-	res := sym.unsafeByteLen()
-	vocab.RUnlock()
-	return res
+	// Fast-path: Return the exact interned string pointer (Zero Allocation)
+	switch sym.Kind() {
+	case SymRaw:
+		vocab.strmut.RLock()
+		s := vocab.strings[sym.Idx()]
+		vocab.strmut.RUnlock()
+		return s
+	case SymEph:
+		vocab.ephmut.Lock()
+		s := vocab.ephemeral[sym.Idx()]
+		vocab.ephmut.Unlock()
+		return s
+	}
+
+	// Slow-path: Allocate exactly once for numbers, inline bytes, and sequences!
+	// We pre-calculate the length to completely eliminate append() resizing.
+	buf := make([]byte, 0, sym.len())
+	buf = sym.view_append(buf)
+	
+	// Zero-copy conversion from the perfectly sized buffer
+	return unsafe.String(unsafe.SliceData(buf), len(buf))
 }
 
 func init() {
 	size := len(coreSymbols) + mapThreshold
 
-	vocab.symcount = uint32(len(coreSymbols))
+	vocab.symcount.Store(uint32(len(coreSymbols)))
 	vocab.strsyms = make(map[uint64][]Symbol, size)
 	vocab.seqsyms = make(map[uint64][]Symbol)
 	vocab.strings = make([]string, 0, size)
@@ -1255,10 +1712,10 @@ func init() {
 	vocab.sequences = make([][]Symbol, 0, size/2)
 
 	// SINGLE PASS: Safely calculate metadata and construct fully formed Symbols instantly!
-	// THE DOD FIX: No more unpacked Symbol(i) placeholders. makeSymbolLocked guarantees
+	// THE DOD FIX: No more unpacked Symbol(i) placeholders. unsafe_make_symbol guarantees
 	// the correct packed bits are immediately injected into the map!
 	for i, s := range coreSymbols {
-		sym := makeSymbolLocked(s, uint32(i))
+		sym := unsafe_make_symbol(s, uint32(i))
 
 		h := hashStr(s)
 		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
@@ -1277,14 +1734,14 @@ func init() {
 		panic(e)
 	}
 
-	bindLateConstantLocked(symBaseWorkDir, cwd)
-	bindLateConstantLocked(symBaseTmpPath, filepath.Join(os.TempDir(), "smart"))
+	unsafe_bind_constant(symBaseWorkDir, cwd)
+	unsafe_bind_constant(symBaseTmpPath, filepath.Join(os.TempDir(), "smart"))
 
 	// PASS 4: Keywords and others...
 	keywords = make(map[Symbol]token, OFF-PROJECT)
 	for i := PROJECT; i <= OFF; i++ {
 		if s := tokens[i]; s != "" {
-			keywords[internLocked(s, hashStr(s))] = i
+			keywords[unsafe_intern(s, hashStr(s))] = i
 		}
 	}
 
@@ -1302,8 +1759,8 @@ func init() {
 	}
 }
 
-// makeSymbolLocked isolates the logic so it constructs the final uint64 Symbol
-func makeSymbolLocked(s string, id uint32) Symbol {
+// unsafe_make_symbol isolates the logic so it constructs the final uint64 Symbol
+func unsafe_make_symbol(s string, id uint32) Symbol {
 	idx := int32(-1)
 	kind := SymRaw
 
@@ -1363,7 +1820,7 @@ func makeSymbolLocked(s string, id uint32) Symbol {
 				didShred = true
 				if i > start {
 					part := s[start:i]
-					seq = append(seq, internLocked(part, hashStr(part)))
+					seq = append(seq, unsafe_intern(part, hashStr(part)))
 				}
 				if isPunct {
 					if ch == 0xE2 && i+1 < len(s) {
@@ -1403,7 +1860,7 @@ func makeSymbolLocked(s string, id uint32) Symbol {
 								didShred = false
 								break
 							}
-							seq = append(seq, internLocked(fullSet, hashStr(fullSet)))
+							seq = append(seq, unsafe_intern(fullSet, hashStr(fullSet)))
 							i += end
 							start = i + 1
 							continue
@@ -1501,7 +1958,7 @@ func makeSymbolLocked(s string, id uint32) Symbol {
 			idx = int32(len(vocab.sequences))
 			if start < len(s) {
 				part := s[start:]
-				seq = append(seq, internLocked(part, hashStr(part)))
+				seq = append(seq, unsafe_intern(part, hashStr(part)))
 			}
 			vocab.sequences = append(vocab.sequences, seq)
 		} else {
@@ -1513,8 +1970,9 @@ func makeSymbolLocked(s string, id uint32) Symbol {
 	return packSymbol(id, idx, kind, globRank(s))
 }
 
-// bindLateConstantLocked forcefuly assigns dynamic OS strings.
-func bindLateConstantLocked(sym Symbol, s string) {
+// unsafe_bind_constant forcefully assigns dynamic OS strings.
+// Assumes vocab.Lock() is already held by the caller!
+func unsafe_bind_constant(sym Symbol, s string) {
 	id := sym.id()
 
 	// 1. Safe boundary comparison
@@ -1523,14 +1981,15 @@ func bindLateConstantLocked(sym Symbol, s string) {
 	}
 
 	// 2. Synchronize the core string resolver immediately!
-	// Because sym is a hardcoded ID, String() skips side-tables and directly reads this array.
+	// Protected from data races because the caller holds vocab.Lock().
 	coreSymbols[id] = s
+
 	h := hashStr(s)
 
 	var target Symbol
 	var found bool
 	for _, t := range vocab.strsyms[h] {
-		if symEqualsStringLocked(t, s) {
+		if t.unsafe_equal_string(s) {
 			if t.id() == id { return } // Already aliased
 			target = t
 			found = true
@@ -1539,20 +1998,16 @@ func bindLateConstantLocked(sym Symbol, s string) {
 	}
 
 	if !found {
-		targetID := vocab.symcount
-		vocab.symcount++
-		target = makeSymbolLocked(s, targetID)
+		targetID := vocab.symcount.Add(1) - 1 // Atomic Increment and Capture
+		target = unsafe_make_symbol(s, targetID)
 		vocab.strsyms[h] = append(vocab.strsyms[h], target)
 	}
 
 	// 3. The Memory Hijack!
-	// We cannot change the bits of the Go const, so we overwrite the underlying
-	// sequence memory that its hardcoded Idx points to!
 	if target.Kind() == SymSeq {
 		vocab.sequences[sym.Idx()] = vocab.sequences[target.Idx()]
 	} else {
 		// If the new path is a raw string, wrap it in a 1-element slice
-		// because the constant's Kind is permanently locked as SymSeq!
 		vocab.sequences[sym.Idx()] = []Symbol{target}
 	}
 
@@ -1562,45 +2017,49 @@ func bindLateConstantLocked(sym Symbol, s string) {
 	vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
 }
 
-// bindLateConstant safely wraps the locked late-constant string binder.
-func bindLateConstant(sym Symbol, s string) {
+// bind_constant safely wraps the locked late-constant string binder.
+// Because binding happens once at VM startup, we use a single write lock 
+// for ultimate safety instead of a complex fast-path.
+func bind_constant(sym Symbol, s string) {
 	vocab.Lock()
-	defer vocab.Unlock()
-	bindLateConstantLocked(sym, s)
+	unsafe_bind_constant(sym, s)
+	vocab.Unlock()
 }
 
-// bindLateConstantAlias forcefully aliases a runtime Symbol to a compiler Constant.
-func bindLateConstantAlias(constantID Symbol, target Symbol) {
+// bind_constant_alias forcefully aliases a runtime Symbol to a compiler Constant.
+func bind_constant_alias(constantID Symbol, target Symbol) {
 	if constantID.id() == target.id() { return }
-
-	vocab.Lock()
-	defer vocab.Unlock()
 
 	newSym := packSymbol(constantID.id(), target.Idx(), target.Kind(), target.Rank())
 
+	// Unlocked sequence flattening prevents re-entrant RLock deadlocks!
 	var cb compactbuilds
 	target.build(&cb)
 	str := cb.shared()
 	h := hashStr(str)
 
+	// Sparse locks (Fixed 'v.' typo -> 'vocab.')
+	vocab.strmut.Lock()
+	vocab.seqmut.Lock()
+	
 	vocab.strsyms[h] = append(vocab.strsyms[h], newSym)
-
 	if newSym.Kind() == SymSeq {
 		hSeq := hashSeq(vocab.sequences[newSym.Idx()])
 		vocab.seqsyms[hSeq] = append([]Symbol{newSym}, vocab.seqsyms[hSeq]...)
 	}
+	
+	vocab.seqmut.Unlock()
+	vocab.strmut.Unlock()
 }
 
-// internLocked assumes vocab.Lock() is already held by the caller!
-func internLocked(s string, h uint64) Symbol {
+// unsafe_intern assumes vocab.Lock() is already held by the caller!
+func unsafe_intern(s string, h uint64) Symbol {
 	for _, sym := range vocab.strsyms[h] {
-		if symEqualsStringLocked(sym, s) { return sym }
+		if sym.unsafe_equal_string(s) { return sym }
 	}
 
-	id := vocab.symcount
-	vocab.symcount++
-
-	sym := makeSymbolLocked(s, id)
+	id := vocab.symcount.Add(1) - 1
+	sym := unsafe_make_symbol(s, id)
 
 	vocab.strsyms[h] = append(vocab.strsyms[h], sym)
 	if sym.Kind() == SymSeq {
@@ -1620,27 +2079,31 @@ func intern(s string) Symbol {
 	case "*?": return symWildcardShort
 	}
 
-	var ok bool
-	var sym Symbol
-
 	h := hashStr(s)
 
+	// FAST PATH: Locked Iteration + Unsafe Equality
 	vocab.RLock()
-	for _, sym = range vocab.strsyms[h] {
-		if ok = symEqualsStringLocked(sym, s); ok { break }
+	var existing Symbol
+	for _, sym := range vocab.strsyms[h] {
+		if sym.unsafe_equal_string(s) {
+			existing = sym
+			break
+		}
 	}
 	vocab.RUnlock()
 
-	if ok { return sym }
+	if existing != 0 { return existing }
 
+	// SLOW PATH
 	vocab.Lock()
-	sym = internLocked(s, h)
+	sym := unsafe_intern(s, h)
 	vocab.Unlock()
+	
 	return sym
 }
 
-// internBytes is optimized for scanner loops to avoid allocating strings.
-func internBytes(b []byte) Symbol {
+// intern_bytes is optimized for scanner loops to avoid allocating strings.
+func intern_bytes(b []byte) Symbol {
 	if len(b) == 0 {
 		return symEmpty
 	} else if len(b) == 1 {
@@ -1655,91 +2118,110 @@ func internBytes(b []byte) Symbol {
 		}
 	}
 
-	var ok bool
-	var sym Symbol
-
 	h := hashBytes(b)
 
+	// THE DOD FIX: Locked Iteration + Unsafe Equality
+	// (Replaces the data-racy unlocked slice iteration)
 	vocab.RLock()
-	for _, sym = range vocab.strsyms[h] {
-		if ok = symEqualsBytesLocked(sym, b); ok { break }
+	var existing Symbol
+	for _, sym := range vocab.strsyms[h] {
+		if sym.unsafe_equal_bytes(b) {
+			existing = sym
+			break
+		}
 	}
 	vocab.RUnlock()
 
-	if ok { return sym }
+	if existing != 0 { return existing }
 
 	s := string(b)
+
+	// SLOW PATH
 	vocab.Lock()
-	sym = internLocked(s, h)
+	sym := unsafe_intern(s, h)
 	vocab.Unlock()
+	
 	return sym
 }
 
-// internEphemeral forces a string into the Walled Garden as a monolithic SymEph,
+// intern_ephemeral forces a string into the Walled Garden as a monolithic SymEph,
 // utilizing recycled IDs if available to prevent memory leaks.
-func internEphemeral(s string) Symbol {
-	var ok bool
-	var sym Symbol
-
+func intern_ephemeral(s string) Symbol {
 	h := hashStr(s)
 
+	var existing Symbol
+
+	// 1. FAST PATH (Safe Read Locks)
 	vocab.RLock()
-	for _, sym = range vocab.strsyms[h] {
-		if ok = symEqualsStringLocked(sym, s); ok { break }
+	for _, sym := range vocab.strsyms[h] {
+		if sym.unsafe_equal_string(s) {
+			existing = sym
+			break
+		}
 	}
 	vocab.RUnlock()
 
-	if ok { return sym }
+	if existing != 0 { return existing }
 
+	// 2. SLOW PATH (Strict Write Locks to prevent Duplicate Creation)
 	vocab.Lock()
-	defer vocab.Unlock()
 
-	bucket := vocab.strsyms[h]
-	for _, sym = range bucket {
-		if symEqualsStringLocked(sym, s) { return sym }
+	// Double check! (In case another thread created it while we were unlocked)
+	for _, sym := range vocab.strsyms[h] {
+		if sym.unsafe_equal_string(s) {
+			vocab.Unlock()
+			return sym
+		}
 	}
 
 	var id uint32
 	var idx int32
 
-	if last := len(vocab.freeEph) - 1; last >= 0 {
-		oldSym := vocab.freeEph[last]
-		vocab.freeEph = vocab.freeEph[:last]
+	if last := len(vocab.freeeph) - 1; last >= 0 {
+		oldSym := vocab.freeeph[last]
+		vocab.freeeph = vocab.freeeph[:last]
 
 		id = oldSym.id()
 		idx = oldSym.Idx()
 
 		vocab.ephemeral[idx] = s
 	} else {
-		id = vocab.symcount
-		vocab.symcount++
-
+		id = vocab.symcount.Add(1) - 1
 		idx = int32(len(vocab.ephemeral))
 		vocab.ephemeral = append(vocab.ephemeral, s)
 	}
 
-	sym = packSymbol(id, idx, SymEph, globRank(s))
+	sym := packSymbol(id, idx, SymEph, globRank(s))
 	vocab.strsyms[h] = append(vocab.strsyms[h], sym)
+	
+	vocab.Unlock() // Zero-defer manual unlock
+	
 	return sym
 }
 
-// recycleEphemeral wipes the symbol from the Walled Garden, hands the string
+// recycle_ephemeral wipes the symbol from the Walled Garden, hands the string
 // back to the Go GC, and pushes the integer ID to the Free List.
 // Returns true if successfully recycled, false if ignored.
-func recycleEphemeral(sym Symbol) bool {
-	vocab.Lock()
-	defer vocab.Unlock()
-
-	if sym.id() >= vocab.symcount { return false }
+func recycle_ephemeral(sym Symbol) bool {
+	if sym.id() >= vocab.symcount.Load() { return false }
 	if sym.Kind() != SymEph { return false }
 
 	idx := sym.Idx()
-	s := vocab.ephemeral[idx]
 
-	if s == "" { return false }
+	// THE DOD FIX: Atomically lock the entire transaction.
+	// This prevents concurrent double-recycles and iteration data races on strsyms!
+	vocab.Lock()
+
+	s := vocab.ephemeral[idx]
+	if s == "" { 
+		vocab.Unlock()
+		return false // Already recycled by another thread
+	}
 
 	h := hashStr(s)
 	bucket := vocab.strsyms[h]
+	
+	// O(1) Slice deletion (safely protected by the global lock)
 	for i, c := range bucket {
 		if c.id() == sym.id() {
 			bucket[i] = bucket[len(bucket)-1]
@@ -1748,65 +2230,266 @@ func recycleEphemeral(sym Symbol) bool {
 		}
 	}
 
-	vocab.ephemeral[idx] = "" // GC
-
-	vocab.freeEph = append(vocab.freeEph, sym)
+	vocab.ephemeral[idx] = "" // Hand back to Go GC
+	vocab.freeeph = append(vocab.freeeph, sym)
+	
+	vocab.Unlock() // Zero-defer manual unlock
+	
 	return true
 }
 
-// internSeq converts a slice of symbols into a unique Symbol ID with zero allocations on lookup.
-func internSeq(seq []Symbol) Symbol {
+// intern_seq converts a slice of symbols into a unique Symbol ID with zero allocations on lookup.
+func intern_seq(seq []Symbol) Symbol {
 	if len(seq) == 0 { return symEmpty }
 	if len(seq) == 1 { return seq[0] }
 
 	hSeq := hashSeq(seq)
 
-	vocab.RLock()
+	// 1. SEQUENCE FAST PATH (Sparse Lock)
+	vocab.seqmut.RLock()
 	for _, sym := range vocab.seqsyms[hSeq] {
-		if sym.Kind() == SymSeq && isSeqEqual(vocab.sequences[sym.Idx()], seq) {
-			vocab.RUnlock()
+		if sym.Kind() == SymSeq && __symSeqEqual(vocab.sequences[sym.Idx()], seq) {
+			vocab.seqmut.RUnlock()
 			return sym
 		}
 	}
-	vocab.RUnlock()
+	vocab.seqmut.RUnlock()
 
-	vocab.Lock()
-	defer vocab.Unlock()
-
-	for _, sym := range vocab.seqsyms[hSeq] {
-		if sym.Kind() == SymSeq && isSeqEqual(vocab.sequences[sym.Idx()], seq) {
-			return sym
-		}
-	}
-
+	// 2. Unlocked String Build
 	var cb compactbuilds
 	for _, s := range seq { s.build(&cb) }
 	str := cb.shared()
 	hStr := hashStr(str)
 
-	for _, existing := range vocab.strsyms[hStr] {
-		if symEqualsStringLocked(existing, str) {
-			if existing.Kind() == SymSeq {
-				vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], existing)
+	// 3. STRING FAST PATH (Safe Read Locks)
+	// We read-lock all domains strictly to avoid recursive RLock deadlocks when 
+	// calling unsafe_equal_string. Because it's an RLock, it does NOT block 
+	// other threads from reading! It's lightning fast.
+	vocab.RLock()
+	var existing Symbol
+	for _, sym := range vocab.strsyms[hStr] {
+		if sym.unsafe_equal_string(str) {
+			existing = sym
+			break
+		}
+	}
+	vocab.RUnlock()
+
+	if existing != 0 {
+		if existing.Kind() == SymSeq {
+			vocab.seqmut.Lock() // Sparse Lock just to append
+			vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], existing)
+			vocab.seqmut.Unlock()
+		}
+		return existing
+	}
+
+	// 4. SLOW PATH (Strict Write Locks to prevent Duplicate Creation)
+	vocab.Lock()
+	
+	// Double check! (In case another thread created it while we were unlocked)
+	for _, sym := range vocab.strsyms[hStr] {
+		if sym.unsafe_equal_string(str) {
+			if sym.Kind() == SymSeq {
+				vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
 			}
-			return existing
+			vocab.Unlock()
+			return sym
 		}
 	}
 
-	id := vocab.symcount
-	vocab.symcount++
-
+	id := vocab.symcount.Add(1) - 1
 	idx := int32(len(vocab.sequences))
+
 	permSeq := make([]Symbol, len(seq))
 	copy(permSeq, seq)
 
 	sym := packSymbol(id, idx, SymSeq, globRank(str))
 
 	vocab.strsyms[hStr] = append(vocab.strsyms[hStr], sym)
-	vocab.sequences = append(vocab.sequences, permSeq)
 	vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
+	vocab.sequences = append(vocab.sequences, permSeq)
+	vocab.Unlock()
 
 	return sym
+}
+
+func __symSeq(sym Symbol) (seq []Symbol) {
+	if sym.Kind() == SymSeq {
+		vocab.seqmut.RLock()
+		seq = vocab.sequences[sym.Idx()]
+		vocab.seqmut.RUnlock()
+	} else {
+		seq = []Symbol{sym}
+	}
+	return
+}
+
+// __symSeqContains replaces: strings.Contains(window, joinedLookahead)
+func __symSeqContains(haystack []Symbol, needle []Symbol) bool {
+	if len(needle) == 0 { return true }
+	
+	// Single-symbol fallback (supports sub-symbol boundaries)
+	if len(needle) == 1 {
+		nStr := needle[0].String()
+		for _, h := range haystack {
+			if h == needle[0] || strings.Contains(h.String(), nStr) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Multi-symbol boundaries strictly require atomic alignment
+	limit := len(haystack) - len(needle)
+	for i := 0; i <= limit; i++ {
+		match := true
+		for j := range needle {
+			if haystack[i+j] != needle[j] {
+				match = false
+				break
+			}
+		}
+		if match { return true }
+	}
+	return false
+}
+
+// __symSeqIndex replaces: strings.Index(fullStream[searchOffset:], joinedLookahead)
+func __symSeqIndex(haystack []Symbol, startByteOffset int, needle []Symbol) int {
+	if len(needle) == 0 { return startByteOffset }
+	
+	currentByte := startByteOffset
+	nLen := len(needle)
+	
+	for i, h := range haystack {
+		hStr := h.String()
+		
+		if nLen == 1 {
+			if idx := strings.Index(hStr, needle[0].String()); idx != -1 {
+				return currentByte + idx
+			}
+		} else if i <= len(haystack)-nLen {
+			match := true
+			for j := 0; j < nLen; j++ {
+				if haystack[i+j] != needle[j] {
+					match = false
+					break
+				}
+			}
+			if match { return currentByte }
+		}
+		currentByte += len(hStr)
+	}
+	return -1
+}
+
+// __symSeqLastIndex replaces: strings.LastIndex(fullStream[:searchOffset], joinedLookahead)
+func __symSeqLastIndex(haystack []Symbol, limitByteOffset int, needle []Symbol) int {
+	if len(needle) == 0 { return limitByteOffset }
+	
+	// Pre-calculate absolute byte offsets for stable backwards traversal
+	offsets := make([]int, len(haystack))
+	currentByte := 0
+	for i, h := range haystack {
+		offsets[i] = currentByte
+		currentByte += h.len()
+	}
+
+	nLen := len(needle)
+	
+	for i := len(haystack) - 1; i >= 0; i-- {
+		if offsets[i] > limitByteOffset { continue } // Enforce the slice boundary natively
+		
+		hStr := haystack[i].String()
+		if nLen == 1 {
+			if idx := strings.LastIndex(hStr, needle[0].String()); idx != -1 {
+				absIdx := offsets[i] + idx
+				if absIdx <= limitByteOffset {
+					return absIdx
+				}
+			}
+		} else if i+nLen <= len(haystack) {
+			match := true
+			for j := 0; j < nLen; j++ {
+				if haystack[i+j] != needle[j] {
+					match = false
+					break
+				}
+			}
+			if match { return offsets[i] }
+		}
+	}
+	return -1
+}
+
+// __symFlatSeq recursively flattens a Symbol into a 1D slice of atomic leaf symbols.
+// It optimizes lock contention by acquiring the vocabulary read lock exactly once.
+func __symFlatSeq(sym Symbol) []Symbol {
+	if sym == symEmpty { return nil }
+
+	var flatten func(Symbol, []Symbol) []Symbol
+	flatten = func(s Symbol, acc []Symbol) []Symbol {
+		if s.Kind() == SymSeq {
+			// Copy slice locally to release lock quickly before recurring
+			parts := vocab.sequences[s.Idx()] 
+			
+			for _, p := range parts {
+				if p != symEmpty { acc = flatten(p, acc) }
+			}
+			return acc
+		}
+		return append(acc, s)
+	}
+
+	// Pre-allocate a small capacity (e.g., 4 or 8) to completely eliminate
+	// the first few append() reallocation cycles!
+	seq := make([]Symbol, 0, 4)
+
+	vocab.seqmut.RLock()
+	seq = flatten(sym, seq)
+	vocab.seqmut.RUnlock()
+
+	return seq
+}
+
+// __symMatrix is the pristine 2D trie edge builder.
+// It forwards tokenized Symbol sequences natively, bypassing string parsing completely.
+func __symMatrix(sym Symbol, isGlob bool) [][]Symbol {
+	var matrix [][]Symbol
+	var current []Symbol
+
+	for _, part := range __symFlatSeq(sym) {
+		if part == symEmpty {
+			continue
+		}
+
+		// 1. Directory Boundary: Start a new outer slice!
+		if part == symSlash {
+			if len(current) > 0 {
+				matrix = append(matrix, current)
+				current = nil
+			}
+			continue
+		}
+
+		// 2. Native Glob Normalization: `**` + `.` becomes `**` + `*` + `.`
+		if isGlob && part == symDot {
+			if len(current) > 0 && current[len(current)-1] == symWildcardAny {
+				// Kept strictly in the same inner slice!
+				current = append(current, symWildcardOne, symDot)
+				continue
+			}
+		}
+
+		// 3. Append atomic tokens natively
+		current = append(current, part)
+	}
+
+	if len(current) > 0 {
+		matrix = append(matrix, current)
+	}
+	return matrix
 }
 
 func isWildcardMeta(s Symbol) bool {
@@ -1875,8 +2558,8 @@ const (
 	undoNone   = 0
 	undoStack  = 1 << 0 // Restores execution instructions (ops, operands)
 	undoTape   = 1 << 1 // Restores generated output tape (syms, offsets, offset)
-	undoTie    = 1 << 2 // Restores target read-head (tie.cursor, tie.bytePos)
-	undoOwn    = 1 << 3 // Restores matcher read-head (cursor, bytePos)
+	undoTie    = 1 << 2 // Restores target read-head (tie.cursor, tie.boundary)
+	undoOwn    = 1 << 3 // Restores matcher read-head (cursor, boundary)
 	undoStems  = 1 << 4 // Restores captured wildcard stems
 	undoErr    = 1 << 5 // Restores s.err
 
@@ -1887,9 +2570,9 @@ const (
 // interval track the exact virtual byte spans of every single node (both containers and leaves)
 // during the unrolling phase
 type interval struct {
-	startByte int
-	endByte   int
-	node      Value
+	start int
+	end   int
+	node  Value
 }
 
 type capture struct {
@@ -1904,36 +2587,34 @@ type vmint uint64 // i.e., number, via int64(vmint)
 type vmflt uint64 // i.e., number, via Float64frombits(vmflt)
 type vmblb any    // pointer to arbitrary aggregate
 
-// vmcursors tracks the execution read-head state.
-type vmcursors struct {
-	bytePos   int    // Tracks the virtual byte offset for the engine
-	str       string // The cached string representation of the current symbol
+// vmhead tracks the physical tape head's spatial boundary and partial lookahead.
+type vmhead struct {
+	str      string // The cached string remainder of a partially absorbed symbol
+	boundary int    // Tracks the passive spatial AST boundary for interval/stem generation
 }
 
 // vmstack tracks the mutable execution instructions.
 type vmstack struct {
-	opsDone  int      // Counter of executed ops (Instruction Retired Counter - IRC)
 	ops      []evalop // LIFO (Last-In-First-Out) instruction stack
 	operands []any    // The Strict Data Stack for VM execution
+	opsDone  int      // Counter of executed ops (Instruction Retired Counter - IRC)
 }
 
 // vmwm is the high-water mark for telemetry tracking (Virtual Machine Watermark).
 type vmwm struct {
-	stopTieByte int       // High-water mark for tie.bytePos
-	bestOpsDone int       // High-water mark for Instruction Retired Counter
-	bestStems   []capture // High-water mark for stems
-	bestPack    *vmpack   // High-water mark for the AST!
+	bestStems       []capture // High-water mark for stems
+	bestPack        *vmpack   // High-water mark for the AST!
+	bestOpsDone     int       // High-water mark for Instruction Retired Counter
+	stopTieBoundary int       // High-water mark for tie.boundary (Renamed from stopTieBoundary)
 }
 
 // vmpack is a cascading state machine mirrors the structural hierarchy.
 type vmpack struct {
 	parent *vmpack // Links to the outer scope (for nested brackets!)
-	closer Symbol  // The symbol that will pop this state (e.g., symRparen)
-
-	flag Pos // If valid, wraps the fully reduced segment in a flag
-
 	pairKey  Value // Holds the LHS of an '=' pair
 	arrowObj Value // Holds the LHS of an '→' arrow
+	closer Symbol  // The symbol that will pop this state (e.g., symRparen)
+	flag   Pos     // If valid, wraps the fully reduced segment in a flag
 
 	comp elements
 	qual elements
@@ -2071,50 +2752,51 @@ func (dst *vmstack) restore(src vmstack) {
 
 // backtrack represents a granular, zero-allocation time-travel instruction.
 type backtrack struct {
-	kind uint32 // Bitmask of undo* constants dictating the recovery scope
-
-	class int // Protect the volatile stream class bitmask
-
 	// 1. Mutable Execution Stack (Requires Physical Clone!)
 	stack vmstack
 
-	// 2. Truncation Markers (O(1) Append-Only Slices)
-	symsDepth    int
-	stemsDepth   int
+	// 2. Exact Tape Head Boundaries
+	own vmhead
+	tie vmhead
 
-	// 3. Exact Cursor Coordinates
-	own vmcursors
-	tie vmcursors
-
-	// 4. The Alternate Timeline Payload
-	altOp1  evalop
-	altOp2  evalop
+	// 3. The Alternate Timeline Payload
 	altStem capture
 	altVal  any
+	pack    *vmpack
+	err     error
 
-	pack *vmpack
-	err error
+	// 4. Truncation Markers & Volatiles
+	symsDepth  int
+	stemsDepth int
+	altOp1     evalop
+	altOp2     evalop
+	kind       uint32 // Bitmask of undo* constants dictating the recovery scope
+	class      int    // Protect the volatile stream class bitmask
 }
 
 // symstr is a fully self-contained Stack Virtual Machine.
 // It works with __symFlatSeq and treats syms like a string with zero heap-allocation!
-// It's high-fidelity virtual string view over an array of discrete leaf Values.
-// It's a non-symmetrical-unification match engine.
-// When s.tie == nil, opEvalValue acts as a pure AST unroller (Generator).
-// When s.tie != nil, it dynamically compiles the exact same AST into granular matching bytecodes!
 type symstr struct {
 	Context              // Embedded for repack access
-	vmcursors            // Self-execution state
-	vmstack              // Execution stacks
-	vmwm                 // Persistent telemetry tracking state
-	*vmpack              // AST packer state
-	syms        []Symbol     // Verified symbols waiting to be consumed (e.g., packing)
-	intervals   []interval   // AST tracking data injected from the flattener
-	stems       []capture    // Extracted capture groups
-	backtracks  []backtrack  // The VM State Machine Rewind Stack
-	class       int      // Bitmask tracking AST structural composition (volatile)
+
+	// 1. Core Tape State (Hottest Path)
+	vmhead               // Self-execution boundary and string buffer
+	syms        []Symbol // Verified symbols waiting to be consumed (e.g., packing)
 	tie         *symstr  // Dynamically ties regular expressions to a target stream
-	err         error    // VM fatal error state
+
+	// 2. Execution Stack
+	vmstack              // Execution instructions and operands
+
+	// 3. AST & Telemetry (Passive Tracking)
+	*vmpack              // AST packer state
+	intervals   []interval // AST tracking data injected from the flattener
+	stems       []capture  // Extracted capture groups
+	vmwm                 // Persistent telemetry tracking state
+
+	// 4. Time-Travel & Volatiles
+	backtracks  []backtrack // The VM State Machine Rewind Stack
+	err         error       // VM fatal error state
+	class       int         // Bitmask tracking AST structural composition (volatile)
 }
 
 func (s *symstr) do(ctx Context, op any) any { // Optional!
@@ -2133,22 +2815,13 @@ func (s *symstr) step() {
 	case clsTieForwards: // === 1-D TRANSDUCER BYPASS ===
 		// Ignores instructions and blindly forwards the Target Tape (tie) to syms!
 		if s.tie != nil {
-			// Drain leftover sub-symbol fragments from slow-path mismatches
 			if len(s.tie.str) > 0 {
-				frag := intern(s.tie.str)
-				size := len(s.tie.str)
-				if reverse { s.tie.bytePos -= size } else { s.tie.bytePos += size }
+				s.emit(intern(s.tie.str))
 				s.tie.str = ""
-				s.emit(frag)
 				return
 			}
-
 			if len(s.tie.syms) == 0 { s.tie.pump() }
-			if len(s.tie.syms) > 0 {
-				s.emit(s.tie.pop_head()) // Forward directly to Matcher's Output Tape!
-			} else {
-				s.err = io.EOF // Target tape fully drained!
-			}
+			if len(s.tie.syms) > 0 { s.emit(s.tie.pop_head()) } else { s.err = io.EOF }
 		} else {
 			s.err = io.EOF
 		}
@@ -2178,7 +2851,7 @@ func (s *symstr) step() {
 			case SymSeq:
 				// TODO: shatter(sym)
 			}
-			s.bytePos += sym.len() // Packer tracks its own payload length!
+			s.boundary += sym.len() // Packer tracks its own payload length!
 			return
 		}
 
@@ -2207,12 +2880,22 @@ func (s *symstr) step() {
 		// === 2. ACTIVE TAPE CONSUMPTION (Drain Matcher Output) ===
 		if len(s.tie.syms) > 0 {
 			sym := s.tie.pop_head()
-			symBytes := sym.len()
-			endByte := s.bytePos + symBytes
-			if reverse { s.bytePos -= symBytes } else { s.bytePos += symBytes }
+			l := sym.len()
+
+			// THE DOD FIX: Protect coordinates before mutation!
+			var start, end int
+			if reverse {
+				start = s.boundary - l
+				end = s.boundary
+				s.boundary -= l
+			} else {
+				start = s.boundary
+				end = s.boundary + l
+				s.boundary += l
+			}
 
 			if s.vmpack == nil { s.vmpack = &vmpack{} }
-			s.pack(s.tie.posInRange(s.bytePos, endByte), sym)
+			s.pack(s.tie.posInRange(start, end), sym)
 
 			if !transition { return } // Yield to VM loop to keep consuming!
 		}
@@ -2220,9 +2903,9 @@ func (s *symstr) step() {
 		// === 3. TRANSITION FROM RES TO REM ===
 		if transition {
 			bt := s.tie.checkpoint(undoErr)
-			bt.tie.bytePos = s.bytePos // Snapshot the Packer's tape position!
+			bt.tie.boundary = s.tie.boundary // Snapshot the Packer's tape position!
+			bt.own.boundary = s.boundary // Snapshot the Packer's tape position!
 			s.tie.backtracks = append(s.tie.backtracks, bt)
-
 			s.tie.class |= clsTieForwards
 			s.tie.err = nil // Clear error to allow pumping the remainder tape!
 
@@ -2232,7 +2915,7 @@ func (s *symstr) step() {
 
 			var res Value
 			if s.vmpack != nil {
-				res = s.reduce(s.tie.posInRange(0, s.bytePos))
+				res = s.reduce(s.tie.posInRange(0, s.boundary))
 				s.vmpack = nil
 			}
 			s.operands = []any{res}
@@ -2241,19 +2924,18 @@ func (s *symstr) step() {
 
 		// === 3. TERMINAL STATE (EOF of Remainder Tape) ===
 		if (s.tie.class & clsTieForwards) != 0 && s.tie.err != nil {
-			var res, rem Value
-			res, _ = s.operands[0].(Value)
-
 			var startByte int
 			if bl := len(s.tie.backtracks); bl > 0 {
 				bt := s.tie.backtracks[bl-1]
 				s.tie.backtracks = s.tie.backtracks[:bl-1]
+				s.tie.class &^= clsTieForwards
 				s.tie.err = bt.err // Restore Matcher's original success/fail status
-				startByte = bt.tie.bytePos
+				startByte = bt.own.boundary
 			}
 
+			var rem Value
 			if s.vmpack != nil {
-				rem = s.reduce(s.tie.posInRange(startByte, s.bytePos))
+				rem = s.reduce(s.tie.posInRange(startByte, s.boundary))
 				s.vmpack = nil
 			}
 
@@ -2280,13 +2962,13 @@ func (s *symstr) step() {
 
 			s.vmpack = nil
 			s.err = io.EOF // Terminates the Packer's VM loop!
+
+			res, _ := s.operands[0].(Value)
 			s.operands = []any{res, rem, stems}
 			return
 		}
 
-		if (s.tie.class & clsTieForwards) == 0 && s.tie.err != nil {
-			s.err = io.EOF
-		}
+		if (s.tie.class & clsTieForwards) == 0 && s.tie.err != nil { s.err = io.EOF }
 		return
 	}
 
@@ -2326,8 +3008,8 @@ _op_switch_:
 
 			cap.syms = groupSyms
 		} else {
-			// THE DOD FIX: Use the mathematically pure bytePos!
-			end := s.bytePos
+			// THE DOD FIX: Use the mathematically pure boundary!
+			end := s.boundary
 
 			// If the JIT matched in reverse, the tape head moved backwards.
 			// We simply normalize the bounds so the interval represents a pure spatial window.
@@ -2375,7 +3057,6 @@ _op_switch_:
 			// A. Exact Match
 			if target == sym {
 				s.emit(s.tie.pop_head())
-				s.bytePos += symBytes
 				break _op_switch_
 			}
 
@@ -2391,8 +3072,7 @@ _op_switch_:
 
 				s.tie.pop_head()
 				s.str = sym.String() // set `s.str` to leverage decodeRune
-				r, size := s.decodeRune() // Natively updates s.bytePos!
-
+				r, size := s.decodeRune() // Natively updates s.boundary!
 				if size == 0 || r == 0 {
 					s.err = errMatchFailedZeroRune
 					break _op_switch_
@@ -2414,19 +3094,17 @@ _op_switch_:
 
 			// C. Target is Greedy Wildcard (Fallback Absorption)
 			if target == symAsterisk || target == symAsteriskAst || target == symAsteriskQues {
-				absorb := (s.tie.class & clsGlob) != 0
-				if absorb && target == symAsterisk && sym == symSlash { absorb = false }
-				if absorb && sym != symSlash && (s.class & (clsGlob | clsRegex)) != 0 { absorb = false }
+				var absorb bool
+				if false {
+					absorb = (s.tie.class & clsGlob) != 0
+					if absorb && target == symAsterisk && sym == symSlash { absorb = false }
+					if absorb && sym != symSlash && (s.class & (clsGlob | clsRegex)) != 0 { absorb = false }
+				} else {
+					absorb = !(target == symAsterisk && sym == symSlash)
+				}
 				if absorb {
 					// 1. Eagerly absorb the initial literal and pop the wildcard from the Target Tape.
 					if bidirectional_fallback_emit_literal { s.emit(sym) } else { s.emit(target) }
-					if reverse {
-						s.bytePos -= symBytes
-						s.tie.bytePos -= target.len()
-					} else {
-						s.bytePos += symBytes
-						s.tie.bytePos += target.len()
-					}
 					s.tie.pop_head()
 
 					// 2. Peek the Lookahead Boundary
@@ -2444,7 +3122,7 @@ _op_switch_:
 							s.operands = s.operands[:len(s.operands)-2]
 							s.ops = s.ops[:len(s.ops)-1]
 
-							end := s.bytePos
+							end := s.boundary
 							if start > end { start, end = end, start }
 							s.intervals = append(s.intervals, interval{start, end, val})
 							continue
@@ -2460,6 +3138,36 @@ _op_switch_:
 							s.ops = s.ops[:len(s.ops)-1]
 							s.emit(opSym)
 							continue
+						case opGlobQues, opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
+							var os Symbol
+							// var ss = []Symbol{target}
+							switch s.ops[len(s.ops)-1] {
+							case opGlobQues: os = symQues; //ss = []Symbol{intern(target.String()[:1])}
+							case opGlobAsterisk: os = symAsterisk
+							case opGlobAstGreed: os = symAsteriskAst
+							case opGlobAstCross: os = symAsteriskQues
+							}
+							s.ops = s.ops[:len(s.ops)-1]
+							// var start, end int
+							// if t := s.tie.boundary; reverse { start = t } else { end = t }
+							if bidirectional_fallback_emit_literal { s.emit(os) }
+							// if t := s.tie.boundary; reverse { end = t } else { start = t }
+							s.stems = append(s.stems, capture{start: -1, /* end: -1, syms: ss */})
+							continue
+						case opRegexMatch:
+							rx := s.operands[len(s.operands)-1].(*regexp.Regexp)
+							s.operands = s.operands[:len(s.operands)-1]
+							s.ops = s.ops[:len(s.ops)-1]
+							// If a regex is swallowed, ALL of its capture groups must yield empty results
+							// to preserve the total stem count expected by the wrapper!
+							names := rx.SubexpNames()
+							for i := 1; i < len(names); i++ {
+								name := symEmptyName
+								if names[i] != "" { name = intern(names[i]) }
+								s.stems = append(s.stems, capture{start: -1, name: name})
+							}
+							if bidirectional_fallback_emit_literal { s.emit(intern(rx.String())) }
+							continue
 						case opMatchLiteral:
 							// Handled below
 						default:
@@ -2472,7 +3180,8 @@ _op_switch_:
 							s.err = errMatchFailedWildback
 							break // _op_switch_
 						}
-						if target == symAsterisk && sym == symSlash {
+
+						if target == symAsterisk && sym == symSlash && nextTarget != symSlash {
 							s.err = errMatchFailedWildback
 							break // _op_switch_
 						}
@@ -2482,33 +3191,31 @@ _op_switch_:
 							if sym == nextTarget { break /* _ops_subloop_ */ }
 
 							// Sub-Symbol Boundary Slicing (e.g. pattern `x.h` vs target `.h`)
-							var absorbedStr, leftoverStr string
+							var absorbed, leftover string
 							if reverse {
 								if __symHasPrefix(sym, nextTarget) {
 									str, align := sym.String(), nextTarget.len()
-									leftoverStr = str[:align]
-									absorbedStr = str[align:]
-									s.bytePos -= len(absorbedStr)
+									leftover = str[:align]
+									absorbed = str[align:]
 								}
 							} else {
 								if __symHasSuffix(sym, nextTarget) {
 									str, align := sym.String(), nextTarget.len()
-									absorbedStr = str[:len(str)-align]
-									leftoverStr = str[len(str)-align:]
-									s.bytePos += len(absorbedStr)
+									absorbed = str[:len(str)-align]
+									leftover = str[len(str)-align:]
 								}
 							}
-							if len(absorbedStr) > 0 && len(leftoverStr) > 0 {
+							if len(absorbed) > 0 && len(leftover) > 0 {
 								// We just overwrite the opMatchLiteral's operand with leftover!
-								s.operands[len(s.operands)-1] = intern(leftoverStr)
-								if bidirectional_fallback_emit_literal { s.emit(intern(absorbedStr)) }
+								s.operands[len(s.operands)-1] = intern(leftover)
+								if bidirectional_fallback_emit_literal { s.emit(intern(absorbed)) }
 								break _ops_subloop_ // Aligned!
 							}
 						}
 
 						// Boundary not reached, absorb the full literal!
 						s.operands = s.operands[:len(s.operands)-1]
-						s.ops = s.ops[:len(s.ops)-1]
+						s.ops = s.ops[:len(s.ops)-1] // i.e., opMatchLiteral
 					}
 
 					break _op_switch_
@@ -2521,7 +3228,6 @@ _op_switch_:
 					str := target.String()
 					s.tie.str = str[:len(str)-symBytes]
 					s.emit(sym)
-					s.bytePos -= symBytes
 					s.tie.pop_head()
 					break _op_switch_
 				}
@@ -2529,8 +3235,29 @@ _op_switch_:
 				if __symHasPrefix(target, sym) {
 					s.tie.str = target.String()[symBytes:]
 					s.emit(sym)
-					s.bytePos += symBytes
 					s.tie.pop_head()
+					break _op_switch_
+				}
+			}
+
+			// E. Pattern is LARGER than Target (Sub-Symbol Fast Slicing)
+			// Slices the Pattern literal so the remainder can natively hit Target wildcards!
+			if reverse {
+				if __symHasSuffix(sym, target) {
+					leftover := intern(sym.String()[:symBytes-target.len()])
+					s.emit(target)
+					s.tie.pop_head()
+					s.operands = append(s.operands, leftover)
+					s.ops = append(s.ops, opMatchLiteral)
+					break _op_switch_
+				}
+			} else {
+				if __symHasPrefix(sym, target) {
+					leftover := intern(sym.String()[target.len():])
+					s.emit(target)
+					s.tie.pop_head()
+					s.operands = append(s.operands, leftover)
+					s.ops = append(s.ops, opMatchLiteral)
 					break _op_switch_
 				}
 			}
@@ -2561,7 +3288,6 @@ _op_switch_:
 				}
 				str = str[:len(str)-n]
 				s.tie.str = s.tie.str[:len(s.tie.str)-n]
-				s.tie.bytePos -= n
 			} else {
 				frag := s.tie.str[:n]
 				if str[:n] != frag {
@@ -2570,27 +3296,19 @@ _op_switch_:
 				}
 				str = str[n:]
 				s.tie.str = s.tie.str[n:]
-				s.tie.bytePos += n
 			}
 		}
 
-		if s.err == nil {
-			if reverse { s.bytePos -= symBytes } else { s.bytePos += symBytes }
-			s.emit(sym)
-		}
+		if s.err == nil { s.emit(sym) }
 
 	case opGlobQues: // ?
 		count := 1
 		for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opGlobQues {
-			count++
 			s.ops = s.ops[:len(s.ops)-1]
+			count++
 		}
 
-		// THE DOD FIX: Native Pattern BytePos Increment!
-		// Without `syms_i`, we mathematically advance the Pattern Tape's byte offset.
-		s.bytePos += symQues.len() * count
-
-		startByte := s.tie.bytePos
+		start := s.tie.boundary // Snap the high-watermark
 
 		// PEEK TARGET: Check for Meta-Wildcard Absorption
 		if len(s.tie.str) == 0 && len(s.tie.syms) > 0 {
@@ -2598,12 +3316,12 @@ _op_switch_:
 
 			switch target {
 			case symQues, symAsterisk, symAsteriskAst, symAsteriskQues, symPercent:
-				startByte = s.tie.bytePos
+				start = s.tie.boundary
 
 				if target == symQues {
 					var consumed int
-					var symLens []int
-					var groupSyms []Symbol
+					var lens []int
+					var syms []Symbol
 					for i := 0; i < count; i++ {
 						if len(s.tie.syms) == 0 { s.tie.pump() }
 						if len(s.tie.syms) == 0 {
@@ -2611,13 +3329,11 @@ _op_switch_:
 							break _op_switch_
 						}
 
-						targetSym := s.tie.pop_head()
-
-						l := targetSym.len()
-						symLens = append(symLens, l)
+						sym := s.tie.pop_head()
+						lens = append(lens, sym.len())
 						consumed++
-						s.emit(targetSym) // THE DOD FIX: Emit wildcard match!
-						groupSyms = append(groupSyms, targetSym) // Cache!
+						s.emit(sym) // THE DOD FIX: Emit wildcard match!
+						syms = append(syms, sym) // Cache!
 					}
 
 					if consumed < count {
@@ -2626,10 +3342,9 @@ _op_switch_:
 					}
 					s.tie.str = ""
 
-					curr := startByte
-					for _, l := range symLens {
-						s.stems = append(s.stems, capture{curr, curr + l, symEmptyName, groupSyms})
-						curr += l
+					for _, l := range lens {
+						s.stems = append(s.stems, capture{start, start+l, symEmptyName, syms})
+						start += l
 					}
 					break _op_switch_
 				}
@@ -2637,17 +3352,14 @@ _op_switch_:
 				if target == symPercent {
 					if len(s.tie.syms) > 1 && s.tie.syms[1] == symPercent {
 						s.emit(symPercent)
-						s.emit(symPercent)
-						s.tie.pop_head()
-						s.tie.pop_head()
-					} else {
-						s.emit(target)
 						s.tie.pop_head()
 					}
+					s.emit(symPercent)
+					s.tie.pop_head()
 					s.tie.str = ""
 
 					for i := 0; i < count; i++ {
-						s.stems = append(s.stems, capture{startByte, startByte, symEmptyName, nil}) // TODO: syms
+						s.stems = append(s.stems, capture{start, start, symEmptyName, nil}) // TODO: syms
 					}
 					break _op_switch_
 				}
@@ -2655,7 +3367,7 @@ _op_switch_:
 				s.emit(s.tie.pop_head()) // Emit skipped wildcard
 
 				for i := 0; i < count; i++ {
-					s.stems = append(s.stems, capture{startByte, startByte, symEmptyName, nil}) // TODO: syms
+					s.stems = append(s.stems, capture{start, start, symEmptyName, nil}) // TODO: syms
 				}
 				break _op_switch_
 			}
@@ -2663,55 +3375,39 @@ _op_switch_:
 
 		// NATIVE ABSORPTION: Read actual runes from the Target Buffer
 		var str string
-		startByte = s.tie.bytePos
-		endByte := startByte
+		start = s.tie.boundary
+		end := start
+
 		for i := 0; i < count; i++ {
 			r, size, err := s.tie.ReadRune()
 			if err != nil {
-				if err == io.EOF {
-					s.err = io.EOF
-				} else {
-					s.err = errMatchFailed
-				}
+				if err == io.EOF { s.err = io.EOF } else { s.err = errMatchFailed }
 				break _op_switch_
 			}
 			if r == '/' {
+				s.tie.str = string(r) + s.tie.str
 				s.err = errMatchFailedCrossSeg
 				break _op_switch_
 			}
 			str += string(r)
-			endByte += size
+			end += size
 		}
+
 		sym := intern(str)
-		s.stems = append(s.stems, capture{startByte, endByte, symEmptyName, []Symbol{sym}})
+		s.stems = append(s.stems, capture{start, end, symEmptyName, []Symbol{sym}})
 		s.emit(sym)
 
 	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross: // *, **, and *?
-		s.stems = append(s.stems, capture{s.tie.bytePos, s.tie.bytePos, symEmptyName, nil})
-
-		// THE DOD FIX: Native Pattern BytePos Increment!
-		// Without `syms_i`, we mathematically track byte lengths based on the executed op.
-		switch op {
-		case opGlobAsterisk: s.bytePos += symAsterisk.len()
-		case opGlobAstGreed: s.bytePos += symAsteriskAst.len() // Also safely covers % logic
-		case opGlobAstCross: s.bytePos += symAsteriskQues.len()
-		}
+		s.stems = append(s.stems, capture{s.tie.boundary, s.tie.boundary, symEmptyName, nil})
 
 		// Advance pattern cursor over any consecutive stacked wildcard ops on the JIT tape!
 		for len(s.ops) > 0 {
-			nextOp := s.ops[len(s.ops)-1]
-			if nextOp == opGlobAsterisk {
-				s.bytePos += symAsterisk.len()
+			switch s.ops[len(s.ops)-1] {
+			case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
 				s.ops = s.ops[:len(s.ops)-1]
-			} else if nextOp == opGlobAstGreed {
-				s.bytePos += symAsteriskAst.len()
-				s.ops = s.ops[:len(s.ops)-1]
-			} else if nextOp == opGlobAstCross {
-				s.bytePos += symAsteriskQues.len()
-				s.ops = s.ops[:len(s.ops)-1]
-			} else {
-				break
+				continue
 			}
+			break
 		}
 
 		switch op {
@@ -2722,8 +3418,6 @@ _op_switch_:
 
 	case opConseqAsterisk, opConseqAstGreed, opConseqAstCross:
 		if len(s.tie.str) > 0 {
-			// THE DOD FIX: Native Partial String Lookahead!
-			// Prevent greedy wildcards from blindly swallowing the partial literal remainder.
 			s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
 			s.tie.str = ""
 		}
@@ -2748,7 +3442,7 @@ _op_switch_:
 			if len(s.stems) > 0 {
 				last := len(s.stems)-1
 				s.stems[last].syms = append(s.stems[last].syms, target)
-				if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
+				if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
 			}
 			s.ops = append(s.ops, op)
 			break _op_switch_
@@ -2757,20 +3451,19 @@ _op_switch_:
 		// Native JIT Unrolling Lookahead!
 		var nextSym Symbol
 		for len(s.ops) > 0 {
-			top := s.ops[len(s.ops)-1]
-			if top == opEvalValue || top == opCloseInterval || top == opEmitSym {
-				s.step() // Unroll AST JIT without consuming target!
-			} else if top == opMatchLiteral {
+			switch s.ops[len(s.ops)-1] {
+			case opEvalValue, opCloseInterval, opEmitSym:
+				s.step()
+				continue
+			case opMatchLiteral:
 				sym := s.operands[len(s.operands)-1].(Symbol)
 				if sym == symEmpty {
-					s.step() // Consume symEmpty structural boundary
+					s.step()
 					continue
 				}
 				nextSym = sym
-				break
-			} else {
-				break // Hit another wildcard or regex
 			}
+			break
 		}
 
 		// THE DOD FIX 2: Deep Pattern Validation Extraction!
@@ -3035,6 +3728,15 @@ _op_switch_:
 				}
 			}
 
+			// THE DOD FIX: Target Wildcard False Boundary Trap
+			if targetIdx != -1 && (op == opConseqAstGreed || op == opConseqAstCross) {
+				if targetIdx < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx]) {
+					targetIdx = -1
+				} else if targetIdx+1 < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx+1]) {
+					targetIdx = -1
+				}
+			}
+
 			// If boundary found, instantly absorb exactly up to it!
 			if targetIdx != -1 {
 				for i := 0; i < targetIdx; i++ {
@@ -3043,36 +3745,26 @@ _op_switch_:
 					if len(s.stems) > 0 {
 						last := len(s.stems) - 1
 						s.stems[last].syms = append(s.stems[last].syms, frag)
-						if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
+						if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
 					}
 				}
 
 				// Process the Sub-Symbol Boundary
 				if trimStr != "" || leaveStr != "" {
-					if trimStr == "" {
-						break _op_switch_
-					}
+					if trimStr == "" { break _op_switch_ }
 
-					s.tie.syms = s.tie.syms[1:] // Pop the shared target
+					s.tie.pop_head()
 
 					trimFrag := intern(trimStr)
 					s.emit(trimFrag)
 
-					if reverse {
-						s.tie.bytePos -= trimFrag.len()
-					} else {
-						s.tie.bytePos += trimFrag.len()
-					}
-
 					if len(s.stems) > 0 {
 						last := len(s.stems) - 1
 						s.stems[last].syms = append(s.stems[last].syms, trimFrag)
-						if reverse { s.stems[last].start = s.tie.bytePos } else { s.stems[last].end = s.tie.bytePos }
+						if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
 					}
 
-					if leaveStr != "" {
-						s.tie.str = leaveStr
-					}
+					if leaveStr != "" { s.tie.str = leaveStr }
 				}
 
 				break _op_switch_ // Stop absorbing natively! No backtracks!
@@ -3088,11 +3780,7 @@ _op_switch_:
 		if len(s.stems) > 0 {
 			last := len(s.stems)-1
 			s.stems[last].syms = append(s.stems[last].syms, frag)
-			if reverse {
-				s.stems[last].start = s.tie.bytePos
-			} else {
-				s.stems[last].end = s.tie.bytePos
-			}
+			if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
 		}
 
 		s.ops = append(s.ops, op) // Repush to absorb more
@@ -3151,10 +3839,10 @@ _op_switch_:
 		s.operands = s.operands[:l-1]
 
 		snap_err := s.tie.err
-		snap_cursors := s.tie.vmcursors
+		snap_head := s.tie.vmhead
 		smem := &symsmem{symstr: s.tie}
 		locs := rx.FindReaderSubmatchIndex(smem)
-		s.tie.vmcursors = snap_cursors // === UNCONDITIONAL ROLLBACK
+		s.tie.vmhead = snap_head // === UNCONDITIONAL ROLLBACK
 		s.tie.err = snap_err
 
 		smem.revert() // Bypass slice reallocation amnesia.
@@ -3163,9 +3851,6 @@ _op_switch_:
 			s.err = errMatchFailedPreRegex
 			break _op_switch_
 		}
-
-		consumedBytes := locs[1]
-		var totalEmitted int
 
 		// 1. Pre-register the stems so we can populate them as we consume!
 		var names = rx.SubexpNames()
@@ -3177,8 +3862,8 @@ _op_switch_:
 					if ns := names[expIdx]; ns != "" { name = intern(ns) }
 				}
 				s.stems = append(s.stems, capture{
-					start: snap_cursors.bytePos + locs[i],
-					end:   snap_cursors.bytePos + locs[i+1],
+					start: snap_head.boundary + locs[i],
+					end:   snap_head.boundary + locs[i+1],
 					name:  name,
 					syms:  nil, // Populated synchronously during granular loop
 				})
@@ -3188,8 +3873,10 @@ _op_switch_:
 		}
 
 		// 2. Native Granular Consumption & Synchronous Stem Population
-		currByte := snap_cursors.bytePos
-		for totalEmitted < consumedBytes {
+		total := 0 // Total emitted bytes
+		consumed := locs[1]
+		curr := snap_head.boundary
+		for total < consumed {
 			if len(s.tie.str) == 0 && len(s.tie.syms) == 0 { s.tie.pump() }
 			if len(s.tie.str) == 0 && len(s.tie.syms) == 0 {
 				s.err = errMatchFailedPreRegex
@@ -3199,7 +3886,7 @@ _op_switch_:
 			var sym Symbol
 			if len(s.tie.str) > 0 {
 				fragLen := len(s.tie.str)
-				needed := consumedBytes - totalEmitted
+				needed := consumed - total
 				if fragLen > needed {
 					sym = intern(s.tie.str[:needed])
 					s.tie.str = s.tie.str[needed:]
@@ -3210,7 +3897,7 @@ _op_switch_:
 			} else {
 				sym = s.tie.pop_head()
 				slen := sym.len()
-				needed := consumedBytes - totalEmitted
+				needed := consumed - total
 				if slen > needed {
 					str := sym.String()
 					s.tie.str = str[needed:]
@@ -3220,28 +3907,19 @@ _op_switch_:
 
 			s.emit(sym) // Emit to Matcher's syms
 			symBytes := sym.len()
+			total += symBytes
 
 			// THE DOD FIX: Synchronous Stem Capture
 			// Prevents AST granularity loss by avoiding LIFO delays.
-			symStart := currByte
-			symEnd := currByte + symBytes
+			start, end := curr, curr + symBytes
 			for i := stemStartIdx; i < len(s.stems); i++ {
 				cap := &s.stems[i]
-				if cap.start != -1 && symStart >= cap.start && symEnd <= cap.end {
+				if cap.start != -1 && start >= cap.start && end <= cap.end {
 					cap.syms = append(cap.syms, sym)
 				}
 			}
 
-			if reverse {
-				s.tie.bytePos -= symBytes // Advance Matcher's coordinate against Generator
-				s.bytePos -= symBytes     // Advance Matcher's emission coordinate
-				currByte -= symBytes
-			} else {
-				s.tie.bytePos += symBytes
-				s.bytePos += symBytes
-				currByte += symBytes
-			}
-			totalEmitted += symBytes
+			if reverse { curr -= symBytes } else { curr += symBytes }
 		}
 
 	case opEvalValue:
@@ -3262,15 +3940,15 @@ _op_switch_:
 
 		if true_prefix_matching {
 			better = (s.opsDone > s.bestOpsDone) ||
-				(s.opsDone == s.bestOpsDone && s.tie.bytePos >= s.stopTieByte)
+				(s.opsDone == s.bestOpsDone && s.tie.boundary >= s.stopTieBoundary)
 		} else {
-			better = (s.tie.bytePos > s.stopTieByte) ||
-				(s.tie.bytePos == s.stopTieByte && s.opsDone > s.bestOpsDone)
+			better = (s.tie.boundary > s.stopTieBoundary) ||
+				(s.tie.boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
 		}
 
 		if better {
 			s.bestOpsDone = s.opsDone
-			s.stopTieByte = s.tie.bytePos
+			s.stopTieBoundary = s.tie.boundary
 			if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
 
 			// THE DOD FIX: Safely clone stems without clearing the timeline's accumulation!
@@ -3293,11 +3971,11 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 		// bt.offset = s.offset
 	}
 	if (kind & undoTie) != 0 && s.tie != nil {
-		bt.tie = s.tie.vmcursors
+		bt.tie = s.tie.vmhead
 		bt.pack = s.tie.bestPack // tie's AST tracking
 	}
 	if (kind & undoOwn) != 0 {
-		bt.own = s.vmcursors
+		bt.own = s.vmhead
 	}
 	if (kind & undoStems) != 0 {
 		bt.stemsDepth = len(s.stems)
@@ -3337,13 +4015,13 @@ func (s *symstr) unwind() {
 		// s.offset = bt.offset
 	}
 	if (bt.kind & undoTie) != 0 && s.tie != nil {
-		s.tie.vmcursors = bt.tie
+		s.tie.vmhead = bt.tie
 		if bt.pack != nil {
 			s.tie.bestPack = bt.pack.clone()
 		}
 	}
 	if (bt.kind & undoOwn) != 0 {
-		s.vmcursors = bt.own
+		s.vmhead = bt.own
 	}
 	if (bt.kind & undoStems) != 0 {
 		s.stems = s.stems[:bt.stemsDepth]
@@ -3383,20 +4061,14 @@ func (s *symstr) exhaust() {
 		}
 
 		// === UNIVERSAL TRAILING PASSIVE WILDCARDS ===
-		if s.tie != nil {
+		if false && s.tie != nil {
+		_ops_subloop_:
 			for len(s.ops) > 0 {
-				topOp := s.ops[len(s.ops)-1]
-				if topOp == opGlobAsterisk {
+				switch s.ops[len(s.ops)-1] {
+				case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
 					s.ops = s.ops[:len(s.ops)-1]
-					s.bytePos += symAsterisk.len()
-				} else if topOp == opGlobAstGreed {
-					s.ops = s.ops[:len(s.ops)-1]
-					s.bytePos += symAsteriskAst.len()
-				} else if topOp == opGlobAstCross {
-					s.ops = s.ops[:len(s.ops)-1]
-					s.bytePos += symAsteriskQues.len()
-				} else {
-					break
+				default:
+					break _ops_subloop_
 				}
 			}
 		}
@@ -3419,7 +4091,7 @@ func (s *symstr) exhaust() {
 
 	if s.tie != nil {
 		s.tie.exhaust()
-		s.stopTieByte = s.tie.bytePos
+		s.stopTieBoundary = s.tie.boundary
 		s.stems = s.bestStems
 	}
 }
@@ -3434,11 +4106,9 @@ func (s *symstr) decodeRune() (r rune, size int) {
 	if (s.class & clsBackwards) != 0 {
 		r, size = utf8.DecodeLastRuneInString(s.str)
 		s.str = s.str[:len(s.str)-size]
-		s.bytePos -= size
 	} else {
 		r, size = utf8.DecodeRuneInString(s.str)
 		s.str = s.str[size:]
-		s.bytePos += size
 	}
 	return
 }
@@ -3455,7 +4125,7 @@ func (s *symstr) emit(sym Symbol) {
 	s.syms = append(s.syms, sym)
 
 	l := sym.len()
-	if (s.class & clsBackwards) != 0 { s.bytePos -= l } else { s.bytePos += l }
+	if (s.class & clsBackwards) != 0 { s.boundary -= l } else { s.boundary += l }
 	if sym == symSlash { s.class &^= clsGlobChar | clsGlobAst }
 }
 
@@ -3466,7 +4136,7 @@ func (s *symstr) pop_tail() Symbol {
 	s.syms = s.syms[:last]
 
 	l := sym.len()
-	if (s.class & clsBackwards) != 0 { s.bytePos += l } else { s.bytePos -= l }
+	if (s.class & clsBackwards) != 0 { s.boundary += l } else { s.boundary -= l }
 	return sym
 }
 
@@ -3480,7 +4150,7 @@ func (s *symstr) pop_head() Symbol {
 
 func (s *symstr) eval(val Value, reverse bool) {
 	s.ops = append(s.ops, opCloseInterval)
-	s.operands = append(s.operands, s.bytePos, val)
+	s.operands = append(s.operands, s.boundary, val)
 
 	pushVal := func(v Value) {
 		s.ops = append(s.ops, opEvalValue)
@@ -3844,8 +4514,26 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 
 	// 2. Raw Symbol Shifting
 	switch sym.Kind() {
-	case SymRaw, SymPct, SymInl, SymInt, SymFlt, SymEph, SymSeq:
+	case SymRaw, SymInl, SymEph, SymSeq:
 		s.vmpack.shift(_word(pos, sym))
+	case SymInt:
+		vocab.RLock()
+		i := int64(vocab.numbers[sym.Idx()])
+		vocab.RUnlock()
+		s.vmpack.shift(_decimal(pos, i, sym))
+	case SymFlt:
+		vocab.RLock()
+		f := math.Float64frombits(vocab.numbers[sym.Idx()])
+		vocab.RUnlock()
+		s.vmpack.shift(_float(pos, f, sym))
+	case SymPct:
+		switch sym {
+		case symQues: s.vmpack.shift(_globmeta(pos, QUE))
+		case symAsterisk: s.vmpack.shift(_globmeta(pos, SAST))
+		case symAsteriskAst: s.vmpack.shift(_globmeta(pos, DAST))
+		case symAsteriskQues: s.vmpack.shift(_globmeta(pos, ASTQ))
+		default: s.vmpack.shift(_word(pos, sym))
+		}
 	}
 }
 
@@ -3861,18 +4549,23 @@ func (s *symstr) reduce(pos Pos) Value {
 	return s.vmpack.reduce(pos)
 }
 
-func (s *symstr) posInRange(startByte, endByte int) Pos {
-	// Look up the Pos from the recorded execution intervals!
+func (s *symstr) posInRange(start, end int) Pos {
+	// 1. Strict Domain Lookup
+	// Because AST nodes evaluate bottom-up (children close before parents),
+	// iterating forwards natively guarantees we find the most specific inner
+	// node before hitting the broader container node!
 	for _, inv := range s.intervals {
-		if inv.startByte <= startByte && endByte <= inv.endByte && inv.node != nil {
+		// A query is valid if it is entirely encapsulated by the node's boundaries.
+		if inv.start <= start && end <= inv.end && inv.node != nil {
 			if pos := inv.node.Pos(); pos != NoPos { return pos }
 		}
 	}
 
+	// 2. Safe Context Fallback
 	if s.tie != nil {
-		pos := s.tie.posInRange(startByte, endByte)
+		pos := s.tie.posInRange(start, end)
 		if pos == NoPos { pos = _pos(s.Context); if false {
-			warn(s, "no pos in range [%d,%d), use @%d", startByte, endByte, pos, callstack{num:6})
+			warn(s, "no pos in range [%d,%d), use @%d", start, end, pos, callstack{num:6})
 		}}
 		return pos
 	}
@@ -3992,88 +4685,6 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 
 	r, size := p.decodeRune()
 	return r, size, nil
-}
-
-func __symSeq(sym Symbol) (seq []Symbol) {
-	if sym.Kind() == SymSeq {
-		vocab.RLock()
-		seq = vocab.sequences[sym.Idx()]
-		vocab.RUnlock()
-	} else {
-		seq = []Symbol{sym}
-	}
-	return
-}
-
-// __symFlatSeq recursively flattens a Symbol into a 1D slice of atomic leaf symbols.
-// It optimizes lock contention by acquiring the vocabulary read lock exactly once.
-func __symFlatSeq(sym Symbol) []Symbol {
-	if sym == symEmpty {
-		return nil
-	}
-
-	var flatten func(Symbol, []Symbol) []Symbol
-	flatten = func(s Symbol, acc []Symbol) []Symbol {
-		if s.Kind() == SymSeq {
-			for _, p := range vocab.sequences[s.Idx()] {
-				if p != symEmpty {
-					acc = flatten(p, acc)
-				}
-			}
-			return acc
-		}
-		// Atomic leaf symbol
-		return append(acc, s)
-	}
-
-	// Pre-allocate a small capacity (e.g., 4 or 8) to completely eliminate
-	// the first few append() reallocation cycles!
-	seq := make([]Symbol, 0, 4)
-
-	vocab.RLock()
-	seq = flatten(sym, seq)
-	vocab.RUnlock()
-
-	return seq
-}
-
-// __symMatrix is the pristine 2D trie edge builder.
-// It forwards tokenized Symbol sequences natively, bypassing string parsing completely.
-func __symMatrix(sym Symbol, isGlob bool) [][]Symbol {
-	var matrix [][]Symbol
-	var current []Symbol
-
-	for _, part := range __symFlatSeq(sym) {
-		if part == symEmpty {
-			continue
-		}
-
-		// 1. Directory Boundary: Start a new outer slice!
-		if part == symSlash {
-			if len(current) > 0 {
-				matrix = append(matrix, current)
-				current = nil
-			}
-			continue
-		}
-
-		// 2. Native Glob Normalization: `**` + `.` becomes `**` + `*` + `.`
-		if isGlob && part == symDot {
-			if len(current) > 0 && current[len(current)-1] == symWildcardAny {
-				// Kept strictly in the same inner slice!
-				current = append(current, symWildcardOne, symDot)
-				continue
-			}
-		}
-
-		// 3. Append atomic tokens natively
-		current = append(current, part)
-	}
-
-	if len(current) > 0 {
-		matrix = append(matrix, current)
-	}
-	return matrix
 }
 
 // mixBytes continuous FNV-1a fold
@@ -4208,97 +4819,15 @@ func _hash(ctx Context, h uint64, vs ...Value) uint64 {
 // has exceptional distribution for short integer arrays.
 func hash(ctx Context, v Value) uint64 { return _hash(ctx, uint64(fnvOffset), v) }
 
-// symEqualsStringLocked resolves hash collisions perfectly with zero allocations for strings.
-func symEqualsStringLocked(sym Symbol, s string) bool {
-	idx := sym.Idx()
-
-	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
-	// being built in this stack frame. Treating it as 'false' prevents the panic and
-	// allows the shredder to continue creating the required sub-symbols.
-	if idx == -1 || idx == 0xFFFFFFF {
-		if false {
-			var cs string
-			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym.id(), len(coreSymbols), cs, s))
-		}
-		return false
-	}
-
-	switch sym.Kind() {
-	case SymPct, SymInl:
-		u := uint32(idx)
-		ln := int((u >> 24) & 0x3)
-
-		if len(s) != ln { return false }
-		if ln > 0 && s[0] != byte(u) { return false }
-		if ln > 1 && s[1] != byte(u>>8) { return false }
-		if ln > 2 && s[2] != byte(u>>16) { return false }
-		return true
-
-	case SymRaw: return vocab.strings[idx] == s
-	case SymEph: return vocab.ephemeral[idx] == s
-	case SymInt: return strconv.FormatInt(int64(vocab.numbers[idx]), 10) == s
-	case SymFlt: return strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64) == s
-	default:     return sym.string() == s // Safely unlocked builder for sequences
-	}
-}
-
-// symEqualsBytesLocked resolves hash collisions perfectly with zero allocations for bytes.
-func symEqualsBytesLocked(sym Symbol, b []byte) bool {
-	if sym.id() >= vocab.symcount { return false }
-
-	idx := sym.Idx()
-
-	// FIX: If Idx is the 28-bit equivalent of -1 (0xFFFFFFF), this symbol is currently
-	// being built in this stack frame. Treating it as 'false' prevents the panic and
-	// allows the shredder to continue creating the required sub-symbols.
-	if idx == -1 || idx == 0xFFFFFFF {
-		if false {
-			var cs string
-			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym.id(), len(coreSymbols), cs, string(b)))
-		}
-		return false
-	}
-
-	var str string
-	switch sym.Kind() {
-	case SymPct, SymInl:
-		u := uint32(idx)
-		ln := int((u >> 24) & 0x3)
-
-		if len(b) != ln { return false }
-		if ln > 0 && b[0] != byte(u) { return false }
-		if ln > 1 && b[1] != byte(u>>8) { return false }
-		if ln > 2 && b[2] != byte(u>>16) { return false }
-		return true
-
-	case SymRaw: str = vocab.strings[idx]
-	case SymEph: str = vocab.ephemeral[idx]
-	case SymInt: str = strconv.FormatInt(int64(vocab.numbers[idx]), 10)
-	case SymFlt: str = strconv.FormatFloat(math.Float64frombits(vocab.numbers[idx]), 'g', -1, 64)
-	default:     str = sym.string() // Build it once
-	}
-
-	// ZERO-ALLOCATION BYTE COMPARISON
-	if len(str) != len(b) { return false }
-	for i := 0; i < len(b); i++ {
-		if str[i] != b[i] { return false }
-	}
-	return true
-}
-
-// isSeqEqual provides O(1) bounds-checked integer array comparison.
-func isSeqEqual(a, b []Symbol) bool {
+// __symSeqEqual provides O(1) bounds-checked integer array comparison.
+func __symSeqEqual(a, b []Symbol) bool {
 	if len(a) != len(b) { return false }
-	for i := range a {
-		if a[i] != b[i] { return false }
-	}
+	for i := range a { if a[i] != b[i] { return false } }
 	return true
 }
 
-// isSeqPrefix performs an O(1) bounds-checked integer prefix comparison.
-func isSeqPrefix(sSeq, preSeq []Symbol) bool {
+// __symSeqPrefix performs an O(1) bounds-checked integer prefix comparison.
+func __symSeqPrefix(sSeq, preSeq []Symbol) bool {
 	if len(preSeq) > len(sSeq) { return false }
 	for i := range preSeq {
 		if sSeq[i] != preSeq[i] { return false }
@@ -4306,8 +4835,8 @@ func isSeqPrefix(sSeq, preSeq []Symbol) bool {
 	return true
 }
 
-// isSeqSuffix performs an O(1) bounds-checked integer suffix comparison.
-func isSeqSuffix(sSeq, sufSeq []Symbol) bool {
+// __symSeqSuffix performs an O(1) bounds-checked integer suffix comparison.
+func __symSeqSuffix(sSeq, sufSeq []Symbol) bool {
 	if len(sufSeq) > len(sSeq) { return false }
 	offset := len(sSeq) - len(sufSeq)
 	for i := range sufSeq {
@@ -4317,12 +4846,6 @@ func isSeqSuffix(sSeq, sufSeq []Symbol) bool {
 }
 
 func isRuleAuto(s Symbol) bool { return s == symDash || s == symTilde || symAt.id() <= s.id() && s.id() <= symPlusA.id() }
-
-func isSymKind(s Symbol, ns ...uint8) bool {
-	var k = s.Kind()
-	for _, n := range ns { if k == n { return true } }
-	return false
-}
 
 const shredderChars = `&$-_'":∶,~./\(){}[]#=|^<>%*?+@⌜⌟⌞⌝‹›«»→` // ' ' \t \n \r
 func isShredderChar0(ch byte) bool { return strings.IndexByte(shredderChars, ch) >= 0 }
@@ -4392,9 +4915,9 @@ func __symDir(sym Symbol) Symbol {
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash {
 			if i == 0 {
-				return internSeq(seq[:1]) // Path is "/foo" -> dir is "/"
+				return intern_seq(seq[:1]) // Path is "/foo" -> dir is "/"
 			}
-			return internSeq(seq[:i])     // Path is "a/b/foo" -> dir is "a/b"
+			return intern_seq(seq[:i])     // Path is "a/b/foo" -> dir is "a/b"
 		}
 	}
 	return symDot
@@ -4406,7 +4929,7 @@ func __symBase(sym Symbol) Symbol {
 
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash {
-			return internSeq(seq[i+1:])
+			return intern_seq(seq[i+1:])
 		}
 	}
 	return sym // No slash found, the base is the whole symbol!
@@ -4493,7 +5016,7 @@ func __symUnDir(n int, sym Symbol) Symbol {
 	}
 
 	// Zero-Allocation Sequence Re-entry
-	return internSeq(seq[start:])
+	return intern_seq(seq[start:])
 }
 
 // __symNDir steps up 'n' directories from a Symbol.
@@ -4573,7 +5096,7 @@ func __symNDir(n int, sym Symbol) Symbol {
 	}
 
 	// 6. Zero-Allocation Sequence Re-entry
-	return internSeq(seq[:end])
+	return intern_seq(seq[:end])
 }
 
 // __symNBase extracts the last 'n' path segments from a Symbol.
@@ -4644,7 +5167,7 @@ func __symNBase(n int, sym Symbol) Symbol {
 	}
 
 	// 3. Zero-Allocation Sequence Re-entry
-	return internSeq(seq[start:end])
+	return intern_seq(seq[start:end])
 }
 
 // __symExt extracts the file extension from a Symbol.
@@ -4656,7 +5179,7 @@ func __symExt(sym Symbol) Symbol {
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash { break } // Stop searching at directory boundary
 		if seq[i] == symDot {
-			return internSeq(seq[i:])
+			return intern_seq(seq[i:])
 		}
 	}
 	return symEmpty
@@ -4698,7 +5221,7 @@ func __symJoinBy(sep Symbol, syms ...Symbol) Symbol {
 		}
 	}
 
-	return internSeq(out)
+	return intern_seq(out)
 }
 
 // __symPathJoin normalizes and joins symbols just like filepath.Join,
@@ -4803,7 +5326,7 @@ func __symPathJoin(syms ...Symbol) Symbol {
 		return symDot
 	}
 
-	return internSeq(out)
+	return intern_seq(out)
 }
 
 // __symPathRel computes a relative path from base to path entirely within the Symbol domain.
@@ -4913,7 +5436,7 @@ func __symPathRel(base, path Symbol) Symbol {
 		out = append(out, pathSeq[lastCommonP:]...)
 	}
 
-	return internSeq(out)
+	return intern_seq(out)
 }
 
 // __symPath natively converts a flat Symbol (or SymSeq) into a structural *path AST node.
@@ -4930,13 +5453,13 @@ func __symPath(pos Pos, sym Symbol) Value {
 	// __symFlatSeq flattens the entire tree, exposing every single symSlash!
 	for _, part := range __symFlatSeq(sym) {
 		if part == symSlash {
-			segments = append(segments, internSeq(current))
+			segments = append(segments, intern_seq(current))
 			current = nil
 		} else {
 			current = append(current, part)
 		}
 	}
-	segments = append(segments, internSeq(current))
+	segments = append(segments, intern_seq(current))
 
 	// Fast-path: Natively a single word, no slashes found
 	if len(segments) == 1 {
@@ -4975,7 +5498,7 @@ func __symPath(pos Pos, sym Symbol) Value {
 func __symHasPrefix(sym, prefix Symbol) bool {
 	if sym == prefix { return true }
 	if prefix == symEmpty { return true }
-	if isSeqPrefix(__symSeq(sym), __symSeq(prefix)) { return true }
+	if __symSeqPrefix(__symSeq(sym), __symSeq(prefix)) { return true }
 	// Lexical fallback for singular word sub-string matching.
 	// For SymRaw/SymEph, .String() is a zero-allocation map lookup.
 	return strings.HasPrefix(sym.String(), prefix.String())
@@ -4985,7 +5508,7 @@ func __symHasPrefix(sym, prefix Symbol) bool {
 func __symHasSuffix(sym, suffix Symbol) bool {
 	if sym == suffix { return true }
 	if suffix == symEmpty { return true }
-	if isSeqSuffix(__symSeq(sym), __symSeq(suffix)) { return true }
+	if __symSeqSuffix(__symSeq(sym), __symSeq(suffix)) { return true }
 	// Zero-allocation header check for fast-path monolithic tokens (SymRaw/SymEph)
 	return strings.HasSuffix(sym.String(), suffix.String())
 }
@@ -4998,8 +5521,8 @@ func __symTrimPrefix(sym, prefix Symbol) Symbol {
 	symSeq := __symSeq(sym)
 	preSeq := __symSeq(prefix)
 
-	if isSeqPrefix(symSeq, preSeq) {
-		return internSeq(symSeq[len(preSeq):])
+	if __symSeqPrefix(symSeq, preSeq) {
+		return intern_seq(symSeq[len(preSeq):])
 	}
 
 	ss, pre := sym.String(), prefix.String()
@@ -5016,8 +5539,8 @@ func __symTrimSuffix(sym, suffix Symbol) Symbol {
 
 	symSeq := __symSeq(sym)
 	sufSeq := __symSeq(suffix)
-	if isSeqSuffix(symSeq, sufSeq) {
-		return internSeq(symSeq[:len(symSeq)-len(sufSeq)])
+	if __symSeqSuffix(symSeq, sufSeq) {
+		return intern_seq(symSeq[:len(symSeq)-len(sufSeq)])
 	}
 
 	ss, suf := sym.String(), suffix.String()
@@ -5034,7 +5557,7 @@ func __symTrimExt(sym Symbol) Symbol {
 	for i := len(seq) - 1; i >= 0; i-- {
 		if seq[i] == symSlash { break } // Stop searching at directory boundary
 		if seq[i] == symDot {
-			return internSeq(seq[:i])
+			return intern_seq(seq[:i])
 		}
 	}
 	return sym
@@ -5070,8 +5593,8 @@ func __symSplit(sym Symbol, sep Symbol) (res []Symbol) {
 	start := 0
 	for i, s := range seq {
 		if s == sep {
-			// internSeq handles length 0 slices (returning symEmpty)
-			res = append(res, internSeq(seq[start:i]))
+			// intern_seq handles length 0 slices (returning symEmpty)
+			res = append(res, intern_seq(seq[start:i]))
 			start = i + 1
 		}
 	}
@@ -5080,7 +5603,7 @@ func __symSplit(sym Symbol, sep Symbol) (res []Symbol) {
 	if start == len(seq) {
 		res = append(res, symEmpty) // Trailing separator
 	} else {
-		res = append(res, internSeq(seq[start:]))
+		res = append(res, intern_seq(seq[start:]))
 	}
 	return
 }
@@ -5152,7 +5675,7 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 		if i == len(seq) || seq[i] == symSlash {
 			if i > start {
 				// 1. Valid inner path segment
-				segment := internSeq(seq[start:i])
+				segment := intern_seq(seq[start:i])
 				segs = append(segs, _word(_pos(ctx), segment))
 			} else if i == 0 {
 				// 2. THE DOD FIX: PROOT (Path Root)
@@ -5339,7 +5862,7 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 					i++
 				}
 				if i > start {
-					sym = internSeq(syms[start : i+1])
+					sym = intern_seq(syms[start : i+1])
 				}
 			}
 			compVals = append(compVals, _word(pos, sym))
@@ -5386,7 +5909,7 @@ func __symbol(ctx Context, val Value) Symbol {
 		return __symJoin(symDash, __symbol(ctx, v.Value))
 
 	case *strlit:
-		return internSeq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
+		return intern_seq([]Symbol{symApostrophe, intern(v.s), symApostrophe})
 
 	// DOD: Exact slice pre-allocation prevents heap resizing
 	case *strval:
@@ -5394,19 +5917,19 @@ func __symbol(ctx Context, val Value) Symbol {
 		seq = append(seq, symLbrace)
 		for _, e := range v.v { seq = append(seq, __symbol(ctx, e)) }
 		seq = append(seq, symRbrace)
-		return internSeq(seq)
+		return intern_seq(seq)
 
 	case *strcomp:
 		seq := make([]Symbol, 0, len(v.elems)+2)
 		seq = append(seq, symQuotation)
 		for _, e := range v.elems { seq = append(seq, __symbol(ctx, e)) }
 		seq = append(seq, symQuotation)
-		return internSeq(seq)
+		return intern_seq(seq)
 
 	case *compound:
 		seq := make([]Symbol, 0, len(v.elems))
 		for _, e := range v.elems { seq = append(seq, __symbol(ctx, e)) }
-		return internSeq(seq)
+		return intern_seq(seq)
 
 	case *qualword:
 		seq := make([]Symbol, 0, len(v.elems)*2) // Account for interleaved dots
@@ -5414,7 +5937,7 @@ func __symbol(ctx Context, val Value) Symbol {
 			if i > 0 { seq = append(seq, symDot) }
 			seq = append(seq, __symbol(ctx, e))
 		}
-		return internSeq(seq)
+		return intern_seq(seq)
 
 	case *argumented:
 		// Capacity: 1 (Value) + 1 (Lparen) + args + spaces + 1 (Rparen)
@@ -5425,7 +5948,7 @@ func __symbol(ctx Context, val Value) Symbol {
 			seq = append(seq, __symbol(ctx, a))
 		}
 		seq = append(seq, symRparen)
-		return internSeq(seq)
+		return intern_seq(seq)
 
 	case *list:
 		if v.len() == 1 { return __symbol(ctx, v.elems[0]) }
@@ -5436,7 +5959,7 @@ func __symbol(ctx Context, val Value) Symbol {
 			seq = append(seq, __symbol(ctx, e))
 		}
 		seq = append(seq, symRbotcorner) // ⌟
-		return internSeq(seq)
+		return intern_seq(seq)
 
 	case *prediction: if v.bool { return symTrue } else { return symFalse }
 	case *boolean: if v.bool { return symTrue } else { return symFalse }
@@ -5774,15 +6297,15 @@ func splitFileName(ctx Context, val Value) (dir, name Symbol) {
 		if seq[i] == symSlash {
 			if i == 0 {
 				// Path is "/foo" -> dir is "/", name is "foo"
-				return internSeq(seq[:1]), internSeq(seq[1:])
+				return intern_seq(seq[:1]), intern_seq(seq[1:])
 			}
 			// Path is "a/b/foo" -> dir is "a/b", name is "foo"
-			return internSeq(seq[:i]), internSeq(seq[i+1:]) // Zero allocation slice pointers!
+			return intern_seq(seq[:i]), intern_seq(seq[i+1:]) // Zero allocation slice pointers!
 		}
 	}
 
 	// 3. No slash found. Path is "foo" -> dir is ".", name is "foo"
-	return symDot, internSeq(seq)
+	return symDot, intern_seq(seq)
 }
 
 // =============================================================================
@@ -6598,12 +7121,12 @@ func (s *scope) insert(ctx Context, obj object) object {
 	} else if alt, _ := s.elems[name]; alt != nil {
 		return alt
 	} else {
-		s.replaceLocked(ctx, name, obj)
+		s.unsafe_replace(ctx, name, obj)
 		return nil
 	}
 }
 
-func (s *scope) replaceLocked(ctx Context, name Symbol, obj object) {
+func (s *scope) unsafe_replace(ctx Context, name Symbol, obj object) {
 	// 1. Optional: Let the object know where it lives
 	if i, ok := obj.(interface { setscope(Symbol, *scope) }); ok { i.setscope(name, s) }
 
@@ -6615,7 +7138,7 @@ func (s *scope) replaceLocked(ctx Context, name Symbol, obj object) {
 
 func (s *scope) replace(ctx Context, name Symbol, obj object) {
 	s.Lock() ; defer s.Unlock()
-	s.replaceLocked(ctx, name, obj)
+	s.unsafe_replace(ctx, name, obj)
 }
 
 // WriteTo writes a string representation of the scope to w,
@@ -6671,7 +7194,7 @@ func (s *scope) builtin(ctx Context, name Symbol, f reflect.Type) (res *builtin,
 	s.Lock() ; defer s.Unlock()
 	if a = s.elems[name] ; a == nil {
 		res = &builtin{knownobject{objbase{scope:s}, name}, f}
-		s.replaceLocked(ctx, name, res)
+		s.unsafe_replace(ctx, name, res)
 	}
 	return
 }
@@ -6688,7 +7211,7 @@ func (s *scope) _auto(ctx Context, name Symbol) (a *auto, o object) {
 
 	if !y {
 		a = &auto{knownobject{objbase{valbase{_pos(ctx)},s}, name}}
-		s.replaceLocked(ctx, name, a)
+		s.unsafe_replace(ctx, name, a)
 	}
 	return
 }
@@ -7959,7 +8482,7 @@ func (s *scanner) scanIdentifier(ctx Context) {
 			if n < len(s.src) && rune(s.src[n]) == '>' { break }
 		}
 	}
-	s.sym = internBytes(s.src[offs:s.offset])
+	s.sym = intern_bytes(s.src[offs:s.offset])
 	return
 }
 
@@ -11487,7 +12010,7 @@ func (p *compiler) calling(ctx Context) (result Value) {
 		obj = p.resolve(ctx, name.Pos(), sym, closure)
 		if checkpoints {
 			if sym_0.id() < sym.id() && sym.id() <= sym_9.id() {
-				if !isSymKind(sym,SymInt) {
+				if sym.Kind() != SymInt {
 					erro(pc(ctx,p),
 						_f("%v %v → obj=%v", sym, ts(name), ts(obj)),
 						_f("is_auto_sym{%v}=%v", sym, do(ctx, is_auto_sym{sym})),
@@ -11496,7 +12019,7 @@ func (p *compiler) calling(ctx Context) (result Value) {
 				}
 				if obj != nil {
 					if a, ok := obj.(*auto); ok {
-						if a.name != sym || !isSymKind(a.name, SymInt) {
+						if a.name != sym || a.name.Kind() != SymInt {
 							erro(pc(ctx,p),
 								_f("name mismatched: %v != %v", a.name, sym),
 								_f("%v → obj=%v", ts(name), ts(obj)),
@@ -16392,7 +16915,7 @@ func (p *compiler) loadPlugin(ctx Context) {
 				clean[i] = sym
 			}
 		}
-		cleanRelSym = internSeq(clean)
+		cleanRelSym = intern_seq(clean)
 	}
 
 	// 2. Pure Symbol Path Joining
@@ -21606,7 +22129,7 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 	case absolute_path: return _project(c.Context).absPath
 
 	case get_auto: // IsDigits(t.s.String())
-		if isSymKind(t.s, SymInt) {
+		if t.s.Kind() == SymInt {
 			if x, y := c.defs[t.s]; y {
 				return x
 			} else {
@@ -21615,7 +22138,7 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 		}
 	case set_auto:
 		// THE DOD FIX: Intercept `$1, $2, ...` assignments inside macros!
-		if isSymKind(t.s, SymInt) {
+		if t.s.Kind() == SymInt {
 			if c.defs == nil {
 				c.defs = make(map[Symbol]*def)
 			}
@@ -23339,15 +23862,15 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	}
 
 	if checkpoints && matched {
-		if matcher.stopTieByte != matcher.tie.bytePos {
-			warn(pc(ctx,val), "diverged byte pos: %v %v: matcher.stopTieByte=%d matcher.tie.bytePos=%d",
-				pat, val, matcher.stopTieByte, matcher.tie.bytePos)
+		if matcher.stopTieBoundary != matcher.tie.boundary {
+			warn(pc(ctx,val), "diverged byte pos: %v %v: matcher.stopTieBoundary=%d matcher.tie.boundary=%d",
+				pat, val, matcher.stopTieBoundary, matcher.tie.boundary)
 		}
 		if !matcher.exhausted() {
-			warn(pc(ctx,pat), "pattern stream not exhausted: %v %v; %v %v %v %v", pat, val, matcher.ops, matcher.bytePos, matcher.str, matcher.syms)
+			warn(pc(ctx,pat), "pattern stream not exhausted: %v %v; %v %v %v %v", pat, val, matcher.ops, matcher.boundary, matcher.str, matcher.syms)
 		}
 		if force_full_match_anchor && !gen.exhausted() {
-			warn(pc(ctx,val), "value stream not exhausted: %v %v; %v %v %v %v", pat, val, gen.ops, gen.bytePos, gen.str, gen.syms)
+			warn(pc(ctx,val), "value stream not exhausted: %v %v; %v %v %v %v", pat, val, gen.ops, gen.boundary, gen.str, gen.syms)
 		}
 	}
 
@@ -23357,9 +23880,9 @@ func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []V
 	case 1: res, _ = packer.operands[0].(Value)
 	}
 
-	if checkpoints && matched && rem == nil && matcher.stopTieByte > 0 && len(gen.str) > 0 {
-		warn(pc(ctx,val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, bytePos=%d",
-			pat, val, gen.str, matcher.stopTieByte, gen.bytePos)
+	if checkpoints && matched && rem == nil && matcher.stopTieBoundary > 0 && len(gen.str) > 0 {
+		warn(pc(ctx,val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, boundary=%d",
+			pat, val, gen.str, matcher.stopTieBoundary, gen.boundary)
 	}
 	if checkpoints { check_match(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
 	return
@@ -24789,7 +25312,7 @@ func _rw(pos Pos, s string) Value {
 		h := hashStr(s)
 		vocab.RLock()
 		for _, sym = range vocab.strsyms[h] {
-			if ok = symEqualsStringLocked(sym, s); ok { break }
+			if ok = sym.unsafe_equal_string(s); ok { break }
 		}
 		vocab.RUnlock()
 		if ok { return &word{valbase{pos}, sym} }
@@ -24806,7 +25329,7 @@ func _rw1(pos Pos, s string) Value {
 		h := hashStr(s)
 		vocab.RLock()
 		for _, sym = range vocab.strsyms[h] {
-			if ok = symEqualsStringLocked(sym, s); ok { break }
+			if ok = sym.unsafe_equal_string(s); ok { break }
 		}
 		vocab.RUnlock()
 
@@ -26203,7 +26726,7 @@ func tokc(ctx Context, c *valcache, comp *compound) hit_matrix {
 		if _, isClosure := unbox(e).(*closure); isClosure {
 			var matrix [][]Symbol
 			if len(seq) > 0 {
-				matrix = __symMatrix(internSeq(seq), false)
+				matrix = __symMatrix(intern_seq(seq), false)
 			}
 			matrix = append(matrix, []Symbol{symAmpersand}) // Native closure injection!
 			return hit_matrix{c, matrix}
@@ -26211,7 +26734,7 @@ func tokc(ctx Context, c *valcache, comp *compound) hit_matrix {
 		seq = append(seq, __symbol(ctx, e))
 	}
 	if len(seq) > 0 {
-		return hit_matrix{c, __symMatrix(internSeq(seq), false)}
+		return hit_matrix{c, __symMatrix(intern_seq(seq), false)}
 	}
 	return hit_matrix{c, nil}
 }
@@ -26223,7 +26746,7 @@ func tokg(ctx Context, c *valcache, g *globpat) hit_matrix {
 		if _, isClosure := unbox(e).(*closure); isClosure {
 			var matrix [][]Symbol
 			if len(seq) > 0 {
-				matrix = __symMatrix(internSeq(seq), true) // isGlob = true!
+				matrix = __symMatrix(intern_seq(seq), true) // isGlob = true!
 			}
 			matrix = append(matrix, []Symbol{symAmpersand})
 			return hit_matrix{c, matrix}
@@ -26234,7 +26757,7 @@ func tokg(ctx Context, c *valcache, g *globpat) hit_matrix {
 		seq = append(seq, __symbol(ctx, e))
 	}
 	if len(seq) > 0 {
-		return hit_matrix{c, __symMatrix(internSeq(seq), true)}
+		return hit_matrix{c, __symMatrix(intern_seq(seq), true)}
 	}
 	return hit_matrix{c, nil}
 }
@@ -26856,11 +27379,11 @@ func (p *tempfile) cleanup() bool {
 	}
 
 	// 2. Wipe the Symbol memory slot and release string to the GC!
-	// (Ensure recycleEphemeral natively handles your `fullname()` ID)
-	return recycleEphemeral(p.name)
+	// (Ensure recycle_ephemeral natively handles your `fullname()` ID)
+	return recycle_ephemeral(p.name)
 }
 
-// Use `tempname` (hash key, timestamp, etc.) instead of Symbol to enforce calling internEphemeral.
+// Use `tempname` (hash key, timestamp, etc.) instead of Symbol to enforce calling intern_ephemeral.
 func (p *project) tempfile(ctx Context, tempname string) (tmp *tempfile) {
 	var t, d = p.tempdir(ctx)
 
@@ -26879,7 +27402,7 @@ func (p *project) tempfile(ctx Context, tempname string) (tmp *tempfile) {
 			unwind{})
 	}
 
-	name := internEphemeral(tempname)
+	name := intern_ephemeral(tempname)
 
 	// CRITICAL: `d` is safe to intern because temp directories are bounded.
 	// `name` is a hash string and MUST bypass the global Symbol map internally!
@@ -28706,7 +29229,7 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 		}
 
 		// Map the dynamically found path into our hardcoded Constant slot!
-		bindLateConstantAlias(symBaseTmpPath, s)
+		bind_constant_alias(symBaseTmpPath, s)
 	})
 
 	if s := __symDir(rel); s != symEmpty && s != symDot {
@@ -28754,7 +29277,7 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 	}
 	if trimStart > 0 {
 		relSeq = relSeq[trimStart:]
-		rel = internSeq(relSeq) // Update rel natively!
+		rel = intern_seq(relSeq) // Update rel natively!
 	}
 
 	// --- Replace ".." with "_" ---
@@ -28776,7 +29299,7 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 			}
 		}
 		relSeq = clean
-		rel = internSeq(clean)
+		rel = intern_seq(clean)
 	}
 
 	// --- Final Path Generation ---
@@ -28997,7 +29520,7 @@ func (ctx *universe) trimFileSpec(c Context, spec Symbol) Symbol {
 			}
 			clean = append(clean, seq[i])
 		}
-		spec = internSeq(clean)
+		spec = intern_seq(clean)
 	}
 
 	// 2. Zero-allocation helper to match and trim "dirSym + symSlash"
@@ -29028,7 +29551,7 @@ func (ctx *universe) trimFileSpec(c Context, spec Symbol) Symbol {
 			}
 			if match {
 				// Trim both the dir sequence and the trailing slash!
-				return internSeq(tSeq[len(dirSeq)+1:])
+				return intern_seq(tSeq[len(dirSeq)+1:])
 			}
 		}
 		return target
@@ -34020,6 +34543,7 @@ type __match struct { builtinbase
 	bilit bool `bidirectional-literal,bilit` // TODO: set bidirectional_fallback_emit_literal=true
     negated bool `ne,neg,negated,negative,not`
 	shallow bool `shallow` // TODO: shallow match without expand $(xx) or &(yy)
+	reverse bool `reverse,trail`
     all bool `all`
 }
 func (ctx *__match) do(c Context, op any) any {
@@ -34043,10 +34567,12 @@ func (ctx *__match) x() any {
     }
 
 	var vals []Value
+	var cc Context = ctx
+	if ctx.reverse { cc = reversal{cc} }
 
 	for _, left := range leftList {
 		for _, right := range rightList {
-			matched, res, rem, st := match(ctx, left, right)
+			matched, res, rem, st := match(cc, left, right)
 			if ctx.negated { matched = !matched }
 			if matched {
 				vals = append(vals, _boolean(_pos(ctx), true))
