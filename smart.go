@@ -3548,7 +3548,7 @@ _op_switch_:
 			break
 		}
 
-		// THE DOD FIX 3: Target Tape Pumping
+		// THE DOD FIX: Robust Starvation Detection
 		for s.tie.err == nil {
 			if op == opConseqAsterisk {
 				if __symSeqContains(s.tie.syms, []Symbol{symSlash}) { break }
@@ -3558,11 +3558,23 @@ _op_switch_:
 
 			snap := len(s.tie.syms)
 			s.tie.pump()
-			if len(s.tie.syms) == snap { break } // EOF or starved
+
+			// Forcefully step the Target VM until a physical symbol is yielded
+			for len(s.tie.syms) == snap && s.tie.err == nil && len(s.tie.ops) > 0 {
+				s.tie.step()
+			}
+
+			if len(s.tie.syms) == snap { break } // Truly EOF or network-starved
 		}
 
-		// THE DOD FIX 2: Native Checkpoint Backtracking
+		// Native Checkpoint Backtracking
 		masterBt := s.checkpoint(undoBranch)
+
+		var bestMatchBt backtrack
+		var bestMatchFound bool
+
+		// THE DOD FIX: Mathematically pure base offset before any lookahead!
+		var baseBoundary = s.tie.boundary
 
 		searchLimit := len(s.tie.syms)
 		if op == opConseqAsterisk {
@@ -3574,61 +3586,36 @@ _op_switch_:
 		var totalBytes int
 		for i := 0; i < searchLimit; i++ { totalBytes += s.tie.syms[i].len() }
 
-		if nextSym != 0 {
-			lookahead := []Symbol{nextSym}
+		// Unified Byte-Perfect JIT Search!
+		var startAbsIdx, endAbsIdx, step int
+		if op == opConseqAstCross { // Reluctant (*?) -> 0 to totalBytes
+			startAbsIdx = 0
+			endAbsIdx = totalBytes
+			step = 1
+		} else { // Greedy (*, **) -> totalBytes down to 0
+			startAbsIdx = totalBytes
+			endAbsIdx = 0
+			step = -1
+		}
 
-			searchOffset := 0
-			if !reverse && (op == opConseqAsterisk || op == opConseqAstGreed) {
-				searchOffset = totalBytes
-			}
+		for absIdx := startAbsIdx; ; absIdx += step {
+			targetIdx := -1
+			var trimStr, leaveStr, targetStr string
 
-			for {
-				var absIdx int
-				if op == opConseqAstCross { // Reluctant (*?)
-					if searchOffset > totalBytes { break }
-					if reverse {
-						absIdx = __symSeqLastIndex(s.tie.syms, totalBytes-searchOffset, lookahead)
-					} else {
-						absIdx = __symSeqIndex(s.tie.syms, searchOffset, lookahead)
-					}
-				} else { // Greedy (*, **)
-					if reverse {
-						absIdx = __symSeqIndex(s.tie.syms, searchOffset, lookahead)
-					} else {
-						absIdx = __symSeqLastIndex(s.tie.syms, searchOffset, lookahead)
-					}
-				}
-
-				if absIdx == -1 { break }
-
-				// Mathematical Bounds Enforcement
-				if absIdx > totalBytes {
-					if op == opConseqAstCross {
-						if !reverse { break }
-						searchOffset = totalBytes - absIdx + 1
-					} else {
-						if reverse { break }
-						searchOffset = absIdx - 1
-						if searchOffset < 0 { break }
-					}
-					continue
-				}
-
-				targetIdx := -1
-				var trimStr, leaveStr, targetStr string
-
+			if absIdx == totalBytes {
+				targetIdx = searchLimit
+			} else {
 				currByte := 0
-				for i := 0; i < len(s.tie.syms); i++ {
+				for i := 0; i < searchLimit; i++ {
 					l := s.tie.syms[i].len()
 					if absIdx >= currByte && absIdx < currByte+l {
 						targetIdx = i
 						localIdx := absIdx - currByte
 						targetStr = s.tie.syms[i].String()
-						nLen := nextSym.len()
 
 						if reverse {
-							trimStr = targetStr[localIdx+nLen:]
-							leaveStr = targetStr[:localIdx+nLen]
+							trimStr = targetStr[localIdx:]
+							leaveStr = targetStr[:localIdx]
 						} else {
 							trimStr = targetStr[:localIdx]
 							leaveStr = targetStr[localIdx:]
@@ -3637,159 +3624,149 @@ _op_switch_:
 					}
 					currByte += l
 				}
+			}
 
-				// The False Boundary Trap
-				if targetIdx != -1 && (op == opConseqAstGreed || op == opConseqAstCross) {
-					if reverse {
-						checkIdx := len(s.tie.syms) - 1 - targetIdx
-						if checkIdx >= 0 && isWildcardMeta(s.tie.syms[checkIdx]) { targetIdx = -1 } else
-						if checkIdx-1 >= 0 && isWildcardMeta(s.tie.syms[checkIdx-1]) { targetIdx = -1 }
-					} else {
-						if targetIdx < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx]) { targetIdx = -1 } else
-						if targetIdx+1 < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx+1]) { targetIdx = -1 }
-					}
-				}
-
-				if targetIdx != -1 {
-					// 1. Absorb up to the fast-path boundary
-					for i := 0; i < targetIdx; i++ {
-						frag := s.tie.pop_head()
-						if frag != symEmpty { s.emit(frag) }
-						if len(s.stems) > 0 {
-							last := len(s.stems) - 1
-							s.stems[last].syms = append(s.stems[last].syms, frag)
-							if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
-						}
-					}
-
-					// 2. Process Sub-Symbol Boundary
-					if trimStr != "" || leaveStr != targetStr {
-						s.tie.pop_head()
-						if trimStr != "" {
-							trimFrag := intern(trimStr)
-							s.emit(trimFrag)
-							if len(s.stems) > 0 {
-								last := len(s.stems) - 1
-								s.stems[last].syms = append(s.stems[last].syms, trimFrag)
-								if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
-							}
-						}
-						if leaveStr != "" { s.tie.str = leaveStr }
-					}
-
-					// === INLINE TELEMETRY SNAPSHOT ===
-					var better bool
-					if true_prefix_matching {
-						better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && s.tie.boundary >= s.stopTieBoundary)
-					} else {
-						better = (s.tie.boundary > s.stopTieBoundary) || (s.tie.boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
-					}
-					if better {
-						s.bestOpsDone = s.opsDone
-						s.stopTieBoundary = s.tie.boundary
-						if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-						s.bestStems = append(s.bestStems[:0], s.stems...)
-					}
-
-					// 3. Execute the REST of the pattern!
-					for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
-
-					// 4. Evaluate Verification
-					if (s.err == nil || s.err == io.EOF) && (s.tie.err == nil || s.tie.err == io.EOF) {
-						if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
-						return // MATCH SUCCESS!
-					}
-
-					// 5. Verification Failed: Flawless Native Rollback
-					s.unwind(&masterBt)
-				}
-
-				// Increment search boundaries to prevent infinite loops!
-				if op == opConseqAstCross {
-					if reverse {
-						searchOffset = totalBytes - absIdx + 1
-					} else {
-						searchOffset = absIdx + 1
-					}
+			// The False Boundary Trap (Phantom Wildcards)
+			if targetIdx != -1 && targetIdx < len(s.tie.syms) && (op == opConseqAstGreed || op == opConseqAstCross) {
+				if reverse {
+					checkIdx := len(s.tie.syms) - 1 - targetIdx
+					if checkIdx >= 0 && isWildcardMeta(s.tie.syms[checkIdx]) { targetIdx = -1 } else
+					if checkIdx-1 >= 0 && isWildcardMeta(s.tie.syms[checkIdx-1]) { targetIdx = -1 }
 				} else {
-					if reverse {
-						searchOffset = absIdx + 1
-					} else {
-						searchOffset = absIdx - 1
-						if searchOffset < 0 { break }
-					}
+					if targetIdx < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx]) { targetIdx = -1 } else
+					if targetIdx+1 < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx+1]) { targetIdx = -1 }
 				}
 			}
 
-		} else {
-			// SLOW-PATH (nextSym == 0)
-			if op == opConseqAstCross { // Reluctant (*?)
-				for absorbedCount := 0; absorbedCount <= searchLimit; absorbedCount++ {
-					for i := 0; i < absorbedCount; i++ {
-						frag := s.tie.pop_head()
-						if frag != symEmpty { s.emit(frag) }
-						if len(s.stems) > 0 {
-							last := len(s.stems) - 1
-							s.stems[last].syms = append(s.stems[last].syms, frag)
-							if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
+			if targetIdx != -1 {
+				// Byte-Perfect Lookahead Filtering
+				if nextSym != 0 {
+					nStr := nextSym.String()
+					nLen := len(nStr)
+					if leaveStr != "" {
+						if reverse {
+							checkLen := nLen
+							if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
+							if leaveStr[len(leaveStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
+						} else {
+							checkLen := nLen
+							if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
+							if leaveStr[:checkLen] != nStr[:checkLen] { goto next_iter }
+						}
+					} else {
+						if targetIdx < len(s.tie.syms) {
+							peekStr := s.tie.syms[targetIdx].String()
+							if reverse {
+								checkLen := nLen
+								if len(peekStr) < checkLen { checkLen = len(peekStr) }
+								if peekStr[len(peekStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
+							} else {
+								checkLen := nLen
+								if len(peekStr) < checkLen { checkLen = len(peekStr) }
+								if peekStr[:checkLen] != nStr[:checkLen] { goto next_iter }
+							}
+						} else {
+							goto next_iter // Expected literal nextSym, but Target is EOF!
 						}
 					}
-					var better bool
-					if true_prefix_matching {
-						better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && s.tie.boundary >= s.stopTieBoundary)
-					} else {
-						better = (s.tie.boundary > s.stopTieBoundary) || (s.tie.boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
-					}
-					if better {
-						s.bestOpsDone = s.opsDone
-						s.stopTieBoundary = s.tie.boundary
-						if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-						s.bestStems = append(s.bestStems[:0], s.stems...)
-					}
-					for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
-					if (s.err == nil || s.err == io.EOF) && (s.tie.err == nil || s.tie.err == io.EOF) {
-						if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
-						return // SUCCESS
-					}
-					s.unwind(&masterBt)
 				}
-			} else { // Greedy (*, **)
-				for absorbedCount := searchLimit; absorbedCount >= 0; absorbedCount-- {
-					for i := 0; i < absorbedCount; i++ {
-						frag := s.tie.pop_head()
-						if frag != symEmpty { s.emit(frag) }
+
+				for i := 0; i < targetIdx; i++ {
+					frag := s.tie.pop_head()
+					if frag != symEmpty { s.emit(frag) }
+					if len(s.stems) > 0 {
+						last := len(s.stems) - 1
+						s.stems[last].syms = append(s.stems[last].syms, frag)
+						if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
+					}
+				}
+
+				// THE DOD FIX: Mathematically pure fractional tracking
+				fracBoundary := baseBoundary
+				if !reverse { fracBoundary += absIdx } else { fracBoundary -= absIdx }
+
+				if trimStr != "" || leaveStr != targetStr {
+					if len(s.tie.syms) > 0 { s.tie.pop_head() }
+
+					if trimStr != "" {
+						trimFrag := intern(trimStr)
+						s.emit(trimFrag)
 						if len(s.stems) > 0 {
 							last := len(s.stems) - 1
-							s.stems[last].syms = append(s.stems[last].syms, frag)
-							if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
+							s.stems[last].syms = append(s.stems[last].syms, trimFrag)
+							if reverse { s.stems[last].start = fracBoundary } else { s.stems[last].end = fracBoundary }
 						}
 					}
-					var better bool
-					if true_prefix_matching {
-						better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && s.tie.boundary >= s.stopTieBoundary)
-					} else {
-						better = (s.tie.boundary > s.stopTieBoundary) || (s.tie.boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
-					}
-					if better {
-						s.bestOpsDone = s.opsDone
-						s.stopTieBoundary = s.tie.boundary
-						if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-						s.bestStems = append(s.bestStems[:0], s.stems...)
-					}
-					for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
-					if (s.err == nil || s.err == io.EOF) && (s.tie.err == nil || s.tie.err == io.EOF) {
-						if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
-						return // SUCCESS
-					}
-					s.unwind(&masterBt)
+					if leaveStr != "" { s.tie.str = leaveStr }
 				}
+
+				// === INLINE TELEMETRY SNAPSHOT ===
+				var better bool
+				if true_prefix_matching {
+					better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && fracBoundary >= s.stopTieBoundary)
+				} else {
+					better = (fracBoundary > s.stopTieBoundary) || (fracBoundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
+				}
+				if better {
+					s.bestOpsDone = s.opsDone
+					s.stopTieBoundary = fracBoundary
+					if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
+					s.bestStems = append(s.bestStems[:0], s.stems...)
+				}
+
+				// 3. Execute the REST of the pattern!
+				for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
+
+				// 4. Evaluate Verification
+				if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
+
+				if s.err == io.EOF {
+					if len(s.tie.str) == 0 && len(s.tie.syms) == 0 && s.tie.err == nil {
+						s.tie.pump()
+						for len(s.tie.syms) == 0 && s.tie.err == nil && len(s.tie.ops) > 0 { s.tie.step() }
+					}
+
+					if s.tie.err == io.EOF || (s.tie.err == nil && len(s.tie.syms) == 0) {
+						return
+					}
+
+					if !bestMatchFound {
+						bestMatchFound = true
+						bestMatchBt = s.checkpoint(undoBranch)
+						bestMatchBt.altVal = fracBoundary // Store pure mathematical offset
+					} else {
+						// True DOD priority calculation using injected pure coordinates
+						bestTieBoundary := bestMatchBt.altVal.(int)
+
+						var betterMatch bool
+						if true_prefix_matching {
+							betterMatch = (s.opsDone > bestMatchBt.own.vmstack.opsDone) || (s.opsDone == bestMatchBt.own.vmstack.opsDone && fracBoundary >= bestTieBoundary)
+						} else {
+							betterMatch = (fracBoundary > bestTieBoundary) || (fracBoundary == bestTieBoundary && s.opsDone > bestMatchBt.own.vmstack.opsDone)
+						}
+
+						if betterMatch {
+							bestMatchBt = s.checkpoint(undoBranch)
+							bestMatchBt.altVal = fracBoundary
+						}
+					}
+				}
+
+				// 5. Verification Failed or Partial Match Saved: Rollback and explore next!
+				s.unwind(&masterBt)
 			}
+
+		next_iter:
+			if absIdx == endAbsIdx { break }
+		}
+
+		if bestMatchFound {
+			s.unwind(&bestMatchBt)
+			return // Revert to the best valid partial match found!
 		}
 
 		// === THE DOD FIX: Graceful Step-by-Step Fallback ===
-		// If speculative validation fails or finds no candidates, do NOT throw errMatchFailed!
-		// We gracefully fall back to step-by-step absorption. This guarantees the Matcher and Packer
-		// stay mathematically in sync, allowing the Packer to perfectly consume the high-watermark!
+		// We NEVER burst emit and fail! We emit exactly 1 symbol and yield to keep the Packer synchronized.
 		if len(s.tie.syms) == 0 { break _op_switch_ }
 
 		frag := s.tie.pop_head()
@@ -3800,15 +3777,18 @@ _op_switch_:
 			if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
 		}
 
+		currTieBoundary := s.tie.boundary
+		if !reverse { currTieBoundary -= len(s.tie.str) } else { currTieBoundary += len(s.tie.str) }
+
 		var better bool
 		if true_prefix_matching {
-			better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && s.tie.boundary >= s.stopTieBoundary)
+			better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && currTieBoundary >= s.stopTieBoundary)
 		} else {
-			better = (s.tie.boundary > s.stopTieBoundary) || (s.tie.boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
+			better = (currTieBoundary > s.stopTieBoundary) || (currTieBoundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
 		}
 		if better {
 			s.bestOpsDone = s.opsDone
-			s.stopTieBoundary = s.tie.boundary
+			s.stopTieBoundary = currTieBoundary
 			if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
 			s.bestStems = append(s.bestStems[:0], s.stems...)
 		}
