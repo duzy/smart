@@ -3065,6 +3065,17 @@ func (s *symstr) step() {
 		return
 	}
 
+	var better func(int) bool
+	if true_prefix_matching {
+		better = func(boundary int) bool {
+			return (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && boundary >= s.stopTieBoundary)
+		}
+	} else {
+		better = func(boundary int) bool {
+			return (boundary > s.stopTieBoundary) || (boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
+		}
+	}
+	
 	var op evalop
 	if len(s.ops) > 0 {
 		op = s.ops[len(s.ops)-1]
