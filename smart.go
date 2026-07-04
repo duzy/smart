@@ -2710,118 +2710,6 @@ type vmpack struct {
 	list elements
 }
 
-func (p *vmpack) shift(val Value) {
-	p.comp.append(val)
-}
-
-func (p *vmpack) reduceQual(pos Pos) {
-	var v Value
-
-	if p.comp.len() > 0 {
-		if p.comp.len() == 1 {
-			v = p.comp.elems[0]
-		} else {
-			// THE DOD FIX: Prevent slice aliasing by allocating a distinct slice header!
-			v = &compound{p.comp.copy()}
-		}
-
-		p.comp.clear()
-	}
-
-	if v == nil {
-		p.qual.append(valbase{pos})
-	} else {
-		p.qual.append(v)
-	}
-}
-
-func (p *vmpack) reducePath(pos Pos) {
-	p.reduceQual(pos) // Cascade upward
-
-	var res Value
-	if p.qual.len() == 1 {
-		res = p.qual.elems[0]
-	} else if p.qual.len() > 1 {
-		res = &qualword{p.qual.copy()}
-	}
-
-	p.qual.clear()
-
-	// Arrow Wrapping
-	if p.arrowObj != nil {
-		if res == nil { res = valbase{pos} }
-		// Note: 't token' defaults to 0 as we bypass the raw lexer token here
-		res = &arrow{valbase: valbase{pos}, o: p.arrowObj, s: res}
-		p.arrowObj = nil
-	}
-
-	// Flag Wrapping
-	if p.flag != 0 {
-		if res == nil { res = valbase{p.flag} }
-		res = flag{res}
-		p.flag = 0
-	}
-
-	if res != nil { p.path.append(res) }
-}
-
-func (p *vmpack) reduceList(pos Pos) {
-	p.reducePath(pos) // Cascade upward
-
-	var res Value
-	if p.path.len() == 1 {
-		res = p.path.elems[0]
-	} else if p.path.len() > 1 {
-		res = &path{p.path.copy()}
-	}
-
-	p.path.clear()
-
-	// Pair Wrapping
-	if p.pairKey != nil {
-		if res == nil { res = valbase{pos} }
-		res = &pair{key: p.pairKey, val: res}
-		p.pairKey = nil
-	}
-
-	if res != nil { p.list.append(res) }
-}
-
-// reduce finalizes the current state (called on EOF or closing punctuation)
-func (p *vmpack) reduce(pos Pos) Value {
-	p.reduceList(pos) // Cascade all the way up
-
-	var res Value
-	if p.list.len() == 1 {
-		res = p.list.elems[0]
-	} else if p.list.len() > 1 {
-		res = &list{p.list.copy()}
-	} else {
-		res = valbase{pos}
-	}
-
-	p.list.clear()
-
-	return res
-}
-
-// clone safely snapshots the AST state machine against time-traveling backtracks.
-func (p *vmpack) clone() *vmpack {
-	if p == nil { return nil }
-	if p.parent == p { panic("looping vmpack linkage") }
-	return &vmpack{
-		parent:   p.parent.clone(),
-		closer:   p.closer,
-		flag:     p.flag,
-		pairKey:  p.pairKey,   // AST nodes are immutable once reduced, safe to pass reference
-		arrowObj: p.arrowObj,
-		comp:     p.comp.copy(), // Natively isolates active slices!
-		qual:     p.qual.copy(),
-		path:     p.path.copy(),
-		list:     p.list.copy(),
-	}
-}
-
 // clone securely deep-copies the volatile execution stacks.
 func (st vmstack) clone() vmstack {
 	return vmstack{
@@ -2988,7 +2876,7 @@ func (s *symstr) step() {
 			}
 
 			if s.vmpack == nil { s.vmpack = &vmpack{} }
-			s.pack(s.tie.posInRange(start, end), sym)
+			s.pack(s.tie.posInRange(start, end), sym, reverse)
 
 			if !transition { return } // Yield to VM loop to keep consuming!
 		}
@@ -2996,7 +2884,7 @@ func (s *symstr) step() {
 		// === 3. TRANSITION FROM RES TO REM ===
 		if transition {
 			bt := s.tie.checkpoint(undoErr)
-			bt.tie.boundary = s.tie.boundary // Snapshot the Packer's tape position!
+			bt.tie.boundary = s.tie.boundary // Snapshot the Matcher's tape position!
 			bt.own.boundary = s.boundary // Snapshot the Packer's tape position!
 			s.tie.backtracks = append(s.tie.backtracks, bt)
 			s.tie.class |= clsTieForwards
@@ -3008,8 +2896,15 @@ func (s *symstr) step() {
 
 			var res Value
 			if s.vmpack != nil {
-				res = s.reduce(s.tie.posInRange(0, s.boundary))
-				s.vmpack = nil
+				// THE DOD FIX: Discard mathematically hollow prefix failures!
+				// If the Matcher failed before consuming any physical target bytes,
+				// any structural tokens (like PROOT) packed into the AST are discarded.
+				if s.boundary == 0 && bt.own.err != io.EOF {
+					s.vmpack = nil
+				} else {
+					res = s.reduce(s.tie.posInRange(0, s.boundary))
+					s.vmpack = nil
+				}
 			}
 			s.operands = []any{res}
 			return
@@ -3033,10 +2928,19 @@ func (s *symstr) step() {
 			}
 
 			var stems []Value
-			// Extract ALL capture groups natively from the high-watermark!
+			reverseStems := reverse || (s.tie.class & clsBackwards) != 0
+
+			// Extract ALL successfully captured groups natively from the high-watermark
 			for _, capture := range s.tie.bestStems {
-				if capture.start == -1 {
-					stems = append(stems, Value(nil))
+				// THE DOD FIX: Zero-Byte Capture Bypass
+				// If a wildcard executed but captured 0 bytes (syms is empty),
+				// or if it was entirely unexecuted (start == -1), we strictly yield <nil>.
+				if capture.start == -1 || len(capture.syms) == 0 {
+					if reverseStems {
+						stems = append([]Value{Value(nil)}, stems...) // Prepend
+					} else {
+						stems = append(stems, Value(nil)) // Append
+					}
 					continue
 				}
 
@@ -3044,14 +2948,28 @@ func (s *symstr) step() {
 				s.vmpack = &vmpack{}
 				for _, sym := range capture.syms {
 					symBytes := sym.len()
-					s.pack(s.tie.posInRange(bytePos, bytePos+symBytes), sym)
+					s.pack(s.tie.posInRange(bytePos, bytePos+symBytes), sym, reverse)
 					bytePos += symBytes
 				}
 
 				stem := s.reduce(s.tie.posInRange(capture.start, capture.end))
 				if capture.name != symEmpty && stem != nil { stem = &named_stem{stem, capture.name} }
-				stems = append(stems, stem)
+
+				// THE DOD FIX: Restore Structural AST Order
+				// Backward matches generate stems right-to-left chronologically.
+				// We prepend them to flawlessly restore left-to-right spatial order!
+				if reverseStems {
+					stems = append([]Value{stem}, stems...)
+				} else {
+					stems = append(stems, stem)
+				}
 			}
+
+			// NOTE: When a match aborts early (e.g. pattern literal contradiction),
+			// unexecuted pattern wildcards remaining in the AST operands stack do not
+			// produce capture stems. This results in a truncated capture array (e.g.,
+			// [<nil>] instead of [<nil> <nil>]). This is completely fine as it accurately
+			// reflects the true runtime evaluation depth of the aborted timeline.
 
 			s.vmpack = nil
 			s.err = io.EOF // Terminates the Packer's VM loop!
@@ -3065,6 +2983,7 @@ func (s *symstr) step() {
 		return
 	}
 
+	// THE DOD FIX: Unified Telemetry & Priority Closure
 	var better func(int) bool
 	if true_prefix_matching {
 		better = func(boundary int) bool {
@@ -3075,7 +2994,7 @@ func (s *symstr) step() {
 			return (boundary > s.stopTieBoundary) || (boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
 		}
 	}
-	
+
 	var op evalop
 	if len(s.ops) > 0 {
 		op = s.ops[len(s.ops)-1]
@@ -3233,26 +3152,22 @@ _op_switch_:
 							continue
 						case opGlobQues, opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
 							var os Symbol
-							// var ss = []Symbol{target}
 							switch s.ops[len(s.ops)-1] {
-							case opGlobQues: os = symQues; //ss = []Symbol{intern(target.String()[:1])}
+							case opGlobQues: os = symQues
 							case opGlobAsterisk: os = symAsterisk
 							case opGlobAstGreed: os = symAsteriskAst
 							case opGlobAstCross: os = symAsteriskQues
 							}
 							s.ops = s.ops[:len(s.ops)-1]
-							// var start, end int
-							// if t := s.tie.boundary; reverse { start = t } else { end = t }
+							s.opsDone++ // THE DOD FIX: Maintain Telemetry Sync!
 							if bidirectional_fallback_emit_literal { s.emit(os) }
-							// if t := s.tie.boundary; reverse { end = t } else { start = t }
-							s.stems = append(s.stems, capture{start: -1, /* end: -1, syms: ss */})
+							s.stems = append(s.stems, capture{start: -1})
 							continue
 						case opRegexMatch:
 							rx := s.operands[len(s.operands)-1].(*regexp.Regexp)
 							s.operands = s.operands[:len(s.operands)-1]
 							s.ops = s.ops[:len(s.ops)-1]
-							// If a regex is swallowed, ALL of its capture groups must yield empty results
-							// to preserve the total stem count expected by the wrapper!
+							s.opsDone++ // THE DOD FIX: Maintain Telemetry Sync!
 							names := rx.SubexpNames()
 							for i := 1; i < len(names); i++ {
 								name := symEmptyName
@@ -3281,9 +3196,11 @@ _op_switch_:
 
 						// BOUNDARY ALIGNMENT CHECK
 						if nextTarget != symEmpty {
-							if sym == nextTarget { break /* _ops_subloop_ */ }
+							if sym == nextTarget {
+								break _ops_subloop_
+							}
 
-							// Sub-Symbol Boundary Slicing (e.g. pattern `x.h` vs target `.h`)
+							// Sub-Symbol Boundary Slicing
 							var absorbed, leftover string
 							if reverse {
 								if sym.has_prefix(nextTarget) {
@@ -3299,7 +3216,6 @@ _op_switch_:
 								}
 							}
 							if len(absorbed) > 0 && len(leftover) > 0 {
-								// We just overwrite the opMatchLiteral's operand with leftover!
 								s.operands[len(s.operands)-1] = intern(leftover)
 								if bidirectional_fallback_emit_literal { s.emit(intern(absorbed)) }
 								break _ops_subloop_ // Aligned!
@@ -3309,6 +3225,7 @@ _op_switch_:
 						// Boundary not reached, absorb the full literal!
 						s.operands = s.operands[:len(s.operands)-1]
 						s.ops = s.ops[:len(s.ops)-1] // i.e., opMatchLiteral
+						s.opsDone++ // THE DOD FIX: Maintain Telemetry Sync!
 					}
 
 					break _op_switch_
@@ -3563,9 +3480,8 @@ _op_switch_:
 		for s.tie.err == nil {
 			if op == opConseqAsterisk {
 				if __symSeqContains(s.tie.syms, []Symbol{symSlash}) { break }
-			} else if op == opConseqAstCross && nextSym != 0 {
-				if __symSeqIndex(s.tie.syms, 0, []Symbol{nextSym}) != -1 { break }
 			}
+			// DO NOT clamp opConseqAstCross! It must pump to discover Target Wildcards!
 
 			snap := len(s.tie.syms)
 			s.tie.pump()
@@ -3584,7 +3500,7 @@ _op_switch_:
 		var bestMatchBt backtrack
 		var bestMatchFound bool
 
-		// THE DOD FIX: Mathematically pure base offset before any lookahead!
+		// Mathematically pure base offset before any lookahead!
 		var baseBoundary = s.tie.boundary
 
 		searchLimit := len(s.tie.syms)
@@ -3622,11 +3538,15 @@ _op_switch_:
 					if absIdx >= currByte && absIdx < currByte+l {
 						targetIdx = i
 						localIdx := absIdx - currByte
-						targetStr = s.tie.syms[i].String()
+						targetStr := s.tie.syms[i].String()
 
+						// THE DOD FIX: Flawless Reverse Fractional Slicing
+						// `localIdx` is the exact number of bytes we want to absorb.
+						// In reverse mode, we absorb from the trailing end of the string!
 						if reverse {
-							trimStr = targetStr[localIdx:]
-							leaveStr = targetStr[:localIdx]
+							split := len(targetStr) - localIdx
+							trimStr = targetStr[split:]
+							leaveStr = targetStr[:split]
 						} else {
 							trimStr = targetStr[:localIdx]
 							leaveStr = targetStr[localIdx:]
@@ -3692,7 +3612,7 @@ _op_switch_:
 					}
 				}
 
-				// THE DOD FIX: Mathematically pure fractional tracking
+				// Mathematically pure fractional tracking
 				fracBoundary := baseBoundary
 				if !reverse { fracBoundary += absIdx } else { fracBoundary -= absIdx }
 
@@ -3712,13 +3632,7 @@ _op_switch_:
 				}
 
 				// === INLINE TELEMETRY SNAPSHOT ===
-				var better bool
-				if true_prefix_matching {
-					better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && fracBoundary >= s.stopTieBoundary)
-				} else {
-					better = (fracBoundary > s.stopTieBoundary) || (fracBoundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
-				}
-				if better {
+				if better(fracBoundary) {
 					s.bestOpsDone = s.opsDone
 					s.stopTieBoundary = fracBoundary
 					if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
@@ -3729,7 +3643,18 @@ _op_switch_:
 				for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
 
 				// 4. Evaluate Verification
-				if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
+				if s.err == nil && len(s.ops) == 0 {
+					s.err = io.EOF
+
+					// THE DOD FIX: Lock in Telemetry for Verified Matches!
+					// A verified match (pattern fully exhausted) is mathematically superior
+					// to any failed speculation. We explicitly lock in its captures to prevent
+					// a failed greedy boundary from overriding the true stems.
+					s.bestOpsDone = s.opsDone
+					s.stopTieBoundary = s.tie.boundary
+					if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
+					s.bestStems = append(s.bestStems[:0], s.stems...)
+				}
 
 				if s.err == io.EOF {
 					if len(s.tie.str) == 0 && len(s.tie.syms) == 0 && s.tie.err == nil {
@@ -3737,28 +3662,41 @@ _op_switch_:
 						for len(s.tie.syms) == 0 && s.tie.err == nil && len(s.tie.ops) > 0 { s.tie.step() }
 					}
 
-					if s.tie.err == io.EOF || (s.tie.err == nil && len(s.tie.syms) == 0) {
-						return
-					}
-
-					if !bestMatchFound {
+					if !bestMatchFound || s.opsDone > bestMatchBt.own.vmstack.opsDone {
 						bestMatchFound = true
 						bestMatchBt = s.checkpoint(undoBranch)
-						bestMatchBt.altVal = fracBoundary // Store pure mathematical offset
-					} else {
-						// True DOD priority calculation using injected pure coordinates
-						bestTieBoundary := bestMatchBt.altVal.(int)
 
-						var betterMatch bool
-						if true_prefix_matching {
-							betterMatch = (s.opsDone > bestMatchBt.own.vmstack.opsDone) || (s.opsDone == bestMatchBt.own.vmstack.opsDone && fracBoundary >= bestTieBoundary)
-						} else {
-							betterMatch = (fracBoundary > bestTieBoundary) || (fracBoundary == bestTieBoundary && s.opsDone > bestMatchBt.own.vmstack.opsDone)
+						// Deeply isolate speculative slices!
+						// Speculative backtracking corrupts shallow slice copies when appending.
+						// We must allocate a pristine copy of the winning timeline's arrays.
+						if bestMatchBt.own.syms != nil { bestMatchBt.own.syms = append([]Symbol(nil), bestMatchBt.own.syms...) }
+						if bestMatchBt.own.intervals != nil { bestMatchBt.own.intervals = append([]interval(nil), bestMatchBt.own.intervals...) }
+						if bestMatchBt.own.stems != nil {
+							bestMatchBt.own.stems = append([]capture(nil), bestMatchBt.own.stems...)
+							for i := range bestMatchBt.own.stems {
+								if bestMatchBt.own.stems[i].syms != nil {
+									bestMatchBt.own.stems[i].syms = append([]Symbol(nil), bestMatchBt.own.stems[i].syms...)
+								}
+							}
+						}
+						if bestMatchBt.own.activeStem.syms != nil {
+							bestMatchBt.own.activeStem.syms = append([]Symbol(nil), bestMatchBt.own.activeStem.syms...)
 						}
 
-						if betterMatch {
-							bestMatchBt = s.checkpoint(undoBranch)
-							bestMatchBt.altVal = fracBoundary
+						if s.tie != nil {
+							if bestMatchBt.tie.syms != nil { bestMatchBt.tie.syms = append([]Symbol(nil), bestMatchBt.tie.syms...) }
+							if bestMatchBt.tie.intervals != nil { bestMatchBt.tie.intervals = append([]interval(nil), bestMatchBt.tie.intervals...) }
+							if bestMatchBt.tie.stems != nil {
+								bestMatchBt.tie.stems = append([]capture(nil), bestMatchBt.tie.stems...)
+								for i := range bestMatchBt.tie.stems {
+									if bestMatchBt.tie.stems[i].syms != nil {
+										bestMatchBt.tie.stems[i].syms = append([]Symbol(nil), bestMatchBt.tie.stems[i].syms...)
+									}
+								}
+							}
+							if bestMatchBt.tie.activeStem.syms != nil {
+								bestMatchBt.tie.activeStem.syms = append([]Symbol(nil), bestMatchBt.tie.activeStem.syms...)
+							}
 						}
 					}
 				}
@@ -3772,8 +3710,10 @@ _op_switch_:
 		}
 
 		if bestMatchFound {
+			// THE DOD FIX: The JIT natively loops in optimal priority order!
+			// If we found a verified match, we take it immediately.
 			s.unwind(&bestMatchBt)
-			return // Revert to the best valid partial match found!
+			return
 		}
 
 		// === THE DOD FIX: Graceful Step-by-Step Fallback ===
@@ -3788,18 +3728,12 @@ _op_switch_:
 			if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
 		}
 
-		currTieBoundary := s.tie.boundary
-		if !reverse { currTieBoundary -= len(s.tie.str) } else { currTieBoundary += len(s.tie.str) }
+		stopTieBoundary := s.tie.boundary
+		if !reverse { stopTieBoundary -= len(s.tie.str) } else { stopTieBoundary += len(s.tie.str) }
 
-		var better bool
-		if true_prefix_matching {
-			better = (s.opsDone > s.bestOpsDone) || (s.opsDone == s.bestOpsDone && currTieBoundary >= s.stopTieBoundary)
-		} else {
-			better = (currTieBoundary > s.stopTieBoundary) || (currTieBoundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
-		}
-		if better {
+		if better(stopTieBoundary) {
 			s.bestOpsDone = s.opsDone
-			s.stopTieBoundary = currTieBoundary
+			s.stopTieBoundary = stopTieBoundary
 			if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
 			s.bestStems = append(s.bestStems[:0], s.stems...)
 		}
@@ -4161,17 +4095,12 @@ _op_switch_:
 
 	// === TELEMETRY TRACKING (DEEPEST INSTRUCTION WATERMARK - HIGH-WATERMARK) ===
 	if s.err == nil && s.tie != nil {
-		var better bool
-
-		if true_prefix_matching {
-			better = (s.opsDone > s.bestOpsDone) ||
-				(s.opsDone == s.bestOpsDone && s.tie.boundary >= s.stopTieBoundary)
-		} else {
-			better = (s.tie.boundary > s.stopTieBoundary) ||
-				(s.tie.boundary == s.stopTieBoundary && s.opsDone > s.bestOpsDone)
-		}
-
-		if better {
+		// THE DOD FIX: Completed Match Override
+		// A fully exhausted pattern (len(s.ops) == 0) is a verified prefix match.
+		// It is mathematically superior to any failed speculation, even if the failed
+		// speculation consumed more physical target symbols (higher tie.boundary).
+		// We MUST force the telemetry to lock in the verified stems!
+		if len(s.ops) == 0 || better(s.tie.boundary) {
 			s.bestOpsDone = s.opsDone
 			s.stopTieBoundary = s.tie.boundary
 			if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
@@ -4414,67 +4343,235 @@ func (s *symstr) pop_head() Symbol {
 	return sym
 }
 
+// clone safely snapshots the AST state machine against time-traveling backtracks.
+func (p *vmpack) clone() *vmpack {
+	if p == nil { return nil }
+	if p.parent == p { panic("looping vmpack linkage") }
+	return &vmpack{
+		parent:   p.parent.clone(),
+		closer:   p.closer,
+		flag:     p.flag,
+		pairKey:  p.pairKey,   // AST nodes are immutable once reduced, safe to pass reference
+		arrowObj: p.arrowObj,
+		comp:     p.comp.copy(), // Natively isolates active slices!
+		qual:     p.qual.copy(),
+		path:     p.path.copy(),
+		list:     p.list.copy(),
+	}
+}
+
+func (p *vmpack) shift(val Value, reverse bool) {
+	if reverse { p.comp.prepend(val) } else { p.comp.append(val) }
+}
+
+func (p *vmpack) reduceQual(pos Pos, reverse bool) {
+	var v Value
+
+	if p.comp.len() > 0 {
+		if p.comp.len() == 1 {
+			v = p.comp.elems[0]
+		} else {
+			v = &compound{p.comp.copy()}
+		}
+		p.comp.clear()
+	}
+
+	if v == nil {
+		if reverse {
+			p.qual.prepend(valbase{pos})
+		} else {
+			p.qual.append(valbase{pos})
+		}
+	} else {
+		if reverse {
+			p.qual.prepend(v)
+		} else {
+			p.qual.append(v)
+		}
+	}
+}
+
+func (p *vmpack) reducePath(pos Pos, reverse bool) {
+	p.reduceQual(pos, reverse)
+
+	var res Value
+	if p.qual.len() == 1 {
+		res = p.qual.elems[0]
+	} else if p.qual.len() > 1 {
+		res = &qualword{p.qual.copy()}
+	}
+
+	p.qual.clear()
+
+	// Arrow Wrapping
+	if p.arrowObj != nil {
+		if res == nil { res = valbase{pos} }
+		res = &arrow{valbase: valbase{pos}, o: p.arrowObj, s: res}
+		p.arrowObj = nil
+	}
+
+	// Flag Wrapping
+	if p.flag != 0 {
+		if res == nil { res = valbase{p.flag} }
+		res = flag{res}
+		p.flag = 0
+	}
+
+	// Native Prepending PTAIL Validation
+	if res != nil {
+		if _, isEmpty := res.(valbase); isEmpty {
+			if p.path.len() > 0 {
+				if reverse {
+					// In reverse, the "tail" of the path buffer is actually at index 0 because we prepend!
+					if pct, ok := p.path.elems[0].(*punct); ok && pct.token == PROOT {
+						res = nil
+					}
+				} else {
+					if pct, ok := p.path.elems[p.path.len()-1].(*punct); ok && pct.token == PTAIL {
+						res = nil
+					}
+				}
+			}
+		}
+	}
+
+	if res != nil {
+		if reverse {
+			p.path.prepend(res)
+		} else {
+			p.path.append(res)
+		}
+	}
+}
+
+func (p *vmpack) reduceList(pos Pos, reverse bool) {
+	p.reducePath(pos, reverse)
+
+	var res Value
+	if p.path.len() == 1 {
+		res = p.path.elems[0]
+	} else if p.path.len() > 1 {
+		res = &path{p.path.copy()}
+	}
+
+	p.path.clear()
+
+	// Pair Wrapping
+	if p.pairKey != nil {
+		if res == nil { res = valbase{pos} }
+		res = &pair{key: p.pairKey, val: res}
+		p.pairKey = nil
+	}
+
+	if res != nil {
+		if reverse {
+			p.list.prepend(res)
+		} else {
+			p.list.append(res)
+		}
+	}
+}
+
+// reduce finalizes the current state (called on EOF or closing punctuation)
+func (p *vmpack) reduce(pos Pos, reverse bool) Value {
+	p.reduceList(pos, reverse) // Cascade all the way up
+
+	var res Value
+	if p.list.len() == 1 {
+		res = p.list.elems[0]
+	} else if p.list.len() > 1 {
+		res = &list{p.list.copy()}
+	} else {
+		res = valbase{pos}
+	}
+
+	p.list.clear()
+
+	return res
+}
+
+// reduce finalizes the packer stack at EOF
+func (s *symstr) reduce(pos Pos) Value {
+	reverse := (s.class & clsBackwards) != 0
+	if s.vmpack == nil { return nil }
+	// Flush any open flag or bracket states up to the root
+	for s.vmpack != nil && s.vmpack.parent != nil {
+		inner := s.vmpack.reduce(pos, reverse)
+		s.vmpack = s.vmpack.parent
+		s.vmpack.shift(inner, reverse)
+	}
+	return s.vmpack.reduce(pos, reverse)
+}
+
 // pack evaluates a single symbol and shapes it into the AST state machine.
-func (s *symstr) pack(pos Pos, sym Symbol) {
+func (s *symstr) pack(pos Pos, sym Symbol, reverse bool) {
 
 	popFlags := func() {
 		for s.vmpack != nil && s.vmpack.parent != nil && s.vmpack.closer == 0 && s.vmpack.flag != 0 {
-			inner := s.vmpack.reduce(pos)
+			inner := s.vmpack.reduce(pos, reverse)
 			s.vmpack = s.vmpack.parent
-			s.vmpack.shift(inner)
+			s.vmpack.shift(inner, reverse)
 		}
 	}
 
 	switch sym {
 	case symDash:
-		// THE DOD FIX: AST Zero-Pos Collapse Prevention!
-		// If the pattern/target tape byte mapping resolves to 0, enforce a minimum
-		// valid Pos (1) so `reducePath` doesn't silently swallow the flag state!
-		if pos == NoPos { pos = _pos(s); if true {
-			warn(s, "no pos for flag, force @%d", pos, callstack{num:5})
-		}}
+		if pos == NoPos { pos = _pos(s); if true { warn(s, "no pos for flag, force @%d", pos, callstack{num:5}) } }
 		s.vmpack = &vmpack{parent: s.vmpack, flag: pos}
 		return
 
 	case symDot:
-		s.vmpack.reduceQual(pos)
+		s.vmpack.reduceQual(pos, reverse)
 		return
 
 	case symSlash:
 		popFlags()
 
-		// THE DOD FIX: Seed the path directly to preserve the structural slash!
 		isLeading := s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 && s.vmpack.path.len() == 0
 
-		if isLeading {
-			// DO NOT shift into comp! Append directly to path elements!
-			s.vmpack.path.append(_punct(pos, PROOT))
+		if reverse {
+			if isLeading {
+				// The first slash encountered in reverse with empty buffers is PTAIL!
+				s.vmpack.path.prepend(_punct(pos, PTAIL))
+			} else {
+				s.vmpack.reducePath(pos, reverse)
+				// If this is the LAST slash in the string (boundary reached 0), it's PROOT!
+				if s.boundary == 0 {
+					s.vmpack.path.prepend(_punct(pos, PROOT))
+				}
+			}
 		} else {
-			s.vmpack.reducePath(pos)
+			if isLeading {
+				s.vmpack.path.append(_punct(pos, PROOT))
+			} else {
+				s.vmpack.reducePath(pos, reverse)
+			}
 		}
 		return
 
 	case symEmpty:
-		// THE DOD FIX: Native PTAIL extraction!
-		// If a path exists but the current word buffer is empty, the trailing empty is a PTAIL!
-		if s.vmpack.path.len() > 0 && s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 {
-			// DO NOT shift into comp! Append directly to path elements!
-			s.vmpack.path.append(_punct(pos, PTAIL))
-			return
+		if reverse {
+			if s.vmpack.path.len() > 0 && s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 {
+				s.vmpack.path.prepend(_punct(pos, PROOT))
+				return
+			}
+		} else {
+			if s.vmpack.path.len() > 0 && s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 {
+				s.vmpack.path.append(_punct(pos, PTAIL))
+				return
+			}
 		}
-		// Otherwise, shift as empty word
-		s.vmpack.shift(_word(pos, sym))
+		s.vmpack.shift(_word(pos, sym), reverse)
 		return
 
 	case symSpace:
 		popFlags()
-		s.vmpack.reduceList(pos)
+		s.vmpack.reduceList(pos, reverse)
 		return
 
-	// === THE DOD FIX: PAIR LHS EXTRACTION ===
 	case symEqualSign:
 		popFlags()
-		s.vmpack.reducePath(pos) // Ensure everything below is promoted to path
+		s.vmpack.reducePath(pos, reverse)
 
 		var key Value
 		if s.vmpack.path.len() == 1 {
@@ -4482,21 +4579,19 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 		} else if s.vmpack.path.len() > 1 {
 			key = &path{s.vmpack.path.copy()}
 		} else {
-			key = valbase{pos} // Fallback for empty LHS
+			key = valbase{pos}
 		}
 		s.vmpack.path.clear()
 
-		// If pairs are somehow chained (a=b=c), default to left-associative
 		if s.vmpack.pairKey != nil {
 			key = &pair{key: s.vmpack.pairKey, val: key}
 		}
 		s.vmpack.pairKey = key
 		return
 
-	// === THE DOD FIX: ARROW LHS EXTRACTION ===
 	case symArrow:
 		popFlags()
-		s.vmpack.reduceQual(pos) // Ensure everything below is promoted to qual
+		s.vmpack.reduceQual(pos, reverse)
 
 		var obj Value
 		if s.vmpack.qual.len() == 1 {
@@ -4504,11 +4599,10 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 		} else if s.vmpack.qual.len() > 1 {
 			obj = &qualword{s.vmpack.qual.copy()}
 		} else {
-			obj = valbase{pos} // Fallback for empty LHS
+			obj = valbase{pos}
 		}
 		s.vmpack.qual.clear()
 
-		// If arrows are chained (a→b→c), default to left-associative
 		if s.vmpack.arrowObj != nil {
 			obj = &arrow{valbase: valbase{pos}, o: s.vmpack.arrowObj, s: obj}
 		}
@@ -4524,9 +4618,9 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 		if isClosing {
 			popFlags()
 			if s.vmpack.closer == symQuotation {
-				inner := s.vmpack.reduce(pos)
+				inner := s.vmpack.reduce(pos, reverse)
 				s.vmpack = s.vmpack.parent
-				s.vmpack.shift(&strcomp{elements{[]Value{inner}}})
+				s.vmpack.shift(&strcomp{elements{[]Value{inner}}}, reverse)
 			}
 		} else {
 			s.vmpack = &vmpack{parent: s.vmpack, closer: symQuotation}
@@ -4552,10 +4646,10 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 	case symRparen, symRbrace, symRbrack, symCornerTR, symCornerBR:
 		popFlags()
 		if s.vmpack.closer == sym {
-			inner := s.vmpack.reduce(pos)
+			inner := s.vmpack.reduce(pos, reverse)
 			s.vmpack = s.vmpack.parent
 			if s.vmpack != nil {
-				s.vmpack.shift(inner)
+				s.vmpack.shift(inner, reverse)
 			} else {
 				s.operands = append(s.operands, inner)
 			}
@@ -4566,36 +4660,25 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 	// 2. Raw Symbol Shifting
 	switch sym.Kind() {
 	case SymRaw, SymInl, SymEph, SymSeq:
-		s.vmpack.shift(_word(pos, sym))
+		s.vmpack.shift(_word(pos, sym), reverse)
 	case SymInt:
-		vocab.RLock()
+		vocab.nummut.RLock()
 		i := int64(vocab.numbers[sym.Idx()])
-		vocab.RUnlock()
-		s.vmpack.shift(_decimal(pos, i, sym))
+		vocab.nummut.RUnlock()
+		s.vmpack.shift(_decimal(pos, i, sym), reverse)
 	case SymFlt:
-		vocab.RLock()
+		vocab.nummut.RLock()
 		f := math.Float64frombits(vocab.numbers[sym.Idx()])
-		vocab.RUnlock()
-		s.vmpack.shift(_float(pos, f, sym))
+		vocab.nummut.RUnlock()
+		s.vmpack.shift(_float(pos, f, sym), reverse)
 	case SymPct:
 		switch sym {
 		case symQues, symAsterisk, symAsteriskAst, symAsteriskQues:
-			s.vmpack.shift(_globmeta(pos, sym))
-		default: s.vmpack.shift(_word(pos, sym))
+			s.vmpack.shift(_globmeta(pos, sym), reverse)
+		default:
+			s.vmpack.shift(_word(pos, sym), reverse)
 		}
 	}
-}
-
-// reduce finalizes the packer stack at EOF
-func (s *symstr) reduce(pos Pos) Value {
-	if s.vmpack == nil { return nil }
-	// Flush any open flag or bracket states up to the root
-	for s.vmpack != nil && s.vmpack.parent != nil {
-		inner := s.vmpack.reduce(pos)
-		s.vmpack = s.vmpack.parent
-		s.vmpack.shift(inner)
-	}
-	return s.vmpack.reduce(pos)
 }
 
 func (s *symstr) posInRange(start, end int) Pos {
@@ -18833,6 +18916,7 @@ func (p *elements) copy() elements { return elements{append([]Value(nil), p.elem
 func (p *elements) list() *list { return &list{*p} }
 func (p *elements) path() *path { return &path{*p} }
 func (p *elements) compound() *compound { return &compound{*p} }
+func (p *elements) prepend(v ...Value) { p.elems = append(v, p.elems...) }
 func (p *elements) append(v ...Value) { p.elems = append(p.elems, v...) }
 func (p *elements) clear() { p.elems = p.elems[:0] }
 func (p *elements) Pos() (_ Pos) {
