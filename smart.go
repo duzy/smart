@@ -3741,7 +3741,7 @@ _op_switch_:
 		s.ops = append(s.ops, op) // Repush the wildcard so the outer VM loop processes it again!
 		break _op_switch_
 
-	case opGlobRange: // [abc] [a-z] [!abc] [^abc]
+	case opGlobRange: // [abc] [a-z] [!abc] [^abc] [a$(var)c]
 		v := s.operands[l-1].(*globrange)
 		s.operands = s.operands[:l-1]
 
@@ -3751,37 +3751,50 @@ _op_switch_:
 			break _op_switch_
 		}
 
-		sym := __symbol(s.Context, v.Value)
-		rangeStr := sym.String() // e.g.,: abc  a-z  !abc  ^abc
+		matched := false
 
-		matched, negated := false, false
-		if len(rangeStr) > 0 && (rangeStr[0] == '^' || rangeStr[0] == '!') {
-			rangeStr = rangeStr[1:]
-			negated = true
-		}
-
-		var prevRune rune
-		inRange := false
-
-		for len(rangeStr) > 0 {
-			currRune, size := utf8.DecodeRuneInString(rangeStr)
-			rangeStr = rangeStr[size:]
-
-			if currRune == '-' && prevRune != 0 && len(rangeStr) > 0 {
-				inRange = true
-				continue
-			}
-
-			if inRange {
-				if r >= prevRune && r <= currRune { matched = true; break }
-				inRange = false
+		if v.static {
+			// === FAST PATH: Pre-Compiled Exact Matches & Spans ===
+			if strings.ContainsRune(v.runes, r) {
+				matched = true
 			} else {
-				if r == currRune { matched = true; break }
+				for _, span := range v.spans {
+					if r >= span.min && r <= span.max {
+						matched = true
+						break
+					}
+				}
 			}
-			prevRune = currRune
+		} else {
+			// === SLOW PATH: Dynamic Runtime Evaluation ===
+			// Fallback triggered: AST contains dynamic variables (e.g., $(var))
+			sym := __symbol(s.Context, v.Value)
+			rangeStr := sym.String() // Negation (!/^) is already stripped by the compiler!
+
+			var prevRune rune
+			inRange := false
+
+			for len(rangeStr) > 0 {
+				currRune, size := utf8.DecodeRuneInString(rangeStr)
+				rangeStr = rangeStr[size:]
+
+				if currRune == '-' && prevRune != 0 && len(rangeStr) > 0 {
+					inRange = true
+					continue
+				}
+
+				if inRange {
+					if r >= prevRune && r <= currRune { matched = true; break }
+					inRange = false
+				} else {
+					if r == currRune { matched = true; break }
+				}
+				prevRune = currRune
+			}
 		}
 
-		if matched == negated {
+		// Apply the pre-extracted AST negation logic
+		if matched == v.negated {
 			s.err = errMatchFailed
 			break _op_switch_
 		}
@@ -10777,21 +10790,73 @@ func (p *compiler) globrange(ctx Context) (x *globrange) {
 
 	p.expect(ctx, LBRACK) // skip '['
 
-	if p.tok == CARET || p.tok == EXC {
-		erro(pc(ctx,p.pos), "TODO: range: negate", p.tok)
+	x = &globrange{}
+
+	// 1. Negation Extraction
+	if p.tok == CARET {
+		x.caret = true
+		x.negated = true
+		p.step(ctx)
+	} else if p.tok == EXC {
+		x.negated = true
+		p.step(ctx)
 	}
 
-	chars := p.expr(ctx)
+	var elems elements
+	var staticStr string
+	x.static = true
 
-	if p.tok == DASH {
-		p.step(ctx) // skip '-'
-		rangeEnd := p.expr(ctx)
-		erro(pc(ctx,p.pos), "TODO: range: %v-%v", chars, rangeEnd)
+	// 2. Inner Token Loop (Handling mixes of ranges, literals, and variables)
+	for p.tok != RBRACK && p.tok != EOF {
+		if p.tok == DASH {
+			pos := p.pos
+			p.step(ctx) // skip '-'
+
+			// Inject literal dash into the AST so String() perfectly reconstructs it
+			elems.append(_word(pos, intern("-")))
+			if x.static { staticStr += "-" }
+			continue
+		}
+
+		node := p.expr(ctx)
+		elems.append(node)
+
+		// Eagerly build the static string if no dynamic variables are detected
+		if x.static {
+			if w, ok := node.(*word); ok {
+				staticStr += w.s.String()
+			} else {
+				x.static = false // Fallback triggered: e.g., encountered $(var)
+			}
+		}
 	}
 
 	p.expect(ctx, RBRACK) // skip ']'
 
-	return _globrange(chars)
+	// 3. Construct the Fallback AST Value
+	if elems.len() == 1 {
+		x.Value = elems.elems[0]
+	} else if elems.len() > 1 {
+		x.Value = &compound{elems}
+	} else {
+		x.Value = valbase{p.pos} // Safe fallback for empty `[]`
+	}
+
+	// 4. Pre-Compile the Static Spans (The JIT Fast-Path)
+	if x.static {
+		r := []rune(staticStr)
+		for i := 0; i < len(r); i++ {
+			// Mathematical Lookahead: Current Char -> Dash -> Next Char
+			if i+2 < len(r) && r[i+1] == '-' {
+				x.spans = append(x.spans, globspan{min: r[i], max: r[i+2]})
+				i += 2 // Skip the dash and max character
+			} else {
+				x.runes += string(r[i]) // Flat rune match
+			}
+		}
+	}
+
+	return x
 }
 
 type is_glob_parser struct{}
@@ -20502,9 +20567,26 @@ func (p *globbrace) String() string { return "{glob "+p.compound.String()+"}" }
 type globmeta struct{ valbase ; sym Symbol }
 func (p *globmeta) String() string { return p.sym.String() }
 
-// `[a-c]`, `[abc]`, `[a$(var)c]`, `[a$(spaces)c]`, `[!abc]`, `[^abc]`, [a-c0-9],
-type globrange struct{ Value }
-func (p *globrange) String() string { return "["+p.Value.String()+"]" }
+// // `[a-c]`, `[abc]`, `[a$(var)c]`, `[a$(spaces)c]`, `[!abc]`, `[^abc]`, [a-c0-9],
+// type globrange struct{ Value }
+// func (p *globrange) String() string { return "["+p.Value.String()+"]" }
+
+// globspan represents a pre-compiled rune boundary (e.g., 'a' to 'z')
+type globspan struct { min, max rune }
+
+type globrange struct {
+	Value  // The fallback AST node for dynamically evaluating $(var) at runtime
+	negated, caret bool
+	static  bool // True if the range contains zero dynamic variables (e.g., no $(var))
+	runes   string // A flat string of exact-match chars (e.g., "abc")
+	spans   []globspan // Pre-parsed ranges (e.g., [{'a', 'z'}, {'0', '9'}])
+}
+
+func (p *globrange) String() string {
+	var prefix string
+	if p.negated { if p.caret { prefix = "[^" } else { prefix = "[!" } } else { prefix = "[" }
+	return prefix + p.Value.String() + "]"
+}
 
 /*
  * # Regexp Syntax (see go/src/regexp/syntax/doc.go)
@@ -22133,7 +22215,10 @@ func expand(ctx Context, v Value) (res Value) {
 			}
 		}
 		return &percpat{t.valbase, expand(ctx,t.Prefix), expand(ctx,t.Suffix)}
-	case *globrange: return &globrange{expand(ctx, t.Value)}
+	case *globrange:
+		g := &globrange{};   *g = *t
+		g.Value = expand(ctx, t.Value)
+		return g
 	case *argumented: return &argumented{expand(ctx, t.Value), expands(ctx, t.args...)}
 	case *url: return &url{expand(ctx, t.Scheme), expand(ctx, t.Username), expand(ctx, t.Password), expand(ctx, t.Host), expand(ctx, t.Port), expand(ctx, t.Path), expands(ctx, t.Query...), expand(ctx, t.Fragment)}
 	case *plain: return &plain{elements{expands(ctx, t.elems...)}, t.name}
@@ -25359,7 +25444,6 @@ func _compound(elems ...Value) *compound { return &compound{elements{elems}} }
 func _list(elems ...Value) *list { return &list{elements{elems}} }
 func _group(pos Pos, elems ...Value) (v *group) { return &group{valbase{pos},elements{elems}} }
 func _globmeta(pos Pos, sym Symbol) *globmeta { return &globmeta{valbase{pos},sym} }
-func _globrange(val Value) *globrange { return &globrange{val} }
 func _word(pos Pos, w Symbol) *word { return &word{valbase{pos},w} }
 func _raw(pos Pos, s string) Value { if s == "" { return valbase{pos} } else { return &raw{valbase{pos},s} } }
 func _rw(pos Pos, s string) Value {
