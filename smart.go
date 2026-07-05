@@ -320,9 +320,9 @@ func builds(cb *compactbuilds, args ...any) {
 // =============================================================================
 
 const (
-	SymRaw uint8 = 0 // Idx points to `vocab.strings`
+	SymInl uint8 = 0 // Idx holds the bits of values (encode ASCII and three bytes chars into Idx bits)
 	SymPct uint8 = 1 // Idx points to `vocab.strings`
-	SymInl uint8 = 2 // Idx holds the bits of values (TODO: encode ASCII and three bytes chars into Idx bits)
+	SymRaw uint8 = 2 // Idx points to `vocab.strings`
 	SymInt uint8 = 3 // Idx points to `vocab.numbers` as int64
 	SymFlt uint8 = 4 // Idx points to `vocab.numbers` as float64
 	SymSeq uint8 = 5 // Idx points to `vocab.sequences`
@@ -349,13 +349,21 @@ const (
 	// Bits 27-0:  ID (iota)
 
 	// symEmpty is mathematically absolute 0!
-	symEmpty Symbol = (Symbol(SymRaw) << 56) | ((iota + 0) << 28) | (iota + 0) // ""
-	symSpace
+	symEmpty       Symbol = (Symbol(SymInl) << 56) | ((0<<24) << 28) | (iota + 0) // ""
+	symEmptyPrefix Symbol = (Symbol(SymInl) << 56) | ((0<<24) << 28) | (iota + 0) // ""
+	symEmptySuffix Symbol = (Symbol(SymInl) << 56) | ((0<<24) << 28) | (iota + 0) // ""
 
-	symCWD //  $/    Current Work Directory
-	symCRD //  $.    Current Relative Directory
-	symCTD //  $,    Current Temp Directory
-	symARGS
+	symSpace Symbol = (Symbol(SymInl) << 56) | ((1<<24 | ' ') << 28) | (iota + 0) // " "
+
+	symCWD Symbol = (Symbol(SymInl) << 56) | ((3<<24 | 'C' | 'W'<<8 | 'D'<<16) << 28) | (iota + 0) // $/  Current Work Directory
+	symCRD Symbol = (Symbol(SymInl) << 56) | ((3<<24 | 'C' | 'R'<<8 | 'D'<<16) << 28) | (iota + 0) // $.  Current Relative Directory
+	symCTD Symbol = (Symbol(SymInl) << 56) | ((3<<24 | 'C' | 'T'<<8 | 'D'<<16) << 28) | (iota + 0) // $,  Current Temp Directory
+
+	_id_inl_end = iota + 0
+)
+
+const (
+	symARGS Symbol = (Symbol(SymRaw) << 56) | ((iota + 0) << 28) | (iota + _id_inl_end)
 	symSMART      // aka os.Args[0]
 
 	symTrue
@@ -693,7 +701,7 @@ const (
 	symEXIT
 	symSTDLIB
 
-	_id_raw_end = iota + 0
+	_id_raw_end = iota + _id_inl_end
 )
 
 const (
@@ -991,10 +999,11 @@ const (
 
 // WARNING: The order of this slice is strictly mapped to the integer consts above.
 // It is partitioned strictly by Kind to align with the iota blocks.
-var coreSymbols = []string{
+var coreSymRaws = []string{
 	// --- 0. RAW SYMBOLS (SymRaw) ---
-	"", " ",
-	"CWD", "CRD", "CTD", "ARGS", "SMART",
+	// "", " ", // Empty and Space
+	// "CWD", "CRD", "CTD",
+	"ARGS", "SMART",
 
 	"true", "false", "yes", "no", "on", "off",
 	"os", "mo", "mode", "go", "goals", "sm", "smart",
@@ -1042,26 +1051,9 @@ var coreSymbols = []string{
 	"M", "MM", "MG", "MD", "MV", "MP", "INFO", "MESSAGE", "MSG", "TARGET", "VALUE", "VAL", "LANGUAGE", "LANG",
 	"PACKAGE", "NAME", "VERSION", "VENDOR", "STRING", "URL", "BUGREPORT", "TARNAME", "HAVE", "H",
 	"FUN", "SYM", "EXIT", "STDLIB",
+}
 
-	// --- 1. INTEGER SYMBOLS (SymInt) ---
-	"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-
-	// --- 3. PUNCTUATION SYMBOLS (SymPct) ---
-	"&", "$", "-", "_", "`", "'", `"`, ":", "∶", "：", ",", "~", ".", "..", "/", "//", `\`, `\\`,
-	"(", ")", "{", "}", "[", "]", "⌜","⌝","⌞","⌟","‹","›","«","»","→", "#","=", "=+", "+=", "!",
-
-	"@", "@D", "@F", "@'",
-	"|", "|D", "|F", "|'",
-	"^", "^D", "^F", "^'",
-	"<", "<D", "<F", "<'",
-	">", ">D", ">F", ">'",
-	"%", "%D", "%F", "%'",
-	"*", "*D", "*F", "*'",
-	"?", "?D", "?F", "?'",
-	"+", "+D", "+F", "+'",
-
-	"--", "++", "*?", "**",
-
+var coreSymSeqs = []string{
 	// --- 4. SEQUENCE SYMBOLS (SymSeq) ---
 	"SMART_ARGS", // Shredder splits at '_'
 	"base2", "base3", "base4", "base5", "base6", "base7", "base8", "base9", "base64",
@@ -1432,11 +1424,6 @@ func (sym Symbol) unsafe_equal_string(s string) bool {
 	// being built in this stack frame. Treating it as 'false' prevents the panic and
 	// allows the shredder to continue creating the required sub-symbols.
 	if idx == -1 || idx == 0xFFFFFFF {
-		if false {
-			var cs string
-			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym.id(), len(coreSymbols), cs, s))
-		}
 		return false
 	}
 
@@ -1469,11 +1456,6 @@ func (sym Symbol) unsafe_equal_bytes(b []byte) bool {
 	// being built in this stack frame. Treating it as 'false' prevents the panic and
 	// allows the shredder to continue creating the required sub-symbols.
 	if idx == -1 || idx == 0xFFFFFFF {
-		if false {
-			var cs string
-			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym.id(), len(coreSymbols), cs, string(b)))
-		}
 		return false
 	}
 
@@ -1512,11 +1494,6 @@ func (sym Symbol) equal_string(s string) bool {
 	// being built in this stack frame. Treating it as 'false' prevents the panic and
 	// allows the shredder to continue creating the required sub-symbols.
 	if idx == -1 || idx == 0xFFFFFFF {
-		if false {
-			var cs string
-			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-string: %s)", sym.id(), len(coreSymbols), cs, s))
-		}
 		return false
 	}
 
@@ -1570,11 +1547,6 @@ func (sym Symbol) equal_bytes(b []byte) bool {
 	// being built in this stack frame. Treating it as 'false' prevents the panic and
 	// allows the shredder to continue creating the required sub-symbols.
 	if idx == -1 || idx == 0xFFFFFFF {
-		if false {
-			var cs string
-			if sym.id() < uint32(len(coreSymbols)) { cs = coreSymbols[sym.id()] }
-			panic(fmt.Sprintf("symbol #%d/%d is not initialized ('%s', equals-bytes: %s)", sym.id(), len(coreSymbols), cs, string(b)))
-		}
 		return false
 	}
 
@@ -1702,31 +1674,75 @@ func (sym Symbol) String() string {
 }
 
 func init() {
-	size := len(coreSymbols) + mapThreshold
+	// Initialize the atomic counter to the absolute end of the hardcoded iota chains!
+	// Any new dynamic symbols created at runtime will safely start from here.
+	vocab.symcount.Store(uint32(_id_seq_end))
 
-	vocab.symcount.Store(uint32(len(coreSymbols)))
+	size := _id_seq_end + mapThreshold
 	vocab.strsyms = make(map[uint64][]Symbol, size)
 	vocab.seqsyms = make(map[uint64][]Symbol)
+	
+	// Pre-allocate side-tables exactly to their required starting sizes
 	vocab.strings = make([]string, 0, size)
 	vocab.numbers = make([]uint64, 0, size/20)
 	vocab.sequences = make([][]Symbol, 0, size/2)
 
-	// SINGLE PASS: Safely calculate metadata and construct fully formed Symbols instantly!
-	// THE DOD FIX: No more unpacked Symbol(i) placeholders. unsafe_make_symbol guarantees
-	// the correct packed bits are immediately injected into the map!
-	for i, s := range coreSymbols {
-		sym := unsafe_make_symbol(s, uint32(i))
+	// ==========================================
+	// PASS 0: Seed SymInl Constants
+	// Ensures dynamic intern() calls resolve natively to packed bits!
+	// ==========================================
+	for _, sym := range []Symbol{symSpace, symCWD, symCRD, symCTD} {
+		var b [3]byte
 
-		h := hashStr(s)
+		u := uint32(sym.Idx())
+		ln := int((u >> 24) & 0x3)
+		if ln > 0 { b[0] = byte(u) }
+		if ln > 1 { b[1] = byte(u >> 8) }
+		if ln > 2 { b[2] = byte(u >> 16) }
+
+		h := hashStr(unsafe.String(&b[0], ln))
 		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
+	}
+	
+	// ==========================================
+	// PASS 1: Initialize SymRaw (_id_inl_end to _id_raw_end)
+	// ==========================================
+	vocab.strings = append(vocab.strings, coreSymRaws...)
+	for i, s := range coreSymRaws {
+		h := hashStr(s)
+		id := _id_inl_end + i // Align global ID with the iota block!
+		vocab.strsyms[h] = append(vocab.strsyms[h], unsafe_make_symbol(s, uint32(id)))
+	}
 
+	// ==========================================
+	// PASS 2: Initialize SymInt (0 to 9)
+	// ==========================================
+	// Numbers don't need string interning, just place their raw bits in the side-table
+	for i := uint64(0); i <= 9; i++ {
+		vocab.numbers = append(vocab.numbers, i)
+	}
+
+	// ==========================================
+	// PASS 3: Skip SymPct! (No side-table pollution)
+	// ==========================================
+
+	// ==========================================
+	// PASS 4: Initialize SymSeq (_id_pct_end to _id_seq_end)
+	// ==========================================
+	for i, seq := range coreSymSeqs {
+		h := hashStr(seq)
+		id := _id_pct_end + i
+		sym := unsafe_make_symbol(seq, uint32(id))
+		vocab.seqsyms[h] = append(vocab.seqsyms[h], sym)
 		if sym.Kind() == SymSeq {
-			hSeq := hashSeq(vocab.sequences[sym.Idx()])
-			vocab.seqsyms[hSeq] = append(vocab.seqsyms[hSeq], sym)
+			h := hashSeq(vocab.sequences[sym.Idx()])
+			vocab.seqsyms[h] = append(vocab.seqsyms[h], sym)
 		}
 	}
 
-	// PASS 3: Late-Binding Physical OS Constants!
+	// ==========================================
+	// PASS 5: Late-Binding Physical OS Constants
+	// ==========================================
 	var cwd string
 	if s, e := os.Getwd(); e == nil {
 		cwd = s
@@ -1737,7 +1753,9 @@ func init() {
 	unsafe_bind_constant(symBaseWorkDir, cwd)
 	unsafe_bind_constant(symBaseTmpPath, filepath.Join(os.TempDir(), "smart"))
 
-	// PASS 4: Keywords and others...
+	// ==========================================
+	// PASS 6: Keywords & Lang Infos
+	// ==========================================
 	keywords = make(map[Symbol]token, OFF-PROJECT)
 	for i := PROJECT; i <= OFF; i++ {
 		if s := tokens[i]; s != "" {
@@ -1980,10 +1998,10 @@ func unsafe_bind_constant(sym Symbol, s string) {
 		panic(fmt.Sprintf("not late-constant symbol: %d (%s)", id, s))
 	}
 
-	// 2. Synchronize the core string resolver immediately!
-	// Protected from data races because the caller holds vocab.Lock().
-	coreSymbols[id] = s
-
+	// THE DOD FIX: Remove coreSymSeqs mutation: coreSymSeqs[id] = s !
+	// coreSymSeqs is just a bootstrap slice. The VM reads from vocab.sequences, 
+	// which we hijack below. No need to update the bootstrap array!
+	
 	h := hashStr(s)
 
 	var target Symbol
@@ -2602,8 +2620,8 @@ func (op evalop) id() uint8  { return uint8(op & 0x3F) }
 
 const (
 	opEnd           evalop = (0 << 6) | iota // 0 operands
-	opEvalValue     evalop = (1 << 6) | iota // 1 operand  (val Value)
 	opEmitSym       evalop = (1 << 6) | iota // 1 operand  (sym Symbol)
+	opEvalValue     evalop = (1 << 6) | iota // 1 operand  (val Value)
 	opCloseInterval evalop = (2 << 6) | iota // 2 operands (start int, val Value)
 	opUnwind        evalop = (0 << 6) | iota // 0 operands
 
@@ -2623,9 +2641,11 @@ const (
 
 	// --- Evaluate Mode Bytecodes ---
 	opResolve       evalop = (0 << 6) | iota // 0 operands (Update if operands added)
-	opEvokeDef      evalop = (0 << 6) | iota
-	opEvokeBuiltin  evalop = (0 << 6) | iota
-	opEvokeRule     evalop = (0 << 6) | iota
+	opEase          evalop = (2 << 6) | iota // 2 operand
+	opEvokeAuto     evalop = (2 << 6) | iota // 2 operand
+	opEvokeDef      evalop = (2 << 6) | iota // 2 operand
+	opEvokeRule     evalop = (2 << 6) | iota // 2 operand
+	opEvokeBuiltin  evalop = (2 << 6) | iota // 2 operand
 )
 
 const (
@@ -2823,14 +2843,27 @@ func (s *symstr) step() {
 		// === 2. ACTIVE TAPE CONSUMPTION (Drain Matcher Output) ===
 		if len(s.tie.syms) > 0 {
 			sym := s.tie.pop_head()
-			switch sym.Kind() {
-			case SymRaw, SymPct, SymInl, SymInt, SymFlt, SymEph:
-				// VM types prioritize density over AST source mapping
-				// TODO: emit(vmstr(sym.String())) etc.
-			case SymSeq:
-				// TODO: shatter(sym)
+
+			var shatter func(Symbol)
+			shatter = func(sym Symbol) {
+				if sym == symEmpty { return }
+				if sym.Kind() == SymSeq {
+					vocab.RLock()
+					seq := vocab.sequences[sym.Idx()]
+					vocab.RUnlock()
+					if reverse {
+						for i := 0; i < len(seq); i++ { shatter(seq[i]) }
+					} else {
+						for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
+					}
+				} else {
+					// VM types prioritize density over AST source mapping
+					s.emit(sym)
+				}
 			}
-			s.boundary += sym.len() // Packer tracks its own payload length!
+
+			shatter(sym)
+			s.boundary += sym.len()
 			return
 		}
 
@@ -3048,7 +3081,9 @@ _op_switch_:
 		s.emit(sym)
 
 	case opUnwind:
-		erro(s, "TODO: unwind backtracks")
+		bt := s.operands[l-1].(backtrack)
+		s.operands = s.operands[:l-1]
+		s.unwind(&bt)
 
 	case opMatchLiteral:
 		// Strict 1-to-1 VM invariant. Always pop exactly one operand!
@@ -3369,7 +3404,7 @@ _op_switch_:
 					s.tie.str = ""
 
 					for i := 0; i < count; i++ {
-						s.stems = append(s.stems, capture{start, start, symEmptyName, nil}) // TODO: syms
+						s.stems = append(s.stems, capture{start, start, symEmptyName, nil})
 					}
 					break _op_switch_
 				}
@@ -3377,7 +3412,7 @@ _op_switch_:
 				s.emit(s.tie.pop_head()) // Emit skipped wildcard
 
 				for i := 0; i < count; i++ {
-					s.stems = append(s.stems, capture{start, start, symEmptyName, nil}) // TODO: syms
+					s.stems = append(s.stems, capture{start, start, symEmptyName, nil})
 				}
 				break _op_switch_
 			}
@@ -3912,6 +3947,33 @@ _op_switch_:
 			if reverse { curr -= symBytes } else { curr += symBytes }
 		}
 
+	case opEase:
+		pos := s.operands[l-1].(Pos)
+		num := s.operands[l-2].(int)
+		s.operands = s.operands[:l-2]
+
+		// The results of the opEvokes are now resting on the operand stack!
+		l = len(s.operands)
+		cut := s.operands[l-num:]
+		s.operands = s.operands[:l-num]
+
+		if res := ease(&force_pos_ctx{s.Context,pos}, cut); res != nil {
+			s.ops = append(s.ops, opEvalValue) // evaluate the eased result seamlessly!
+			s.operands = append(s.operands, res)
+		}
+		
+	case opEvokeAuto:
+		// TODO: ...
+
+	case opEvokeDef:
+		// TODO: ...
+
+	case opEvokeRule:
+		// TODO: ...
+
+	case opEvokeBuiltin:
+		// TODO: ...
+
 	case opEvalValue:
 		val := s.operands[l-1].(Value)
 		s.operands = s.operands[:l-1]
@@ -4133,12 +4195,8 @@ _op_switch_:
 			}
 
 		case *punct:
-			if v.token == PTAIL || v.token == PROOT {
-				pushSym(symEmpty)
-			} else {
-				pushSym(__symbol(s, v))
-			}
-
+			pushSym(v.s)
+			
 		case *word:
 			shatter(v.s)
 
@@ -4178,7 +4236,7 @@ _op_switch_:
 			if dx.force_collapse || dx.good_to_collapse {
 				for _, xv := range x {
 					var cc = evoke_ctx{s.Context, false}
-					var rv = evoke(&cc, xv, o, a)
+					var rv = evoke(&cc, xv, o, a) // FIXME: implement opEvoke to replace `evoke(...)`
 					if cc.noop {
 						if !isNull(xv) && truly(s.Context, keep_autos{}) {
 							dv := &delegate{v.valbase, v.l, xv, o, a}
@@ -4217,7 +4275,7 @@ _op_switch_:
 			if cx.force_collapse || (cx.good_to_collapse && truly(s.Context, ex_closure{})) {
 				for _, xv := range x {
 					var cc = evoke_ctx{s.Context, false}
-					var rv = evoke(&cc, xv, o, a)
+					var rv = evoke(&cc, xv, o, a) // FIXME: implement opEvoke to replace `evoke(...)`
 					if cc.noop || rv == nil {
 						if !isNull(xv) && truly(s.Context, keep_autos{}) {
 							cv := &closure{delegate{v.valbase, v.l, xv, o, a}}
@@ -4808,11 +4866,11 @@ func (p *vmpack) reducePath(pos Pos, reverse bool) {
 			if p.path.len() > 0 {
 				if reverse {
 					// In reverse, the "tail" of the path buffer is actually at index 0 because we prepend!
-					if pct, ok := p.path.elems[0].(*punct); ok && pct.token == PROOT {
+					if pct, ok := p.path.elems[0].(*punct); ok && pct.s == symEmptyPrefix {
 						res = nil
 					}
 				} else {
-					if pct, ok := p.path.elems[p.path.len()-1].(*punct); ok && pct.token == PTAIL {
+					if pct, ok := p.path.elems[p.path.len()-1].(*punct); ok && pct.s == symEmptySuffix {
 						res = nil
 					}
 				}
@@ -4917,17 +4975,17 @@ func (s *symstr) pack(pos Pos, sym Symbol, reverse bool) {
 		if reverse {
 			if isLeading {
 				// The first slash encountered in reverse with empty buffers is PTAIL!
-				s.vmpack.path.prepend(_punct(pos, PTAIL))
+				s.vmpack.path.prepend(_punct(pos, symEmptySuffix))
 			} else {
 				s.vmpack.reducePath(pos, reverse)
 				// If this is the LAST slash in the string (boundary reached 0), it's PROOT!
 				if s.boundary == 0 {
-					s.vmpack.path.prepend(_punct(pos, PROOT))
+					s.vmpack.path.prepend(_punct(pos, symEmptyPrefix))
 				}
 			}
 		} else {
 			if isLeading {
-				s.vmpack.path.append(_punct(pos, PROOT))
+				s.vmpack.path.append(_punct(pos, symEmptyPrefix))
 			} else {
 				s.vmpack.reducePath(pos, reverse)
 			}
@@ -4937,12 +4995,12 @@ func (s *symstr) pack(pos Pos, sym Symbol, reverse bool) {
 	case symEmpty:
 		if reverse {
 			if s.vmpack.path.len() > 0 && s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 {
-				s.vmpack.path.prepend(_punct(pos, PROOT))
+				s.vmpack.path.prepend(_punct(pos, symEmptyPrefix))
 				return
 			}
 		} else {
 			if s.vmpack.path.len() > 0 && s.vmpack.comp.len() == 0 && s.vmpack.qual.len() == 0 {
-				s.vmpack.path.append(_punct(pos, PTAIL))
+				s.vmpack.path.append(_punct(pos, symEmptySuffix))
 				return
 			}
 		}
@@ -5280,7 +5338,7 @@ func _hash(ctx Context, h uint64, vs ...Value) uint64 {
 		case *project:     h = mixUint64(h, uint64(p.name))
 		case *auto:        h = mixUint64(h, uint64(p.name))
 		case *builtin:     h = mixUint64(h, uint64(p.name))
-		case *punct:       h = mixUint64(h, uint64(p.token))
+		case *punct:       h = mixUint64(h, uint64(p.s))
 		case *word:        h = mixUint64(h, uint64(p.s))
 		case *file:        h = mixUint64(h, uint64(p.fullname()))
 		case *float:       h = mixUint64(h, math.Float64bits(p.float64)) // FIXED: Zero-loss float hashing
@@ -5987,16 +6045,17 @@ func __symPath(pos Pos, sym Symbol) Value {
 	for i, part := range segments {
 		if i == 0 {
 			switch part {
-			case symEmpty:  elems = append(elems, makePunct(pos, PROOT))
-			case symTilde:  elems = append(elems, makePunct(pos, TILDE))
-			case symDot:    elems = append(elems, makePunct(pos, DOT))
-			case symDotDot: elems = append(elems, makePunct(pos, DOTDOT))
-			default:        elems = append(elems, &word{valbase{pos}, part})
+			case symEmpty:
+				elems = append(elems, makePunct(pos, symEmptyPrefix))
+			case symTilde, symDot, symDotDot:
+				elems = append(elems, makePunct(pos, symDotDot))
+			default:
+				elems = append(elems, &word{valbase{pos}, part})
 			}
 		} else if part == symEmpty {
 			// Absolute trailing slash (PTAIL)
 			if i+1 == len(segments) {
-				elems = append(elems, makePunct(pos, PTAIL))
+				elems = append(elems, makePunct(pos, symEmptySuffix))
 			}
 			// Middle empty segments ("//") are skipped per engine design
 		} else {
@@ -6177,11 +6236,11 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 			} else if i == 0 {
 				// 2. THE DOD FIX: PROOT (Path Root)
 				// The very first symbol is a slash. Emit an empty word to anchor the absolute path!
-				segs = append(segs, _punct(_pos(ctx), PROOT))
+				segs = append(segs, _punct(_pos(ctx), symEmptyPrefix))
 			} else if i == len(seq) && len(seq) > 0 && seq[i-1] == symSlash {
 				// 3. THE DOD FIX: PTAIL (Path Tail)
 				// The very last symbol was a slash. Emit an empty word to mark the trailing directory!
-				segs = append(segs, _punct(_pos(ctx), PTAIL))
+				segs = append(segs, _punct(_pos(ctx), symEmptySuffix))
 			}
 
 			// Note: If `i == start` but it's NEITHER the root nor the tail,
@@ -6336,9 +6395,9 @@ func __symPackValue(ctx Context, syms []Symbol) Value {
 			}
 		case symSlash:
 			if i == 0 {
-				segs = append(segs, _punct(pos, PROOT))
+				segs = append(segs, _punct(pos, symEmptyPrefix))
 			} else if packSegment(); i == len(syms)-1 {
-				segs = append(segs, _punct(pos, PTAIL))
+				segs = append(segs, _punct(pos, symEmptySuffix))
 			}
 		case symDash:
 			// Isolate everything after the dash into a Flag
@@ -6493,7 +6552,7 @@ func __symbol(ctx Context, val Value) Symbol {
 	case *punct:
 		// NOTE: PROOT is the leading EMPTY in a path
 		// NOTE: PTAIL is the tailing EMPTY in a path
-		return intern(v.token.String()) // TODO: mapping punctuation token to symbols
+		return intern(v.s.String()) // TODO: mapping punctuation token to symbols
 
 	// Other integer bases (Binary, Octal, Hexadecimal)
 	// We just pass these to intern() via their String() method.
@@ -6519,7 +6578,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case *loc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
 	case *globmeta: return []Symbol{t.sym}
-	case *punct: return []Symbol{intern(t.token.String())}
+	case *punct: return []Symbol{t.s}
 	case *answer: return []Symbol{_if(t.bool,symYes,symNo)}
 	case *boolean: return []Symbol{_if(t.bool,symTrue,symFalse)}
 	case *prediction: return []Symbol{_if(t.bool,symYes,symNo)}
@@ -6584,7 +6643,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 
 			// Intercept and ignore PROOT/PTAIL.
 			// Their presence is naturally translated into slashes by the `i > 0` logic!
-			if p, ok := elem.(*punct); ok && (p.token == PROOT || p.token == PTAIL) {
+			if p, ok := elem.(*punct); ok && (p.s == symEmptyPrefix || p.s == symEmptySuffix) {
 				continue
 			}
 
@@ -6757,17 +6816,17 @@ func splitPathStr(ctx Context, str string) (segments []Value) {
         var v Value
         if i == 0 {
             switch s {
-            case ""  : v = makePunct(pos, PROOT)
-            case "~" : v = makePunct(pos, TILDE)
-            case "." : v = makePunct(pos, DOT)
-            case "..": v = makePunct(pos, DOTDOT)
+            case ""  : v = makePunct(pos, symEmptyPrefix)
+            case "~" : v = makePunct(pos, symTilde)
+            case "." : v = makePunct(pos, symDot)
+            case "..": v = makePunct(pos, symDotDot)
 				default  : v = _rw(pos, s)
             }
         } else if s == "" {
             if i+1 == len(a) {
-                v = makePunct(pos, PTAIL)
+                v = makePunct(pos, symEmptySuffix)
             } else if false {
-                v = makePunct(pos, PCON)
+                v = makePunct(pos, symSlash) // PCON
             } else {
                 debug(ctx, "%s: %v[%d]: empty path seg", str, a, i)
                 continue
@@ -8211,6 +8270,69 @@ const (
 
 	DASH = MINUS
 )
+
+var tok2sym = [...]Symbol{
+	SPACE:       symSpace,
+	HASH:        symHash,
+	COMMENT:     symHash,
+	
+	PROOT:       symEmptyPrefix,
+	PTAIL:       symEmptySuffix,
+
+	LANGLE:      symLangle,
+	LBRACE:      symLbrace,
+	LBRACK:      symLbrack,
+	LPAREN:      symLparen,
+	LTOP_CORNER: symCornerTL,
+	LBOT_CORNER: symCornerBL,
+	LSING_GUIL:  symLsingguil,
+	LGUILLEMET:  symLguillemet,
+	
+	RGUILLEMET:  symRguillemet,
+	RSING_GUIL:  symRsingguil,
+	RBOT_CORNER: symCornerBR,
+	RTOP_CORNER: symCornerTR,
+	RPAREN:      symRparen,
+	RBRACK:      symRbrack,
+	RBRACE:      symRbrace,
+	RANGLE:      symRangle,
+
+	CARET:       symCaret,
+	COMMA:       symComma,
+	DOT:         symDot,
+	DOTDOT:      symDotDot,
+	TILDE:       symTilde,
+
+	APOST:       symApostrophe,
+	BQUOT:       symBackquote,
+	QUOTE:       symQuotation,
+
+	SELECT_PROP: symArrow,
+
+	EXC:         symExclamation,
+	QUE:         symQues,
+
+	AT:          symAt,
+	SAST:        symAsterisk,
+	DAST:        symAsteriskAst,
+	ASTQ:        symAsteriskQues,
+	UNDERLINE:   symUnderscore,
+
+	CLOSURE:     symAmpersand,
+	DELEGATE:    symDollarSign,
+
+	MINUS:       symDash,
+	PLUS:        symPlus,
+	PCON:        symSlash,
+	PERC:        symPercent,
+
+	BAR:         symBar,
+	COLON:       symColon,
+	
+	ASSIGN:      symEqualSign,
+	ASSIGN_USH:  symUnshiSign,
+	ASSIGN_ADD:  symAddeqSign,
+}
 
 var tokens = [...]string{
 	ILLEGAL: "ILLEGAL",
@@ -10813,9 +10935,9 @@ func (p *compiler) braced(ctx Context) (x Value) {
 			p.expect(ctx, RBRACE)
 			_p := p.Position()
 			return &compound{elements{[]Value{
-				_word(p.pos, _p.Filename), _punct(p.pos, COLON),
-				_decimal(p.pos, int64(_p.Line), 0), _punct(p.pos, COLON),
-				_decimal(p.pos, int64(_p.Column), 0), _punct(p.pos, COLON),
+				_word(p.pos, _p.Filename), _punct(p.pos, symColon),
+				_decimal(p.pos, int64(_p.Line), 0), _punct(p.pos, symColon),
+				_decimal(p.pos, int64(_p.Column), 0), _punct(p.pos, symColon),
 			}}}
 
 		case symPlain:
@@ -11566,10 +11688,18 @@ func (p *compiler) negative(ctx Context) negative {
 }
 
 func (p *compiler) punct(ctx Context) *punct {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "punctuation")) }
-	pun := &punct{valbase{p.pos}, p.tok}
+	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.punct")) }
+
+	pos, tok := p.pos, p.tok
 	p.step(ctx)
-	return pun
+
+	sym := tok2sym[tok]
+	if sym == 0 {
+		erro(pc(ctx, pos), "unmapped punctuation token: %v", tok)
+	}
+
+	// Assuming the `punct` struct is updated to hold `token Symbol` instead of `token token`
+	return &punct{valbase{pos}, sym}
 }
 
 func (p *compiler) escape(ctx Context) *escaped {
@@ -11719,7 +11849,7 @@ func (p *compiler) path(ctx Context, start Value) (res *path) {
 
 		switch p.tok {
 		case LPAREN, LBRACE, RPAREN, RBRACE, COMMA, SPACE, LINEND:
-			res.elems = append(res.elems, &punct{valbase{pos}, PTAIL}) // after the last '/'
+			res.elems = append(res.elems, &punct{valbase{pos}, symEmptySuffix}) // after the last '/'
 			return
 		}
 
@@ -11878,7 +12008,7 @@ hostloop:
 
 pathloop:
 	for p.tok == PCON {
-		if pp == nil { pp = makePath(&punct{valbase{p.pos}, PROOT}) }
+		if pp == nil { pp = makePath(&punct{valbase{p.pos}, symEmptyPrefix}) }
 
 		p.step(ctx) // '/'
 
@@ -11937,11 +12067,6 @@ func (p *compiler) promptCachedConfigs(ctx Context) bool { return p.check(ctx, "
 func (p *compiler) promptConfigurationLoads(ctx Context) bool { return p.check(ctx, "prompt-configuration-loads") }
 
 func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (result Value) {
-	if id := sym.id(); uint64(sym) == uint64(id) && id < uint32(len(coreSymbols)) {
-		erro(ctx, "incorrect symbol bit-struct: %v, %064[1]b", sym)
-		panic("Bit-struct leak detected!")
-	}
-
 	switch sym {
 	case symEmpty:
 		erro(pc(ctx,pos), "resolving empty name")
@@ -12234,7 +12359,7 @@ func ident(ctx Context, x Value) string {
 	case *strlit:
 		return `'` + t.s + `'`
 	case *punct:
-		return t.token.String()
+		return t.s.String()
 	case *globmeta:
 		return t.sym.String()
 	case valbase, *null, *none, *regexpat, nil: // CRITICAL FIX: Added *regexpat
@@ -12593,9 +12718,9 @@ func (p *compiler) calling(ctx Context) (result Value) {
 	case WORD:
 		switch p.sym { // CRITICAL FIX: Read the scanner's high-speed integer channel!
 		case symUnderscore: // "_"
-			tok, sym = UNDERLINE, symUnderscore
-			name = &punct{valbase{p.pos}, tok}
-			obj = p.resolve(ctx, name.Pos(), sym, closure)
+			tok = UNDERLINE
+			name = &punct{valbase{p.pos}, p.sym}
+			obj = p.resolve(ctx, name.Pos(), p.sym, closure)
 			p.step(ctx)
 		default:
 			erro(pc(ctx,p.pos), _f("unexpects %v", p.sym))
@@ -12673,7 +12798,7 @@ func (p *compiler) unary(ctx Context) (x Value) {
 
 	defer func() {
 		if pos == p.pos && x != nil {
-			if z, y := x.(*punct); !y || z.token != PROOT {
+			if z, y := x.(*punct); !y || z.s != symEmptyPrefix {
 				erro(pc(ctx,x), "syntax error: %v", ts(x,ctx))
 			}
 		}
@@ -12763,7 +12888,7 @@ func (p *compiler) unary(ctx Context) (x Value) {
 		return p.negative(ctx)
 
 	case PCON: // The root of the path
-		return &punct{valbase{p.pos}, PROOT}
+		return &punct{valbase{p.pos}, symEmptyPrefix}
 
 	case TILDE: // ~
 		return p.punct(ctx)
@@ -12774,9 +12899,9 @@ func (p *compiler) unary(ctx Context) (x Value) {
 	case DOTDOT: // . ..
 		tok, pos := p.tok, p.pos
 		if p.step(ctx) ; p.tok == PCON {
-			return &punct{valbase{p.pos}, tok}
+			return &punct{valbase{p.pos}, symSlash}
 		} else {
-			return &punct{valbase{pos}, tok}
+			return &punct{valbase{pos}, tok2sym[tok]}
 		}
 
 	default:
@@ -16222,8 +16347,8 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 	}
 
 	// altrFileName := coreSymbols[symAltrFileName.id()]
-	mainFileName := coreSymbols[symMainFileName.id()]
-	deprFileName := coreSymbols[symDeprFileName.id()]
+	mainFileName := symMainFileName.String()
+	deprFileName := symDeprFileName.String()
 
 	// 2. Bubble the main project file to the front of the list
 	for i := 1; i < len(entries); i++ {
@@ -18509,7 +18634,7 @@ func unbox(a Value) Value {
     return a
 }
 
-var implicitDot = &punct{valbase{}, DOT}
+var implicitDot = &punct{valbase{}, symDot}
 
 func unpack(v Value) []Value {
 	switch t := v.(type) {
@@ -18922,7 +19047,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 			// Otherwise flatten the qualwords normally
 			return &qualword{elements{append(append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], ty.elems[0])), ty.elems[1:]...)}}
 		case *punct:
-			if ty.token == TILDE {
+			if ty.s == symTilde {
 				return &qualword{elements{append(dup(tx.elems[:len(tx.elems)-1]), prefix(ctx, tx.elems[len(tx.elems)-1], y))}}
 			}
 			return &compound{elements{[]Value{tx, ty}}}
@@ -19311,11 +19436,11 @@ func (_ *quote) kind() Kind { return KindQuote }
 func (q *quote) String() (s string) { return "{quote "+q.list.String()+"}" }
 
 // punct stands for the punctuation
-type punct struct{ valbase; token }
+type punct struct{ valbase; s Symbol }
 func (_ *punct) kind() Kind { return KindPunct }
-func (p *punct) String() string { return p.token.String() }
-func (p *punct) sym() Symbol { panic("TODO: punctuation token -> symbol") }
-func _punct(pos Pos, tok token) *punct { return &punct{valbase{pos}, tok} }
+func (p *punct) String() string { return p.s.String() }
+func (p *punct) sym() Symbol { return p.s }
+func _punct(pos Pos, sym Symbol) *punct { return &punct{valbase{pos}, sym} }
 
 type word struct{ valbase; s Symbol } // AST representation for a Symbol.
 func (_ *word) kind() Kind { return KindWord }
@@ -19964,7 +20089,7 @@ LoopJSON:
                     err = errorIllJson; break LoopJSON
                 }
                 if k := stack[x-1].at(0); k == nil {
-                    if s = __string(ctx, k); s != coreSymbols[symObject.id()] {
+                    if s = __string(ctx, k); s != symObject.String() {
                         err = errorIllJson; break LoopJSON
                     }
                 }
@@ -19975,7 +20100,7 @@ LoopJSON:
                     err = errorIllJson; break LoopJSON
                 }
                 if k := stack[x-1].at(0); k == nil {
-                    if s = __string(ctx, k); s != coreSymbols[symArray.id()] {
+                    if s = __string(ctx, k); s != symArray.String() {
                         err = errorIllJson; break LoopJSON
                     }
                 }
@@ -19994,9 +20119,9 @@ LoopJSON:
             node = stack[x-1]
             if k := node.at(0); k != nil {
                 var kind string
-                if kind = __string(ctx, k); kind == coreSymbols[symArray.id()] {
+                if kind = __string(ctx, k); kind == symArray.String() {
                     node.append(sv); continue
-                } else if kind != coreSymbols[symObject.id()] {
+                } else if kind != symObject.String() {
                     err = errorIllJson; break LoopJSON
                 }
             }
@@ -20045,7 +20170,7 @@ LoopJSON:
         }
         if node != nil && value != nil {
             if k := node.at(0); k != nil {
-                if s = __string(ctx, k); s != coreSymbols[int(symArray)] {
+                if s = __string(ctx, k); s != symArray.String() {
                     err = errorIllJson; break LoopJSON
                 }
             }
@@ -20126,7 +20251,7 @@ func (p *path) String() (s string) {
     if n == 0 { s = "{path "+s+"}" }
     return
 }
-func (p *path) isAbs() bool { x, y := p.elems[0].(*punct); return y && x.token == PROOT }
+func (p *path) isAbs() bool { x, y := p.elems[0].(*punct); return y && x.s == symEmptyPrefix }
 func _pathStr(ctx Context, str string) *path { return &path{elements{splitPathStr(ctx, str)}} }
 func _pathSym_OBSOLETE(pos Pos, sym Symbol) Value { // NOTE: OBSOLETED by __symPath!!
 	if sym == symEmpty {
@@ -20154,9 +20279,9 @@ func _pathSym_OBSOLETE(pos Pos, sym Symbol) Value { // NOTE: OBSOLETED by __symP
 			// If the slash is at index 0, it is PROOT (absolute path).
 			// If the slash is at the very end, it is PTAIL (directory boundary).
 			if i == 0 {
-				p.elems = append(p.elems, &punct{valbase{pos}, PROOT})
+				p.elems = append(p.elems, &punct{valbase{pos}, symEmptyPrefix})
 			} else if i == len(seq)-1 {
-				p.elems = append(p.elems, &punct{valbase{pos}, PTAIL})
+				p.elems = append(p.elems, &punct{valbase{pos}, symEmptySuffix})
 			}
 
 			current = nil // Reset and detach memory for the next directory
@@ -22263,29 +22388,50 @@ func (c *evoke_ctx) do(ctx Context, op any) (_ any) {
     return c.Context.do(ctx, op)
 }
 
-// TODO: eval needs full evaluate-mode implementation for symstr
-func eval(ctx Context, v Value) Value {
-	stream := &symstr{Context: ctx, class: clsTiePackAST, tie: &symstr{Context: ctx}}
-	stream.tie.push(opEvalValue, v)
-	stream.exhaust()
+// eval fully leverages the Virtual Machine's single-stream Generator Mode
+// to dynamically unroll and pack AST nodes without recursive heap allocations.
+func eval(ctx Context, v Value) (res Value) {
+	if v == nil { return nil }
 
-	var vals []Value
-	for _, operand := range stream.operands {
-		if v, isValue := operand.(Value); isValue {
-			vals = append(vals, v)
-		} else {
-			erro(ctx, "%s", ts(operand,ctx))
+	// 1. Initialize the VM in pure Generator Mode
+	s := &symstr{Context: ctx}
+
+	// 2. Push the root evaluation instruction
+	s.ops = append(s.ops, opEvalValue)
+	s.operands = append(s.operands, v)
+
+	// THE DOD FIX: Native Synchronous Packer
+	// Because pure Generator Mode lacks the clsTiePackAST Matcher wrapper,
+	// we must manually initialize the AST packer and feed it emitted symbols.
+	s.vmpack = &vmpack{}
+
+	// 3. Execute the JIT Unroller
+	start := 0
+	for len(s.ops) > 0 && s.err == nil {
+		s.step()
+
+		// 4. Synchronously drain emitted symbols into the AST Packer
+		for _, sym := range s.syms {
+			end := start + sym.len()
+			pos := s.posInRange(start, end)
+			if pos == NoPos { pos = v.Pos() }
+			s.pack(pos, sym, false)
+			start = end
 		}
+
+		s.syms = s.syms[:0] // Clear the tape
 	}
 
-	switch len(vals) {
-	case 0: return nil
-	case 1: return vals[0]
-	}
-	return &list{elements{vals}}
+	// 5. Seal and flush the AST Packer buffer natively
+	res = s.reduce(v.Pos())
+	if false { debug(pc(ctx,v.Pos()), "eval: %v -> %v", v, res) }
+	if checkpoints { check(ctx, res, v) }
+	return
 }
 
-func expand(ctx Context, v Value) (res Value) {
+// expand is the legacy wrapper delegating to the VM's native evaluator.
+func expand(ctx Context, v Value) Value { return eval(ctx, v) }
+func expand_legacy(ctx Context, v Value) (res Value) {
 	switch t := v.(type) {
 	case *auto:
 		if val := t.def(ctx); val == nil || isTrivial(val) {
@@ -22859,10 +23005,7 @@ func evoke(ctx Context, x Value, o, a []Value) (res Value) {
 
 	default:
 		if x != nil && !isTrivial(x) {
-			erro(pc(ctx,x),
-				_f("evoke %v", x),
-				_f("%s", ts(x,ctx)),
-				trace_ctx{3}, callstack{num:10})
+			erro(pc(ctx,x), _f("evoke %s", ts(x,ctx)), trace_ctx{3}, callstack{num:10})
 		}
 	}
 	return
@@ -25153,23 +25296,38 @@ func reverse_unique(ctx Context, values ...Value) []Value {
 func ease(ctx Context, a any) (res Value) {
     if a == nil { return }
 
+	var pos = _pos(ctx)
     var elems []Value
 
     switch t := a.(type) {
-	case   Symbol: return _word(_pos(ctx), t)
-    case    bool : return _boolean(_pos(ctx),         t )
-    case    int  : return _decimal(_pos(ctx),   int64(t), 0)
-    case    int16: return _decimal(_pos(ctx),   int64(t), 0)
-    case    int32: return _decimal(_pos(ctx),   int64(t), 0)
-    case    int64: return _decimal(_pos(ctx),         t , 0)
-    case   uint  : return _decimal(_pos(ctx),   int64(t), 0)
-    case   uint16: return _decimal(_pos(ctx),   int64(t), 0)
-    case   uint32: return _decimal(_pos(ctx),   int64(t), 0)
-    case   uint64: return _decimal(_pos(ctx),   int64(t), 0)
-    case  float32: return _float(  _pos(ctx), float64(t), 0)
-    case  float64: return _float(  _pos(ctx),         t , 0)
-    case   string: return _strlit( _pos(ctx),         t )
-    case []string: for _, s := range t { elems = append(elems, _strlit(_pos(ctx), s )) }
+	case   Symbol:
+		switch t.Kind() {
+		case SymPct: return _punct(pos, t)
+		case SymInt:
+			vocab.nummut.RLock()
+			i := vocab.numbers[t.Idx()]
+			vocab.nummut.RUnlock()
+			return _decimal(pos, int64(i), t)
+		case SymFlt:
+			vocab.nummut.RLock()
+			i := vocab.numbers[t.Idx()]
+			vocab.nummut.RUnlock()
+			return _float(pos, math.Float64frombits(i), t)
+		} 
+		return _word(pos, t)
+    case    bool : return _boolean(pos,         t )
+    case    int  : return _decimal(pos,   int64(t), 0)
+    case    int16: return _decimal(pos,   int64(t), 0)
+    case    int32: return _decimal(pos,   int64(t), 0)
+    case    int64: return _decimal(pos,         t , 0)
+    case   uint  : return _decimal(pos,   int64(t), 0)
+    case   uint16: return _decimal(pos,   int64(t), 0)
+    case   uint32: return _decimal(pos,   int64(t), 0)
+    case   uint64: return _decimal(pos,   int64(t), 0)
+    case  float32: return _float(  pos, float64(t), 0)
+    case  float64: return _float(  pos,         t , 0)
+    case   string: return _strlit( pos,         t )
+    case []string: for _, s := range t { elems = append(elems, _strlit(pos, s )) }
 	case  []*file: for _, f := range t { elems = append(elems, f) }
     case  []Value: elems = append(elems, merge(t...)...)
     case    Value: elems = append(elems, merge(t   )...)
@@ -25177,7 +25335,7 @@ func ease(ctx Context, a any) (res Value) {
     }
 
     switch len(elems) {
-    case 0 : return _null(_pos(ctx))
+    case 0 : return _null(pos)
     case 1 : return elems[0]
     default: return &list{elements{elems}}
     }
@@ -25742,10 +25900,10 @@ func ts(i any, o ...any) (s string) {
 	case       *strlit: content = strings.ReplaceAll(x.s, "\n", `\n`)
 	case       *strval: content = wrap(cc, x.pos, x.v)
 	case        *punct:
-		switch x.token {
-		case PROOT: content = "PROOT"
-		case PTAIL: content = "PTAIL"
-		default: content = x.token.String()
+		switch x.s {
+		case symEmptyPrefix: content = "PROOT"
+		case symEmptySuffix: content = "PTAIL"
+		default: content = x.s.String()
 		}
 	case         token:
 		switch x {
@@ -25895,7 +26053,7 @@ func list_t[T Value](ii ...T) *list {
 
 func makePair(k, v Value) (p *pair) { return &pair{k, v} }
 func makePath(segments ...Value) *path { return &path{elements{segments}} }
-func makePunct(pos Pos, t token) *punct { return &punct{valbase{pos}, t} }
+func makePunct(pos Pos, s Symbol) *punct { return &punct{valbase{pos}, s} }
 func makePercpat(pos Pos, prefix, suffix Value) *percpat {
 	if prefix == nil { prefix = valbase{pos} }
 	if suffix == nil { suffix = valbase{pos} }
