@@ -3936,7 +3936,6 @@ _op_switch_:
 
 		shatter = func(sym Symbol) {
 			if sym != symEmpty {
-				if false { pushSym(sym); return }
 				if sym.Kind() == SymSeq {
 					vocab.RLock()
 					seq := vocab.sequences[sym.Idx()]
@@ -3968,14 +3967,31 @@ _op_switch_:
 		switch v := val.(type) {
 		case *loc:      pushVal(v.Value)
 		case *defcaps:  pushVal(v.Value)
-		case fullname:  pushVal(v.Value)
-		case fullfile:  pushVal(v.file)
+		case fullname:
+			if truly(s.Context, is_com_ctx{}) {
+				pushVal(v.Value)
+			} else {
+				resolved := expand(s.Context, v.Value)
+				if !isTrivial(resolved) {
+					if f := as_file(s.Context, resolved); f != nil {
+						if truly(s.Context, wants_fullfile{}) {
+							pushVal(_loc(fullfile{f}, resolved.Pos()))
+							break
+						}
+						pushVal(_loc(fullname{f}, resolved.Pos()))
+						break
+					}
+				}
+				pushVal(fullname{resolved})
+			}
+		case fullfile:
+			if truly(s.Context, is_com_ctx{}) { pushVal(v.file) } else { pushVal(v) }
 		case flag:
 			if reverse {
 				pushSym(symDash)
-				pushVal(v.Value)
+				if v.Value != nil { pushVal(v.Value) }
 			} else {
-				pushVal(v.Value)
+				if v.Value != nil { pushVal(v.Value) }
 				pushSym(symDash)
 			}
 		case *compound:
@@ -4009,13 +4025,17 @@ _op_switch_:
 				}
 			}
 		case *strcomp:
-			pushSym(symQuotation)
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			if truly(s.Context, ex_path_str{}) {
+				pushVal(&strcomp{elements{_pathStr(s.Context, __string(s.Context, v)).elems}})
 			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+				pushSym(symQuotation)
+				if reverse {
+					for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+				} else {
+					for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+				}
+				pushSym(symQuotation)
 			}
-			pushSym(symQuotation)
 
 		case *globbrace:
 			if reverse {
@@ -4056,7 +4076,12 @@ _op_switch_:
 
 		case *percpat:
 			s.class |= clsGlobAstGreed // % behaves like **
-
+			if stems := _stems(s.Context); stems != nil && len(stems) > 0 {
+				res, rest := stencil(s.Context, v, stems)
+				if len(rest) != 0 { erro(pc(s.Context, v.pos), "%v %v → %v %v", stems, v, res, rest) }
+				pushVal(res)
+				break
+			}
 			count := 1
 			suffix := v.Suffix
 			for {
@@ -4069,7 +4094,6 @@ _op_switch_:
 				}
 				break
 			}
-
 			if suffix != nil && !isEmpty(suffix) { pushVal(suffix) }
 			if s.tie != nil {
 				s.ops = append(s.ops, opGlobAstGreed)
@@ -4083,9 +4107,7 @@ _op_switch_:
 			if s.tie != nil {
 				s.ops = append(s.ops, opRegexMatch)
 				s.operands = append(s.operands, v.re)
-			} else if false {
-				// NOTE: we don't have native regex implementation, so no shattering
-				// Shards the regex string literal entirely onto the Pattern Tape!
+			} else {
 				shatter(intern(v.re.String()))
 			}
 
@@ -4119,6 +4141,334 @@ _op_switch_:
 
 		case *word:
 			shatter(v.s)
+
+		// ==========================================
+		// MACRO EXPANSIONS FUSED FROM EXPAND()
+		// ==========================================
+		case *auto:
+			if dval := v.def(s.Context); dval == nil || isTrivial(dval) {
+				if truly(s.Context, keep_autos{}) { s.do(s.Context, act_defer_macro{}) }
+				shatter(__symbol(s, v))
+			} else {
+				pushVal(_loc(dval, v.pos))
+			}
+
+		case *builtin:
+			var scope arg_expansion_scope
+			switch v.name {
+			case symAuto:
+				scope.force_collapse = true
+				scope.skip_expansion = map[int]struct{}{-1: {}}
+			case symForeach, symGrep:
+				scope.force_collapse = true
+				scope.skip_expansion = map[int]struct{}{1: {}}
+			case symAddprefix, symAddsuffix, symJoin, symConjunct:
+				scope.force_collapse = true
+			}
+			s.do(s.Context, scope)
+			shatter(__symbol(s, v))
+
+		case *delegate:
+			var dx = delegate_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
+			var x = v.resolve(&dx)
+			var o = expands(&dx, v.o...)
+			var a = dx.args(&dx, v.a)
+			var vals []Value
+
+			if dx.force_collapse || dx.good_to_collapse {
+				for _, xv := range x {
+					var cc = evoke_ctx{s.Context, false}
+					var rv = evoke(&cc, xv, o, a)
+					if cc.noop {
+						if !isNull(xv) && truly(s.Context, keep_autos{}) {
+							dv := &delegate{v.valbase, v.l, xv, o, a}
+							vals = append(vals, dv)
+							s.do(s.Context, dv)
+						} else {
+							vals = append(vals, _null(v.pos))
+						}
+					} else if rv == nil {
+						vals = append(vals, _null(v.pos))
+					} else {
+						vals = append(vals, _loc(rv, v.pos))
+					}
+				}
+			} else {
+				if !dx.good_to_collapse { s.do(s.Context, act_defer_macro{}) }
+				for _, xv := range x {
+					if isNull(xv) {
+						vals = append(vals, _null(v.pos))
+					} else {
+						dv := &delegate{v.valbase, v.l, xv, o, a}
+						vals = append(vals, dv)
+						s.do(s.Context, dv)
+					}
+				}
+			}
+			if res := ease(s.Context, vals); res != nil { pushVal(res) }
+
+		case *closure:
+			var cx = closure_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
+			var x = v.resolve(&cx)
+			var o = expands(&cx, v.o...)
+			var a = cx.args(&cx, v.a)
+			var vals []Value
+
+			if cx.force_collapse || (cx.good_to_collapse && truly(s.Context, ex_closure{})) {
+				for _, xv := range x {
+					var cc = evoke_ctx{s.Context, false}
+					var rv = evoke(&cc, xv, o, a)
+					if cc.noop || rv == nil {
+						if !isNull(xv) && truly(s.Context, keep_autos{}) {
+							cv := &closure{delegate{v.valbase, v.l, xv, o, a}}
+							vals = append(vals, cv)
+							s.do(s.Context, cv)
+						} else {
+							vals = append(vals, _null(v.pos))
+						}
+					} else {
+						vals = append(vals, _loc(rv, v.pos))
+					}
+				}
+			} else {
+				if !cx.good_to_collapse { s.do(s.Context, act_defer_macro{}) }
+				for _, xv := range x {
+					if isNull(xv) {
+						vals = append(vals, _null(v.pos))
+					} else {
+						cv := &closure{delegate{v.valbase, v.l, xv, o, a}}
+						vals = append(vals, cv)
+						s.do(s.Context, cv)
+					}
+				}
+			}
+			if res := ease(s.Context, vals); res != nil { pushVal(res) }
+
+		case *arrow:
+			var vals []Value
+			var p0 = v.Pos()
+			var _, lhs_is_opt = selprop(s.Context, v.o)
+			var os = selobjs(s.Context, v.t, expand(s.Context, v.o))
+			var ss = merge(expand(s.Context, v.s))
+			for _, o := range os {
+				for _, st := range ss {
+					var p = st.Pos()
+					var prop_sym, is_opt = selprop(s.Context, st)
+					var prop = sel(s.Context, o, prop_sym)
+					switch res := prop.(type) {
+					case nil:
+						if is_opt || lhs_is_opt || optional(st) || optional(o) {
+							if truly(s.Context, keep_autos{}) {
+								s.do(s.Context, act_defer_macro{})
+								var actual_o = o
+								for {
+									if l, ok := actual_o.(*loc); ok { actual_o = l.Value; continue }
+									if d, ok := actual_o.(*def); ok {
+										if d.value != nil { actual_o = d.value; continue }
+									}
+									break
+								}
+								vals = append(vals, &arrow{v.valbase, v.t, actual_o, st})
+							} else {
+								vals = append(vals, _loc(_null(p), p0))
+							}
+						} else {
+							erro(pc(s.Context, p), "%v: no such property '%s'", o, prop_sym, trace_ctx{100}, callstack{num: 12})
+							vals = append(vals, _loc(_null(p), p0))
+						}
+					default:
+						vals = append(vals, _loc(_loc(res, p), p0))
+					}
+				}
+			}
+			if res := ease(s.Context, vals); res != nil { pushVal(res) }
+
+		case *conjunction:
+			sep, vals := expand(s.Context, v.sep), expands(s.Context, v.list.elems...)
+			_, dynamicVals := _redis_elems(vals)
+			_, dynamicSep := _redis(sep)
+
+			if dynamicVals || dynamicSep {
+				pushVal(&conjunction{list{elements{vals}}, sep})
+			} else {
+				var valid []Value
+				for _, val := range vals {
+					if !isEmpty(val) { valid = append(valid, val) }
+				}
+				if len(valid) == 0 {
+					pushVal(_null(v.list.Pos()))
+				} else {
+					c := &compound{}
+					c.app(valid[0])
+					if sep != nil {
+						for _, val := range valid[1:] { c.app(sep, val) }
+					} else {
+						for _, val := range valid[1:] { c.app(val) }
+					}
+					pushVal(c)
+				}
+			}
+
+		case *disjunction:
+			var vals []Value
+			for _, val := range merge(expand(s.Context, v.val)) { vals = append(vals, redis(val)) }
+			if res := ease(s.Context, vals); res != nil { pushVal(res) }
+
+		case *file:
+			if truly(s.Context, wants_fullfile{}) {
+				pushVal(fullfile{v})
+			} else {
+				shatter(__symbol(s, v))
+			}
+
+		case *rule:
+			if tgt := expand(s.Context, v.target); !equal(s.Context, tgt, v.target) {
+				pushVal(&rule{tgt, v.arged, v.program})
+			} else {
+				shatter(__symbol(s, v))
+			}
+
+		case *stemmed_rule:
+			if r := expand(s.Context, v.rule).(*rule); r != v.rule {
+				pushVal(&stemmed_rule{r, v.target, v.stems})
+			} else {
+				shatter(__symbol(s, v))
+			}
+
+		case matched_rule:
+			pushVal(matched_rule{expand(s.Context, v.rule).(*rule), expand(s.Context, v.value)})
+
+		case negative:
+			pushVal(v.Value)
+
+		case *quote:
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
+
+		case *group:
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
+
+		case *recipe:
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
+
+		case *plain:
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
+
+		case *plainline:
+			if reverse {
+				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
+			}
+
+		case *argumented:
+			if reverse {
+				for i := 0; i < len(v.args); i++ { pushVal(v.args[i]) }
+				pushVal(v.Value)
+			} else {
+				for i := len(v.args) - 1; i >= 0; i-- { pushVal(v.args[i]) }
+				pushVal(v.Value)
+			}
+
+		case *url:
+			if reverse {
+				pushVal(v.Fragment)
+				for i := 0; i < len(v.Query); i++ { pushVal(v.Query[i]) }
+				pushVal(v.Path)
+				pushVal(v.Port)
+				pushVal(v.Host)
+				pushVal(v.Password)
+				pushVal(v.Username)
+				pushVal(v.Scheme)
+			} else {
+				pushVal(v.Scheme)
+				pushVal(v.Username)
+				pushVal(v.Password)
+				pushVal(v.Host)
+				pushVal(v.Port)
+				pushVal(v.Path)
+				for i := len(v.Query) - 1; i >= 0; i-- { pushVal(v.Query[i]) }
+				pushVal(v.Fragment)
+			}
+
+		case *use:
+			if reverse {
+				for i := 0; i < len(v.params); i++ { pushVal(v.params[i]) }
+				pushVal(v.project)
+			} else {
+				pushVal(v.project)
+				for i := len(v.params) - 1; i >= 0; i-- { pushVal(v.params[i]) }
+			}
+
+		case *uselist:
+			if reverse {
+				for i := 0; i < len(v.list); i++ { pushVal(v.list[i]) }
+			} else {
+				for i := len(v.list) - 1; i >= 0; i-- { pushVal(v.list[i]) }
+			}
+
+		case *modifier:
+			pushVal(modify(s.Context, &v.group, false))
+
+		case *modification:
+			var va []Value
+			for _, m := range v.list {
+				if ex := expand(s.Context, m); ex != nil { va = append(va, ex) }
+			}
+			if res := ease(s.Context, va); res != nil { pushVal(res) }
+
+		case *undetermined:
+			if reverse {
+				pushVal(v.value)
+				pushVal(v.identifier)
+			} else {
+				pushVal(v.identifier)
+				pushVal(v.value)
+			}
+
+		case *strlit:
+			if truly(s.Context, ex_path_str{}) {
+				pushVal(_pathStr(s.Context, v.s))
+			} else {
+				shatter(__symbol(s, v))
+			}
+
+		case *strval:
+			if truly(s.Context, ex_path_str{}) {
+				pushVal(&strval{v.valbase, _pathStr(s.Context, __string(s.Context, v)).elems})
+			} else {
+				if reverse {
+					for i := 0; i < len(v.v); i++ { pushVal(v.v[i]) }
+				} else {
+					for i := len(v.v) - 1; i >= 0; i-- { pushVal(v.v[i]) }
+				}
+			}
+
+		case *pair:
+			if reverse {
+				pushVal(v.val)
+				pushSym(symEqualSign)
+				pushVal(v.key)
+			} else {
+				pushVal(v.key)
+				pushSym(symEqualSign)
+				pushVal(v.val)
+			}
 
 		default:
 			shatter(__symbol(s, v))
