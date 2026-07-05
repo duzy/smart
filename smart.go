@@ -3879,11 +3879,33 @@ _op_switch_:
 
 			// THE DOD FIX: Synchronous Stem Capture
 			// Prevents AST granularity loss by avoiding LIFO delays.
-			start, end := curr, curr + symBytes
+			var start, end int
+			if reverse {
+				start = curr - symBytes
+				end = curr
+			} else {
+				start = curr
+				end = curr + symBytes
+			}
+
 			for i := stemStartIdx; i < len(s.stems); i++ {
 				cap := &s.stems[i]
-				if cap.start != -1 && start >= cap.start && end <= cap.end {
-					cap.syms = append(cap.syms, sym)
+				// Check for mathematical intersection
+				if cap.start != -1 && start < cap.end && end > cap.start {
+					if start >= cap.start && end <= cap.end {
+						// Fully contained: preserve the native symbol
+						cap.syms = append(cap.syms, sym)
+					} else {
+						// Partially contained: precision fractional slicing!
+						sliceStart := 0
+						if cap.start > start { sliceStart = cap.start - start }
+
+						sliceEnd := symBytes
+						if cap.end < end { sliceEnd = cap.end - start }
+
+						str := sym.String()
+						cap.syms = append(cap.syms, intern(str[sliceStart:sliceEnd]))
+					}
 				}
 			}
 
@@ -12870,7 +12892,7 @@ defsloop:
 						sym := capture[0]
 						// Fast-path index extraction for numeric captures $1-$9
 						if sym.id() >= sym_1.id() && sym.id() <= sym_9.id() {
-							if idx := int(sym - sym_0); idx <= len(stems) {
+							if idx := int(sym.id() - sym_0.id()); idx <= len(stems) {
 								main = stems[idx-1]
 							}
 						} else if i, e := strconv.Atoi(sym.String()); e == nil && 0 < i && i <= len(stems) {
