@@ -180,24 +180,7 @@ func (b *compactbuilds) writeRune(r rune) {
 	}
 }
 
-func (b *compactbuilds) writeString(s string) {
-	if len(s) == 0 { return }
-	if !b.raw {
-		if s[0] == ' ' {
-			if b.pend == " " {
-				b.pend = ""
-			} else if b.pend == "" && b.last == ' ' {
-				s = strings.TrimLeft(s, " ")
-				if len(s) == 0 { return }
-			}
-		}
-	}
-	b.flush()
-	b.last = s[len(s)-1]
-	b.buf = append(b.buf, s...)
-}
-
-func (b *compactbuilds) write(p []byte) {
+func (b *compactbuilds) writeBytes(p []byte) {
 	if len(p) == 0 { return }
 	if !b.raw {
 		if p[0] == ' ' {
@@ -212,6 +195,23 @@ func (b *compactbuilds) write(p []byte) {
 	b.flush()
 	b.last = p[len(p)-1]
 	b.buf = append(b.buf, p...)
+}
+
+func (b *compactbuilds) write(s string) {
+	if len(s) == 0 { return }
+	if !b.raw {
+		if s[0] == ' ' {
+			if b.pend == " " {
+				b.pend = ""
+			} else if b.pend == "" && b.last == ' ' {
+				s = strings.TrimLeft(s, " ")
+				if len(s) == 0 { return }
+			}
+		}
+	}
+	b.flush()
+	b.last = s[len(s)-1]
+	b.buf = append(b.buf, s...)
 }
 
 // writef formats strings directly into the stream,
@@ -275,11 +275,11 @@ func builds(cb *compactbuilds, args ...any) {
 
 		if !handled {
 			switch t := a.(type) {
-			case string: cb.writeString(t)
+			case string: cb.write(t)
 			case rune:   cb.writeRune(t)
 			case byte:   cb.writeByte(t)
 			case Symbol: t.build(cb) // Direct internal fast-path, identical strsrc, strbld.
-			case interface{ String() string }: cb.writeString(t.String())
+			case interface{ String() string }: cb.write(t.String())
 			case []Value: // CRITICAL: Must exactly match your AST slice type
 				for _, elem := range t {
 					// Respect the active separator
@@ -1615,7 +1615,7 @@ func (sym Symbol) build(b *compactbuilds) {
 
 	// For all atomic leaves, project them onto the stack and write instantly!
 	var buf [64]byte
-	b.writeString(sym.view(&buf))
+	b.write(sym.view(&buf))
 }
 
 func (sym Symbol) unsafe_build(b *compactbuilds) {
@@ -1629,7 +1629,7 @@ func (sym Symbol) unsafe_build(b *compactbuilds) {
 
 	// For all atomic leaves, project them onto the stack and write instantly!
 	var buf [64]byte
-	b.writeString(sym.unsafe_view(&buf))
+	b.write(sym.unsafe_view(&buf))
 }
 
 func (sym Symbol) unsafe_string() string {
@@ -1681,7 +1681,7 @@ func init() {
 	size := _id_seq_end + mapThreshold
 	vocab.strsyms = make(map[uint64][]Symbol, size)
 	vocab.seqsyms = make(map[uint64][]Symbol)
-	
+
 	// Pre-allocate side-tables exactly to their required starting sizes
 	vocab.strings = make([]string, 0, size)
 	vocab.numbers = make([]uint64, 0, size/20)
@@ -1703,28 +1703,60 @@ func init() {
 		h := hashStr(unsafe.String(&b[0], ln))
 		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
 	}
-	
+
 	// ==========================================
 	// PASS 1: Initialize SymRaw (_id_inl_end to _id_raw_end)
 	// ==========================================
-	vocab.strings = append(vocab.strings, coreSymRaws...)
+	// FIX: Removed `vocab.strings = append(...)`.
+	// Let unsafe_make_symbol natively populate vocab.strings starting at Idx = 0!
 	for i, s := range coreSymRaws {
 		h := hashStr(s)
-		id := _id_inl_end + i // Align global ID with the iota block!
-		vocab.strsyms[h] = append(vocab.strsyms[h], unsafe_make_symbol(s, uint32(id)))
+		id := _id_inl_end + i // Align global ID with the iota block
+
+		sym := unsafe_make_symbol(s, uint32(id))
+		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
 	}
 
 	// ==========================================
 	// PASS 2: Initialize SymInt (0 to 9)
 	// ==========================================
-	// Numbers don't need string interning, just place their raw bits in the side-table
 	for i := uint64(0); i <= 9; i++ {
-		vocab.numbers = append(vocab.numbers, i)
+		s := strconv.FormatUint(i, 10)
+		h := hashStr(s)
+		id := _id_raw_end + int(i)
+
+		// FIX: unsafe_make_symbol naturally detects numbers, assigns SymInt,
+		// and appends them to vocab.numbers starting at Idx = 0.
+		sym := unsafe_make_symbol(s, uint32(id))
+		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
 	}
 
 	// ==========================================
-	// PASS 3: Skip SymPct! (No side-table pollution)
+	// PASS 3: Initialize SymPct (Punctuation)
 	// ==========================================
+	// We MUST seed the constants into strsyms so intern() natively finds them!
+	for _, sym := range []Symbol{
+		symAmpersand, symDollarSign, symDash, symUnderscore, symBackquote, symApostrophe, symQuotation, symColon,
+		symRatio, symWideColon, symComma, symTilde, symDot, symDotDot, symSlash, symSlashSlash, symBackslash,
+		symBackslash2, symLparen, symRparen, symLbrace, symRbrace, symLbrack, symRbrack, symCornerTL, symCornerTR,
+		symCornerBL, symCornerBR, symLsingguil, symRsingguil, symLguillemet, symRguillemet, symArrow, symHash,
+		symEqualSign, symUnshiSign, symAddeqSign, symExclamation, symAt, symAtD, symAtF, symAtA, symBar, symBarD,
+		symBarF, symBarA, symCaret, symCaretD, symCaretF, symCaretA, symLangle, symLangleD, symLangleF, symLangleA,
+		symRangle, symRangleD, symRangleF, symRangleA, symPercent, symPercentD, symPercentF, symPercentA, symAsterisk,
+		symAsteriskD, symAsteriskF, symAsteriskA, symQues, symQuesD, symQuesF, symQuesA, symPlus, symPlusD, symPlusF,
+		symPlusA, symDashDash, symPlusPlus, symAsteriskQues, symAsteriskAst,
+	} {
+		var b [3]byte
+		u := uint32(sym.Idx())
+		ln := int((u >> 24) & 0x3)
+		if ln > 0 { b[0] = byte(u) }
+		if ln > 1 { b[1] = byte(u >> 8) }
+		if ln > 2 { b[2] = byte(u >> 16) }
+
+		s := unsafe.String(&b[0], ln)
+		h := hashStr(s)
+		vocab.strsyms[h] = append(vocab.strsyms[h], sym)
+	}
 
 	// ==========================================
 	// PASS 4: Initialize SymSeq (_id_pct_end to _id_seq_end)
@@ -1750,6 +1782,8 @@ func init() {
 		panic(e)
 	}
 
+	// FIXME: optimize for names like `hhs6f1cj07j82qy6hdph9cs40000gn`:
+	//   /var/folders/6l/hhs6f1cj07j82qy6hdph9cs40000gn/T/smart/...
 	unsafe_bind_constant(symBaseWorkDir, cwd)
 	unsafe_bind_constant(symBaseTmpPath, filepath.Join(os.TempDir(), "smart"))
 
@@ -1999,9 +2033,9 @@ func unsafe_bind_constant(sym Symbol, s string) {
 	}
 
 	// THE DOD FIX: Remove coreSymSeqs mutation: coreSymSeqs[id] = s !
-	// coreSymSeqs is just a bootstrap slice. The VM reads from vocab.sequences, 
+	// coreSymSeqs is just a bootstrap slice. The VM reads from vocab.sequences,
 	// which we hijack below. No need to update the bootstrap array!
-	
+
 	h := hashStr(s)
 
 	var target Symbol
@@ -2618,12 +2652,19 @@ type evalop uint8
 func (op evalop) nargs() int { return int(op >> 6) }
 func (op evalop) id() uint8  { return uint8(op & 0x3F) }
 
+// NOTE: all ops can take 0-3 operands as arguments, more args can use specific struct to wrap.
+// All ops can only take inputs (args) from operands stack; and put outputs to the results stack.
 const (
 	opEnd           evalop = (0 << 6) | iota // 0 operands
-	opEmitSym       evalop = (1 << 6) | iota // 1 operand  (sym Symbol)
-	opEvalValue     evalop = (1 << 6) | iota // 1 operand  (val Value)
-	opCloseInterval evalop = (2 << 6) | iota // 2 operands (start int, val Value)
+	opEval          evalop = (1 << 6) | iota // 1 operand (val Value)
+	opRet           evalop = (1 << 6) | iota // 1-2 operand (sym) or (val, pos)
+	opRetPack       evalop = (1 << 6) | iota // 1-2 operand (sym) or (val, pos)
+	opRetMatch      evalop = (1 << 6) | iota // 1-2 operand (sym) or (val, pos)
+	opUnroll        evalop = (1 << 6) | iota // 1 operands
+	opUnrollPack    evalop = (1 << 6) | iota // 1 operands
+	opUnrollMatch   evalop = (1 << 6) | iota // 1 operands
 	opUnwind        evalop = (0 << 6) | iota // 0 operands
+	opCloseInterval evalop = (2 << 6) | iota // 2 operands (start int, val Value)
 
 	// --- Match Mode Bytecodes ---
 	opRegexMatch    evalop = (1 << 6) | iota // 1 operand  (rx *regexpat)
@@ -2640,39 +2681,70 @@ const (
 	opConseqAstCross evalop = (0 << 6) | iota // 0 operands
 
 	// --- Evaluate Mode Bytecodes ---
-	opResolve       evalop = (0 << 6) | iota // 0 operands (Update if operands added)
-	opEase          evalop = (2 << 6) | iota // 2 operand
-	opEvokeAuto     evalop = (2 << 6) | iota // 2 operand
-	opEvokeDef      evalop = (2 << 6) | iota // 2 operand
-	opEvokeRule     evalop = (2 << 6) | iota // 2 operand
-	opEvokeBuiltin  evalop = (2 << 6) | iota // 2 operand
+	opSwap          evalop = (1 << 6) | iota // 1 operand (N). Swap N results to operands
+	opCons          evalop = (1 << 6) | iota // 1 operand (N). Consolidate N results to 1 operand (i.e., Variadic Swap)
+	opCompact       evalop = (1 << 6) | iota // 1 operand (N). Consolidate N operands to 1 operand
+	opValidate      evalop = (1 << 6) | iota // 1 operand (N). Validate N results and swap to operands if valid
+	opCompactValid  evalop = (1 << 6) | iota // 1 operand (N). Validate N operands and consolidate valid items back
+	opMerge         evalop = (1 << 6) | iota // (Value) Recursivly merge one result into elements of []Value
+	// opCrossCompose  evalop = (2 << 6) | iota
+	opCompound      evalop = (1 << 6) | iota
+	opQualword      evalop = (1 << 6) | iota
+	opGlobbrace     evalop = (1 << 6) | iota
+	opPath          evalop = (1 << 6) | iota
+	opEase          evalop = (2 << 6) | iota
+	opEvoke         evalop = (1 << 6) | iota
+	opTraverse      evalop = (1 << 6) | iota
+
+	opDebug              evalop = (1 << 6) | iota
+	opRestoreContext     evalop = (1 << 6) | iota // 1 operand (oldCtx Context)
+	opResolve            evalop = (3 << 6) | iota // 3 operands
+	opExpandArgs         evalop = (1 << 6) | iota // 1 operands ([]Value)
+	opExpand             evalop = (1 << 6) | iota // 1 operands (Value)
+	opReduce             evalop = (3 << 6) | iota
+	opUnloc              evalop = (1 << 6) | iota
+	opLoc                evalop = (1 << 6) | iota
+	opLocPack            evalop = (1 << 6) | iota
+	opNegate             evalop = (1 << 6) | iota
+	opFlag               evalop = (1 << 6) | iota
+	opPair               evalop = (2 << 6) | iota
+	opCompose            evalop = (1 << 6) | iota
+	opConjunct           evalop = (2 << 6) | iota
+	opDisjunct           evalop = (2 << 6) | iota
+	opFullname           evalop = (2 << 6) | iota
+	opRule               evalop = (2 << 6) | iota
+	opModify             evalop = (1 << 6) | iota
+	opSelect             evalop = (3 << 6) | iota
+	opEvokeRet           evalop = (1 << 6) | iota
+	opPathStr            evalop = (2 << 6) | iota
 )
 
 const (
-	clsNone         = 0
-	clsBackwards    = 1 << 0
-	clsRegex        = 1 << 1
-	clsGlobChar     = 1 << 2 // ?, []
-	clsGlobAst      = 1 << 3 // *
-	clsGlobAstCross = 1 << 4 // *?
-	clsGlobAstGreed = 1 << 5 // **
+	clsBackwards = 1 << iota
+	clsMatcher
+	clsPacker
+	clsArgument
+	clsRegex
+	clsGlobChar      // ?, []
+	clsGlobAst       // *
+	clsGlobAstCross  // *?
+	clsGlobAstGreed  // **
 	clsGlob = clsGlobChar | clsGlobAst | clsGlobAstCross | clsGlobAstGreed
-	clsTieForwards  = 1 << 6 // Stepping tie without ops
-	clsTiePackAST   = 1 << 7 // Stepping tie without ops
-	clsTieVMX       = 1 << 9 // Stepping tie without ops
-	clsTie  = clsTieForwards | clsTiePackAST | clsTieVMX
+	clsNone = 0
 )
 
 const (
-	undoNone   = 0
-	undoStack  = 1 << 0 // Restores execution instructions (ops, operands)
-	undoTape   = 1 << 1 // Restores generated output tape (syms, offsets, offset)
-	undoTie    = 1 << 2 // Restores target read-head (tie.cursor, tie.boundary)
-	undoOwn    = 1 << 3 // Restores matcher read-head (cursor, boundary)
-	undoStems  = 1 << 4 // Restores captured wildcard stems
-	undoPack   = 1 << 5 // Restores vmpack
-	undoErr    = 1 << 6 // Restores s.err
-	undoBranch = undoStack | undoTape | undoTie | undoOwn | undoStems | undoPack | undoErr
+	undoCtx = 1 << iota // Restores the embedded Context
+	undoHead   // Restores read-head (str, boundary)
+	undoStack  // Restores execution instructions (ops, operands)
+	undoTape   // Restores generated output tape (syms, offsets, offset)
+	undoStems  // Restores captured wildcard stems
+	undoPack   // Restores vmpack
+	undoErr    // Restores s.err
+	undoOwn    // Restores s bits
+	undoTie    // Restores s.tie bits
+	undoBranch = undoCtx | undoStack | undoTape | undoHead | undoStems | undoPack | undoErr | undoOwn | undoTie
+	undoNone = 0
 )
 
 // interval track the exact virtual byte spans of every single node (both containers and leaves)
@@ -2690,9 +2762,9 @@ type capture struct {
 	syms  []Symbol
 }
 
-type vmstr string
-type vmint uint64 // i.e., number, via int64(vmint)
-type vmflt uint64 // i.e., number, via Float64frombits(vmflt)
+type vmstr Symbol //string
+type vmint Symbol //uint64 // i.e., number, via int64(vmint)
+type vmflt Symbol //uint64 // i.e., number, via Float64frombits(vmflt)
 type vmblb any    // pointer to arbitrary aggregate
 
 // vmhead tracks the physical tape head's spatial boundary and partial lookahead.
@@ -2705,6 +2777,8 @@ type vmhead struct {
 type vmstack struct {
 	ops      []evalop // LIFO (Last-In-First-Out) instruction stack
 	operands []any    // The Strict Data Stack for VM execution
+	results  []any    // Dedicated intermediate execution stack
+	evoking  []Value  // Native Call Stack for Loop Detection
 	opsDone  int      // Counter of executed ops (Instruction Retired Counter - IRC)
 }
 
@@ -2730,24 +2804,9 @@ type vmpack struct {
 	list elements
 }
 
-// clone securely deep-copies the volatile execution stacks.
-func (st vmstack) clone() vmstack {
-	return vmstack{
-		opsDone:  st.opsDone, // Freeze the IRC!
-		ops:      append([]evalop(nil), st.ops...),
-		operands: append([]any(nil), st.operands...),
-	}
-}
-
-// restore rewinds the mutable execution stacks using existing capacity.
-func (dst *vmstack) restore(src vmstack) {
-	dst.opsDone  = src.opsDone // Rewind the IRC!
-	dst.ops = append(dst.ops[:0], src.ops...)
-	dst.operands = append(dst.operands[:0], src.operands...)
-}
-
 // snapshot holds the restorable states for a single VM instance.
 type snapshot struct {
+	context Context
 	vmhead                 // Physical tape head (boundary, str)
 	vmstack                // Execution instructions
 	*vmpack                // AST state
@@ -2761,8 +2820,8 @@ type snapshot struct {
 
 // backtrack represents a granular, zero-allocation time-travel instruction.
 type backtrack struct {
-	own snapshot
-	tie snapshot
+	own snapshot // with undoOwn set
+	tie snapshot // with undoTie set
 
 	// The Alternate Timeline Payload (Injected into 'own' upon rewind)
 	altStem capture
@@ -2788,10 +2847,10 @@ type symstr struct {
 	vmstack              // Execution instructions and operands
 
 	// 3. AST & Telemetry (Passive Tracking)
-	*vmpack              // AST packer state
+	*vmpack                // AST packer state
 	intervals   []interval // AST tracking data injected from the flattener
 	stems       []capture  // Extracted capture groups
-	vmwm                 // Persistent telemetry tracking state
+	vmwm                   // Persistent telemetry tracking state
 
 	// 4. Time-Travel & Volatiles
 	backtracks  []backtrack // The VM State Machine Rewind Stack
@@ -2807,216 +2866,2839 @@ func (s *symstr) do(ctx Context, op any) any { // Optional!
     return s.Context.do(ctx, op)
 }
 
-func (s *symstr) step() {
-	reverse := (s.class & clsBackwards) != 0
+func (s *symstr) op_match_literal(l int) {
+	sym := s.operands[len(s.operands)-1].(Symbol)
+	pos := s.operands[len(s.operands)-2].(Pos)
+	s.operands = s.operands[:len(s.operands)-2]
 
-	switch s.class & clsTie {
-	case clsTieForwards: // === 1-D TRANSDUCER BYPASS ===
-		// Ignores instructions and blindly forwards the Target Tape (tie) to syms!
-		if s.tie != nil {
-			if len(s.tie.str) > 0 {
-				s.emit(intern(s.tie.str))
-				s.tie.str = ""
-				return
-			}
-			if len(s.tie.syms) == 0 { s.tie.pump() }
-			if len(s.tie.syms) > 0 { s.emit(s.tie.pop_head()) } else { s.err = io.EOF }
-		} else {
-			s.err = io.EOF
-		}
-		return
+	reverse := s.class&clsBackwards != 0
 
-	case clsTieVMX:
-		// === 1. UNIFIED HALT BLOCK ===
-		halt := false
-		if s.tie.err != nil {
-			halt = true // Fail-fast! Abort instantly.
-		} else if len(s.tie.ops) == 0 && len(s.tie.syms) == 0 {
-			halt = true // Success! Wait until final symbols are digested.
-		}
+	ret := func(_sym Symbol) {
+		s.ops = append(s.ops, opRetPack)
+		s.operands = append(s.operands, NoPos, _sym)
+	}
 
-		if halt {
-			s.err = io.EOF
-			return
-		}
-
-		// === 2. ACTIVE TAPE CONSUMPTION (Drain Matcher Output) ===
-		if len(s.tie.syms) > 0 {
-			sym := s.tie.pop_head()
-
-			var shatter func(Symbol)
-			shatter = func(sym Symbol) {
-				if sym == symEmpty { return }
-				if sym.Kind() == SymSeq {
-					vocab.RLock()
-					seq := vocab.sequences[sym.Idx()]
-					vocab.RUnlock()
-					if reverse {
-						for i := 0; i < len(seq); i++ { shatter(seq[i]) }
-					} else {
-						for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
-					}
-				} else {
-					// VM types prioritize density over AST source mapping
-					s.emit(sym)
-				}
-			}
-
-			shatter(sym)
-			s.boundary += sym.len()
-			return
-		}
-
-		// === 3. STARVED: PULL MATCHER ===
-		s.tie.step()
-		return
-
-	case clsTiePackAST:
-		// THE DOD FIX: Unconditional Pumping!
-		// Allow the tape to pump during the Remainder phase (even if ops == 0) until EOF.
-		if len(s.tie.syms) == 0 && s.tie.err == nil { s.tie.step() }
-
-		// === 1. TRANSITION FROM RES TO REM ===
-		var transition bool
-		if (s.tie.class & clsTieForwards) == 0 && len(s.operands) == 0 {
-			// THE DOD FIX: Treat io.EOF as a success signal, not a hard failure!
-			// Ensures the Matcher's tape is fully drained into Result before transitioning.
-			if s.tie.err != nil && s.tie.err != io.EOF {
-				// FAIL-FAST: Transition instantly! Any aborted symbols sitting in
-				// the Matcher's output tape will correctly fall into the Remainder!
-				transition = true
-			} else if len(s.tie.syms) == 0 && (len(s.tie.ops) == 0 || s.tie.err == io.EOF) {
-				// SUCCESS: Wait until all matched symbols are safely drained into Result!
-				transition = true
-			}
-		}
-
-		// === 2. ACTIVE TAPE CONSUMPTION (Drain Matcher Output) ===
-		if len(s.tie.syms) > 0 {
-			sym := s.tie.pop_head()
-			l := sym.len()
-
-			// THE DOD FIX: Protect coordinates before mutation!
-			var start, end int
-			if reverse {
-				start = s.boundary - l
-				end = s.boundary
-				s.boundary -= l
-			} else {
-				start = s.boundary
-				end = s.boundary + l
-				s.boundary += l
-			}
-
-			if s.vmpack == nil { s.vmpack = &vmpack{} }
-			s.pack(s.tie.posInRange(start, end), sym, reverse)
-
-			if !transition { return } // Yield to VM loop to keep consuming!
-		}
-
-		// === 3. TRANSITION FROM RES TO REM ===
-		if transition {
-			bt := s.tie.checkpoint(undoErr)
-			bt.tie.boundary = s.tie.boundary // Snapshot the Matcher's tape position!
-			bt.own.boundary = s.boundary // Snapshot the Packer's tape position!
-			s.tie.backtracks = append(s.tie.backtracks, bt)
-			s.tie.class |= clsTieForwards
-			s.tie.err = nil // Clear error to allow pumping the remainder tape!
-
-			if s.tie.bestPack != nil {
-				s.vmpack = s.tie.bestPack.clone()
-			}
-
-			var res Value
-			if s.vmpack != nil {
-				// THE DOD FIX: Discard mathematically hollow prefix failures!
-				// If the Matcher failed before consuming any physical target bytes,
-				// any structural tokens (like PROOT) packed into the AST are discarded.
-				if s.boundary == 0 && bt.own.err != io.EOF {
-					s.vmpack = nil
-				} else {
-					res = s.reduce(s.tie.posInRange(0, s.boundary))
-					s.vmpack = nil
-				}
-			}
-			s.operands = []any{res}
-			return
-		}
-
-		// === 3. TERMINAL STATE (EOF of Remainder Tape) ===
-		if (s.tie.class & clsTieForwards) != 0 && s.tie.err != nil {
-			var startByte int
-			if bl := len(s.tie.backtracks); bl > 0 {
-				bt := s.tie.backtracks[bl-1]
-				s.tie.backtracks = s.tie.backtracks[:bl-1]
-				s.tie.class &^= clsTieForwards
-				s.tie.err = bt.own.err // Restore Matcher's original success/fail status
-				startByte = bt.own.boundary
-			}
-
-			var rem Value
-			if s.vmpack != nil {
-				rem = s.reduce(s.tie.posInRange(startByte, s.boundary))
-				s.vmpack = nil
-			}
-
-			var stems []Value
-			reverseStems := reverse || (s.tie.class & clsBackwards) != 0
-
-			// Extract ALL successfully captured groups natively from the high-watermark
-			for _, capture := range s.tie.bestStems {
-				// THE DOD FIX: Zero-Byte Capture Bypass
-				// If a wildcard executed but captured 0 bytes (syms is empty),
-				// or if it was entirely unexecuted (start == -1), we strictly yield <nil>.
-				if capture.start == -1 || len(capture.syms) == 0 {
-					if reverseStems {
-						stems = append([]Value{Value(nil)}, stems...) // Prepend
-					} else {
-						stems = append(stems, Value(nil)) // Append
-					}
-					continue
-				}
-
-				bytePos := capture.start
-				s.vmpack = &vmpack{}
-				for _, sym := range capture.syms {
-					symBytes := sym.len()
-					s.pack(s.tie.posInRange(bytePos, bytePos+symBytes), sym, reverse)
-					bytePos += symBytes
-				}
-
-				stem := s.reduce(s.tie.posInRange(capture.start, capture.end))
-				if capture.name != symEmpty && stem != nil { stem = &named_stem{stem, capture.name} }
-
-				// THE DOD FIX: Restore Structural AST Order
-				// Backward matches generate stems right-to-left chronologically.
-				// We prepend them to flawlessly restore left-to-right spatial order!
-				if reverseStems {
-					stems = append([]Value{stem}, stems...)
-				} else {
-					stems = append(stems, stem)
-				}
-			}
-
-			// NOTE: When a match aborts early (e.g. pattern literal contradiction),
-			// unexecuted pattern wildcards remaining in the AST operands stack do not
-			// produce capture stems. This results in a truncated capture array (e.g.,
-			// [<nil>] instead of [<nil> <nil>]). This is completely fine as it accurately
-			// reflects the true runtime evaluation depth of the aborted timeline.
-
-			s.vmpack = nil
-			s.err = io.EOF // Terminates the Packer's VM loop!
-
-			res, _ := s.operands[0].(Value)
-			s.operands = []any{res, rem, stems}
-			return
-		}
-
-		if (s.tie.class & clsTieForwards) == 0 && s.tie.err != nil { s.err = io.EOF }
+	if s.tie == nil {
+		s.err = errMatchFailedStarvedT
+		ret(sym)
 		return
 	}
 
-	// THE DOD FIX: Unified Telemetry & Priority Closure
+	if !s.tie.ensured_syms() { // NOTE: ensured len(s.tie.str) == 0 too!
+		s.tie.err = io.EOF
+		if sym == symEmpty {
+			ret(symEmpty)
+		} else {
+			s.err = errMatchFailedStarvedT
+		}
+		return
+	} else if len(s.tie.str) != 0 {
+		erro(s, "ensured_syms left str=%s", s.tie.str)
+	}
+
+	if sym == symEmpty {
+		if false && s.tie != nil && len(s.tie.syms) > 0 && s.tie.syms[0] == symEmpty {
+			s.tie.syms = s.tie.syms[1:]
+		} else if s.tie != nil && len(s.tie.syms) > 0 {
+			switch target := s.tie.syms[0]; target {
+			case symEmpty: s.tie.syms = s.tie.syms[1:]
+			case symQues, symAsterisk, symAsteriskAst, symAsteriskQues:
+				// CRITICAL FIX: Prevent wildcards from crossing AST structural boundaries!
+				s.err = errMatchFailedCrossSeg
+				return
+			}
+		}
+		ret(symEmpty)
+		return
+	}
+
+	target := s.tie.syms[0]
+
+	if target == sym {
+		ret(s.tie.pop_head())
+		return
+	}
+
+	const bidirectional_fallback_ret_literal = false
+
+	if target == symQues {
+		if sym == symSlash {
+			s.err = errMatchFailedCrossSeg
+			return
+		}
+
+		s.tie.pop_head()
+		s.str = sym.String()
+		r, size := s.decodeRune()
+		if size == 0 || r == 0 {
+			s.err = errMatchFailedZeroRune
+			return
+		}
+
+		// FIX: Unconditionally push the remainder (even if empty) to trigger symEmpty boundary
+		s.ops = append(s.ops, opMatchLiteral)
+		s.operands = append(s.operands, pos, intern(s.str))
+		s.str = ""
+
+		if bidirectional_fallback_ret_literal {
+			ret(intern(string(r)))
+		} else {
+			ret(target)
+		}
+		return
+	}
+
+	if target == symAsterisk || (sym == symSlash && (target == symAsteriskAst || target == symAsteriskQues)) {
+		if bidirectional_fallback_ret_literal { ret(sym) } else { ret(target) }
+
+		s.tie.pop_head()
+
+		var nextTarget Symbol = symEmpty
+		if s.tie.ensured_syms() { nextTarget = s.tie.syms[0] }
+		if false {
+			// CRITICAL FIX: Push the current sym back onto the stack so the lookahead 
+			// subloop can actually evaluate it for nextTarget and symSlash boundaries!
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, pos, sym)
+		}
+
+	_ops_subloop_:
+		for len(s.ops) > 0 && s.err == nil {
+			switch s.ops[len(s.ops)-1] {
+			case opCloseInterval, opUnrollMatch, opRetMatch, opRetPack:
+				s.step()
+				continue
+			case opGlobQues, opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
+				var os Symbol
+				switch s.ops[len(s.ops)-1] {
+				case opGlobQues: os = symQues
+				case opGlobAsterisk: os = symAsterisk
+				case opGlobAstGreed: os = symAsteriskAst
+				case opGlobAstCross: os = symAsteriskQues
+				}
+				s.ops = s.ops[:len(s.ops)-1]
+				s.opsDone++
+				if bidirectional_fallback_ret_literal { ret(os) }
+				s.stems = append(s.stems, capture{start: -1})
+				continue
+			case opRegexMatch:
+				rx := s.operands[len(s.operands)-1].(*regexp.Regexp)
+				s.operands = s.operands[:len(s.operands)-1]
+				s.ops = s.ops[:len(s.ops)-1]
+				s.opsDone++
+				names := rx.SubexpNames()
+				for i := 1; i < len(names); i++ {
+					name := symEmptyName
+					if names[i] != "" { name = intern(names[i]) }
+					s.stems = append(s.stems, capture{start: -1, name: name})
+				}
+				if bidirectional_fallback_ret_literal { ret(intern(rx.String())) }
+				continue
+			case opMatchLiteral:
+			default:
+				break _ops_subloop_
+			}
+
+			sym = s.operands[len(s.operands)-1].(Symbol)
+			if sym == symEmpty {
+				s.err = errMatchFailedWildback
+				break _ops_subloop_
+			}
+			if target == symAsterisk && sym == symSlash && nextTarget != symSlash {
+				s.err = errMatchFailedWildback
+				break _ops_subloop_
+			}
+			if sym == nextTarget {
+				break _ops_subloop_
+			}
+
+			if nextTarget != symEmpty {
+				var matched bool
+				var absorbed, leftover string
+
+				if reverse {
+					if idx := sym.index(nextTarget); idx != -1 {
+						slashIdx := sym.last_index(symSlash)
+						if target == symAsterisk && slashIdx != -1 && slashIdx > idx {
+							// Explicitly halt: wildcard crossed a slash to reach target!
+							s.err = errMatchFailedCrossSeg
+							return
+						}
+						str, align := sym.String(), nextTarget.len()
+						leftover = str[:idx+align]
+						absorbed = str[idx+align:]
+						matched = true
+					}
+				} else {
+					if idx := sym.last_index(nextTarget); idx != -1 {
+						slashIdx := sym.index(symSlash)
+						if target == symAsterisk && slashIdx != -1 && slashIdx < idx {
+							// Explicitly halt: wildcard crossed a slash to reach target!
+							s.err = errMatchFailedCrossSeg
+							return
+						}
+						str := sym.String()
+						absorbed = str[:idx]
+						leftover = str[idx:]
+						matched = true
+					}
+				}
+
+				if !matched && target == symAsterisk {
+					// If it didn't match nextTarget, it STILL cannot contain embedded slashes!
+					if sym.index(symSlash) != -1 {
+						s.err = errMatchFailedCrossSeg
+						return
+					}
+				}
+
+				if matched {
+					if len(leftover) > 0 {
+						s.operands[len(s.operands)-1] = intern(leftover)
+					}
+					if bidirectional_fallback_ret_literal && len(absorbed) > 0 {
+						ret(intern(absorbed))
+					}
+					break _ops_subloop_
+				}
+			} else if target == symAsterisk && sym.index(symSlash) != -1 {
+				// nextTarget is empty. We still cannot absorb slashes!
+				s.err = errMatchFailedCrossSeg
+				return
+			}
+
+			s.operands = s.operands[:len(s.operands)-2]
+			s.ops = s.ops[:len(s.ops)-1]
+			s.opsDone++
+		}
+
+		return
+	}
+
+	symBytes := sym.len()
+
+	if reverse {
+		if target.has_suffix(sym) {
+			str := target.String()
+			s.tie.str = str[:len(str)-symBytes]
+			ret(sym)
+			s.tie.pop_head()
+			return
+		}
+	} else {
+		if target.has_prefix(sym) {
+			s.tie.str = target.String()[symBytes:]
+			ret(sym)
+			s.tie.pop_head()
+			return
+		}
+	}
+
+	if reverse {
+		if sym.has_suffix(target) {
+			leftover := intern(sym.String()[:symBytes-target.len()])
+			ret(target)
+			s.tie.pop_head()
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, pos, leftover)
+			return
+		}
+	} else {
+		if sym.has_prefix(target) {
+			leftover := intern(sym.String()[target.len():])
+			ret(target)
+			s.tie.pop_head()
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, pos, leftover)
+			return
+		}
+	}
+
+	str := sym.String()
+
+	for len(str) > 0 {
+		if len(s.tie.str) == 0 {
+			if !s.tie.ensured_syms() {
+				s.err = errMatchFailed
+				return
+			}
+			s.tie.str = s.tie.syms[0].String()
+			s.tie.pop_head()
+		}
+
+		n := len(str)
+		if len(s.tie.str) < n { n = len(s.tie.str) }
+
+		if reverse {
+			frag := s.tie.str[len(s.tie.str)-n:]
+			if str[len(str)-n:] != frag {
+				// FIX 2: Restore the shattered tape before failing!
+				if len(s.tie.str) > 0 {
+					s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
+					s.tie.str = ""
+				}
+				s.err = errMatchFailed
+				return
+			}
+			str = str[:len(str)-n]
+			s.tie.str = s.tie.str[:len(s.tie.str)-n]
+		} else {
+			frag := s.tie.str[:n]
+			if str[:n] != frag {
+				// FIX 2: Restore the shattered tape before failing!
+				if len(s.tie.str) > 0 {
+					s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
+					s.tie.str = ""
+				}
+				s.err = errMatchFailed
+				return
+			}
+			str = str[n:]
+			s.tie.str = s.tie.str[n:]
+		}
+	}
+
+	if s.err == nil { ret(sym) }
+}
+
+func (s *symstr) op_glob_ques(l int) {
+	count := 1
+	for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opGlobQues {
+		s.ops = s.ops[:len(s.ops)-1]
+		count++
+	}
+
+	start := s.tie.boundary
+	var emitted []Symbol
+
+	if len(s.tie.str) == 0 && len(s.tie.syms) > 0 {
+		target := s.tie.syms[0]
+
+		switch target {
+		case symQues, symAsterisk, symAsteriskAst, symAsteriskQues, symPercent:
+			start = s.tie.boundary
+
+			if target == symQues {
+				var consumed int
+				var lens []int
+				var syms []Symbol
+				for i := 0; i < count; i++ {
+					if !s.tie.ensured_syms() {
+						s.err = io.EOF
+						return
+					}
+
+					sym := s.tie.pop_head()
+					lens = append(lens, sym.len())
+					consumed++
+					syms = append(syms, sym)
+				}
+
+				if consumed < count {
+					s.err = errMatchFailed
+					return
+				}
+				s.tie.str = ""
+
+				for _, l := range lens {
+					s.stems = append(s.stems, capture{start, start+l, symEmptyName, syms})
+					start += l
+				}
+
+				emitted = syms
+				goto emit_phase
+
+			} else if target == symPercent {
+				if len(s.tie.syms) > 1 && s.tie.syms[1] == symPercent {
+					emitted = append(emitted, symPercent)
+					s.tie.pop_head()
+				}
+				emitted = append(emitted, symPercent)
+				s.tie.pop_head()
+				s.tie.str = ""
+
+				for i := 0; i < count; i++ {
+					s.stems = append(s.stems, capture{start, start, symEmptyName, nil})
+				}
+				goto emit_phase
+
+			} else {
+				sym := s.tie.pop_head()
+				emitted = append(emitted, sym)
+
+				for i := 0; i < count; i++ {
+					s.stems = append(s.stems, capture{start, start, symEmptyName, nil})
+				}
+				goto emit_phase
+			}
+		}
+	}
+
+	{
+		var str string
+		start = s.tie.boundary
+		end := start
+
+		for i := 0; i < count; i++ {
+			r, size, err := s.tie.ReadRune()
+			if err != nil {
+				if err == io.EOF { s.err = io.EOF } else { s.err = errMatchFailed }
+				return
+			}
+			if r == '/' { panic("unreachable: it can not be a '/'") // NOTE: it should NEVER be /
+				// s.tie.str = string(r) + s.tie.str
+				// s.err = errMatchFailedCrossSeg
+				// return
+			}
+			str += string(r)
+			end += size
+		}
+
+		sym := intern(str)
+		s.stems = append(s.stems, capture{start, end, symEmptyName, []Symbol{sym}})
+		emitted = append(emitted, sym)
+	}
+
+emit_phase:
+	if len(emitted) > 0 {
+		if s.class&clsBackwards != 0 {
+			for _, sym := range emitted {
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, NoPos, sym)
+			}
+		} else {
+			for i := len(emitted) - 1; i >= 0; i-- {
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, NoPos, emitted[i])
+			}
+		}
+	}
+}
+
+func (s *symstr) op_glob_range(l int) {
+	v := s.operands[l-1].(*globrange)
+	s.operands = s.operands[:l-1]
+
+	r, _, err := s.tie.ReadRune()
+	if err != nil || r == '/' {
+		s.err = errMatchFailed
+		return
+	}
+
+	matched := false
+
+	if v.static {
+		if strings.ContainsRune(v.runes, r) {
+			matched = true
+		} else {
+			for _, span := range v.spans {
+				if r >= span.min && r <= span.max {
+					matched = true
+					break
+				}
+			}
+		}
+	} else {
+		sym := __symbol(s.Context, v.Value)
+		rangeStr := sym.String()
+
+		var prevRune rune
+		inRange := false
+
+		for len(rangeStr) > 0 {
+			currRune, rsize := utf8.DecodeRuneInString(rangeStr)
+			rangeStr = rangeStr[rsize:]
+
+			if currRune == '-' && prevRune != 0 && len(rangeStr) > 0 {
+				inRange = true
+				continue
+			}
+
+			if inRange {
+				if r >= prevRune && r <= currRune { matched = true; break }
+				inRange = false
+			} else {
+				if r == currRune { matched = true; break }
+			}
+			prevRune = currRune
+		}
+	}
+
+	if matched == v.negated {
+		s.err = errMatchFailed
+		return
+	}
+
+	sym := intern(string(r))
+	s.ops = append(s.ops, opRetPack)
+	s.operands = append(s.operands, NoPos, sym)
+	return
+}
+
+func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
+	if len(s.tie.str) > 0 {
+		s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
+		s.tie.str = ""
+	}
+
+	if !s.tie.ensured_syms() { return }
+
+	reverse := (s.class & clsBackwards) != 0
+	target := s.tie.syms[0]
+
+	if op == opConseqAsterisk && target == symSlash { return }
+
+	if isWildcardMeta(target) {
+		if target == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1] == symPercent {
+			s.ops = append(s.ops, op, opRetPack, opRetPack)
+			s.operands = append(s.operands, NoPos, symPercent, NoPos, symPercent)
+			s.tie.pop_head()
+			s.tie.pop_head()
+		} else {
+			s.ops = append(s.ops, op, opRetPack)
+			s.operands = append(s.operands, NoPos, target)
+			s.tie.pop_head()
+		}
+		if len(s.stems) > 0 {
+			last := len(s.stems)-1
+			s.stems[last].syms = append(s.stems[last].syms, target)
+			if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
+		}
+		return
+	}
+
+	var nextSym Symbol
+	for len(s.ops) > 0 {
+		switch s.ops[len(s.ops)-1] {
+		case opCloseInterval, opUnrollMatch, opRetMatch, opRetPack:
+			s.step()
+			continue
+		case opMatchLiteral:
+			sym := s.operands[len(s.operands)-1].(Symbol)
+			if sym == symEmpty {
+				s.step()
+				continue
+			}
+			nextSym = sym
+		}
+		break
+	}
+
+	for s.tie.err == nil {
+		if op == opConseqAsterisk {
+			if __symSeqContains(s.tie.syms, []Symbol{symSlash}) { break }
+		}
+
+		snap := len(s.tie.syms)
+		s.tie.ensured_syms()
+		if len(s.tie.syms) == snap { break }
+	}
+
+	masterBt := s.checkpoint(undoBranch)
+
+	var bestMatchBt backtrack
+	var bestMatchFound bool
+	var baseBoundary = s.tie.boundary
+
+	searchLimit := len(s.tie.syms)
+	if op == opConseqAsterisk {
+		for i := 0; i < searchLimit; i++ {
+			if s.tie.syms[i] == symSlash { searchLimit = i; break }
+		}
+	}
+
+	var totalBytes int
+	for i := 0; i < searchLimit; i++ { totalBytes += s.tie.syms[i].len() }
+
+	var startAbsIdx, endAbsIdx, step int
+	if op == opConseqAstCross {
+		startAbsIdx = 0
+		endAbsIdx = totalBytes
+		step = 1
+	} else {
+		startAbsIdx = totalBytes
+		endAbsIdx = 0
+		step = -1
+	}
+
+	for absIdx := startAbsIdx; ; absIdx += step {
+		targetIdx := -1
+		var trimStr, leaveStr, targetStr string
+
+		if absIdx == totalBytes {
+			targetIdx = searchLimit
+		} else {
+			currByte := 0
+			for i := 0; i < searchLimit; i++ {
+				l := s.tie.syms[i].len()
+				if absIdx >= currByte && absIdx < currByte+l {
+					targetIdx = i
+					localIdx := absIdx - currByte
+					targetStr := s.tie.syms[i].String()
+
+					if reverse {
+						split := len(targetStr) - localIdx
+						trimStr = targetStr[split:]
+						leaveStr = targetStr[:split]
+					} else {
+						trimStr = targetStr[:localIdx]
+						leaveStr = targetStr[localIdx:]
+					}
+					break
+				}
+				currByte += l
+			}
+		}
+
+		if targetIdx != -1 && targetIdx < len(s.tie.syms) && (op == opConseqAstGreed || op == opConseqAstCross) {
+			if reverse {
+				checkIdx := len(s.tie.syms) - 1 - targetIdx
+				if checkIdx >= 0 && isWildcardMeta(s.tie.syms[checkIdx]) { targetIdx = -1 } else
+				if checkIdx-1 >= 0 && isWildcardMeta(s.tie.syms[checkIdx-1]) { targetIdx = -1 }
+			} else {
+				if targetIdx < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx]) { targetIdx = -1 } else
+				if targetIdx+1 < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx+1]) { targetIdx = -1 }
+			}
+		}
+
+		// CRITICAL FIX: Prevent wildcard from matching across embedded slashes!
+		if targetIdx != -1 && op == opConseqAsterisk {
+			if strings.IndexByte(trimStr, '/') != -1 {
+				targetIdx = -1 // Slash found in the segment to be absorbed
+			} else {
+				// Ensure none of the entirely absorbed prior tokens have a slash
+				for i := 0; i < targetIdx; i++ {
+					if s.tie.syms[i].index(symSlash) != -1 {
+						targetIdx = -1
+						break
+					}
+				}
+			}
+		}
+
+		if targetIdx != -1 {
+			if nextSym != 0 {
+				nStr := nextSym.String()
+				nLen := len(nStr)
+				if leaveStr != "" {
+					if reverse {
+						checkLen := nLen
+						if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
+						if leaveStr[len(leaveStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
+					} else {
+						checkLen := nLen
+						if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
+						if leaveStr[:checkLen] != nStr[:checkLen] { goto next_iter }
+					}
+				} else {
+					if targetIdx < len(s.tie.syms) {
+						peekStr := s.tie.syms[targetIdx].String()
+						if reverse {
+							checkLen := nLen
+							if len(peekStr) < checkLen { checkLen = len(peekStr) }
+							if peekStr[len(peekStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
+						} else {
+							checkLen := nLen
+							if len(peekStr) < checkLen { checkLen = len(peekStr) }
+							if peekStr[:checkLen] != nStr[:checkLen] { goto next_iter }
+						}
+					} else {
+						goto next_iter
+					}
+				}
+			}
+
+			var emitted []Symbol
+
+			for i := 0; i < targetIdx; i++ {
+				frag := s.tie.pop_head()
+				if frag != symEmpty {
+					emitted = append(emitted, frag)
+				}
+				if len(s.stems) > 0 {
+					last := len(s.stems) - 1
+					s.stems[last].syms = append(s.stems[last].syms, frag)
+					if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
+				}
+			}
+
+			fracBoundary := baseBoundary
+			if !reverse { fracBoundary += absIdx } else { fracBoundary -= absIdx }
+
+			if trimStr != "" || leaveStr != targetStr {
+				if len(s.tie.syms) > 0 { s.tie.pop_head() }
+
+				if trimStr != "" {
+					trimFrag := intern(trimStr)
+					emitted = append(emitted, trimFrag)
+
+					if len(s.stems) > 0 {
+						last := len(s.stems) - 1
+						s.stems[last].syms = append(s.stems[last].syms, trimFrag)
+						if reverse { s.stems[last].start = fracBoundary } else { s.stems[last].end = fracBoundary }
+					}
+				}
+				if leaveStr != "" {
+					s.tie.syms = append([]Symbol{intern(leaveStr)}, s.tie.syms...)
+				}
+			}
+
+			if len(emitted) > 0 {
+				if reverse {
+					for _, sym := range emitted {
+						s.ops = append(s.ops, opRetPack)
+						s.operands = append(s.operands, NoPos, sym)
+					}
+				} else {
+					for i := len(emitted) - 1; i >= 0; i-- {
+						s.ops = append(s.ops, opRetPack)
+						s.operands = append(s.operands, NoPos, emitted[i])
+					}
+				}
+			}
+
+			if better(fracBoundary) {
+				s.bestOpsDone = s.opsDone
+				s.stopTieBoundary = fracBoundary
+				if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
+				s.bestStems = append(s.bestStems[:0], s.stems...)
+			}
+
+			if s.tie != nil { s.tie.boundary = fracBoundary }
+
+			for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
+
+			if s.err == nil && len(s.ops) == 0 {
+				s.err = io.EOF
+				s.bestOpsDone = s.opsDone
+				s.stopTieBoundary = s.tie.boundary
+				if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
+				s.bestStems = append(s.bestStems[:0], s.stems...)
+			}
+
+			if s.err == io.EOF {
+				s.tie.ensured_syms()
+
+				if !bestMatchFound || s.opsDone > bestMatchBt.own.vmstack.opsDone {
+					bestMatchFound = true
+					bestMatchBt = s.checkpoint(undoBranch)
+
+					if bestMatchBt.own.syms != nil { bestMatchBt.own.syms = append([]Symbol(nil), bestMatchBt.own.syms...) }
+					if bestMatchBt.own.intervals != nil { bestMatchBt.own.intervals = append([]interval(nil), bestMatchBt.own.intervals...) }
+					if bestMatchBt.own.stems != nil {
+						bestMatchBt.own.stems = append([]capture(nil), bestMatchBt.own.stems...)
+						for i := range bestMatchBt.own.stems {
+							if bestMatchBt.own.stems[i].syms != nil {
+								bestMatchBt.own.stems[i].syms = append([]Symbol(nil), bestMatchBt.own.stems[i].syms...)
+							}
+						}
+					}
+					if bestMatchBt.own.activeStem.syms != nil {
+						bestMatchBt.own.activeStem.syms = append([]Symbol(nil), bestMatchBt.own.activeStem.syms...)
+					}
+
+					if s.tie != nil {
+						if bestMatchBt.tie.syms != nil { bestMatchBt.tie.syms = append([]Symbol(nil), bestMatchBt.tie.syms...) }
+						if bestMatchBt.tie.intervals != nil { bestMatchBt.tie.intervals = append([]interval(nil), bestMatchBt.tie.intervals...) }
+						if bestMatchBt.tie.stems != nil {
+							bestMatchBt.tie.stems = append([]capture(nil), bestMatchBt.tie.stems...)
+							for i := range bestMatchBt.tie.stems {
+								if bestMatchBt.tie.stems[i].syms != nil {
+									bestMatchBt.tie.stems[i].syms = append([]Symbol(nil), bestMatchBt.tie.stems[i].syms...)
+								}
+							}
+						}
+						if bestMatchBt.tie.activeStem.syms != nil {
+							bestMatchBt.tie.activeStem.syms = append([]Symbol(nil), bestMatchBt.tie.activeStem.syms...)
+						}
+					}
+				}
+			}
+
+			s.unwind(&masterBt)
+
+			s.err = nil
+			if s.tie != nil {
+				s.tie.err = nil
+				s.tie.boundary = baseBoundary
+			}
+		}
+
+	next_iter:
+		if absIdx == endAbsIdx { break }
+	}
+
+	if bestMatchFound {
+		s.unwind(&bestMatchBt)
+		return
+	}
+
+	if len(s.tie.syms) == 0 { return }
+
+	frag := s.tie.pop_head()
+
+	// CRITICAL FIX: Handle wildcard hitting embedded slashes during the 1-token fallback!
+	// We slice the token exactly at the boundary using the native zero-allocation views.
+	var deadEnd bool
+	if op == opConseqAsterisk {
+		if reverse {
+			if idx := frag.last_index(symSlash); idx != -1 {
+				fragStr := frag.String()
+				absorbed := fragStr[idx+1:]
+				leftover := fragStr[:idx+1]
+				if len(leftover) > 0 {
+					s.tie.syms = append([]Symbol{intern(leftover)}, s.tie.syms...)
+				}
+				frag = intern(absorbed)
+				deadEnd = true // Match is blocked by slash. Die!
+			}
+		} else {
+			if idx := frag.index(symSlash); idx != -1 {
+				fragStr := frag.String()
+				absorbed := fragStr[:idx]
+				leftover := fragStr[idx:]
+				if len(leftover) > 0 {
+					s.tie.syms = append([]Symbol{intern(leftover)}, s.tie.syms...)
+				}
+				frag = intern(absorbed)
+				deadEnd = true // Match is blocked by slash. Die!
+			}
+		}
+	}
+
+	if len(s.stems) > 0 {
+		last := len(s.stems) - 1
+		s.stems[last].syms = append(s.stems[last].syms, frag)
+		if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
+	}
+
+	stopTieBoundary := s.tie.boundary
+	if !reverse { stopTieBoundary -= len(s.tie.str) } else { stopTieBoundary += len(s.tie.str) }
+
+	if better(stopTieBoundary) {
+		s.bestOpsDone = s.opsDone
+		s.stopTieBoundary = stopTieBoundary
+		if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
+		s.bestStems = append(s.bestStems[:0], s.stems...)
+	}
+
+	if !deadEnd {
+		s.ops = append(s.ops, op)
+	}
+	if frag != symEmpty {
+		s.ops = append(s.ops, opRetPack)
+		s.operands = append(s.operands, NoPos, frag)
+	}
+	return
+}
+
+func (s *symstr) op_regex_match(l int) {
+	rx := s.operands[l-1].(*regexp.Regexp)
+	s.operands = s.operands[:l-1]
+
+	snap_err := s.tie.err
+	snap_head := s.tie.vmhead
+	smem := &symsmem{symstr: s.tie}
+	locs := rx.FindReaderSubmatchIndex(smem)
+	s.tie.vmhead = snap_head
+	s.tie.err = snap_err
+
+	smem.revert()
+
+	if locs == nil {
+		s.err = errMatchFailedPreRegex
+		return
+	}
+
+	var names = rx.SubexpNames()
+	stemStartIdx := len(s.stems)
+	for i := 2; i < len(locs); i += 2 {
+		if locs[i] != -1 && locs[i+1] != -1 && locs[i] <= locs[i+1] {
+			name := symEmptyName
+			if expIdx := i / 2; expIdx < len(names) {
+				if ns := names[expIdx]; ns != "" { name = intern(ns) }
+			}
+			s.stems = append(s.stems, capture{
+				start: snap_head.boundary + locs[i],
+				end:   snap_head.boundary + locs[i+1],
+				name:  name,
+				syms:  nil,
+			})
+		} else {
+			s.stems = append(s.stems, capture{start: -1})
+		}
+	}
+
+	total := 0
+	consumed := locs[1]
+	curr := snap_head.boundary
+
+	var emitted []Symbol
+
+	for total < consumed {
+		if len(s.tie.str) == 0 && len(s.tie.syms) == 0 { s.tie.ensured_syms() }
+		if len(s.tie.str) == 0 && len(s.tie.syms) == 0 {
+			s.err = errMatchFailedPreRegex
+			return
+		}
+
+		var sym Symbol
+		if len(s.tie.str) > 0 {
+			fragLen := len(s.tie.str)
+			needed := consumed - total
+			if fragLen > needed {
+				sym = intern(s.tie.str[:needed])
+				s.tie.str = s.tie.str[needed:]
+			} else {
+				sym = intern(s.tie.str)
+				s.tie.str = ""
+			}
+		} else {
+			sym = s.tie.pop_head()
+			slen := sym.len()
+			needed := consumed - total
+			if slen > needed {
+				str := sym.String()
+				s.tie.str = str[needed:]
+				sym = intern(str[:needed])
+			}
+		}
+
+		emitted = append(emitted, sym)
+		symBytes := sym.len()
+		total += symBytes
+
+		var start, end int
+		if (s.class & clsBackwards) != 0 {
+			start = curr - symBytes
+			end = curr
+		} else {
+			start = curr
+			end = curr + symBytes
+		}
+
+		for i := stemStartIdx; i < len(s.stems); i++ {
+			cap := &s.stems[i]
+			if cap.start != -1 && start < cap.end && end > cap.start {
+				if start >= cap.start && end <= cap.end {
+					cap.syms = append(cap.syms, sym)
+				} else {
+					sliceStart := 0
+					if cap.start > start { sliceStart = cap.start - start }
+
+					sliceEnd := symBytes
+					if cap.end < end { sliceEnd = cap.end - start }
+
+					str := sym.String()
+					cap.syms = append(cap.syms, intern(str[sliceStart:sliceEnd]))
+				}
+			}
+		}
+
+		if (s.class & clsBackwards) != 0 { curr -= symBytes } else { curr += symBytes }
+	}
+
+	if len(emitted) > 0 {
+		if s.class&clsBackwards != 0 {
+			for _, sym := range emitted {
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, NoPos, sym)
+			}
+		} else {
+			for i := len(emitted) - 1; i >= 0; i-- {
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, NoPos, emitted[i])
+			}
+		}
+	}
+}
+
+func (s *symstr) op_select(l int) {
+	o_eval := s.operands[l-1].(Value)
+	s_eval := s.operands[l-2].(Value)
+	v := s.operands[l-3].(*arrow)
+	s.operands = s.operands[:l-3]
+
+	var p0 = v.Pos()
+	var _, lhs_is_opt = selprop(s.Context, v.o)
+	var os = selobjs(s.Context, v.t, o_eval)
+
+	var flattened_ss []Value
+	if lst, ok := s_eval.(*list); ok {
+		flattened_ss = lst.elems
+	} else if _, ok := s_eval.(*null); !ok {
+		flattened_ss = []Value{s_eval}
+	}
+
+	// THE DOD FIX: Right-Associative Inert Unpacker
+	// If the parser fed us a right-associative chain (A -> (B -> C)) that evaluated
+	// into an inert compound [B, →, C], we unpack it into [B, C] so we can fold
+	// them sequentially over the parent object!
+	var unpack func(val Value, out *[]Value)
+	unpack = func(val Value, out *[]Value) {
+		if c, ok := val.(*compound); ok {
+			for _, elem := range c.elems {
+				if p, ok := elem.(*punct); ok && p.s == symArrow {
+					for _, e := range c.elems {
+						if p, ok := e.(*punct); ok && p.s == symArrow {
+							continue
+						}
+						unpack(e, out)
+					}
+					return
+				}
+			}
+		}
+		*out = append(*out, val)
+	}
+
+	var vals []Value
+	for _, o := range os {
+		for _, st := range flattened_ss {
+			var chain []Value
+			unpack(st, &chain)
+
+			curr_o := o
+			var final_val Value
+			var p Pos = st.Pos()
+
+			// Iteratively fold the property chain over the object
+			for i, link := range chain {
+				p = link.Pos()
+				prop_sym, is_opt := selprop(s.Context, link)
+				prop := sel(s.Context, curr_o, prop_sym)
+
+				if prop == nil {
+					// Use the combined optionality of the current link and the LHS
+					if is_opt || lhs_is_opt || optional(link) || optional(curr_o) {
+						if truly(s.Context, keep_autos{}) {
+							s.do(s.Context, act_defer_macro{})
+							var actual_o = curr_o
+							for {
+								if locVal, ok := actual_o.(*loc); ok { actual_o = locVal.Value; continue }
+								if defVal, ok := actual_o.(*def); ok {
+									if defVal.value != nil { actual_o = defVal.value; continue }
+								}
+								break
+							}
+
+							// Rebuild the remainder of the inert chain
+							inertElems := []Value{actual_o}
+							for j := i; j < len(chain); j++ {
+								inertElems = append(inertElems, _punct(chain[j].Pos(), symArrow), chain[j])
+							}
+							final_val = &compound{elements{inertElems}}
+						} else {
+							final_val = _loc(_null(p), p0)
+						}
+					} else {
+						erro(pc(s.Context, p), "%v: no such property '%s'", curr_o, prop_sym, trace_ctx{100}, callstack{num: 12})
+						final_val = _loc(_null(p), p0)
+					}
+					break // Stop the chain early if a property lookup fails
+				} else {
+					curr_o = prop
+					final_val = _loc(_loc(prop, p), p0) // Wrap success identically to the original
+				}
+			}
+			vals = append(vals, final_val)
+		}
+	}
+
+	var res Value
+	if len(vals) == 0 { res = _null(p0) } else if len(vals) == 1 { res = vals[0] } else { res = &list{elements{vals}} }
+	s.results = append(s.results, res)
+}
+
+func (s *symstr) op_compose(l int) {
+	cons := s.operands[l-1].([]any)
+	kind := s.operands[l-2].(Kind)
+	s.operands = s.operands[:l-2]
+
+	// 1. Seed the Cartesian matrix with an empty branch
+	var branches [][]Value
+	branches = append(branches, []Value{})
+
+	for _, x := range cons {
+		val := x.(Value)
+
+		var items []Value
+		if lst, ok := val.(*list); ok {
+			items = lst.elems
+		} else if _, ok := val.(*null); !ok {
+			items = []Value{val}
+		}
+
+		if len(items) == 0 {
+			// CRITICAL FIX: An empty list mathematically kills Cartesian products
+			// like brace expansion (KindGlobbrace), BUT it must NOT kill
+			// string concatenations (KindCompound, KindQualword, KindPath)!
+			if kind == KindCompound || kind == KindQualword || kind == KindPath {
+				continue
+			} else {
+				branches = nil
+				break
+			}
+		}
+
+		// 2. Cartesian Product Loop (NxM Expansion)
+		var next [][]Value
+		for _, branch := range branches {
+			for _, item := range items {
+				newBranch := make([]Value, len(branch), len(branch)+1)
+				copy(newBranch, branch)
+
+				// Flatten nested AST nodes natively depending on the composing type
+				switch kind {
+				case KindGlobbrace:
+					if t, ok := item.(*globbrace); ok {
+						newBranch = append(newBranch, t.elems...)
+					} else {
+						newBranch = append(newBranch, item)
+					}
+				case KindCompound:
+					if t, ok := item.(*compound); ok {
+						newBranch = append(newBranch, t.elems...)
+					} else {
+						newBranch = append(newBranch, item)
+					}
+				case KindQualword:
+					if t, ok := item.(*qualword); ok {
+						newBranch = append(newBranch, t.elems...)
+					} else {
+						newBranch = append(newBranch, item)
+					}
+				case KindPath:
+					if t, ok := item.(*path); ok {
+						newBranch = append(newBranch, t.elems...)
+					} else {
+						newBranch = append(newBranch, item)
+					}
+				default:
+					// Kinds like Pair, Loc, and Flag do not associatively flatten themselves!
+					newBranch = append(newBranch, item)
+				}
+				next = append(next, newBranch)
+			}
+		}
+		branches = next
+	}
+
+	// 3. Rebuild the Branches into AST Nodes
+	var results []Value
+	for _, branch := range branches {
+		var node Value
+		if len(branch) == 0 {
+			var p Pos
+			if len(cons) > 0 { p = cons[0].(Value).Pos() }
+			node = _null(p)
+		} else if len(branch) == 1 && (kind == KindCompound || kind == KindQualword) {
+			// Only associative sequences can safely unwrap singletons!
+			node = branch[0]
+		} else {
+			switch kind {
+			case KindGlobbrace: node = &globbrace{compound{elements{branch}}}
+			case KindCompound: node = &compound{elements{branch}}
+			case KindQualword: node = &qualword{elements{branch}}
+			case KindPath:     node = &path{elements{branch}}
+			case KindPair:
+				if len(branch) >= 2 {
+					node = &pair{branch[0], branch[1]}
+				} else {
+					node = branch[0] // Safety fallback
+				}
+			case KindFlag:
+				node = flag{branch[0]}
+			case KindLoc:
+				node = &loc{branch[0], cons[0].(Value).Pos()}
+			default:
+				node = &compound{elements{branch}} // fallback
+			}
+		}
+
+		if false && checkpoints {
+			if node.kind() != kind {
+				erro(pc(s.Context,node), "composed kind conflicts: %v != %v", node.kind(), kind)
+				s.operands = append(s.operands, track(callstack{num:5}))
+				s.ops = append(s.ops, opDebug)
+			}
+		}
+
+		// Trigger legacy `com()`-style wrapper distribution natively
+		results = append(results, /* redis */(node))
+	}
+
+	// 4. Yield Unconditionally to the Results Tape
+	var res Value
+	switch len(results) {
+	case 0 : res = _null(_pos(s.Context))
+	case 1 : res = results[0]
+	default: res = &list{elements{results}}
+	}
+
+	if false && checkpoints {
+		if res.kind() != kind {
+			erro(pc(s.Context,res), "composed kind conflicts: %v != %v", res.kind(), kind)
+			s.operands = append(s.operands, track(callstack{num:5}))
+			s.ops = append(s.ops, opDebug)
+		}
+	}
+
+	s.results = append(s.results, res)
+}
+
+func (s *symstr) op_evoke(l int) {
+	cons := s.operands[l-1].([]any)
+	isClosure := s.operands[l-2].(bool)
+	v := s.operands[l-3].(Value)
+	s.operands = s.operands[:l-3]
+
+	x_orig, _ := cons[0].(Value)
+	x_list, _ := cons[1].(Value)
+	o_list, _ := cons[2].(Value)
+	a_list, _ := cons[3].(Value)
+
+	// Unified list extraction
+	extractList := func(val Value) []Value {
+		if val == nil { return nil }
+		if lst, ok := val.(*list); ok { return lst.elems }
+		if _, ok := val.(*null); !ok { return []Value{val} }
+		return nil
+	}
+
+	elems := extractList(x_list)
+	o := extractList(o_list)
+	a := extractList(a_list)
+
+	var collapse, good_to_collapse bool
+	if isClosure {
+		cx := s.Context.(*closure_ctx)
+		collapse = cx.force_collapse || (cx.good_to_collapse && truly(s.Context, ex_closure{}))
+		good_to_collapse = cx.good_to_collapse
+	} else {
+		dx := s.Context.(*delegate_ctx)
+		collapse = dx.force_collapse || dx.good_to_collapse
+		good_to_collapse = dx.good_to_collapse
+	}
+
+	snap_rl := len(s.results)
+	result := func(res Value, preserve bool) {
+		if res == nil && preserve {
+			if !good_to_collapse { s.do(s.Context, act_defer_macro{}) }
+
+			if x_list == nil || isNull(x_list) {
+				if x_orig == nil || isNull(x_orig) {
+					if isClosure {
+						x_list = v.(*closure).x
+					} else {
+						x_list = v.(*delegate).x
+					}
+				} else {
+					x_list = x_orig
+				}
+			}
+
+			if isClosure {
+				orig := v.(*closure)
+				res = &closure{delegate{orig.valbase, orig.l, x_list, o, a}}
+			} else {
+				orig := v.(*delegate)
+				res = &delegate{orig.valbase, orig.l, x_list, o, a}
+			}
+
+			s.results = append(s.results, res)
+		} else if res == nil {
+			s.results = append(s.results, _null(v.Pos()))
+		} else {
+			if false { if truly(s.Context, aware_token{COMMA}) {
+				switch res.(type) {
+				case *auto, *def, *delegate, *closure:
+					s.results = append(s.results, res)
+					return
+				}
+			}}
+			s.results = append(s.results, _loc(res, v.Pos()))
+		}
+	}
+
+	evoking := func(x Value) bool {
+		for i := len(s.evoking) - 1; i >= 0; i-- { if s.evoking[i] == x { return true } }
+		return false
+	}
+
+	if collapse {
+		if len(elems) > 1 {
+			s.ops = append(s.ops, opEase)
+			s.operands = append(s.operands, v.Pos(), len(elems))
+			for i := len(elems)-1; i >= 0; i-- {
+				s.ops = append(s.ops, opEvoke)
+				subCons := []any{x_orig, elems[i], o_list, a_list}
+				s.operands = append(s.operands, v, isClosure, subCons)
+			}
+			return
+		}
+
+		for _, x := range elems {
+			var noop bool
+			var res Value
+
+		_trampoline_loop:
+			for {
+				switch tx := x.(type) {
+				case *def, *auto:
+					var d *def
+					if a, ok := tx.(*auto); ok {
+						if d = a.def(s.Context); d == nil {
+							// THE DOD FIX: Native Lexical Context Shadowing!
+							if shadow := auto_find(s.Context, a.name); shadow != nil && shadow.value != nil {
+								d = shadow
+							} else if o := project_resolve(s.Context, a.name); o != nil {
+								d, _ = o.(*def)
+							}
+						}
+					} else {
+						d = tx.(*def)
+						if shadow := auto_find(s.Context, d.name); shadow != nil && shadow.value != nil {
+							d = shadow
+						}
+					}
+
+					if d == nil || d.value == nil {
+						noop = true
+						break _trampoline_loop
+					}
+
+					if evoking(tx) {
+						if truly(s.Context, evoke_loop_panic{}) { panic(trace_evoke_loop_err{s.Context, tx}) }
+						res = _null(tx.Pos())
+					} else {
+						s.evoking = append(s.evoking, tx)
+						s.ops = append(s.ops, opEvokeRet)
+						s.operands = append(s.operands, v.Pos())
+
+						s.ops = append(s.ops, opRestoreContext)
+						s.operands = append(s.operands, s.Context)
+
+						s.ops = append(s.ops, opExpand)
+						s.operands = append(s.operands, d.value)
+
+						de := &evoke_def_ctx{evocation{automatic{Context: s.Context, defs: make(def_map)}}, d}
+						if len(a) > 0 { de.args(de, a) }
+						s.Context = de
+						return
+					}
+
+				case *builtin:
+					if evoking(tx) {
+						if truly(s.Context, evoke_loop_panic{}) { panic(trace_evoke_loop_err{s.Context, tx}) }
+						res = _null(tx.Pos())
+					} else {
+						s.evoking = append(s.evoking, tx)
+						res = s.builtin(tx, o, a)
+						s.evoking = s.evoking[:len(s.evoking)-1]
+					}
+
+				case *rule:
+					if evoking(tx) {
+						if truly(s.Context, evoke_loop_panic{}) { panic(trace_evoke_loop_err{s.Context, tx}) }
+						res = _null(tx.Pos())
+					} else {
+						s.evoking = append(s.evoking, tx)
+						var values []Value
+						cc := &evoke_rule_ctx{Context: s.Context, x: tx, args: a, result: &values}
+
+						traverse(cc, tx)
+
+						var elems []Value
+						for _, vx := range values {
+							if lst, ok := vx.(*list); ok { elems = append(elems, lst.elems...) } else if _, ok := vx.(*null); !ok { elems = append(elems, vx) }
+						}
+						if len(elems) == 0 { res = _null(tx.Pos()) } else if len(elems) == 1 { res = elems[0] } else { res = &list{elements{elems}} }
+						s.evoking = s.evoking[:len(s.evoking)-1]
+					}
+
+				case *uselist:
+					if len(tx.list) > 0 {
+						var entries []Value
+						var visited = make(map[*project]struct{}, len(tx.list))
+						for _, usee := range tx.list {
+							if _, ok := visited[usee.project]; !ok {
+								if p := usee.project.main; p != nil { entries = append(entries, p) }
+								visited[usee.project] = struct{}{}
+							}
+						}
+						var elems []Value
+						for _, vx := range entries {
+							if lst, ok := vx.(*list); ok { elems = append(elems, lst.elems...) } else if _, ok := vx.(*null); !ok { elems = append(elems, vx) }
+						}
+						if len(elems) == 0 { res = _null(tx.Pos()) } else if len(elems) == 1 { res = elems[0] } else { res = &list{elements{elems}} }
+					}
+
+				// NOTE: We fall structured macro nodes (like flag and compound) straight
+				// through to natively unpack inside the VM, resolving the packer merges!
+				case *word, *raw, *strlit, *decimal, undef:
+					res = tx
+
+				case *compound, *qualword, *path, *globbrace, flag:
+					// THE DOD FIX: Structural Node Argument Injection!
+					// Instead of skipping them (noop=true) and improperly wrapping them in a delegate,
+					// we natively unroll them inside the active execution tape. If there are pending
+					// arguments, we inject them into a fresh context so children like $(a2) can resolve!
+					s.evoking = append(s.evoking, tx)
+					s.ops = append(s.ops, opEvokeRet)
+					s.operands = append(s.operands, v.Pos())
+
+					s.ops = append(s.ops, opRestoreContext)
+					s.operands = append(s.operands, s.Context)
+
+					s.ops = append(s.ops, opExpand)
+					s.operands = append(s.operands, tx)
+
+					if len(a) > 0 {
+						ac := &automatic{Context: s.Context, defs: make(def_map)}
+						ac.args(ac, a)
+						s.Context = ac
+					}
+					return
+
+				case *delegate, *closure, *arrow:
+					noop = true
+
+				default:
+					if x != nil { erro(pc(s.Context, x), _f("evoke %s", ts(x, s.Context)), trace_ctx{3}, callstack{num: 10}) }
+				}
+
+				break _trampoline_loop
+			}
+
+			var remain bool
+			switch x.(type) {
+			case *auto, *delegate, *closure, *def: remain = true
+			}
+
+			result(res, noop && (!good_to_collapse || isClosure || remain || (!isNull(x) && truly(s.Context, keep_autos{}))))
+		}
+	}
+
+	if len(s.results) == snap_rl { result(nil, true) }
+}
+
+func (s *symstr) op_unroll(l int, retOp evalop) {
+	val := s.operands[l-1].(Value)
+	s.operands = s.operands[:l-1]
+
+	if val == nil { return }
+
+	reverse := s.class&clsBackwards != 0
+
+	first := true
+	retVal := func(v Value) {
+		if v == nil { return }
+		if !first { s.ops = append(s.ops, retOp) }
+		s.operands = append(s.operands, v)
+		first = false
+	}
+
+	s.ops = append(s.ops, opCloseInterval, retOp)
+	s.operands = append(s.operands, s.boundary, val)
+
+	switch v := val.(type) {
+	case *null, valbase, *defcaps, *def, *raw, *punct, *escaped, *decimal, *octal, *float, *answer, *boolean, *word, undef, *list, *project, self:
+		s.operands = append(s.operands, v)
+
+	case *loc:
+		if v.Value == nil {
+			s.operands = append(s.operands, v)
+		} else if retOp == opRetPack {
+			s.ops = append(s.ops[:len(s.ops)-1], opLocPack, opUnrollPack)
+			s.operands = append(s.operands, v.pos, v.Value)
+		} else {
+			s.ops = append(s.ops[:len(s.ops)-1], opLoc, opUnroll)
+			s.operands = append(s.operands, v.pos, v.Value)
+		}
+
+	case *auto:
+		if d := v.def(s.Context); d == nil {
+			if truly(s.Context, keep_autos{}) { s.do(s.Context, act_defer_macro{}) }
+			s.operands = append(s.operands, v)
+		} else {
+			s.operands = append(s.operands, &loc{d,v.pos})
+		}
+
+	case *builtin:
+		var scope arg_expansion_scope
+		switch v.name {
+		case symAuto:
+			scope.force_collapse = true
+			scope.skip_expansion = map[int]struct{}{-1: {}}
+		case symForeach, symGrep:
+			scope.force_collapse = true
+			scope.skip_expansion = map[int]struct{}{1: {}}
+		case symAddprefix, symAddsuffix, symJoin, symConjunct:
+			scope.force_collapse = true
+		}
+		s.do(s.Context, scope)
+		s.operands = append(s.operands, v)
+
+	case fullname:
+		if truly(s.Context, is_com_ctx{}) {
+			s.operands = append(s.operands, v.Value)
+		} else {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+
+			s.ops = append(s.ops, opFullname)
+			s.operands = append(s.operands, v)
+
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, v.Value)
+		}
+
+	case fullfile:
+		if truly(s.Context, is_com_ctx{}) {
+			s.operands = append(s.operands, v.file)
+		} else {
+			s.operands = append(s.operands, v)
+		}
+
+	case *file:
+		if truly(s.Context, wants_fullfile{}) {
+			s.operands = append(s.operands, fullfile{v})
+		} else {
+			s.operands = append(s.operands, v)
+		}
+
+	case negative:
+		// Pop opRet, leaving opCloseInterval intact
+		s.ops = append(s.ops[:len(s.ops)-1], opNegate, opMerge, opExpand)
+		s.operands = append(s.operands, v.Value)
+
+	case flag:
+		// Pop opRet, leaving opCloseInterval intact
+		s.ops = append(s.ops[:len(s.ops)-1], opFlag, opMerge, opExpand)
+		s.operands = append(s.operands, v.Value)
+
+	case *pair:
+		// Pop opRet, leaving opCloseInterval intact
+		s.ops = append(s.ops[:len(s.ops)-1], opPair, opMerge, opExpand, opMerge, opExpand)
+		s.operands = append(s.operands, v.key, v.val)
+
+	case *compound, *qualword, *globbrace, *path:
+		var punc Symbol
+		var elems []Value
+		var composeOp evalop // Determine the explicit structural opcode!
+		switch t := v.(type) {
+		case *globbrace: elems = t.elems; composeOp = opGlobbrace
+		case *compound:  elems = t.elems; composeOp = opCompound
+		case *qualword:  elems = t.elems; composeOp = opQualword; punc = symDot
+		case *path:      elems = t.elems; composeOp = opPath;     punc = symSlash
+		}
+
+		if retOp == opRetPack {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+
+			s.ops = append(s.ops, opRestoreContext)
+			s.operands = append(s.operands, s.Context)
+
+			if false {
+				s.ops = append(s.ops, opCompose, opCons, opUnloc)
+				s.operands = append(s.operands, v.kind(), len(elems), len(elems))
+			} else {
+				s.ops = append(s.ops, composeOp)
+				s.operands = append(s.operands, len(elems))
+			}
+
+			// Let opExpand natively evaluate the slice and populate s.results!
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, elems)
+
+			s.Context = &com_ctx{s.Context, 0}
+		} else if len(elems) == 0 {
+			s.operands = append(s.operands, v)
+		} else if reverse {
+			for i := 0; i < len(elems); i++ {
+				if i > 0 && punc != 0 {
+					if !first { s.ops = append(s.ops, retOp) }
+					s.operands = append(s.operands, NoPos, punc)
+					first = false
+				}
+				retVal(elems[i])
+			}
+		} else {
+			for i := len(elems) - 1; i >= 0; i-- {
+				retVal(elems[i])
+				if i > 0 && punc != 0 {
+					if !first { s.ops = append(s.ops, retOp) }
+					s.operands = append(s.operands, NoPos, punc)
+					first = false
+				}
+			}
+		}
+
+	case *globmeta:
+		switch v.sym {
+		case symQues:         s.class |= clsGlobChar
+		case symAsterisk:     s.class |= clsGlobAst
+		case symAsteriskAst:  s.class |= clsGlobAstGreed
+		case symAsteriskQues: s.class |= clsGlobAstCross
+		}
+
+		if retOp == opRetPack {
+			s.operands = append(s.operands, v)
+		} else {
+			// CRITICAL FIX: Replace the single AST node operand with `pos, sym`
+			// so the Generator physically emits the wildcard into the token stream!
+			s.operands = s.operands[:len(s.operands)-1]
+			s.operands = append(s.operands, v.Pos(), v.sym)
+		}
+
+	case *globrange:
+		s.class |= clsGlobChar
+		s.operands = append(s.operands, v)
+
+	case *regexpat:
+		s.class |= clsRegex
+		s.operands = append(s.operands, v)
+
+	case *percpat:
+		s.class |= clsGlobAstGreed
+
+		if s.vmpack != nil {
+			s.operands = append(s.operands, v)
+			return
+		}
+
+		if stems := _stems(s.Context); stems != nil && len(stems) > 0 {
+			res, rest := stencil(s.Context, v, stems)
+			if len(rest) != 0 { erro(pc(s.Context, v.pos), "%v %v → %v %v", stems, v, res, rest) }
+			s.operands = append(s.operands, res)
+			break
+		}
+
+		count := 1
+		suffix := v.Suffix
+		for {
+			if x, yes := suffix.(*percpat); yes {
+				if _, yes = x.Prefix.(valbase); yes {
+					count++
+					suffix = x.Suffix
+					continue
+				}
+			}
+			break
+		}
+
+		if suffix != nil && !isEmpty(suffix) {
+			retVal(suffix)
+		}
+		for i := 0; i < count; i++ {
+			if !first { s.ops = append(s.ops, retOp) }
+			s.operands = append(s.operands, v.Pos(), symPercent)
+			first = false
+		}
+		if v.Prefix != nil && !isEmpty(v.Prefix) {
+			retVal(v.Prefix)
+		}
+
+	case *delegate, *closure:
+		var isClosure, isRuleEnt bool
+		var d *delegate
+		if c, ok := v.(*closure); ok {
+			isClosure = true
+			d = &c.delegate
+		} else {
+			d = v.(*delegate)
+		}
+		switch d.l {
+		case LBRACE, STRING, STRCOMP: isRuleEnt = true
+		}
+
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opRestoreContext)
+		s.operands = append(s.operands, s.Context)
+		s.ops = append(s.ops, opEvoke)
+		s.operands = append(s.operands, v, isClosure)
+		s.ops = append(s.ops, opCons)
+		s.operands = append(s.operands, 4)
+		s.ops = append(s.ops, opEase)
+		s.operands = append(s.operands, v.Pos(), len(d.a))
+		s.ops = append(s.ops, opExpandArgs)
+		s.operands = append(s.operands, d.a)
+		s.ops = append(s.ops, opEase)
+		s.operands = append(s.operands, v.Pos(), len(d.o))
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, d.o)
+		s.ops = append(s.ops, opResolve)
+		s.operands = append(s.operands, isRuleEnt, isClosure)
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, d.x)
+
+		if isClosure {
+			s.Context = &closure_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
+		} else {
+			s.Context = &delegate_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
+		}
+
+	case *arrow:
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opSelect)
+		s.operands = append(s.operands, v)
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 2)
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, v.o)
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, v.s)
+
+	case *conjunction:
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opConjunct)
+		s.operands = append(s.operands, v)
+		s.ops = append(s.ops, opCons)
+		s.operands = append(s.operands, 1+len(v.list.elems))
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, v.list.elems)
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, v.sep)
+
+	case *disjunction:
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opDisjunct)
+		s.operands = append(s.operands, v)
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, v.val)
+
+	case *rule, *stemmed_rule, matched_rule:
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+
+		var target Value
+		switch r := v.(type) {
+		case *rule:         s.ops = append(s.ops, opRule); s.operands = append(s.operands, r); target = r.target
+		case *stemmed_rule: s.ops = append(s.ops, opRule); s.operands = append(s.operands, r.rule); target = r.rule.target
+		case matched_rule:  s.ops = append(s.ops, opRule); s.operands = append(s.operands, r.rule); target = r.rule.target
+		}
+
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opExpand)
+		s.operands = append(s.operands, target)
+
+	case *quote, *group, *recipe, *plain, *plainline:
+		var elems []Value
+		switch x := v.(type) {
+		case *quote:     elems = x.elems
+		case *group:     elems = x.elems
+		case *recipe:    elems = x.elems
+		case *plain:     elems = x.elems
+		case *plainline: elems = x.elems
+		}
+
+		if len(elems) == 0 {
+			s.operands = append(s.operands, v)
+			return
+		}
+		if reverse {
+			for _, elem := range elems { retVal(elem) }
+		} else {
+			for i := len(elems) - 1; i >= 0; i-- { retVal(elems[i]) }
+		}
+
+	case *uselist:
+		if len(v.list) == 0 {
+			s.operands = append(s.operands, v)
+			return
+		}
+		if reverse {
+			for _, elem := range v.list { retVal(elem) }
+		} else {
+			for i := len(v.list) - 1; i >= 0; i-- { retVal(v.list[i]) }
+		}
+
+	case *argumented:
+		if reverse {
+			for i := 0; i < len(v.args); i++ { retVal(v.args[i]) }
+			retVal(v.Value)
+		} else {
+			for i := len(v.args) - 1; i >= 0; i-- { retVal(v.args[i]) }
+			retVal(v.Value)
+		}
+
+	case *url:
+		delimit := func(sym Symbol) {
+			if !first { s.ops = append(s.ops, retOp) }
+			s.operands = append(s.operands, NoPos, sym)
+			first = false
+		}
+		if reverse {
+			if v.Scheme != nil { retVal(v.Scheme) }
+			delimit(symColon); delimit(symSlash); delimit(symSlash)
+			if v.Username != nil || v.Password != nil {
+				if v.Username != nil { retVal(v.Username) }
+				if v.Password != nil { delimit(symColon); retVal(v.Password) }
+				delimit(symAt)
+			}
+			if v.Host != nil { retVal(v.Host) }
+			if v.Port != nil { delimit(symColon); retVal(v.Port) }
+			if v.Path != nil { retVal(v.Path) }
+			if l := len(v.Query); l > 0 {
+				delimit(symQues)
+				for i := 0; i < l; i++ {
+					if i > 0 { delimit(symAmpersand) }
+					retVal(v.Query[i])
+				}
+			}
+			if v.Fragment != nil { delimit(symHash); retVal(v.Fragment) }
+		} else {
+			if v.Fragment != nil { retVal(v.Fragment); delimit(symHash) }
+			if l := len(v.Query); l > 0 {
+				for i := l - 1; i >= 0; i-- {
+					retVal(v.Query[i])
+					if i > 0 { delimit(symAmpersand) }
+				}
+				delimit(symQues)
+			}
+			if v.Path != nil { retVal(v.Path) }
+			if v.Port != nil { retVal(v.Port); delimit(symColon) }
+			if v.Host != nil { retVal(v.Host) }
+			if v.Username != nil || v.Password != nil {
+				delimit(symAt)
+				if v.Password != nil { retVal(v.Password); delimit(symColon) }
+				if v.Username != nil { retVal(v.Username) }
+			}
+			delimit(symSlash); delimit(symSlash); delimit(symColon)
+			if v.Scheme != nil { retVal(v.Scheme) }
+		}
+
+	case *use:
+		if reverse {
+			for i := 0; i < len(v.params); i++ { retVal(v.params[i]) }
+			retVal(v.project)
+		} else {
+			retVal(v.project)
+			for i := len(v.params) - 1; i >= 0; i-- { retVal(v.params[i]) }
+		}
+
+	case *modifier:
+		s.ops = append(s.ops, opSwap)
+		s.operands = append(s.operands, 1)
+		s.ops = append(s.ops, opModify)
+		s.operands = append(s.operands, &v.group)
+
+	case *modification:
+		s.ops = append(s.ops, opValidate)
+		s.operands = append(s.operands, len(v.list))
+		for i := len(v.list) - 1; i >= 0; i-- {
+			s.ops = append(s.ops, opModify)
+			s.operands = append(s.operands, &v.list[i].group)
+		}
+
+	case *undetermined:
+		if s.vmpack != nil {
+			s.operands = append(s.operands, v)
+		} else if reverse {
+			s.operands = append(s.operands, v.value)
+			s.ops = append(s.ops, retOp)
+			s.operands = append(s.operands, v.identifier)
+		} else {
+			s.operands = append(s.operands, v.identifier)
+			s.ops = append(s.ops, retOp)
+			s.operands = append(s.operands, v.value)
+		}
+
+	case *strlit:
+		if truly(s.Context, ex_path_str{}) {
+			s.operands = append(s.operands, _pathStr(s.Context, v.s))
+		} else if retOp == opRetPack {
+			// PRESERVE AST IDENTITY: Do not shred when packing!
+			s.operands = append(s.operands, v)
+		} else {
+			s.operands = append(s.operands, v.Pos(), symApostrophe)
+			s.ops = append(s.ops, retOp)
+			s.operands = append(s.operands, v.Pos(), intern(v.s))
+			s.ops = append(s.ops, retOp)
+			s.operands = append(s.operands, v.Pos(), symApostrophe)
+		}
+
+	case *strval:
+		if truly(s.Context, ex_path_str{}) {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+			s.ops = append(s.ops, opPathStr)
+			s.operands = append(s.operands, v, true)
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, v.v)
+		} else {
+			if len(v.v) == 0 {
+				s.operands = append(s.operands, v)
+				return
+			}
+			if reverse {
+				for _, elem := range v.v { retVal(elem) }
+			} else {
+				for i := len(v.v) - 1; i >= 0; i-- { retVal(v.v[i]) }
+			}
+		}
+
+	case *strcomp:
+		if truly(s.Context, ex_path_str{}) {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+			s.ops = append(s.ops, opPathStr)
+			s.operands = append(s.operands, v, false)
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, v.elems)
+		} else {
+			s.operands = append(s.operands, v.Pos(), symQuotation)
+			if reverse {
+				for i := 0; i < len(v.elems); i++ {
+					s.ops = append(s.ops, retOp)
+					s.operands = append(s.operands, v.elems[i])
+				}
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					s.ops = append(s.ops, retOp)
+					s.operands = append(s.operands, v.elems[i])
+				}
+			}
+			s.ops = append(s.ops, retOp)
+			s.operands = append(s.operands, v.Pos(), symQuotation)
+		}
+
+	default:
+		erro(pc(s.Context,val.Pos()), _f(`VM execution trap:
+  Unhandled AST node type %T in JIT; it's test-string is:
+  %s`, val, ts(val,s)),
+			callstack{num:3})
+	}
+}
+
+func (s *symstr) op_unroll_match(l int) {
+	val := s.operands[l-1].(Value)
+	s.operands = s.operands[:l-1]
+
+	if val == nil { return }
+
+	// THE DOD FIX: Lock the evaluation into the Matcher pipeline
+	s.ops = append(s.ops, opCloseInterval, opRetMatch)
+	s.operands = append(s.operands, s.boundary, val)
+
+	reverse := s.class&clsBackwards != 0
+
+	first := true
+	retVal := func(v Value) {
+		if v == nil { return }
+		if !first { s.ops = append(s.ops, opRetMatch) }
+		s.operands = append(s.operands, v)
+		first = false
+	}
+
+	switch v := val.(type) {
+	case *defcaps, *def, *raw, *punct, *escaped, *decimal, *float, *answer, *boolean, *word, undef, *list:
+		s.operands = append(s.operands, v)
+
+	case *null, valbase:
+		s.ops = s.ops[:len(s.ops)-1]
+
+	case *loc:
+		if v != nil && v.Value != nil {
+			s.ops[len(s.ops)-1] = opUnrollMatch
+			s.operands = append(s.operands, v.Value)
+		} else {
+			s.ops = s.ops[:len(s.ops)-1]
+		}
+
+	case *auto:
+		if d := v.def(s.Context); d == nil {
+			if truly(s.Context, keep_autos{}) { s.do(s.Context, act_defer_macro{}) }
+			s.operands = append(s.operands, v)
+		} else {
+			s.operands = append(s.operands, _loc(d, v.pos))
+		}
+
+	case *builtin:
+		var scope arg_expansion_scope
+		switch v.name {
+		case symAuto:
+			scope.force_collapse = true
+			scope.skip_expansion = map[int]struct{}{-1: {}}
+		case symForeach, symGrep:
+			scope.force_collapse = true
+			scope.skip_expansion = map[int]struct{}{1: {}}
+		case symAddprefix, symAddsuffix, symJoin, symConjunct:
+			scope.force_collapse = true
+		}
+		s.do(s.Context, scope)
+		s.operands = append(s.operands, v)
+
+	case fullname:
+		if truly(s.Context, is_com_ctx{}) {
+			s.operands = append(s.operands, v.Value)
+		} else {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+			s.ops = append(s.ops, opFullname)
+			s.operands = append(s.operands, v)
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, v.Value)
+		}
+
+	case fullfile:
+		if truly(s.Context, is_com_ctx{}) {
+			s.operands = append(s.operands, v.file)
+		} else {
+			s.operands = append(s.operands, v)
+		}
+
+	case *file:
+		if truly(s.Context, wants_fullfile{}) {
+			s.operands = append(s.operands, fullfile{v})
+		} else {
+			s.operands = append(s.operands, v)
+		}
+
+	case negative:
+		if v.Value != nil {
+			s.ops[len(s.ops)-1] = opUnrollMatch
+			s.operands = append(s.operands, v.Value)
+		} else {
+			s.ops = s.ops[:len(s.ops)-1]
+		}
+
+	case flag:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch, leaving opCloseInterval intact
+		if reverse {
+			s.ops = append(s.ops, opMatchLiteral, opUnrollMatch)
+			s.operands = append(s.operands, symDash, v.Pos(), v.Value)
+		} else {
+			s.ops = append(s.ops, opUnrollMatch, opMatchLiteral)
+			s.operands = append(s.operands, v.Value, v.Pos(), symDash)
+		}
+
+	case *pair:
+		// Pop opRetMatch, leaving opCloseInterval intact
+		s.ops = append(s.ops[:len(s.ops)-1], opUnrollMatch, opMatchLiteral, opUnrollMatch)
+		if reverse {
+			s.operands = append(s.operands, v.key, symAssign, v.val)
+		} else {
+			s.operands = append(s.operands, v.val, symAssign, v.key)
+		}
+
+	case *compound, *qualword, *globbrace, *path:
+		var punc Symbol
+		var elems []Value
+		switch t := v.(type) {
+		case *globbrace: elems = t.elems
+		case *compound:  elems = t.elems
+		case *qualword:  elems = t.elems; punc = symDot
+		case *path:      elems = t.elems; punc = symSlash
+		}
+
+		s.ops = s.ops[:len(s.ops)-1]
+		if reverse {
+			for i := 0; i < len(elems); i++ {
+				if i > 0 && punc != 0 {
+					s.ops = append(s.ops, opMatchLiteral)
+					s.operands = append(s.operands, v.Pos(), punc)
+				}
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, elems[i])
+			}
+		} else {
+			for i := len(elems) - 1; i >= 0; i-- {
+				if i < len(elems)-1 && punc != 0 {
+					s.ops = append(s.ops, opMatchLiteral)
+					s.operands = append(s.operands, v.Pos(), punc)
+				}
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, elems[i])
+			}
+		}
+
+	case *globmeta:
+		s.ops = s.ops[:len(s.ops)-1]
+		switch v.sym {
+		case symQues:         s.class |= clsGlobChar    ; s.ops = append(s.ops, opGlobQues    )
+		case symAsterisk:     s.class |= clsGlobAst     ; s.ops = append(s.ops, opGlobAsterisk)
+		case symAsteriskAst:  s.class |= clsGlobAstGreed; s.ops = append(s.ops, opGlobAstGreed)
+		case symAsteriskQues: s.class |= clsGlobAstCross; s.ops = append(s.ops, opGlobAstCross)
+		}
+
+	case *globrange:
+		s.class |= clsGlobChar
+		s.ops = s.ops[:len(s.ops)-1]
+		s.ops = append(s.ops, opGlobRange)
+		s.operands = append(s.operands, v)
+
+	case *regexpat:
+		s.class |= clsRegex
+		s.ops = s.ops[:len(s.ops)-1]
+		s.ops = append(s.ops, opRegexMatch)
+		s.operands = append(s.operands, v.re)
+
+	case *percpat:
+		s.class |= clsGlobAstGreed
+		if s.vmpack != nil {
+			s.operands = append(s.operands, v)
+			return
+		}
+		if stems := _stems(s.Context); stems != nil && len(stems) > 0 {
+			res, rest := stencil(s.Context, v, stems)
+			if len(rest) != 0 { erro(pc(s.Context, v.pos), "%v %v → %v %v", stems, v, res, rest) }
+			s.operands = append(s.operands, res)
+			break
+		}
+		count := 1
+		suffix := v.Suffix
+		for {
+			if x, yes := suffix.(*percpat); yes {
+				if _, yes = x.Prefix.(valbase); yes {
+					count++
+					suffix = x.Suffix
+					continue
+				}
+			}
+			break
+		}
+		if suffix != nil && !isEmpty(suffix) {
+			retVal(suffix)
+		}
+		s.ops = s.ops[:len(s.ops)-1]
+		s.ops = append(s.ops, opGlobAstGreed)
+		if v.Prefix != nil && !isEmpty(v.Prefix) {
+			retVal(v.Prefix)
+		}
+
+	case *delegate, *closure:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		var isClosure bool
+		var d *delegate
+		if c, ok := v.(*closure); ok {
+			isClosure = true
+			d = &c.delegate
+		} else {
+			d = v.(*delegate)
+		}
+
+		var leftParen, rightParen Symbol
+		var emitPre = true
+
+		// Perfectly mirror the boundary logic from your wrap() function
+		switch d.l {
+		case STRCOMP: leftParen, rightParen, emitPre = symQuotation, symQuotation, false
+		case STRING:  leftParen, rightParen, emitPre = symApostrophe, symApostrophe, false
+		case LPAREN:  leftParen, rightParen = symLparen, symRparen
+		case LBRACE:  leftParen, rightParen = symLbrace, symRbrace
+		case ILLEGAL: leftParen, rightParen = symLbrack, symRbrack
+		case INTEGER:
+			body := ident(s.Context, d.x)
+			isDigits := len(body) > 0
+			for i := 0; i < len(body); i++ {
+				if body[i] < '0' || body[i] > '9' {
+					isDigits = false
+					break
+				}
+			}
+			// Fallback to parens if > $9 or not strictly numeric
+			if len(body) > 1 || !isDigits {
+				leftParen, rightParen = symLparen, symRparen
+			}
+		}
+
+		// Push to the stack (LIFO order!)
+		if reverse {
+			// Stack execution: pre -> left -> x -> o -> a -> right
+			if emitPre {
+				s.ops = append(s.ops, opMatchLiteral)
+				if isClosure {
+					s.operands = append(s.operands, v.Pos(), symAmpersand)
+				} else {
+					s.operands = append(s.operands, v.Pos(), symDollarSign)
+				}
+			}
+
+			if leftParen != symEmpty {
+				s.ops = append(s.ops, opMatchLiteral)
+				s.operands = append(s.operands, v.Pos(), leftParen)
+			}
+
+			s.ops = append(s.ops, opUnrollMatch)
+			s.operands = append(s.operands, d.x)
+
+			if len(d.o) > 0 {
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, d.o)
+			}
+
+			if len(d.a) > 0 {
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, d.a)
+			}
+
+			if rightParen != symEmpty {
+				s.ops = append(s.ops, opMatchLiteral)
+				s.operands = append(s.operands, v.Pos(), rightParen)
+			}
+		} else {
+			// Stack execution: right -> a -> o -> x -> left -> pre
+			if rightParen != symEmpty {
+				s.ops = append(s.ops, opMatchLiteral)
+				s.operands = append(s.operands, v.Pos(), rightParen)
+			}
+
+			if len(d.a) > 0 {
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, d.a)
+			}
+
+			if len(d.o) > 0 {
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, d.o)
+			}
+
+			s.ops = append(s.ops, opUnrollMatch)
+			s.operands = append(s.operands, d.x)
+
+			if leftParen != symEmpty {
+				s.ops = append(s.ops, opMatchLiteral)
+				s.operands = append(s.operands, v.Pos(), leftParen)
+			}
+
+			if emitPre {
+				s.ops = append(s.ops, opMatchLiteral)
+				if isClosure {
+					s.operands = append(s.operands, v.Pos(), symAmpersand)
+				} else {
+					s.operands = append(s.operands, v.Pos(), symDollarSign)
+				}
+			}
+		}
+
+	case *arrow:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		// Unroll to: LHS, Token (->), RHS
+		if reverse {
+			s.ops = append(s.ops, opUnrollMatch, opMatchLiteral, opUnrollMatch)
+			s.operands = append(s.operands, v.o, v.Pos(), tok2sym[v.t], v.s)
+		} else {
+			s.ops = append(s.ops, opUnrollMatch, opMatchLiteral, opUnrollMatch)
+			s.operands = append(s.operands, v.s, v.Pos(), tok2sym[v.t], v.o)
+		}
+
+	case *conjunction:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		// Unroll to the literal form: {join (sep) list}
+		if reverse {
+			s.ops = append(s.ops, opMatchLiteral, opMatchLiteral)
+			s.operands = append(s.operands, v.list.Pos(), symLbrace, v.list.Pos(), symJoin)
+			if v.sep != nil {
+				s.ops = append(s.ops, opMatchLiteral, opUnrollMatch, opMatchLiteral)
+				s.operands = append(s.operands, v.sep.Pos(), symLparen, v.sep, v.sep.Pos(), symRparen)
+			}
+			s.ops = append(s.ops, opUnrollMatch, opMatchLiteral)
+			s.operands = append(s.operands, v.list.elems, v.list.Pos(), symRbrace)
+		} else {
+			s.ops = append(s.ops, opMatchLiteral, opUnrollMatch)
+			s.operands = append(s.operands, v.list.Pos(), symRbrace, v.list.elems)
+			if v.sep != nil {
+				s.ops = append(s.ops, opMatchLiteral, opUnrollMatch, opMatchLiteral)
+				s.operands = append(s.operands, v.sep.Pos(), symRparen, v.sep, v.sep.Pos(), symLparen)
+			}
+			s.ops = append(s.ops, opMatchLiteral, opMatchLiteral)
+			s.operands = append(s.operands, v.list.Pos(), symJoin, v.list.Pos(), symLbrace)
+		}
+
+	case *disjunction:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		// Unroll to the literal form: {val}
+		if reverse {
+			s.ops = append(s.ops, opMatchLiteral, opUnrollMatch, opMatchLiteral)
+			s.operands = append(s.operands, v.Pos(), symLbrace, v.val, v.Pos(), symRbrace)
+		} else {
+			s.ops = append(s.ops, opMatchLiteral, opUnrollMatch, opMatchLiteral)
+			s.operands = append(s.operands, v.Pos(), symRbrace, v.val, v.Pos(), symLbrace)
+		}
+
+	case *rule, *stemmed_rule, matched_rule:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		var target Value
+		switch r := v.(type) {
+		case *rule:         target = r.target
+		case *stemmed_rule: target = r.rule.target
+		case matched_rule:  target = r.rule.target
+		}
+
+		// A rule matching itself purely matches its target signature
+		s.ops = append(s.ops, opUnrollMatch)
+		s.operands = append(s.operands, target)
+
+	case *modifier:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		// Modifiers embed a group
+		s.ops = append(s.ops, opUnrollMatch)
+		s.operands = append(s.operands, &v.group)
+
+	case *modification:
+		s.ops = s.ops[:len(s.ops)-1] // Pop opRetMatch
+
+		// Unroll to the literal form: {(modifier) (modifier)}
+		if reverse {
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, v.Pos(), symLbrace)
+			for i := 0; i < len(v.list); i++ {
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, &v.list[i].group)
+			}
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, v.Pos(), symRbrace)
+		} else {
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, v.Pos(), symRbrace)
+			for i := len(v.list) - 1; i >= 0; i-- {
+				s.ops = append(s.ops, opUnrollMatch)
+				s.operands = append(s.operands, &v.list[i].group)
+			}
+			s.ops = append(s.ops, opMatchLiteral)
+			s.operands = append(s.operands, v.Pos(), symLbrace)
+		}
+
+	case *quote, *group, *recipe, *plain, *plainline:
+		var elems []Value
+		switch x := v.(type) {
+		case *quote:     elems = x.elems
+		case *group:     elems = x.elems
+		case *recipe:    elems = x.elems
+		case *plain:     elems = x.elems
+		case *plainline: elems = x.elems
+		}
+
+		if len(elems) == 0 {
+			s.ops = s.ops[:len(s.ops)-1]
+			return
+		}
+		if reverse {
+			for _, elem := range elems { retVal(elem) }
+		} else {
+			for i := len(elems) - 1; i >= 0; i-- { retVal(elems[i]) }
+		}
+
+	case *uselist:
+		if len(v.list) == 0 {
+			s.ops = s.ops[:len(s.ops)-1]
+			return
+		}
+		if reverse {
+			for _, elem := range v.list { retVal(elem) }
+		} else {
+			for i := len(v.list) - 1; i >= 0; i-- { retVal(v.list[i]) }
+		}
+
+	case *argumented:
+		if reverse {
+			for i := 0; i < len(v.args); i++ { retVal(v.args[i]) }
+			retVal(v.Value)
+		} else {
+			for i := len(v.args) - 1; i >= 0; i-- { retVal(v.args[i]) }
+			retVal(v.Value)
+		}
+
+	case *url:
+		delimit := func(sym Symbol) {
+			if !first { s.ops = append(s.ops, opRetMatch) }
+			s.operands = append(s.operands, NoPos, sym)
+			first = false
+		}
+		if reverse {
+			if v.Scheme != nil { retVal(v.Scheme) }
+			delimit(symColon); delimit(symSlash); delimit(symSlash)
+			if v.Username != nil || v.Password != nil {
+				if v.Username != nil { retVal(v.Username) }
+				if v.Password != nil { delimit(symColon); retVal(v.Password) }
+				delimit(symAt)
+			}
+			if v.Host != nil { retVal(v.Host) }
+			if v.Port != nil { delimit(symColon); retVal(v.Port) }
+			if v.Path != nil { retVal(v.Path) }
+			if l := len(v.Query); l > 0 {
+				delimit(symQues)
+				for i := 0; i < l; i++ {
+					if i > 0 { delimit(symAmpersand) }
+					retVal(v.Query[i])
+				}
+			}
+			if v.Fragment != nil { delimit(symHash); retVal(v.Fragment) }
+		} else {
+			if v.Fragment != nil { retVal(v.Fragment); delimit(symHash) }
+			if l := len(v.Query); l > 0 {
+				for i := l - 1; i >= 0; i-- {
+					retVal(v.Query[i])
+					if i > 0 { delimit(symAmpersand) }
+				}
+				delimit(symQues)
+			}
+			if v.Path != nil { retVal(v.Path) }
+			if v.Port != nil { retVal(v.Port); delimit(symColon) }
+			if v.Host != nil { retVal(v.Host) }
+			if v.Username != nil || v.Password != nil {
+				delimit(symAt)
+				if v.Password != nil { retVal(v.Password); delimit(symColon) }
+				if v.Username != nil { retVal(v.Username) }
+			}
+			delimit(symSlash); delimit(symSlash); delimit(symColon)
+			if v.Scheme != nil { retVal(v.Scheme) }
+		}
+
+	case *use:
+		if reverse {
+			for i := 0; i < len(v.params); i++ { retVal(v.params[i]) }
+			retVal(v.project)
+		} else {
+			retVal(v.project)
+			for i := len(v.params) - 1; i >= 0; i-- { retVal(v.params[i]) }
+		}
+
+	case *undetermined:
+		if s.vmpack != nil {
+			s.operands = append(s.operands, v)
+		} else if reverse {
+			s.operands = append(s.operands, v.value)
+			s.ops = append(s.ops, opRetMatch)
+			s.operands = append(s.operands, v.identifier)
+		} else {
+			s.operands = append(s.operands, v.identifier)
+			s.ops = append(s.ops, opRetMatch)
+			s.operands = append(s.operands, v.value)
+		}
+
+	case *strlit:
+		if truly(s.Context, ex_path_str{}) {
+			s.operands = append(s.operands, _pathStr(s.Context, v.s))
+		} else if false {
+			s.operands = append(s.operands, v)
+			s.operands = append(s.operands, v.Pos(), symApostrophe)
+			s.ops = append(s.ops, opRetMatch)
+			s.operands = append(s.operands, v.Pos(), intern(v.s))
+			s.ops = append(s.ops, opRetMatch)
+			s.operands = append(s.operands, v.Pos(), symApostrophe)
+		} else {
+			s.operands = append(s.operands, v)
+		}
+
+	case *strval:
+		if truly(s.Context, ex_path_str{}) {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+			s.ops = append(s.ops, opPathStr)
+			s.operands = append(s.operands, v, true)
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, v.v)
+		} else {
+			if len(v.v) == 0 {
+				s.ops = s.ops[:len(s.ops)-1]
+				return
+			}
+			if reverse {
+				for _, elem := range v.v { retVal(elem) }
+			} else {
+				for i := len(v.v) - 1; i >= 0; i-- { retVal(v.v[i]) }
+			}
+		}
+
+	case *strcomp:
+		if truly(s.Context, ex_path_str{}) {
+			s.ops = append(s.ops, opSwap)
+			s.operands = append(s.operands, 1)
+			s.ops = append(s.ops, opPathStr)
+			s.operands = append(s.operands, v, false)
+			s.ops = append(s.ops, opExpand)
+			s.operands = append(s.operands, v.elems)
+		} else {
+			s.operands = append(s.operands, v.Pos(), symQuotation)
+			if reverse {
+				for i := 0; i < len(v.elems); i++ {
+					s.ops = append(s.ops, opRetMatch)
+					s.operands = append(s.operands, v.elems[i])
+				}
+			} else {
+				for i := len(v.elems) - 1; i >= 0; i-- {
+					s.ops = append(s.ops, opRetMatch)
+					s.operands = append(s.operands, v.elems[i])
+				}
+			}
+			s.ops = append(s.ops, opRetMatch)
+			s.operands = append(s.operands, v.Pos(), symQuotation)
+		}
+
+	default:
+		erro(pc(s.Context,val.Pos()), _f(`VM execution trap:
+  Unhandled AST node type %T in JIT; it's test-string is:
+  %s`, val, ts(val,s)),
+			callstack{num:3})
+	}
+}
+
+func (s *symstr) op_ret_value(l int, t Value) {
+	// Pure Generator Emitter: Serializes terminal nodes to the execution tape
+	retSym := func(pos Pos, sym Symbol) {
+		s.ops = append(s.ops, opRet)
+		s.operands = append(s.operands, pos, sym)
+	}
+
+	retVal := func(val Value) {
+		s.ops = append(s.ops, opRet)
+		s.operands = append(s.operands, val)
+	}
+
+	reverse := (s.class & clsBackwards) != 0
+
+	switch v := t.(type) {
+	case *loc:          retVal(v.Value)
+	case *word:         retSym(v.pos, v.s)
+	case *punct:        retSym(v.pos, v.s)
+	case *decimal:      sym := v.sym; if sym == symEmpty { sym = intern(v.String()) }; retSym(v.pos, sym)
+	case *float:        sym := v.sym; if sym == symEmpty { sym = intern(v.String()) }; retSym(v.pos, sym)
+	case *answer:       sym := symEmpty; if v.bool { sym = symYes } else { sym = symNo }; retSym(v.pos, sym)
+	case *boolean:      sym := symEmpty; if v.bool { sym = symTrue } else { sym = symFalse }; retSym(v.pos, sym)
+	case *option:       sym := symEmpty; if v.bool { sym = symOn } else { sym = symOff }; retSym(v.pos, sym)
+	case *escaped:      retSym(v.pos, intern(v.s))
+	case *raw:          retSym(v.pos, __symbol(s.Context, v))
+	case *defcaps:      retVal(v)
+	case *def:          retSym(v.pos, v.name)
+	case *auto:         retSym(v.pos, v.name)
+	case *builtin:      retSym(v.pos, v.name)
+	case *file:         retSym(v.pos, v.name)
+	case fullfile:      retSym(v.pos, v.name)
+	case *regexpat:     retSym(v.Pos(), __symbol(s.Context, v))
+	case *globmeta:     retSym(v.pos, v.sym)
+	case *globrange:
+		if reverse {
+			retSym(v.Pos(), symLbrack)
+			retVal(v.Value)
+			retSym(v.Pos(), symRbrack)
+		} else {
+			retSym(v.Pos(), symRbrack)
+			retVal(v.Value)
+			retSym(v.Pos(), symLbrack)
+		}
+
+	case *pair:
+		if reverse {
+			retVal(v.val)
+			retSym(v.val.Pos(), symEqualSign)
+			retVal(v.key)
+		} else {
+			retVal(v.key)
+			retSym(v.val.Pos(), symEqualSign)
+			retVal(v.val)
+		}
+
+	case flag:
+		if reverse {
+			retSym(v.Pos(), symDash)
+			retVal(v.Value)
+		} else {
+			retVal(v.Value)
+			retSym(v.Pos(), symDash)
+		}
+
+	case *delegate, *closure:
+		var d *delegate
+		var sigil, left, right Symbol
+		switch tx := v.(type) {
+		case *closure:  sigil, d = symAmpersand, &tx.delegate
+		case *delegate: sigil, d = symDollarSign, tx
+		}
+
+		var x_sym Symbol
+		dx := d.x
+	_trampoline_dx:
+		for {
+			switch tx := dx.(type) {
+			case *loc:     dx = tx.Value; continue _trampoline_dx
+			case *auto:    x_sym = tx.name
+			case *def:     x_sym = tx.name
+			case *builtin: x_sym = tx.name
+			default:
+				// Safely stringify unknown targets instead of crashing
+				x_sym = intern(__string(s.Context, d.x))
+			}
+			break _trampoline_dx
+		}
+
+		switch d.l {
+		case STRCOMP: left, right = symQuotation, symQuotation
+		case  STRING: left, right = symApostrophe, symApostrophe
+		case  LPAREN: left, right = symLparen, symRparen
+		case  LBRACE: left, right = symLbrace, symRbrace
+		case ILLEGAL: left, right = symLbrack, symRbrack
+		case INTEGER:
+			str := x_sym.String()
+			if x_sym == symEmpty { str = d.x.String() }
+			if len(str) > 1 || !IsDigits(str) { left, right = symLparen, symRparen }
+		default:
+		}
+
+		emitDx := func() {
+			if x_sym != symEmpty {
+				retSym(d.x.Pos(), x_sym)
+			} else {
+				retVal(d.x)
+			}
+		}
+
+		if reverse {
+			retSym(v.Pos(), sigil); retSym(v.Pos(), left); emitDx()
+			if len(d.o) > 0 {
+				retSym(v.Pos(), symLparen)
+				for i := 0; i < len(d.o); i++ {
+					retVal(d.o[i])
+					if i < len(d.o)-1 { retSym(v.Pos(), symSpace) }
+				}
+				retSym(v.Pos(), symRparen)
+			}
+			if len(d.a) > 0 {
+				retSym(v.Pos(), symSpace)
+				for i := 0; i < len(d.a); i++ {
+					retVal(d.a[i])
+					if i < len(d.a)-1 { retSym(v.Pos(), symSpace) }
+				}
+			}
+			retSym(v.Pos(), right)
+		} else {
+			retSym(v.Pos(), right)
+			if len(d.a) > 0 {
+				for i := len(d.a) - 1; i >= 0; i-- {
+					retVal(d.a[i])
+					if i > 0 { retSym(v.Pos(), symSpace) }
+				}
+				retSym(v.Pos(), symSpace)
+			}
+			if len(d.o) > 0 {
+				retSym(v.Pos(), symRparen)
+				for i := len(d.o) - 1; i >= 0; i-- {
+					retVal(d.o[i])
+					if i > 0 { retSym(v.Pos(), symSpace) }
+				}
+				retSym(v.Pos(), symLparen)
+			}
+			emitDx(); retSym(v.Pos(), left); retSym(v.Pos(), sigil)
+		}
+
+	case *list:
+		if v.len() == 1 {
+			retVal(v.elems[0])
+		} else if com := truly(s.Context, is_com_ctx{}); reverse {
+			if com { retSym(v.Pos(), symLtopcorner) }
+			for i, elem := range v.elems {
+				retVal(elem)
+				if i < len(v.elems)-1 { retSym(elem.Pos(), symSpace) }
+			}
+			if com { retSym(v.Pos(), symRbotcorner) }
+		} else {
+			if com { retSym(v.Pos(), symRbotcorner) }
+			for i := len(v.elems) - 1; i >= 0; i-- {
+				retVal(v.elems[i])
+				if i > 0 { retSym(v.elems[i].Pos(), symSpace) }
+			}
+			if com { retSym(v.Pos(), symLtopcorner) }
+		}
+
+	default:
+		retSym(t.Pos(), __symbol(s.Context, t))
+	}
+}
+
+func (s *symstr) op_ret_match(l int, t Value) {
+	// Pure Matcher Emitter: Serializes terminal nodes for literal tape matching
+	retSym := func(pos Pos, sym Symbol) {
+		s.ops = append(s.ops, opMatchLiteral)
+		s.operands = append(s.operands, pos, sym)
+	}
+
+	retVal := func(val Value) {
+		s.ops = append(s.ops, opRetMatch)
+		s.operands = append(s.operands, val)
+	}
+
+	reverse := (s.class & clsBackwards) != 0
+
+	switch v := t.(type) {
+	case *loc:          retVal(v.Value)
+	case *word:         retSym(v.pos, v.s)
+	case *punct:        retSym(v.pos, v.s)
+	case *decimal:      sym := v.sym; if sym == symEmpty { sym = intern(v.String()) }; retSym(v.pos, sym)
+	case *float:        sym := v.sym; if sym == symEmpty { sym = intern(v.String()) }; retSym(v.pos, sym)
+	case *answer:       sym := symEmpty; if v.bool { sym = symYes } else { sym = symNo }; retSym(v.pos, sym)
+	case *boolean:      sym := symEmpty; if v.bool { sym = symTrue } else { sym = symFalse }; retSym(v.pos, sym)
+	case *option:       sym := symEmpty; if v.bool { sym = symOn } else { sym = symOff }; retSym(v.pos, sym)
+	case *escaped:      retSym(v.pos, intern(v.s))
+	case *raw:          retSym(v.pos, __symbol(s.Context, v))
+	case *defcaps:      retVal(v)
+	case *def:          retSym(v.pos, v.name)
+	case *auto:         retSym(v.pos, v.name)
+	case *builtin:      retSym(v.pos, v.name)
+	case *file:         retSym(v.pos, v.name)
+	case fullfile:      retSym(v.pos, v.name)
+	case *regexpat:     retSym(v.Pos(), __symbol(s.Context, v))
+	case *globmeta:     retSym(v.pos, v.sym)
+	case *globrange:
+		if reverse {
+			retSym(v.Pos(), symLbrack)
+			retVal(v.Value)
+			retSym(v.Pos(), symRbrack)
+		} else {
+			retSym(v.Pos(), symRbrack)
+			retVal(v.Value)
+			retSym(v.Pos(), symLbrack)
+		}
+
+	case *pair:
+		if reverse {
+			retVal(v.val)
+			retSym(v.val.Pos(), symEqualSign)
+			retVal(v.key)
+		} else {
+			retVal(v.key)
+			retSym(v.val.Pos(), symEqualSign)
+			retVal(v.val)
+		}
+
+	case flag:
+		if reverse {
+			retSym(v.Pos(), symDash)
+			retVal(v.Value)
+		} else {
+			retVal(v.Value)
+			retSym(v.Pos(), symDash)
+		}
+
+	case *delegate, *closure:
+		var d *delegate
+		var sigil, left, right Symbol
+		switch tx := v.(type) {
+		case *closure:  sigil, d = symAmpersand, &tx.delegate
+		case *delegate: sigil, d = symDollarSign, tx
+		}
+
+		var x_sym Symbol
+		dx := d.x
+	_trampoline_dx:
+		for {
+			switch tx := dx.(type) {
+			case *loc:     dx = tx.Value; continue _trampoline_dx
+			case *auto:    x_sym = tx.name
+			case *def:     x_sym = tx.name
+			case *builtin: x_sym = tx.name
+			default:
+				x_sym = intern(__string(s.Context, d.x))
+			}
+			break _trampoline_dx
+		}
+
+		switch d.l {
+		case STRCOMP: left, right = symQuotation, symQuotation
+		case  STRING: left, right = symApostrophe, symApostrophe
+		case  LPAREN: left, right = symLparen, symRparen
+		case  LBRACE: left, right = symLbrace, symRbrace
+		case ILLEGAL: left, right = symLbrack, symRbrack
+		case INTEGER:
+			str := x_sym.String()
+			if x_sym == symEmpty { str = d.x.String() }
+			if len(str) > 1 || !IsDigits(str) { left, right = symLparen, symRparen }
+		default:
+		}
+
+		emitDx := func() {
+			if x_sym != symEmpty {
+				retSym(d.x.Pos(), x_sym)
+			} else {
+				retVal(d.x)
+			}
+		}
+
+		if reverse {
+			retSym(v.Pos(), sigil); retSym(v.Pos(), left); emitDx()
+			if len(d.o) > 0 {
+				retSym(v.Pos(), symLparen)
+				for i := 0; i < len(d.o); i++ {
+					retVal(d.o[i])
+					if i < len(d.o)-1 { retSym(v.Pos(), symSpace) }
+				}
+				retSym(v.Pos(), symRparen)
+			}
+			if len(d.a) > 0 {
+				retSym(v.Pos(), symSpace)
+				for i := 0; i < len(d.a); i++ {
+					retVal(d.a[i])
+					if i < len(d.a)-1 { retSym(v.Pos(), symSpace) }
+				}
+			}
+			retSym(v.Pos(), right)
+		} else {
+			retSym(v.Pos(), right)
+			if len(d.a) > 0 {
+				for i := len(d.a) - 1; i >= 0; i-- {
+					retVal(d.a[i])
+					if i > 0 { retSym(v.Pos(), symSpace) }
+				}
+				retSym(v.Pos(), symSpace)
+			}
+			if len(d.o) > 0 {
+				retSym(v.Pos(), symRparen)
+				for i := len(d.o) - 1; i >= 0; i-- {
+					retVal(d.o[i])
+					if i > 0 { retSym(v.Pos(), symSpace) }
+				}
+				retSym(v.Pos(), symLparen)
+			}
+			emitDx(); retSym(v.Pos(), left); retSym(v.Pos(), sigil)
+		}
+
+	case *list:
+		if v.len() == 1 {
+			retVal(v.elems[0])
+		} else if com := truly(s.Context, is_com_ctx{}); reverse {
+			if com { retSym(v.Pos(), symLtopcorner) }
+			for i, elem := range v.elems {
+				retVal(elem)
+				if i < len(v.elems)-1 { retSym(elem.Pos(), symSpace) }
+			}
+			if com { retSym(v.Pos(), symRbotcorner) }
+		} else {
+			if com { retSym(v.Pos(), symRbotcorner) }
+			for i := len(v.elems) - 1; i >= 0; i-- {
+				retVal(v.elems[i])
+				if i > 0 { retSym(v.elems[i].Pos(), symSpace) }
+			}
+			if com { retSym(v.Pos(), symLtopcorner) }
+		}
+
+	default:
+		retSym(t.Pos(), __symbol(s.Context, t))
+	}
+}
+
+func (s *symstr) step() {
 	var better func(int) bool
 	if true_prefix_matching {
 		better = func(boundary int) bool {
@@ -3028,424 +5710,155 @@ func (s *symstr) step() {
 		}
 	}
 
-	var op evalop
-	if len(s.ops) > 0 {
-		op = s.ops[len(s.ops)-1]
-		s.ops = s.ops[:len(s.ops)-1]
-		s.opsDone++
-	}
+	reverse := s.class&clsBackwards != 0
+	op := s.ops[len(s.ops)-1]
+	s.ops = s.ops[:len(s.ops)-1]
+	s.opsDone++
 
 _op_switch_:
-	switch l := len(s.operands); op {
-	case opCloseInterval:
-		// THE DOD FIX: Safe Interface Unpacking!
-		// `s.operands` is `[]any`. If the operand is an untyped `nil` (from our deferred
-		// regex captures), this safely yields `nil` without a TypeAssertionError!
-		val, _ := s.operands[l-1].(Value)
-		start := s.operands[l-2].(int)
-		s.operands = s.operands[:l-2]
-
-		if val == nil {
-			// Deferred Regex Stem Resolution!
-			// `start` is safely overloaded to be the index of the pending capture in `s.stems`.
-			cap := &s.stems[start]
-			var groupSyms []Symbol
-			currByte := 0 // Tracks absolute byte coordinate across the entire tape
-
-			for _, sym := range s.syms {
-				slen := sym.len()
-				// If the symbol falls within the capture group's absolute byte range, keep it!
-				if currByte >= cap.start && currByte < cap.end {
-					groupSyms = append(groupSyms, sym)
-				}
-				currByte += slen
-				if currByte >= cap.end { break } // Fast exit once we pass the capture
-			}
-
-			cap.syms = groupSyms
-		} else {
-			// THE DOD FIX: Use the mathematically pure boundary!
-			end := s.boundary
-
-			// If the JIT matched in reverse, the tape head moved backwards.
-			// We simply normalize the bounds so the interval represents a pure spatial window.
-			if start > end { start, end = end, start }
-
-			// Standard AST interval closure
-			s.intervals = append(s.intervals, interval{start, end, val})
+	switch l, rl := len(s.operands), len(s.results); op {
+	case opDebug:
+		var trace string
+		var extra []any
+		if t, ok := s.operands[l-1].(tracked_stub); ok {
+			trace, extra = string(t.trace), t.args
+			s.operands = s.operands[:l-1]
 		}
 
-	case opEmitSym:
-		sym := s.operands[l-1].(Symbol)
-		s.operands = s.operands[:l-1]
-		s.emit(sym)
+		// 1. Zero-Allocation Format Builder
+		var format compactbuilds
+		format.setRaw(true) // Disable squashing to preserve our indentations
+
+		var pos Pos
+		var args []any
+		var isRes bool
+		var val = s.operands[l-2]
+
+	_query_pos:
+		if pos == NoPos && val != nil {
+			switch t := val.(type) {
+			case Pos: pos = t
+			case Value: pos = t.Pos()
+			case []Value: if len(t) > 0 { pos = t[0].Pos() }
+			}
+		}
+		if pos == NoPos && !isRes && rl > 0 {
+			val, isRes = s.results[rl-1], true
+			goto _query_pos
+		}
+
+		if p, ok := do(s.Context, get_fatpos{pos}).(Position); ok && p.valid() {
+			format.write("%s:%d:")
+			args = append(args, p.Filename, p.Line)
+			if p.Column > 0 {
+				format.write("%d:")
+				args = append(args, p.Column)
+			}
+		}
+
+		format.write("[%s] VM Tick: %d\n")
+		args = append(args, "VALUE", s.opsDone)
+
+		// 2. Route Error vs Value
+		if err, ok := val.(error); ok && err != nil {
+			s.err = err
+			// Pop the error value to prevent cascading failures
+			s.operands = s.operands[:l-2]
+
+			args[0] = "ERROR"
+			format.write("  Error      : %v\n")
+			args = append(args, err)
+		} else if val == nil {
+			args[0] = "<nil-value>"
+		} else {
+			format.write("  Value Type : %T\n  Value      : %v\n")
+			args = append(args, val, val)
+
+			if v, isAstNode := val.(Value); isAstNode && !isNull(v) {
+				format.write("  AST Dump   : %s\n")
+				args = append(args, ts(v, s.Context))
+			}
+			if d, isDef := val.(*def); isDef {
+				format.write("  Def Value  : %s\n")
+				args = append(args, ts(d.value, s.Context))
+			}
+		}
+
+		// 3. VM State Array Truncation (Zero fmt.Sprintf!)
+		format.write("  Ops        : %v")
+		args = append(args, s.ops)
+
+		if len(s.operands) <= 10 {
+			format.write("\n  Operands   : %v")
+			args = append(args, s.operands)
+		} else {
+			n := len(s.operands)-10
+			format.write("\n  Operands   : (... skip %d elements) %v %T")
+			args = append(args, n, s.operands[n:], s.operands[len(s.operands)-1])
+		}
+
+		if val == nil && rl == 0 {
+			format.write("\n%s")
+			args = append(args, trace)
+		} else {
+			format.write("\n  Results    : %v\n%s")
+			args = append(args, s.results, trace)
+		}
+
+		// 4. Directly append tracked args (e.g., callstack{num:3})
+		args = append(args, extra...)
+
+		// 5. Emit synchronously (safe to use .shared() here)
+		prompt(s.Context, format.shared(), args...)
 
 	case opUnwind:
 		bt := s.operands[l-1].(backtrack)
 		s.operands = s.operands[:l-1]
 		s.unwind(&bt)
 
-	case opMatchLiteral:
-		// Strict 1-to-1 VM invariant. Always pop exactly one operand!
-		sym := s.operands[len(s.operands)-1].(Symbol)
-		s.operands = s.operands[:len(s.operands)-1]
+	case opCloseInterval:
+		val, _ := s.operands[l-1].(Value)
+		start := s.operands[l-2].(int)
+		s.operands = s.operands[:l-2]
 
-		// THE DOD FIX: Generator Fast-Path
-		// If tie is detached during Local Snapshot Unrolling, instantly emit and proceed!
-		if s.tie == nil {
-			s.emit(sym)
-			break _op_switch_
-		}
+		if val == nil {
+			if start < len(s.stems) {
+				cap := &s.stems[start]
+				var groupSyms []Symbol
 
-		symBytes := sym.len()
-
-		// 1. PEEK TARGET SAFELY (Pump BEFORE checking structural boundaries!)
-		if len(s.tie.str) == 0 && len(s.tie.syms) == 0 { s.tie.pump() }
-
-		// 2. PROCESS STRUCTURAL BOUNDARIES EAGERLY
-		if sym == symEmpty {
-			if s.tie != nil && len(s.tie.syms) > 0 && s.tie.syms[0] == symEmpty {
-				s.tie.syms = s.tie.syms[1:]
-			}
-			s.emit(symEmpty)
-			break _op_switch_
-		}
-
-		if len(s.tie.str) == 0 && len(s.tie.syms) == 0 {
-			s.err = errMatchFailedStarvedT // Target starved!
-			break _op_switch_
-		}
-
-		// 3. FAST PATH (Requires perfectly aligned Target Tape)
-		if len(s.tie.str) == 0 {
-			target := s.tie.syms[0]
-
-			// A. Exact Match
-			if target == sym {
-				s.emit(s.tie.pop_head())
-				break _op_switch_
-			}
-
-			// Bidirectional Emission Flag
-			const bidirectional_fallback_emit_literal = false // literal or wildcard?
-
-			// B. Target is `?` Wildcard
-			if target == symQues && (s.tie.class & clsGlobChar) != 0 {
-				if sym == symSlash {
-					s.err = errMatchFailedCrossSeg
-					break _op_switch_
-				}
-
-				s.tie.pop_head()
-				s.str = sym.String() // set `s.str` to leverage decodeRune
-				r, size := s.decodeRune() // Natively updates s.boundary!
-				if size == 0 || r == 0 {
-					s.err = errMatchFailedZeroRune
-					break _op_switch_
-				}
-
-				if bidirectional_fallback_emit_literal {
-					s.emit(intern(string(r)))
+				// CRITICAL FIX: Align with the active sliding window's absolute boundary offset!
+				currByte := s.boundary
+				if reverse {
+					for _, sym := range s.syms { currByte += sym.len() }
 				} else {
-					s.emit(target)
+					for _, sym := range s.syms { currByte -= sym.len() }
 				}
 
-				if len(s.str) > 0 {
-					s.ops = append(s.ops, opMatchLiteral)
-					s.operands = append(s.operands, intern(s.str))
-					s.str = ""
-				}
-				break _op_switch_
-			}
-
-			// C. Target is Greedy Wildcard (Fallback Absorption)
-			if target == symAsterisk || target == symAsteriskAst || target == symAsteriskQues {
-				var absorb bool
-				if false {
-					absorb = (s.tie.class & clsGlob) != 0
-					if absorb && target == symAsterisk && sym == symSlash { absorb = false }
-					if absorb && sym != symSlash && (s.class & (clsGlob | clsRegex)) != 0 { absorb = false }
-				} else {
-					absorb = !(target == symAsterisk && sym == symSlash)
-				}
-				if absorb {
-					// 1. Eagerly absorb the initial literal and pop the wildcard from the Target Tape.
-					if bidirectional_fallback_emit_literal { s.emit(sym) } else { s.emit(target) }
-					s.tie.pop_head()
-
-					// 2. Peek the Lookahead Boundary
-					var nextTarget Symbol = symEmpty
-					if len(s.tie.syms) == 0 { s.tie.pump() }
-					if len(s.tie.syms) > 0 { nextTarget = s.tie.syms[0] }
-
-					// 3. Inline JIT Unroll: Keep absorbing until aligned with boundary!
-				_ops_subloop_:
-					for len(s.ops) > 0 && s.err == nil {
-						switch s.ops[len(s.ops)-1] { // Top
-						case opCloseInterval, opEvalValue, opEmitSym:
-							s.step() // Execute one step!
-							continue
-						case opGlobQues, opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
-							var os Symbol
-							switch s.ops[len(s.ops)-1] {
-							case opGlobQues: os = symQues
-							case opGlobAsterisk: os = symAsterisk
-							case opGlobAstGreed: os = symAsteriskAst
-							case opGlobAstCross: os = symAsteriskQues
-							}
-							s.ops = s.ops[:len(s.ops)-1]
-							s.opsDone++ // THE DOD FIX: Maintain Telemetry Sync!
-							if bidirectional_fallback_emit_literal { s.emit(os) }
-							s.stems = append(s.stems, capture{start: -1})
-							continue
-						case opRegexMatch:
-							rx := s.operands[len(s.operands)-1].(*regexp.Regexp)
-							s.operands = s.operands[:len(s.operands)-1]
-							s.ops = s.ops[:len(s.ops)-1]
-							s.opsDone++ // THE DOD FIX: Maintain Telemetry Sync!
-							names := rx.SubexpNames()
-							for i := 1; i < len(names); i++ {
-								name := symEmptyName
-								if names[i] != "" { name = intern(names[i]) }
-								s.stems = append(s.stems, capture{start: -1, name: name})
-							}
-							if bidirectional_fallback_emit_literal { s.emit(intern(rx.String())) }
-							continue
-						case opMatchLiteral:
-							// Handled below
-						default:
-							break _ops_subloop_ // Hit an unknown/structural op
-						}
-
-						sym = s.operands[len(s.operands)-1].(Symbol) // Peek!
-
-						if sym == symEmpty { // i.e., PTAIL
-							s.err = errMatchFailedWildback
-							break // _op_switch_
-						}
-
-						if target == symAsterisk && sym == symSlash && nextTarget != symSlash {
-							s.err = errMatchFailedWildback
-							break // _op_switch_
-						}
-
-						// BOUNDARY ALIGNMENT CHECK
-						if nextTarget != symEmpty {
-							if sym == nextTarget {
-								break _ops_subloop_
-							}
-
-							// Sub-Symbol Boundary Slicing
-							var absorbed, leftover string
-							if reverse {
-								if sym.has_prefix(nextTarget) {
-									str, align := sym.String(), nextTarget.len()
-									leftover = str[:align]
-									absorbed = str[align:]
-								}
-							} else {
-								if sym.has_suffix(nextTarget) {
-									str, align := sym.String(), nextTarget.len()
-									absorbed = str[:len(str)-align]
-									leftover = str[len(str)-align:]
-								}
-							}
-							if len(absorbed) > 0 && len(leftover) > 0 {
-								s.operands[len(s.operands)-1] = intern(leftover)
-								if bidirectional_fallback_emit_literal { s.emit(intern(absorbed)) }
-								break _ops_subloop_ // Aligned!
-							}
-						}
-
-						// Boundary not reached, absorb the full literal!
-						s.operands = s.operands[:len(s.operands)-1]
-						s.ops = s.ops[:len(s.ops)-1] // i.e., opMatchLiteral
-						s.opsDone++ // THE DOD FIX: Maintain Telemetry Sync!
+				for _, sym := range s.syms {
+					slen := sym.len()
+					if currByte >= cap.start && currByte < cap.end {
+						groupSyms = append(groupSyms, sym)
 					}
+					if reverse { currByte -= slen } else { currByte += slen }
 
-					break _op_switch_
+					// Assuming monotonically increasing capture offsets in normal forward-mode
+					if !reverse && currByte >= cap.end { break }
 				}
+				cap.syms = groupSyms
 			}
-
-			// D. Target is LARGER than Pattern (Sub-Symbol Fast Slicing)
-			if reverse {
-				if target.has_suffix(sym) {
-					str := target.String()
-					s.tie.str = str[:len(str)-symBytes]
-					s.emit(sym)
-					s.tie.pop_head()
-					break _op_switch_
-				}
-			} else {
-				if target.has_prefix(sym) {
-					s.tie.str = target.String()[symBytes:]
-					s.emit(sym)
-					s.tie.pop_head()
-					break _op_switch_
-				}
-			}
-
-			// E. Pattern is LARGER than Target (Sub-Symbol Fast Slicing)
-			// Slices the Pattern literal so the remainder can natively hit Target wildcards!
-			if reverse {
-				if sym.has_suffix(target) {
-					leftover := intern(sym.String()[:symBytes-target.len()])
-					s.emit(target)
-					s.tie.pop_head()
-					s.operands = append(s.operands, leftover)
-					s.ops = append(s.ops, opMatchLiteral)
-					break _op_switch_
-				}
-			} else {
-				if sym.has_prefix(target) {
-					leftover := intern(sym.String()[target.len():])
-					s.emit(target)
-					s.tie.pop_head()
-					s.operands = append(s.operands, leftover)
-					s.ops = append(s.ops, opMatchLiteral)
-					break _op_switch_
-				}
-			}
+		} else {
+			end := s.boundary
+			if start > end { start, end = end, start }
+			s.intervals = append(s.intervals, interval{start, end, val})
 		}
 
-		// 4. SLOW PATH (Fragmented Pattern, Fragmented Target, or Pattern > Target)
-		str := sym.String()
-
-		for len(str) > 0 {
-			if len(s.tie.str) == 0 {
-				s.tie.pump()
-				if s.tie.err != nil || len(s.tie.syms) == 0 {
-					s.err = errMatchFailed
-					break _op_switch_
-				}
-				s.tie.str = s.tie.syms[0].String()
-				s.tie.pop_head()
-			}
-
-			n := len(str)
-			if len(s.tie.str) < n { n = len(s.tie.str) }
-
-			if reverse {
-				frag := s.tie.str[len(s.tie.str)-n:]
-				if str[len(str)-n:] != frag {
-					s.err = errMatchFailed
-					break _op_switch_
-				}
-				str = str[:len(str)-n]
-				s.tie.str = s.tie.str[:len(s.tie.str)-n]
-			} else {
-				frag := s.tie.str[:n]
-				if str[:n] != frag {
-					s.err = errMatchFailed
-					break _op_switch_
-				}
-				str = str[n:]
-				s.tie.str = s.tie.str[n:]
-			}
-		}
-
-		if s.err == nil { s.emit(sym) }
-
-	case opGlobQues: // ?
-		count := 1
-		for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opGlobQues {
-			s.ops = s.ops[:len(s.ops)-1]
-			count++
-		}
-
-		start := s.tie.boundary // Snap the high-watermark
-
-		// PEEK TARGET: Check for Meta-Wildcard Absorption
-		if len(s.tie.str) == 0 && len(s.tie.syms) > 0 {
-			target := s.tie.syms[0] // PEEK!
-
-			switch target {
-			case symQues, symAsterisk, symAsteriskAst, symAsteriskQues, symPercent:
-				start = s.tie.boundary
-
-				if target == symQues {
-					var consumed int
-					var lens []int
-					var syms []Symbol
-					for i := 0; i < count; i++ {
-						if len(s.tie.syms) == 0 { s.tie.pump() }
-						if len(s.tie.syms) == 0 {
-							s.err = io.EOF
-							break _op_switch_
-						}
-
-						sym := s.tie.pop_head()
-						lens = append(lens, sym.len())
-						consumed++
-						s.emit(sym) // THE DOD FIX: Emit wildcard match!
-						syms = append(syms, sym) // Cache!
-					}
-
-					if consumed < count {
-						s.err = errMatchFailed
-						break _op_switch_
-					}
-					s.tie.str = ""
-
-					for _, l := range lens {
-						s.stems = append(s.stems, capture{start, start+l, symEmptyName, syms})
-						start += l
-					}
-					break _op_switch_
-				}
-
-				if target == symPercent {
-					if len(s.tie.syms) > 1 && s.tie.syms[1] == symPercent {
-						s.emit(symPercent)
-						s.tie.pop_head()
-					}
-					s.emit(symPercent)
-					s.tie.pop_head()
-					s.tie.str = ""
-
-					for i := 0; i < count; i++ {
-						s.stems = append(s.stems, capture{start, start, symEmptyName, nil})
-					}
-					break _op_switch_
-				}
-
-				s.emit(s.tie.pop_head()) // Emit skipped wildcard
-
-				for i := 0; i < count; i++ {
-					s.stems = append(s.stems, capture{start, start, symEmptyName, nil})
-				}
-				break _op_switch_
-			}
-		}
-
-		// NATIVE ABSORPTION: Read actual runes from the Target Buffer
-		var str string
-		start = s.tie.boundary
-		end := start
-
-		for i := 0; i < count; i++ {
-			r, size, err := s.tie.ReadRune()
-			if err != nil {
-				if err == io.EOF { s.err = io.EOF } else { s.err = errMatchFailed }
-				break _op_switch_
-			}
-			if r == '/' {
-				s.tie.str = string(r) + s.tie.str
-				s.err = errMatchFailedCrossSeg
-				break _op_switch_
-			}
-			str += string(r)
-			end += size
-		}
-
-		sym := intern(str)
-		s.stems = append(s.stems, capture{start, end, symEmptyName, []Symbol{sym}})
-		s.emit(sym)
-
-	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross: // *, **, and *?
+	case opMatchLiteral: s.op_match_literal(l)
+	case opRegexMatch: s.op_regex_match(l)
+	case opGlobQues: s.op_glob_ques(l)
+	case opGlobRange: s.op_glob_range(l)
+	case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
 		s.stems = append(s.stems, capture{s.tie.boundary, s.tie.boundary, symEmptyName, nil})
 
-		// Advance pattern cursor over any consecutive stacked wildcard ops on the JIT tape!
 		for len(s.ops) > 0 {
 			switch s.ops[len(s.ops)-1] {
 			case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
@@ -3462,1093 +5875,817 @@ _op_switch_:
 		}
 
 	case opConseqAsterisk, opConseqAstGreed, opConseqAstCross:
-		if len(s.tie.str) > 0 {
-			s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
-			s.tie.str = ""
-		}
+		s.op_glob_conseq(l, op, better)
 
-		if len(s.tie.syms) == 0 && len(s.tie.str) == 0 { s.tie.pump() }
-		if len(s.tie.syms) == 0 { break _op_switch_ }
+	case opModify:
+		g := s.operands[l-1].(*group)
+		s.operands = s.operands[:l-1]
+		s.results = append(s.results, modify(s.Context, g, false))
 
-		target := s.tie.syms[0] // PEEK FIRST!
-
-		if op == opConseqAsterisk && target == symSlash { break _op_switch_ }
-
-		if isWildcardMeta(target) {
-			if target == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1] == symPercent {
-				s.emit(symPercent)
-				s.emit(symPercent)
-				s.tie.pop_head()
-				s.tie.pop_head()
-			} else {
-				s.emit(target)
-				s.tie.pop_head()
-			}
-			if len(s.stems) > 0 {
-				last := len(s.stems)-1
-				s.stems[last].syms = append(s.stems[last].syms, target)
-				if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
-			}
-			s.ops = append(s.ops, op)
-			break _op_switch_
-		}
-
-		// Native JIT Unrolling Lookahead!
-		var nextSym Symbol
-		for len(s.ops) > 0 {
-			switch s.ops[len(s.ops)-1] {
-			case opEvalValue, opCloseInterval, opEmitSym:
-				s.step()
-				continue
-			case opMatchLiteral:
-				sym := s.operands[len(s.operands)-1].(Symbol)
-				if sym == symEmpty {
-					s.step()
-					continue
-				}
-				nextSym = sym
-			}
-			break
-		}
-
-		// THE DOD FIX: Robust Starvation Detection
-		for s.tie.err == nil {
-			if op == opConseqAsterisk {
-				if __symSeqContains(s.tie.syms, []Symbol{symSlash}) { break }
-			}
-			// DO NOT clamp opConseqAstCross! It must pump to discover Target Wildcards!
-
-			snap := len(s.tie.syms)
-			s.tie.pump()
-
-			// Forcefully step the Target VM until a physical symbol is yielded
-			for len(s.tie.syms) == snap && s.tie.err == nil && len(s.tie.ops) > 0 {
-				s.tie.step()
-			}
-
-			if len(s.tie.syms) == snap { break } // Truly EOF or network-starved
-		}
-
-		// Native Checkpoint Backtracking
-		masterBt := s.checkpoint(undoBranch)
-
-		var bestMatchBt backtrack
-		var bestMatchFound bool
-
-		// Mathematically pure base offset before any lookahead!
-		var baseBoundary = s.tie.boundary
-
-		searchLimit := len(s.tie.syms)
-		if op == opConseqAsterisk {
-			for i := 0; i < searchLimit; i++ {
-				if s.tie.syms[i] == symSlash { searchLimit = i; break }
-			}
-		}
-
-		var totalBytes int
-		for i := 0; i < searchLimit; i++ { totalBytes += s.tie.syms[i].len() }
-
-		// Unified Byte-Perfect JIT Search!
-		var startAbsIdx, endAbsIdx, step int
-		if op == opConseqAstCross { // Reluctant (*?) -> 0 to totalBytes
-			startAbsIdx = 0
-			endAbsIdx = totalBytes
-			step = 1
-		} else { // Greedy (*, **) -> totalBytes down to 0
-			startAbsIdx = totalBytes
-			endAbsIdx = 0
-			step = -1
-		}
-
-		for absIdx := startAbsIdx; ; absIdx += step {
-			targetIdx := -1
-			var trimStr, leaveStr, targetStr string
-
-			if absIdx == totalBytes {
-				targetIdx = searchLimit
-			} else {
-				currByte := 0
-				for i := 0; i < searchLimit; i++ {
-					l := s.tie.syms[i].len()
-					if absIdx >= currByte && absIdx < currByte+l {
-						targetIdx = i
-						localIdx := absIdx - currByte
-						targetStr := s.tie.syms[i].String()
-
-						// THE DOD FIX: Flawless Reverse Fractional Slicing
-						// `localIdx` is the exact number of bytes we want to absorb.
-						// In reverse mode, we absorb from the trailing end of the string!
-						if reverse {
-							split := len(targetStr) - localIdx
-							trimStr = targetStr[split:]
-							leaveStr = targetStr[:split]
-						} else {
-							trimStr = targetStr[:localIdx]
-							leaveStr = targetStr[localIdx:]
-						}
-						break
-					}
-					currByte += l
-				}
-			}
-
-			// The False Boundary Trap (Phantom Wildcards)
-			if targetIdx != -1 && targetIdx < len(s.tie.syms) && (op == opConseqAstGreed || op == opConseqAstCross) {
-				if reverse {
-					checkIdx := len(s.tie.syms) - 1 - targetIdx
-					if checkIdx >= 0 && isWildcardMeta(s.tie.syms[checkIdx]) { targetIdx = -1 } else
-					if checkIdx-1 >= 0 && isWildcardMeta(s.tie.syms[checkIdx-1]) { targetIdx = -1 }
-				} else {
-					if targetIdx < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx]) { targetIdx = -1 } else
-					if targetIdx+1 < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx+1]) { targetIdx = -1 }
-				}
-			}
-
-			if targetIdx != -1 {
-				// Byte-Perfect Lookahead Filtering
-				if nextSym != 0 {
-					nStr := nextSym.String()
-					nLen := len(nStr)
-					if leaveStr != "" {
-						if reverse {
-							checkLen := nLen
-							if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
-							if leaveStr[len(leaveStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
-						} else {
-							checkLen := nLen
-							if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
-							if leaveStr[:checkLen] != nStr[:checkLen] { goto next_iter }
-						}
-					} else {
-						if targetIdx < len(s.tie.syms) {
-							peekStr := s.tie.syms[targetIdx].String()
-							if reverse {
-								checkLen := nLen
-								if len(peekStr) < checkLen { checkLen = len(peekStr) }
-								if peekStr[len(peekStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
-							} else {
-								checkLen := nLen
-								if len(peekStr) < checkLen { checkLen = len(peekStr) }
-								if peekStr[:checkLen] != nStr[:checkLen] { goto next_iter }
-							}
-						} else {
-							goto next_iter // Expected literal nextSym, but Target is EOF!
-						}
-					}
-				}
-
-				for i := 0; i < targetIdx; i++ {
-					frag := s.tie.pop_head()
-					if frag != symEmpty { s.emit(frag) }
-					if len(s.stems) > 0 {
-						last := len(s.stems) - 1
-						s.stems[last].syms = append(s.stems[last].syms, frag)
-						if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
-					}
-				}
-
-				// Mathematically pure fractional tracking
-				fracBoundary := baseBoundary
-				if !reverse { fracBoundary += absIdx } else { fracBoundary -= absIdx }
-
-				if trimStr != "" || leaveStr != targetStr {
-					if len(s.tie.syms) > 0 { s.tie.pop_head() }
-
-					if trimStr != "" {
-						trimFrag := intern(trimStr)
-						s.emit(trimFrag)
-						if len(s.stems) > 0 {
-							last := len(s.stems) - 1
-							s.stems[last].syms = append(s.stems[last].syms, trimFrag)
-							if reverse { s.stems[last].start = fracBoundary } else { s.stems[last].end = fracBoundary }
-						}
-					}
-					if leaveStr != "" { s.tie.str = leaveStr }
-				}
-
-				// === INLINE TELEMETRY SNAPSHOT ===
-				if better(fracBoundary) {
-					s.bestOpsDone = s.opsDone
-					s.stopTieBoundary = fracBoundary
-					if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-					s.bestStems = append(s.bestStems[:0], s.stems...)
-				}
-
-				// 3. Execute the REST of the pattern!
-				for s.err == nil && len(s.ops) > 0 && s.tie.err == nil { s.step() }
-
-				// 4. Evaluate Verification
-				if s.err == nil && len(s.ops) == 0 {
-					s.err = io.EOF
-
-					// THE DOD FIX: Lock in Telemetry for Verified Matches!
-					// A verified match (pattern fully exhausted) is mathematically superior
-					// to any failed speculation. We explicitly lock in its captures to prevent
-					// a failed greedy boundary from overriding the true stems.
-					s.bestOpsDone = s.opsDone
-					s.stopTieBoundary = s.tie.boundary
-					if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-					s.bestStems = append(s.bestStems[:0], s.stems...)
-				}
-
-				if s.err == io.EOF {
-					if len(s.tie.str) == 0 && len(s.tie.syms) == 0 && s.tie.err == nil {
-						s.tie.pump()
-						for len(s.tie.syms) == 0 && s.tie.err == nil && len(s.tie.ops) > 0 { s.tie.step() }
-					}
-
-					if !bestMatchFound || s.opsDone > bestMatchBt.own.vmstack.opsDone {
-						bestMatchFound = true
-						bestMatchBt = s.checkpoint(undoBranch)
-
-						// Deeply isolate speculative slices!
-						// Speculative backtracking corrupts shallow slice copies when appending.
-						// We must allocate a pristine copy of the winning timeline's arrays.
-						if bestMatchBt.own.syms != nil { bestMatchBt.own.syms = append([]Symbol(nil), bestMatchBt.own.syms...) }
-						if bestMatchBt.own.intervals != nil { bestMatchBt.own.intervals = append([]interval(nil), bestMatchBt.own.intervals...) }
-						if bestMatchBt.own.stems != nil {
-							bestMatchBt.own.stems = append([]capture(nil), bestMatchBt.own.stems...)
-							for i := range bestMatchBt.own.stems {
-								if bestMatchBt.own.stems[i].syms != nil {
-									bestMatchBt.own.stems[i].syms = append([]Symbol(nil), bestMatchBt.own.stems[i].syms...)
-								}
-							}
-						}
-						if bestMatchBt.own.activeStem.syms != nil {
-							bestMatchBt.own.activeStem.syms = append([]Symbol(nil), bestMatchBt.own.activeStem.syms...)
-						}
-
-						if s.tie != nil {
-							if bestMatchBt.tie.syms != nil { bestMatchBt.tie.syms = append([]Symbol(nil), bestMatchBt.tie.syms...) }
-							if bestMatchBt.tie.intervals != nil { bestMatchBt.tie.intervals = append([]interval(nil), bestMatchBt.tie.intervals...) }
-							if bestMatchBt.tie.stems != nil {
-								bestMatchBt.tie.stems = append([]capture(nil), bestMatchBt.tie.stems...)
-								for i := range bestMatchBt.tie.stems {
-									if bestMatchBt.tie.stems[i].syms != nil {
-										bestMatchBt.tie.stems[i].syms = append([]Symbol(nil), bestMatchBt.tie.stems[i].syms...)
-									}
-								}
-							}
-							if bestMatchBt.tie.activeStem.syms != nil {
-								bestMatchBt.tie.activeStem.syms = append([]Symbol(nil), bestMatchBt.tie.activeStem.syms...)
-							}
-						}
-					}
-				}
-
-				// 5. Verification Failed or Partial Match Saved: Rollback and explore next!
-				s.unwind(&masterBt)
-			}
-
-		next_iter:
-			if absIdx == endAbsIdx { break }
-		}
-
-		if bestMatchFound {
-			// THE DOD FIX: The JIT natively loops in optimal priority order!
-			// If we found a verified match, we take it immediately.
-			s.unwind(&bestMatchBt)
-			return
-		}
-
-		// === THE DOD FIX: Graceful Step-by-Step Fallback ===
-		// We NEVER burst emit and fail! We emit exactly 1 symbol and yield to keep the Packer synchronized.
-		if len(s.tie.syms) == 0 { break _op_switch_ }
-
-		frag := s.tie.pop_head()
-		if frag != symEmpty { s.emit(frag) }
-		if len(s.stems) > 0 {
-			last := len(s.stems) - 1
-			s.stems[last].syms = append(s.stems[last].syms, frag)
-			if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
-		}
-
-		stopTieBoundary := s.tie.boundary
-		if !reverse { stopTieBoundary -= len(s.tie.str) } else { stopTieBoundary += len(s.tie.str) }
-
-		if better(stopTieBoundary) {
-			s.bestOpsDone = s.opsDone
-			s.stopTieBoundary = stopTieBoundary
-			if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-			s.bestStems = append(s.bestStems[:0], s.stems...)
-		}
-
-		s.ops = append(s.ops, op) // Repush the wildcard so the outer VM loop processes it again!
-		break _op_switch_
-
-	case opGlobRange: // [abc] [a-z] [!abc] [^abc] [a$(var)c]
-		v := s.operands[l-1].(*globrange)
+	case opSwap:
+		n := s.operands[l-1].(int)
 		s.operands = s.operands[:l-1]
 
-		r, _, err := s.tie.ReadRune()
-		if err != nil || r == '/' {
-			s.err = errMatchFailed
-			break _op_switch_
-		}
+		s.operands = append(s.operands, s.results[rl-n:]...)
+		s.results = s.results[:rl-n]
 
-		matched := false
-
-		if v.static {
-			// === FAST PATH: Pre-Compiled Exact Matches & Spans ===
-			if strings.ContainsRune(v.runes, r) {
-				matched = true
-			} else {
-				for _, span := range v.spans {
-					if r >= span.min && r <= span.max {
-						matched = true
-						break
-					}
-				}
-			}
-		} else {
-			// === SLOW PATH: Dynamic Runtime Evaluation ===
-			// Fallback triggered: AST contains dynamic variables (e.g., $(var))
-			sym := __symbol(s.Context, v.Value)
-			rangeStr := sym.String() // Negation (!/^) is already stripped by the compiler!
-
-			var prevRune rune
-			inRange := false
-
-			for len(rangeStr) > 0 {
-				currRune, size := utf8.DecodeRuneInString(rangeStr)
-				rangeStr = rangeStr[size:]
-
-				if currRune == '-' && prevRune != 0 && len(rangeStr) > 0 {
-					inRange = true
-					continue
-				}
-
-				if inRange {
-					if r >= prevRune && r <= currRune { matched = true; break }
-					inRange = false
-				} else {
-					if r == currRune { matched = true; break }
-				}
-				prevRune = currRune
-			}
-		}
-
-		// Apply the pre-extracted AST negation logic
-		if matched == v.negated {
-			s.err = errMatchFailed
-			break _op_switch_
-		}
-
-		s.emit(intern(string(r)))
-		break _op_switch_
-
-	case opRegexMatch:
-		rx := s.operands[l-1].(*regexp.Regexp)
+	case opCons:
+		n := s.operands[l-1].(int)
 		s.operands = s.operands[:l-1]
 
-		snap_err := s.tie.err
-		snap_head := s.tie.vmhead
-		smem := &symsmem{symstr: s.tie}
-		locs := rx.FindReaderSubmatchIndex(smem)
-		s.tie.vmhead = snap_head // === UNCONDITIONAL ROLLBACK
-		s.tie.err = snap_err
+		cons := make([]any, n)
+		copy(cons, s.results[rl-n:])
+		s.results = s.results[:rl-n]
+		s.operands = append(s.operands, cons)
 
-		smem.revert() // Bypass slice reallocation amnesia.
+	case opCompact:
+		n := s.operands[l-1].(int)
+		cons := make([]any, n)
+		copy(cons, s.operands[l-n-1:l-1])
+		s.operands = s.operands[:l-n]
+		s.operands[l-n-1] = cons
 
-		if locs == nil {
-			s.err = errMatchFailedPreRegex
-			break _op_switch_
+	case opValidate:
+		n := s.operands[l-1].(int)
+		items := make([]any, 0, n)
+		for _, item := range s.results[rl-n:] {
+			if item != nil && !isTrivial(item) { items = append(items, item) }
 		}
+		s.results = s.results[:rl-n]
+		s.operands[l-1] = items
 
-		// 1. Pre-register the stems so we can populate them as we consume!
-		var names = rx.SubexpNames()
-		stemStartIdx := len(s.stems)
-		for i := 2; i < len(locs); i += 2 {
-			if locs[i] != -1 && locs[i+1] != -1 && locs[i] < locs[i+1] {
-				name := symEmptyName
-				if expIdx := i / 2; expIdx < len(names) {
-					if ns := names[expIdx]; ns != "" { name = intern(ns) }
-				}
-				s.stems = append(s.stems, capture{
-					start: snap_head.boundary + locs[i],
-					end:   snap_head.boundary + locs[i+1],
-					name:  name,
-					syms:  nil, // Populated synchronously during granular loop
-				})
-			} else {
-				s.stems = append(s.stems, capture{start: -1})
-			}
+	case opCompactValid:
+		n := s.operands[l-1].(int)
+		items := make([]any, 0, n)
+		for _, item := range s.operands[l-n-1:l-1] {
+			if item != nil && !isTrivial(item) { items = append(items, item) }
 		}
-
-		// 2. Native Granular Consumption & Synchronous Stem Population
-		total := 0 // Total emitted bytes
-		consumed := locs[1]
-		curr := snap_head.boundary
-		for total < consumed {
-			if len(s.tie.str) == 0 && len(s.tie.syms) == 0 { s.tie.pump() }
-			if len(s.tie.str) == 0 && len(s.tie.syms) == 0 {
-				s.err = errMatchFailedPreRegex
-				break _op_switch_
-			}
-
-			var sym Symbol
-			if len(s.tie.str) > 0 {
-				fragLen := len(s.tie.str)
-				needed := consumed - total
-				if fragLen > needed {
-					sym = intern(s.tie.str[:needed])
-					s.tie.str = s.tie.str[needed:]
-				} else {
-					sym = intern(s.tie.str)
-					s.tie.str = ""
-				}
-			} else {
-				sym = s.tie.pop_head()
-				slen := sym.len()
-				needed := consumed - total
-				if slen > needed {
-					str := sym.String()
-					s.tie.str = str[needed:]
-					sym = intern(str[:needed])
-				}
-			}
-
-			s.emit(sym) // Emit to Matcher's syms
-			symBytes := sym.len()
-			total += symBytes
-
-			// THE DOD FIX: Synchronous Stem Capture
-			// Prevents AST granularity loss by avoiding LIFO delays.
-			var start, end int
-			if reverse {
-				start = curr - symBytes
-				end = curr
-			} else {
-				start = curr
-				end = curr + symBytes
-			}
-
-			for i := stemStartIdx; i < len(s.stems); i++ {
-				cap := &s.stems[i]
-				// Check for mathematical intersection
-				if cap.start != -1 && start < cap.end && end > cap.start {
-					if start >= cap.start && end <= cap.end {
-						// Fully contained: preserve the native symbol
-						cap.syms = append(cap.syms, sym)
-					} else {
-						// Partially contained: precision fractional slicing!
-						sliceStart := 0
-						if cap.start > start { sliceStart = cap.start - start }
-
-						sliceEnd := symBytes
-						if cap.end < end { sliceEnd = cap.end - start }
-
-						str := sym.String()
-						cap.syms = append(cap.syms, intern(str[sliceStart:sliceEnd]))
-					}
-				}
-			}
-
-			if reverse { curr -= symBytes } else { curr += symBytes }
-		}
+		s.operands = s.operands[:l-n]
+		s.operands[l-n-1] = items
 
 	case opEase:
-		pos := s.operands[l-1].(Pos)
-		num := s.operands[l-2].(int)
+		num := s.operands[l-1].(int)
+		pos := s.operands[l-2].(Pos)
 		s.operands = s.operands[:l-2]
 
-		// The results of the opEvokes are now resting on the operand stack!
-		l = len(s.operands)
-		cut := s.operands[l-num:]
-		s.operands = s.operands[:l-num]
-
-		if res := ease(&force_pos_ctx{s.Context,pos}, cut); res != nil {
-			s.ops = append(s.ops, opEvalValue) // evaluate the eased result seamlessly!
-			s.operands = append(s.operands, res)
+		var elems []Value
+		for _, item := range s.results[rl-num:] {
+			if v, ok := item.(Value); ok { elems = append(elems, v) } else {
+				erro(s, "unexpected value: %[1]T %[1]v", item)
+			}
 		}
-		
-	case opEvokeAuto:
-		// TODO: ...
+		s.results = s.results[:rl-num]
 
-	case opEvokeDef:
-		// TODO: ...
+		var res Value
+		switch len(elems) {
+		case 0 : res = _null(pos)
+		case 1 : res = elems[0]
+		default: res = &list{elements{elems}}
+		}
+		s.results = append(s.results, res)
 
-	case opEvokeRule:
-		// TODO: ...
+	case opMerge:
+		// Execute the recursive merge and drop the []Value slice directly onto results
+		if v, ok := s.results[rl-1].(Value); ok && v != nil {
+			var merge func(Value) []Value
+			merge = func(v Value) []Value {
+				if v == nil { return nil }
+				switch t := v.(type) {
+				case *loc:
+					elems := merge(t.Value)
+					for i, e := range elems { elems[i] = _loc(e, t.pos) }
+					return elems
+				case *list:
+					var elems []Value
+					for _, e := range t.elems { elems = append(elems, merge(e)...) }
+					return elems
+				}
+				return []Value{v}
+			}
 
-	case opEvokeBuiltin:
-		// TODO: ...
+			s.results[rl-1] = merge(v)
+		} else {
+			s.results[rl-1] = []Value{}
+		}
 
-	case opEvalValue:
-		val := s.operands[l-1].(Value)
+	case opCompound, opQualword, opGlobbrace, opPath://opCrossCompose
+		n := s.operands[l-1].(int); // orig := s.operands[l-2].(Value)
 		s.operands = s.operands[:l-1]
 
-		if val == nil { break _op_switch_ }
+		items := s.results[rl-n:]
 
-		s.ops = append(s.ops, opCloseInterval)
-		s.operands = append(s.operands, s.boundary, val)
-
-		pushVal := func(v Value) {
-			s.ops = append(s.ops, opEvalValue)
-			s.operands = append(s.operands, v)
+		// Reuse the recursive merge function to safely flatten lists and distribute *loc wrappers
+		var merge func(Value) []Value
+		merge = func(v Value) []Value {
+			if v == nil { return nil }
+			switch t := v.(type) {
+			case *loc:
+				elems := merge(t.Value)
+				for i, e := range elems { elems[i] = _loc(e, t.pos) }
+				return elems
+			case *list:
+				var elems []Value
+				for _, e := range t.elems { elems = append(elems, merge(e)...) }
+				return elems
+			}
+			return []Value{v}
 		}
 
-		pushEmit := func(sym Symbol) { // Dedicated tape emitter
-			s.ops = append(s.ops, opEmitSym)
-			s.operands = append(s.operands, sym)
+		var matrix [][]Value
+		for _, item := range items {
+			if item != nil {
+				matrix = append(matrix, merge(item.(Value)))
+			} else {
+				matrix = append(matrix, nil)
+			}
 		}
 
-		var pushSym func(Symbol)
-		var shatter func(Symbol)
+		// Cartesian cross-multiplication
+		var cartesian func(int) [][]Value
+		cartesian = func(depth int) [][]Value {
+			if depth == len(matrix) {
+				return [][]Value{{}} // Base case
+			}
+			var res [][]Value
+			for _, v := range matrix[depth] {
+				for _, rest := range cartesian(depth+1) {
+					// Pre-allocate and copy to avoid slice sharing bugs
+					row := make([]Value, 0, 1+len(rest))
+					row = append(row, v)
+					row = append(row, rest...)
+					res = append(res, row)
+				}
+			}
+			return res
+		}
 
-		shatter = func(sym Symbol) {
-			if sym != symEmpty {
-				if sym.Kind() == SymSeq {
-					vocab.RLock()
-					seq := vocab.sequences[sym.Idx()]
-					vocab.RUnlock()
-					if reverse {
-						// BACKWARD STREAMING: Push 0 to N-1.
-						for i := 0; i < len(seq); i++ { shatter(seq[i]) }
+		var combinations [][]Value
+		if n > 0 {
+			combinations = cartesian(0)
+		} else {
+			combinations = [][]Value{{}}
+		}
+
+		var composed []Value
+		for _, combo := range combinations {
+			var node Value
+			// Dynamically construct the specific structural parent wrapper
+			switch op {
+			case opCompound:  node = &compound{elements{combo}}
+			case opQualword:  node = &qualword{elements{combo}}
+			case opPath:      node = &path{elements{combo}}
+			case opGlobbrace: node = &globbrace{compound{elements{combo}}}
+			}
+			composed = append(composed, node)
+		}
+
+		// Safe Stack Reduction (Dropping the final sequence back onto s.results)
+		s.results = s.results[:rl-n]
+		switch len(composed) {
+		case 0: s.results = append(s.results, nil)
+		case 1: s.results = append(s.results, composed[0])
+		default: s.results = append(s.results, &list{elements{composed}})
+		}
+
+	case opPathStr:
+		isVal := s.operands[l-1].(bool)
+		v := s.operands[l-2].(Value)
+		s.operands = s.operands[:l-2]
+
+		var elemsLen int
+		if isVal { elemsLen = len(v.(*strval).v) } else { elemsLen = len(v.(*strcomp).elems) }
+
+		var elems []Value
+		for i := rl - elemsLen; i < rl; i++ {
+			elems = append(elems, s.results[i].(Value))
+		}
+		s.results = s.results[:rl-elemsLen]
+
+		var res Value
+		if len(elems) == 0 { res = _null(v.Pos()) } else if len(elems) == 1 { res = elems[0] } else { res = &list{elements{elems}} }
+
+		if str := __string(s.Context, res); isVal {
+			res = &strval{v.(*strval).valbase, _pathStr(s.Context, str).elems}
+		} else {
+			res = &strcomp{elements{_pathStr(s.Context, str).elems}}
+		}
+		s.results = append(s.results, res)
+
+	case opExpandArgs:
+		var args []Value
+		var idx int
+
+		// Determine if we popped just the array (initial call) or array + index (recursion)
+		if val, isInt := s.operands[l-1].(int); isInt {
+			idx = val
+			args = s.operands[l-2].([]Value)
+			s.operands = s.operands[:l-2]
+		} else {
+			args = s.operands[l-1].([]Value)
+			s.operands = s.operands[:l-1]
+			if reverse {
+				idx = len(args) - 1
+			} else {
+				idx = 0
+			}
+		}
+
+		if len(args) == 0 || idx < 0 || idx >= len(args) {
+			break _op_switch_
+		}
+
+		// Push the next iteration safely via tail recursion (No spreading!)
+		if reverse {
+			if idx > 0 {
+				s.ops = append(s.ops, opExpandArgs)
+				s.operands = append(s.operands, args, idx-1)
+			}
+		} else {
+			if idx < len(args)-1 {
+				s.ops = append(s.ops, opExpandArgs)
+				s.operands = append(s.operands, args, idx+1)
+			}
+		}
+
+		// Evaluate the current argument
+		v := args[idx]
+		if v == nil {
+			s.results = append(s.results, nil)
+			break _op_switch_
+		}
+
+		if truly(s.Context, arg_expansion{idx}) {
+			if lst, isList := v.(*list); isList {
+				s.ops = append(s.ops, opEase)
+				s.operands = append(s.operands, lst.Pos(), len(lst.elems))
+				s.ops = append(s.ops, opExpand)
+				s.operands = append(s.operands, lst.elems)
+			} else {
+				s.ops = append(s.ops, opReduce)
+				s.operands = append(s.operands, []any{
+					s.vmpack, s.class, s.boundary, rl, v.Pos(),
+				})
+				s.boundary = 0
+
+				s.ops = append(s.ops, opUnrollPack)
+				s.operands = append(s.operands, v)
+			}
+		} else {
+			s.results = append(s.results, v)
+		}
+
+	case opExpand:
+		arg := s.operands[l-1]
+		s.operands = s.operands[:l-1]
+
+		switch v := arg.(type) {
+		case nil:
+			s.results = append(s.results, nil)
+		case []Value:
+			if len(v) == 0 {
+				break _op_switch_
+			}
+			// Tail recurse by slicing to avoid O(N) stack spreading
+			if reverse {
+				if len(v) > 1 {
+					s.ops = append(s.ops, opExpand)
+					s.operands = append(s.operands, v[:len(v)-1])
+				}
+				s.ops = append(s.ops, opExpand)
+				s.operands = append(s.operands, v[len(v)-1])
+			} else {
+				if len(v) > 1 {
+					s.ops = append(s.ops, opExpand)
+					s.operands = append(s.operands, v[1:])
+				}
+				s.ops = append(s.ops, opExpand)
+				s.operands = append(s.operands, v[0])
+			}
+		case Value:
+			if lst, isList := v.(*list); isList {
+				s.ops = append(s.ops, opEase)
+				s.operands = append(s.operands, lst.Pos(), len(lst.elems))
+				s.ops = append(s.ops, opExpand)
+				s.operands = append(s.operands, lst.elems)
+			} else {
+				s.ops = append(s.ops, opReduce)
+				s.operands = append(s.operands, []any{
+					s.vmpack, s.class, s.boundary, rl, v.Pos(),
+				})
+				s.boundary = 0
+
+				s.ops = append(s.ops, opUnrollPack)
+				s.operands = append(s.operands, v)
+			}
+		}
+
+	case opReduce:
+		snap := s.operands[l-1].([]any)
+		s.operands = s.operands[:l-1]
+
+		snap_pack := snap[0].(*vmpack)
+		snap_class := snap[1].(int)
+		snap_boundary := snap[2].(int)
+		snap_reslen := snap[3].(int)
+		snap_pos := snap[4].(Pos)
+
+		var res Value
+		if rl > snap_reslen {
+			res = s.results[rl-1].(Value)
+			s.results = s.results[:snap_reslen]
+		} else {
+			// Use the exact AST position captured before the expansion.
+			// Fallback to strict absolute boundary calculation only if Pos is 0.
+			pos := snap_pos
+			if pos == NoPos {
+				var start, end int
+				if snap_class&clsBackwards != 0 {
+					start, end = snap_boundary-s.boundary, snap_boundary
+				} else {
+					start, end = snap_boundary, snap_boundary+s.boundary
+				}
+				pos = s.posInRange(start, end)
+			}
+
+			// Always reduce! If pos is NoPos, the engine inherently supports NoPos nodes.
+			res = s.reduce(pos)
+		}
+
+		s.results = append(s.results, res)
+		s.boundary = snap_boundary
+		s.vmpack = snap_pack
+		s.class = snap_class
+
+	case opRestoreContext:
+		s.Context = s.operands[l-1].(Context)
+		s.operands = s.operands[:l-1]
+
+	case opResolve:
+		x := s.operands[l-1].(Value)
+		isClosure := s.operands[l-2].(bool)
+		isRuleEnt := s.operands[l-3].(bool)
+		s.operands = s.operands[:l-3]
+
+		var res Value
+		var sym Symbol
+
+		// 1. Bulletproof Symbol Extraction
+		switch t := x.(type) {
+		case *auto:    sym = t.name
+		case *def:     sym = t.name
+		case *builtin: sym = t.name
+		case *word:    sym = t.s
+		case *decimal: sym = t.sym; if sym == symEmpty { sym = intern(t.String()) }
+		default:       sym = intern(ident(s.Context, x))
+		}
+
+		// 2. Universal Local Shadowing / Macro Context Check
+		if d := auto_find(s.Context, sym); d != nil && d != x && d.value != nil {
+			res = d
+		} else {
+			// 3. Standard Fallback Resolution
+			switch x.(type) {
+			case *def, *builtin, *rule:
+				res = x
+			default:
+				if isClosure {
+					if isRuleEnt {
+						if t := closure_entry(s.Context, x); t.valid() { res = t }
 					} else {
-						// FORWARD STREAMING: Push N-1 to 0.
-						for i := len(seq) - 1; i >= 0; i-- { shatter(seq[i]) }
+						if t := closure_resolve(s.Context, sym); t != nil { res = t }
 					}
 				} else {
-					pushSym(sym)
+					if isRuleEnt {
+						if t := project_entry(s.Context, x); t.valid() { res = t }
+					} else {
+						if t := project_resolve(s.Context, sym); t != nil { res = t }
+					}
 				}
 			}
 		}
+		s.results = append(s.results, x, res)
 
-		pushSym = func(sym Symbol) {
-			s.operands = append(s.operands, sym)
-			if s.tie != nil {
-				// MATCHER MODE: Inject unverified pattern onto the IN tape!
-				s.ops = append(s.ops, opMatchLiteral) // Zero operands needed!
-			} else {
-				// GENERATOR MODE: Emit verified data directly to the OUT tape!
-				s.ops = append(s.ops, opEmitSym)
+	case opFullname:
+		v := s.operands[l-1].(Value)
+		s.operands = s.operands[:l-1]
+
+		if !isTrivial(v) {
+			if f := as_file(s.Context, v); f != nil {
+				if truly(s.Context, wants_fullfile{}) {
+					s.results = append(s.results, _loc(fullfile{f}, v.Pos()))
+					break _op_switch_
+				}
+				s.results = append(s.results, _loc(fullname{f}, v.Pos()))
+				break _op_switch_
 			}
 		}
+		s.results = append(s.results, fullname{v})
 
-		switch v := val.(type) {
-		case *loc:      pushVal(v.Value)
-		case *defcaps:  pushVal(v.Value)
-		case fullname:
-			if truly(s.Context, is_com_ctx{}) {
-				pushVal(v.Value)
+	case opDisjunct:
+		ex := s.operands[l-1].(Value)
+		v := s.operands[l-2].(*disjunction)
+		s.operands = s.operands[:l-2]
+
+		var vals []Value
+		var flattened []Value
+		if lst, ok := ex.(*list); ok {
+			flattened = lst.elems
+		} else if _, ok := ex.(*null); !ok {
+			flattened = []Value{ex}
+		}
+
+		for _, val := range flattened { vals = append(vals, redis(val)) }
+
+		var res Value
+		switch len(vals) {
+		case 0 : res = _null(v.Pos())
+		case 1 : res = vals[0]
+		default: res = &list{elements{vals}}
+		}
+		s.results = append(s.results, res)
+
+	case opConjunct:
+		cons := s.operands[l-1].([]any)
+		v := s.operands[l-2].(*conjunction)
+		s.operands = s.operands[:l-2]
+
+		sep := cons[0].(Value)
+
+		var vals []Value
+		for i := 1; i < len(cons); i++ {
+			vals = append(vals, cons[i].(Value))
+		}
+
+		_, dynamicVals := _redis_elems(vals)
+		_, dynamicSep := _redis(sep)
+
+		var res Value
+		if dynamicVals || dynamicSep {
+			res = &conjunction{list{elements{vals}}, sep}
+		} else {
+			var valid []Value
+			for _, val := range vals {
+				if !isEmpty(val) { valid = append(valid, val) }
+			}
+			if len(valid) == 0 {
+				res = _null(v.list.Pos())
 			} else {
-				resolved := expand(s.Context, v.Value)
-				if !isTrivial(resolved) {
-					if f := as_file(s.Context, resolved); f != nil {
-						if truly(s.Context, wants_fullfile{}) {
-							pushVal(_loc(fullfile{f}, resolved.Pos()))
-							break
-						}
-						pushVal(_loc(fullname{f}, resolved.Pos()))
+				c := &compound{}
+				c.app(valid[0])
+				if sep != nil {
+					for _, val := range valid[1:] { c.app(sep, val) }
+				} else {
+					for _, val := range valid[1:] { c.app(val) }
+				}
+				res = c
+			}
+		}
+		s.results = append(s.results, res)
+
+	case opTraverse:
+
+	case opRule:
+		target := s.operands[l-1].(Value)
+		r := s.operands[l-2].(*rule)
+		s.operands = s.operands[:l-2]
+		s.results = append(s.results, &rule{target, r.arged, r.program})
+
+	case opUnloc:
+		n := s.operands[l-1].(int)
+		s.operands = s.operands[:l-1]
+
+		for i := rl - n; i < rl; i++ {
+			if v, ok := s.results[i].(Value); ok && v != nil {
+				base := v
+				// Peer through *loc wrappers safely
+				for {
+					if locNode, ok := base.(*loc); ok {
+						base = locNode.Value
+					} else {
 						break
 					}
 				}
-				pushVal(fullname{resolved})
-			}
-		case fullfile:
-			if truly(s.Context, is_com_ctx{}) { pushVal(v.file) } else { pushVal(v) }
-		case flag:
-			if reverse {
-				pushSym(symDash)
-				if v.Value != nil { pushVal(v.Value) }
-			} else {
-				if v.Value != nil { pushVal(v.Value) }
-				pushSym(symDash)
-			}
-		case *compound:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-		case *qualword:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ {
-					pushVal(v.elems[i])
-					if i < len(v.elems)-1 { pushSym(symDot) }
-				}
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- {
-					pushVal(v.elems[i])
-					if i > 0 { pushSym(symDot) }
+				// ONLY strip the wrapper if it's hiding a list!
+				// This preserves *loc for scalar values so diagnostics stay accurate.
+				if _, isList := base.(*list); isList {
+					s.results[i] = base
 				}
 			}
-		case *path:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ {
-					pushVal(v.elems[i])
-					if i < len(v.elems)-1 { pushSym(symSlash) }
+		}
+
+	case opLoc:
+		// We guarantee the value is in s.results because opUnroll strictly uses opRet
+		pos := s.operands[l-1].(Pos)
+		s.operands = s.operands[:l-1]
+		if rl > 0 {
+			switch t := s.results[rl-1].(type) {
+			case Value:
+				if _, isLoc := t.(*loc); !isLoc { s.results[rl-1] = _loc(t, pos) }
+			case []Value:
+				for i, v := range t {
+					if _, isLoc := v.(*loc); !isLoc { t[i] = _loc(v, pos) }
 				}
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- {
-					pushVal(v.elems[i])
-					if i > 0 { pushSym(symSlash) }
-				}
+			default:
+				erro(pc(s.Context, pos), "unexpected %s", ts(t, s))
 			}
-		case *strcomp:
-			if truly(s.Context, ex_path_str{}) {
-				pushVal(&strcomp{elements{_pathStr(s.Context, __string(s.Context, v)).elems}})
-			} else {
-				pushSym(symQuotation)
+		}
+
+	case opLocPack:
+		// We guarantee the value is in s.vmpack because opUnrollPack strictly uses opRetPack
+		pos := s.operands[l-1].(Pos)
+		s.operands = s.operands[:l-1]
+		if s.vmpack != nil {
+			// shift() deposits values into the vmpack's comp elements buffer.
+			// We intercept the most recently deposited value based on the stream direction.
+			if elems := s.vmpack.comp.elems; len(elems) > 0 {
 				if reverse {
-					for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
+					// In reverse mode, shift() prepends to the slice
+					if _, isLoc := elems[0].(*loc); !isLoc {
+						elems[0] = _loc(elems[0], pos)
+					}
 				} else {
-					for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-				}
-				pushSym(symQuotation)
-			}
-
-		case *globbrace:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *globmeta:
-			if s.tie != nil {
-				switch v.sym {
-				case symQues:         s.ops = append(s.ops, opGlobQues    ); s.class |= clsGlobChar
-				case symAsterisk:     s.ops = append(s.ops, opGlobAsterisk); s.class |= clsGlobAst
-				case symAsteriskAst:  s.ops = append(s.ops, opGlobAstGreed); s.class |= clsGlobAstGreed
-				case symAsteriskQues: s.ops = append(s.ops, opGlobAstCross); s.class |= clsGlobAstCross
-				}
-			} else {
-				switch v.sym {
-				case symQues:         pushEmit(symQues        ); s.class |= clsGlobChar
-				case symAsterisk:     pushEmit(symAsterisk    ); s.class |= clsGlobAst
-				case symAsteriskAst:  pushEmit(symAsteriskAst ); s.class |= clsGlobAstGreed
-				case symAsteriskQues: pushEmit(symAsteriskQues); s.class |= clsGlobAstCross
-				}
-			}
-
-		case *globrange:
-			s.class |= clsGlobChar
-			if s.tie != nil {
-				s.ops = append(s.ops, opGlobRange)
-				s.operands = append(s.operands, v)
-			} else {
-				// Natively build the `[a-z]` structure on the Pattern Tape using pure pushEmit!
-				// We do NOT use pushSym because we don't want opMatchLiteral executing on the brackets.
-				pushEmit(symLbrack)
-				pushVal(v.Value)
-				pushEmit(symRbrack)
-			}
-
-		case *percpat:
-			s.class |= clsGlobAstGreed // % behaves like **
-			if stems := _stems(s.Context); stems != nil && len(stems) > 0 {
-				res, rest := stencil(s.Context, v, stems)
-				if len(rest) != 0 { erro(pc(s.Context, v.pos), "%v %v → %v %v", stems, v, res, rest) }
-				pushVal(res)
-				break
-			}
-			count := 1
-			suffix := v.Suffix
-			for {
-				if x, yes := suffix.(*percpat); yes {
-					if _, yes = x.Prefix.(valbase); yes {
-						count++
-						suffix = x.Suffix
-						continue
+					// In normal mode, shift() appends to the slice
+					last := len(elems) - 1
+					if _, isLoc := elems[last].(*loc); !isLoc {
+						elems[last] = _loc(elems[last], pos)
 					}
 				}
-				break
 			}
-			if suffix != nil && !isEmpty(suffix) { pushVal(suffix) }
-			if s.tie != nil {
-				s.ops = append(s.ops, opGlobAstGreed)
-			} else {
-				for i := 0; i < count; i++ { pushEmit(symPercent) }
-			}
-			if v.Prefix != nil && !isEmpty(v.Prefix) { pushVal(v.Prefix) }
+		}
 
-		case *regexpat:
-			s.class |= clsRegex
-			if s.tie != nil {
-				s.ops = append(s.ops, opRegexMatch)
-				s.operands = append(s.operands, v.re)
-			} else {
-				shatter(intern(v.re.String()))
-			}
+	case opNegate:
+		vals := s.results[rl-1].([]Value)
 
-		case *list:
-			if v.len() == 1 {
-				pushVal(v.elems[0])
-			} else {
+		var flags []Value
+		for _, v := range vals {
+			flags = append(flags, negative{v})
+		}
+
+		// Safe Stack Reduction
+		switch len(flags) {
+		case 0 : s.results[rl-1] = nil
+		case 1 : s.results[rl-1] = flags[0]
+		default: s.results[rl-1] = &list{elements{flags}}
+		}
+
+	case opFlag:
+		vals := s.results[rl-1].([]Value)
+
+		var flags []Value
+		for _, v := range vals {
+			flags = append(flags, flag{v})
+		}
+
+		// Safe Stack Reduction
+		switch len(flags) {
+		case 0 : s.results[rl-1] = nil
+		case 1 : s.results[rl-1] = flags[0]
+		default: s.results[rl-1] = &list{elements{flags}}
+		}
+
+	case opPair:
+		// Unconditionally type-assert because opMerge guarantees []Value!
+		keys := s.results[rl-1].([]Value)
+		vals := s.results[rl-2].([]Value)
+
+		// Cartesian Cross-Multiplication
+		var pairs []Value
+		for _, k := range keys {
+			for _, v := range vals {
+				pairs = append(pairs, &pair{k, v})
+			}
+		}
+
+		// Safe Stack Reduction
+		switch len(pairs) {
+		case 0 : s.results[rl-2] = nil
+		case 1 : s.results[rl-2] = pairs[0]
+		default: s.results[rl-2] = &list{elements{pairs}}
+		}
+
+		// Clean up the consumed keys slot
+		s.results = s.results[:rl-1]
+
+	case opCompose: s.op_compose(l)
+	case opSelect: s.op_select(l)
+	case opUnroll: s.op_unroll(l, opRet)
+	case opUnrollPack: s.op_unroll(l, opRetPack)
+	case opUnrollMatch: s.op_unroll_match(l) // Keeps its specialized literal-emitting Matcher logic
+	case opEvoke: s.op_evoke(l)
+	case opEvokeRet:
+		pos := s.operands[l-1].(Pos)
+		s.operands = s.operands[:l-1]
+		s.evoking = s.evoking[:len(s.evoking)-1]
+		if rl > 0 {
+			var res Value
+			if v := s.results[rl-1]; v != nil { res = v.(Value) }
+			if res == nil { res = _null(pos) } else { res = _loc(res, pos) }
+			s.results[rl-1] = res
+		} else {
+			s.results = append(s.results, _null(pos))
+		}
+
+	case opRet:
+		switch t := s.operands[l-1].(type) {
+		case Symbol:
+			pos := s.operands[len(s.operands)-2].(Pos)
+			s.operands = s.operands[:len(s.operands)-2]
+
+			if t == symEmpty {
+				// Discarded!
+			} else if t.Kind() == SymSeq {
+				vocab.seqmut.RLock()
+				seq := vocab.sequences[t.Idx()]
+				vocab.seqmut.RUnlock()
+
 				if reverse {
-					pushSym(symLtopcorner)
-					for i := 0; i < len(v.elems); i++ {
-						pushVal(v.elems[i])
-						if i < len(v.elems)-1 { pushSym(symSpace) }
+					for _, sym := range seq {
+						s.ops = append(s.ops, opRet)
+						s.operands = append(s.operands, pos, sym)
 					}
-					pushSym(symRbotcorner)
 				} else {
-					pushSym(symRbotcorner)
-					for i := len(v.elems) - 1; i >= 0; i-- {
-						pushVal(v.elems[i])
-						if i > 0 { pushSym(symSpace) }
-					}
-					pushSym(symLtopcorner)
-				}
-			}
-
-		case *punct:
-			pushSym(v.s)
-			
-		case *word:
-			shatter(v.s)
-
-		// ==========================================
-		// MACRO EXPANSIONS FUSED FROM EXPAND()
-		// ==========================================
-		case *auto:
-			if dval := v.def(s.Context); dval == nil || isTrivial(dval) {
-				if truly(s.Context, keep_autos{}) { s.do(s.Context, act_defer_macro{}) }
-				shatter(__symbol(s, v))
-			} else {
-				pushVal(_loc(dval, v.pos))
-			}
-
-		case *builtin:
-			var scope arg_expansion_scope
-			switch v.name {
-			case symAuto:
-				scope.force_collapse = true
-				scope.skip_expansion = map[int]struct{}{-1: {}}
-			case symForeach, symGrep:
-				scope.force_collapse = true
-				scope.skip_expansion = map[int]struct{}{1: {}}
-			case symAddprefix, symAddsuffix, symJoin, symConjunct:
-				scope.force_collapse = true
-			}
-			s.do(s.Context, scope)
-			shatter(__symbol(s, v))
-
-		case *delegate:
-			var dx = delegate_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
-			var x = v.resolve(&dx)
-			var o = expands(&dx, v.o...)
-			var a = dx.args(&dx, v.a)
-			var vals []Value
-
-			if dx.force_collapse || dx.good_to_collapse {
-				for _, xv := range x {
-					var cc = evoke_ctx{s.Context, false}
-					var rv = evoke(&cc, xv, o, a) // FIXME: implement opEvoke to replace `evoke(...)`
-					if cc.noop {
-						if !isNull(xv) && truly(s.Context, keep_autos{}) {
-							dv := &delegate{v.valbase, v.l, xv, o, a}
-							vals = append(vals, dv)
-							s.do(s.Context, dv)
-						} else {
-							vals = append(vals, _null(v.pos))
-						}
-					} else if rv == nil {
-						vals = append(vals, _null(v.pos))
-					} else {
-						vals = append(vals, _loc(rv, v.pos))
+					for i := len(seq)-1; i >= 0; i-- {
+						s.ops = append(s.ops, opRet)
+						s.operands = append(s.operands, pos, seq[i])
 					}
 				}
+				break _op_switch_
 			} else {
-				if !dx.good_to_collapse { s.do(s.Context, act_defer_macro{}) }
-				for _, xv := range x {
-					if isNull(xv) {
-						vals = append(vals, _null(v.pos))
-					} else {
-						dv := &delegate{v.valbase, v.l, xv, o, a}
-						vals = append(vals, dv)
-						s.do(s.Context, dv)
-					}
-				}
-			}
-			if res := ease(s.Context, vals); res != nil { pushVal(res) }
-
-		case *closure:
-			var cx = closure_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
-			var x = v.resolve(&cx)
-			var o = expands(&cx, v.o...)
-			var a = cx.args(&cx, v.a)
-			var vals []Value
-
-			if cx.force_collapse || (cx.good_to_collapse && truly(s.Context, ex_closure{})) {
-				for _, xv := range x {
-					var cc = evoke_ctx{s.Context, false}
-					var rv = evoke(&cc, xv, o, a) // FIXME: implement opEvoke to replace `evoke(...)`
-					if cc.noop || rv == nil {
-						if !isNull(xv) && truly(s.Context, keep_autos{}) {
-							cv := &closure{delegate{v.valbase, v.l, xv, o, a}}
-							vals = append(vals, cv)
-							s.do(s.Context, cv)
-						} else {
-							vals = append(vals, _null(v.pos))
-						}
-					} else {
-						vals = append(vals, _loc(rv, v.pos))
-					}
-				}
-			} else {
-				if !cx.good_to_collapse { s.do(s.Context, act_defer_macro{}) }
-				for _, xv := range x {
-					if isNull(xv) {
-						vals = append(vals, _null(v.pos))
-					} else {
-						cv := &closure{delegate{v.valbase, v.l, xv, o, a}}
-						vals = append(vals, cv)
-						s.do(s.Context, cv)
-					}
-				}
-			}
-			if res := ease(s.Context, vals); res != nil { pushVal(res) }
-
-		case *arrow:
-			var vals []Value
-			var p0 = v.Pos()
-			var _, lhs_is_opt = selprop(s.Context, v.o)
-			var os = selobjs(s.Context, v.t, expand(s.Context, v.o))
-			var ss = merge(expand(s.Context, v.s))
-			for _, o := range os {
-				for _, st := range ss {
-					var p = st.Pos()
-					var prop_sym, is_opt = selprop(s.Context, st)
-					var prop = sel(s.Context, o, prop_sym)
-					switch res := prop.(type) {
-					case nil:
-						if is_opt || lhs_is_opt || optional(st) || optional(o) {
-							if truly(s.Context, keep_autos{}) {
-								s.do(s.Context, act_defer_macro{})
-								var actual_o = o
-								for {
-									if l, ok := actual_o.(*loc); ok { actual_o = l.Value; continue }
-									if d, ok := actual_o.(*def); ok {
-										if d.value != nil { actual_o = d.value; continue }
-									}
-									break
-								}
-								vals = append(vals, &arrow{v.valbase, v.t, actual_o, st})
-							} else {
-								vals = append(vals, _loc(_null(p), p0))
-							}
-						} else {
-							erro(pc(s.Context, p), "%v: no such property '%s'", o, prop_sym, trace_ctx{100}, callstack{num: 12})
-							vals = append(vals, _loc(_null(p), p0))
-						}
-					default:
-						vals = append(vals, _loc(_loc(res, p), p0))
-					}
-				}
-			}
-			if res := ease(s.Context, vals); res != nil { pushVal(res) }
-
-		case *conjunction:
-			sep, vals := expand(s.Context, v.sep), expands(s.Context, v.list.elems...)
-			_, dynamicVals := _redis_elems(vals)
-			_, dynamicSep := _redis(sep)
-
-			if dynamicVals || dynamicSep {
-				pushVal(&conjunction{list{elements{vals}}, sep})
-			} else {
-				var valid []Value
-				for _, val := range vals {
-					if !isEmpty(val) { valid = append(valid, val) }
-				}
-				if len(valid) == 0 {
-					pushVal(_null(v.list.Pos()))
-				} else {
-					c := &compound{}
-					c.app(valid[0])
-					if sep != nil {
-						for _, val := range valid[1:] { c.app(sep, val) }
-					} else {
-						for _, val := range valid[1:] { c.app(val) }
-					}
-					pushVal(c)
-				}
+				s.syms = append(s.syms, t)
+				if length := t.len(); s.class&clsBackwards != 0 { s.boundary -= length } else { s.boundary += length }
+				if t == symSlash { s.class &^= clsGlobChar | clsGlobAst }
 			}
 
-		case *disjunction:
-			var vals []Value
-			for _, val := range merge(expand(s.Context, v.val)) { vals = append(vals, redis(val)) }
-			if res := ease(s.Context, vals); res != nil { pushVal(res) }
+		case Value:
+			s.operands = s.operands[:l-1]
+			s.op_ret_value(l, t) // Enters Pure Generator Emitter
 
-		case *file:
-			if truly(s.Context, wants_fullfile{}) {
-				pushVal(fullfile{v})
-			} else {
-				shatter(__symbol(s, v))
+		case []any:
+			s.operands = s.operands[:l-1]
+			switch len(t) {
+			case 0:
+				s.ops = append(s.ops, opRet)
+				s.operands = append(s.operands, _null(0))
+			case 1:
+				s.ops = append(s.ops, opRet)
+				s.operands = append(s.operands, t[0].(Value))
+			default:
+				lst := &list{}
+				for _, elem := range t { lst.append(elem.(Value)) }
+				s.ops = append(s.ops, opRet)
+				s.operands = append(s.operands, lst)
 			}
 
-		case *rule:
-			if tgt := expand(s.Context, v.target); !equal(s.Context, tgt, v.target) {
-				pushVal(&rule{tgt, v.arged, v.program})
-			} else {
-				shatter(__symbol(s, v))
-			}
-
-		case *stemmed_rule:
-			if r := expand(s.Context, v.rule).(*rule); r != v.rule {
-				pushVal(&stemmed_rule{r, v.target, v.stems})
-			} else {
-				shatter(__symbol(s, v))
-			}
-
-		case matched_rule:
-			pushVal(matched_rule{expand(s.Context, v.rule).(*rule), expand(s.Context, v.value)})
-
-		case negative:
-			pushVal(v.Value)
-
-		case *quote:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *group:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *recipe:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *plain:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *plainline:
-			if reverse {
-				for i := 0; i < len(v.elems); i++ { pushVal(v.elems[i]) }
-			} else {
-				for i := len(v.elems) - 1; i >= 0; i-- { pushVal(v.elems[i]) }
-			}
-
-		case *argumented:
-			if reverse {
-				for i := 0; i < len(v.args); i++ { pushVal(v.args[i]) }
-				pushVal(v.Value)
-			} else {
-				for i := len(v.args) - 1; i >= 0; i-- { pushVal(v.args[i]) }
-				pushVal(v.Value)
-			}
-
-		case *url:
-			if reverse {
-				pushVal(v.Fragment)
-				for i := 0; i < len(v.Query); i++ { pushVal(v.Query[i]) }
-				pushVal(v.Path)
-				pushVal(v.Port)
-				pushVal(v.Host)
-				pushVal(v.Password)
-				pushVal(v.Username)
-				pushVal(v.Scheme)
-			} else {
-				pushVal(v.Scheme)
-				pushVal(v.Username)
-				pushVal(v.Password)
-				pushVal(v.Host)
-				pushVal(v.Port)
-				pushVal(v.Path)
-				for i := len(v.Query) - 1; i >= 0; i-- { pushVal(v.Query[i]) }
-				pushVal(v.Fragment)
-			}
-
-		case *use:
-			if reverse {
-				for i := 0; i < len(v.params); i++ { pushVal(v.params[i]) }
-				pushVal(v.project)
-			} else {
-				pushVal(v.project)
-				for i := len(v.params) - 1; i >= 0; i-- { pushVal(v.params[i]) }
-			}
-
-		case *uselist:
-			if reverse {
-				for i := 0; i < len(v.list); i++ { pushVal(v.list[i]) }
-			} else {
-				for i := len(v.list) - 1; i >= 0; i-- { pushVal(v.list[i]) }
-			}
-
-		case *modifier:
-			pushVal(modify(s.Context, &v.group, false))
-
-		case *modification:
-			var va []Value
-			for _, m := range v.list {
-				if ex := expand(s.Context, m); ex != nil { va = append(va, ex) }
-			}
-			if res := ease(s.Context, va); res != nil { pushVal(res) }
-
-		case *undetermined:
-			if reverse {
-				pushVal(v.value)
-				pushVal(v.identifier)
-			} else {
-				pushVal(v.identifier)
-				pushVal(v.value)
-			}
-
-		case *strlit:
-			if truly(s.Context, ex_path_str{}) {
-				pushVal(_pathStr(s.Context, v.s))
-			} else {
-				shatter(__symbol(s, v))
-			}
-
-		case *strval:
-			if truly(s.Context, ex_path_str{}) {
-				pushVal(&strval{v.valbase, _pathStr(s.Context, __string(s.Context, v)).elems})
-			} else {
-				if reverse {
-					for i := 0; i < len(v.v); i++ { pushVal(v.v[i]) }
-				} else {
-					for i := len(v.v) - 1; i >= 0; i-- { pushVal(v.v[i]) }
-				}
-			}
-
-		case *pair:
-			if reverse {
-				pushVal(v.val)
-				pushSym(symEqualSign)
-				pushVal(v.key)
-			} else {
-				pushVal(v.key)
-				pushSym(symEqualSign)
-				pushVal(v.val)
-			}
+		case nil:
+			s.operands = s.operands[:l-1]
 
 		default:
-			shatter(__symbol(s, v))
+			erro(s, "unexpected return: %[1]T %[1]v", t)
+		}
+
+	case opRetPack:
+		switch t := s.operands[l-1].(type) {
+		case Symbol:
+			pos := s.operands[len(s.operands)-2].(Pos)
+			s.operands = s.operands[:len(s.operands)-2]
+
+			if t == symEmpty {
+				// Discarded!
+			} else if t.Kind() == SymSeq {
+				vocab.seqmut.RLock()
+				seq := vocab.sequences[t.Idx()]
+				vocab.seqmut.RUnlock()
+
+				if reverse {
+					for _, sym := range seq {
+						s.ops = append(s.ops, opRetPack)
+						s.operands = append(s.operands, pos, sym)
+					}
+				} else {
+					for i := len(seq)-1; i >= 0; i-- {
+						s.ops = append(s.ops, opRetPack)
+						s.operands = append(s.operands, pos, seq[i])
+					}
+				}
+				break _op_switch_
+			} else {
+				if s.vmpack == nil { s.vmpack = &vmpack{} }
+
+				if pos == NoPos {
+					var start, end int
+					if s.class&clsBackwards != 0 {
+						start, end = s.boundary-t.len(), s.boundary
+					} else {
+						start, end = s.boundary, s.boundary+t.len()
+					}
+					pos = s.posInRange(start, end)
+				}
+				s.pack(pos, t)
+
+				if length := t.len(); s.class&clsBackwards != 0 { s.boundary -= length } else { s.boundary += length }
+				if t == symSlash { s.class &^= clsGlobChar | clsGlobAst }
+			}
+
+		case Value:
+			s.operands = s.operands[:l-1]
+			if s.vmpack == nil { s.vmpack = &vmpack{} }
+			s.shift(t, reverse)
+
+		case []any:
+			s.operands = s.operands[:l-1]
+			switch len(t) {
+			case 0:
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, _null(0))
+			case 1:
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, t[0].(Value))
+			default:
+				lst := &list{}
+				for _, elem := range t { lst.append(elem.(Value)) }
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, lst)
+			}
+
+		case nil:
+			s.operands = s.operands[:l-1]
+
+		default:
+			erro(s, "unexpected return: %[1]T %[1]v", t)
+		}
+
+	case opRetMatch:
+		switch t := s.operands[l-1].(type) {
+		case Symbol:
+			pos := s.operands[len(s.operands)-2].(Pos)
+			s.operands = s.operands[:len(s.operands)-2]
+
+			if t == symEmpty {
+				// Discarded!
+			} else if t.Kind() == SymSeq {
+				vocab.seqmut.RLock()
+				seq := vocab.sequences[t.Idx()]
+				vocab.seqmut.RUnlock()
+
+				if reverse {
+					for _, sym := range seq {
+						s.ops = append(s.ops, opRetMatch)
+						s.operands = append(s.operands, pos, sym)
+					}
+				} else {
+					for i := len(seq)-1; i >= 0; i-- {
+						s.ops = append(s.ops, opRetMatch)
+						s.operands = append(s.operands, pos, seq[i])
+					}
+				}
+				break _op_switch_
+			} else if pos != NoPos {
+				s.ops = append(s.ops, opMatchLiteral)
+				s.operands = append(s.operands, pos, t)
+				break _op_switch_
+			} else {
+				// NoPos fallback (Identical alignment to opRet to preserve capture mechanics)
+				s.syms = append(s.syms, t)
+				if length := t.len(); s.class&clsBackwards != 0 { s.boundary -= length } else { s.boundary += length }
+				if t == symSlash { s.class &^= clsGlobChar | clsGlobAst }
+			}
+
+		case Value:
+			s.operands = s.operands[:l-1]
+			s.op_ret_match(l, t) // Enters Pure Matcher Emitter
+
+		case []any:
+			s.operands = s.operands[:l-1]
+			switch len(t) {
+			case 0:
+				s.ops = append(s.ops, opRetMatch)
+				s.operands = append(s.operands, _null(0))
+			case 1:
+				s.ops = append(s.ops, opRetMatch)
+				s.operands = append(s.operands, t[0].(Value))
+			default:
+				lst := &list{}
+				for _, elem := range t { lst.append(elem.(Value)) }
+				s.ops = append(s.ops, opRetMatch)
+				s.operands = append(s.operands, lst)
+			}
+
+		case nil:
+			s.operands = s.operands[:l-1]
+
+		default:
+			erro(s, "unexpected return match: %[1]T %[1]v", t)
 		}
 
 	case opEnd:
 		s.err = io.EOF
 	}
 
-	// === TELEMETRY TRACKING (DEEPEST INSTRUCTION WATERMARK - HIGH-WATERMARK) ===
 	if s.err == nil && s.tie != nil {
-		// THE DOD FIX: Completed Match Override
-		// A fully exhausted pattern (len(s.ops) == 0) is a verified prefix match.
-		// It is mathematically superior to any failed speculation, even if the failed
-		// speculation consumed more physical target symbols (higher tie.boundary).
-		// We MUST force the telemetry to lock in the verified stems!
 		if len(s.ops) == 0 || better(s.tie.boundary) {
 			s.bestOpsDone = s.opsDone
 			s.stopTieBoundary = s.tie.boundary
 			if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-
-			// THE DOD FIX: Safely clone stems without clearing the timeline's accumulation!
 			s.bestStems = append(s.bestStems[:0], s.stems...)
 		}
 	}
@@ -4562,39 +6699,49 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 	}
 
 	// Snapshot 'own'
-	if (kind & undoStack) != 0 { bt.own.vmstack = s.vmstack.clone() }
-	if (kind & undoOwn) != 0 { bt.own.vmhead = s.vmhead }
-	if (kind & undoPack) != 0 { bt.own.vmpack = s.vmpack }
-	if (kind & undoErr) != 0 { bt.own.err = s.err }
-	if (kind & undoTape) != 0 {
-		bt.own.syms = s.syms
-		bt.own.intervals = s.intervals
-	}
-	if (kind & undoStems) != 0 {
-		bt.own.stems = s.stems
-		if len(s.stems) > 0 { bt.own.activeStem = s.stems[len(s.stems)-1] }
+	if (kind & undoOwn) != 0 {
+		if (kind & undoCtx) != 0 { bt.own.context = s.Context }
+		if (kind & undoStack) != 0 { bt.own.vmstack = s.vmstack.clone() }
+		if (kind & undoHead) != 0 { bt.own.vmhead = s.vmhead }
+		if (kind & undoPack) != 0 { if s.vmpack != nil { bt.own.vmpack = s.vmpack.clone() } }
+		if (kind & undoErr) != 0 { bt.own.err = s.err }
+		if (kind & undoTape) != 0 {
+			bt.own.str = s.str
+			bt.own.syms = s.syms
+			bt.own.intervals = s.intervals
+			bt.own.boundary = s.boundary // CRITICAL FIX: Snapshot tape boundary!
+		}
+		if (kind & undoStems) != 0 {
+			bt.own.stems = s.stems
+			if len(s.stems) > 0 { bt.own.activeStem = s.stems[len(s.stems)-1] }
 
-		// THE DOD FIX: Flawlessly snapshot the Telemetry High-Watermark!
-		bt.own.vmwm = s.vmwm
-		bt.own.vmwm.bestStems = append([]capture(nil), s.bestStems...)
-		if s.bestPack != nil { bt.own.vmwm.bestPack = s.bestPack.clone() }
+			bt.own.vmwm = s.vmwm
+			bt.own.vmwm.bestStems = append([]capture(nil), s.bestStems...)
+			if s.bestPack != nil { bt.own.vmwm.bestPack = s.bestPack.clone() }
+		}
 	}
 
 	// Snapshot 'tie' (The Target Tape VM)
 	if (kind & undoTie) != 0 && s.tie != nil {
-		bt.tie.vmhead = s.tie.vmhead
-		bt.tie.vmstack = s.tie.vmstack.clone() // THE SILVER BULLET: Prevent Target Amnesia!
-		bt.tie.vmpack = s.tie.vmpack
-		bt.tie.syms = s.tie.syms
-		bt.tie.intervals = s.tie.intervals
-		bt.tie.stems = s.tie.stems
-		if len(s.tie.stems) > 0 { bt.tie.activeStem = s.tie.stems[len(s.tie.stems)-1] }
-		bt.tie.err = s.tie.err
+		if (kind & undoCtx) != 0 { bt.tie.context = s.tie.Context }
+		if (kind & undoStack) != 0 { bt.tie.vmstack = s.tie.vmstack.clone() }
+		if (kind & undoHead) != 0 { bt.tie.vmhead = s.tie.vmhead }
+		if (kind & undoPack) != 0 { if s.tie.vmpack != nil { bt.tie.vmpack = s.tie.vmpack.clone() } }
+		if (kind & undoErr) != 0 { bt.tie.err = s.tie.err }
+		if (kind & undoTape) != 0 {
+			bt.tie.str = s.tie.str
+			bt.tie.syms = s.tie.syms
+			bt.tie.intervals = s.tie.intervals
+			bt.tie.boundary = s.tie.boundary // CRITICAL FIX: Snapshot target tape boundary!
+		}
+		if (kind & undoStems) != 0 {
+			bt.tie.stems = s.tie.stems
+			if len(s.tie.stems) > 0 { bt.tie.activeStem = s.tie.stems[len(s.tie.stems)-1] }
 
-		// Perfect isolation of the Target's telemetry
-		bt.tie.vmwm = s.tie.vmwm
-		bt.tie.vmwm.bestStems = append([]capture(nil), s.tie.bestStems...)
-		if s.tie.bestPack != nil { bt.tie.vmwm.bestPack = s.tie.bestPack.clone() }
+			bt.tie.vmwm = s.tie.vmwm
+			bt.tie.vmwm.bestStems = append([]capture(nil), s.tie.bestStems...)
+			if s.tie.bestPack != nil { bt.tie.vmwm.bestPack = s.tie.bestPack.clone() }
+		}
 	}
 
 	return bt
@@ -4604,16 +6751,12 @@ func (s *symstr) checkpoint(kind uint32) backtrack {
 func (s *symstr) unwind(bt *backtrack) {
 	if bt == nil && len(s.backtracks) == 0 {
 		if s.err == nil {
-			debug(s, "unwind: no backtracks, no err set; syms=%v ops=%v",
-				s.syms, s.ops, callstack{num: 5})
+			debug(s, "unwind: no backtracks, no err set; syms=%v ops=%v", s.syms, s.ops, callstack{num: 5})
 		} else {
-			debug(s, "unwind: no backtracks; syms=%v ops=%v, err=%v",
-				s.syms, s.ops, s.err, callstack{num: 5})
+			debug(s, "unwind: no backtracks; syms=%v ops=%v, err=%v", s.syms, s.ops, s.err, callstack{num: 5})
 		}
 		return
 	}
-
-	s.err = nil // Clear error to resurrect the timeline
 
 	// Pop the latest instruction if no specific backtrack is provided
 	if bt == nil {
@@ -4626,47 +6769,57 @@ func (s *symstr) unwind(bt *backtrack) {
 	s.class = bt.class
 
 	// Restore 'own'
-	if (bt.kind & undoOwn) != 0 { s.vmhead = bt.own.vmhead }
-	if (bt.kind & undoPack) != 0 { s.vmpack = bt.own.vmpack }
-	if (bt.kind & undoStack) != 0 { s.vmstack.restore(bt.own.vmstack) }
-	if (bt.kind & undoErr) != 0 { s.err = bt.own.err }
-	if (bt.kind & undoTape) != 0 {
-		s.syms = bt.own.syms
-		s.intervals = bt.own.intervals
-	}
-	if (bt.kind & undoStems) != 0 {
-		s.stems = bt.own.stems
-		if len(s.stems) > 0 { s.stems[len(s.stems)-1] = bt.own.activeStem }
-		if bt.altStem.start != -1 { s.stems = append(s.stems, bt.altStem) }
+	if (bt.kind & undoOwn) != 0 {
+		if (bt.kind & undoCtx) != 0 { s.Context = bt.own.context }
+		if (bt.kind & undoHead) != 0 { s.vmhead = bt.own.vmhead }
+		if (bt.kind & undoPack) != 0 { s.vmpack = bt.own.vmpack }
+		if (bt.kind & undoStack) != 0 { if bt.own.vmpack != nil { s.vmpack = bt.own.vmpack.clone() } else { s.vmpack = nil } }
+		if (bt.kind & undoErr) != 0 { s.err = bt.own.err }
+		if (bt.kind & undoTape) != 0 {
+			s.str = bt.own.str
+			s.syms = bt.own.syms
+			s.intervals = bt.own.intervals
+			s.boundary = bt.own.boundary // CRITICAL FIX: Restore tape boundary!
+		}
+		if (bt.kind & undoStems) != 0 {
+			s.stems = bt.own.stems
+			if len(s.stems) > 0 { s.stems[len(s.stems)-1] = bt.own.activeStem }
+			if bt.altStem.start != -1 { s.stems = append(s.stems, bt.altStem) }
 
-		// THE DOD FIX: Restore Telemetry High-Watermark without pointer leaking
-		s.vmwm = bt.own.vmwm
-		s.bestStems = append(s.bestStems[:0], bt.own.vmwm.bestStems...)
-		if bt.own.vmwm.bestPack != nil {
-			s.bestPack = bt.own.vmwm.bestPack.clone()
-		} else {
-			s.bestPack = nil
+			s.vmwm = bt.own.vmwm
+			s.bestStems = append(s.bestStems[:0], bt.own.vmwm.bestStems...)
+			if bt.own.vmwm.bestPack != nil {
+				s.bestPack = bt.own.vmwm.bestPack.clone()
+			} else {
+				s.bestPack = nil
+			}
 		}
 	}
 
 	// Restore 'tie' (The Target Tape VM)
 	if (bt.kind & undoTie) != 0 && s.tie != nil {
-		s.tie.vmhead = bt.tie.vmhead
-		s.tie.vmstack.restore(bt.tie.vmstack) // THE SILVER BULLET: Restore Target VM execution state!
-		s.tie.vmpack = bt.tie.vmpack
-		s.tie.syms = bt.tie.syms
-		s.tie.intervals = bt.tie.intervals
-		s.tie.stems = bt.tie.stems
-		if len(s.tie.stems) > 0 { s.tie.stems[len(s.tie.stems)-1] = bt.tie.activeStem }
-		s.tie.err = bt.tie.err
+		if (bt.kind & undoCtx) != 0 { s.tie.Context = bt.tie.context }
+		if (bt.kind & undoHead) != 0 { s.tie.vmhead = bt.tie.vmhead }
+		if (bt.kind & undoPack) != 0 { s.tie.vmpack = bt.tie.vmpack }
+		if (bt.kind & undoStack) != 0 { if bt.tie.vmpack != nil { s.tie.vmpack = bt.tie.vmpack.clone() } else { s.tie.vmpack = nil } }
+		if (bt.kind & undoErr) != 0 { s.tie.err = bt.tie.err }
+		if (bt.kind & undoTape) != 0 {
+			s.tie.str = bt.tie.str
+			s.tie.syms = bt.tie.syms
+			s.tie.intervals = bt.tie.intervals
+			s.tie.boundary = bt.tie.boundary // CRITICAL FIX: Restore target tape boundary!
+		}
+		if (bt.kind & undoStems) != 0 {
+			s.tie.stems = bt.tie.stems
+			if len(s.tie.stems) > 0 { s.tie.stems[len(s.tie.stems)-1] = bt.tie.activeStem }
 
-		// Perfect isolation of the Target's telemetry
-		s.tie.vmwm = bt.tie.vmwm
-		s.tie.bestStems = append(s.tie.bestStems[:0], bt.tie.vmwm.bestStems...)
-		if bt.tie.vmwm.bestPack != nil {
-			s.tie.bestPack = bt.tie.vmwm.bestPack.clone()
-		} else {
-			s.tie.bestPack = nil
+			s.tie.vmwm = bt.tie.vmwm
+			s.tie.bestStems = append(s.tie.bestStems[:0], bt.tie.vmwm.bestStems...)
+			if bt.tie.vmwm.bestPack != nil {
+				s.tie.bestPack = bt.tie.vmwm.bestPack.clone()
+			} else {
+				s.tie.bestPack = nil
+			}
 		}
 	}
 
@@ -4676,62 +6829,28 @@ func (s *symstr) unwind(bt *backtrack) {
 	if bt.altVal != nil { s.operands = append(s.operands, bt.altVal) }
 }
 
+func (s *symstr) closeIntervals() {
+	for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opCloseInterval { s.step() }
+}
+
+func (s *symstr) ensured_syms() bool {
+	if len(s.str) > 0 {
+		s.syms = append([]Symbol{intern(s.str)}, s.syms...)
+		s.str = ""
+		return true
+	}
+
+	for len(s.syms) == 0 && s.err == nil && len(s.ops) > 0 { s.step() }
+	return len(s.syms) > 0
+}
+
 // pump delegates to step in a controlled evaluation loop.
 func (s *symstr) pump() {
 	snap := len(s.syms) // THE DOD FIX: Snapshot the starting tape length!
-	for s.err == nil {
-		if len(s.ops) > 0 || ((s.class & clsTie) != 0 && s.tie != nil) {
-			if s.step(); len(s.syms) > snap { break } // Only break if a NEW symbol was actually produced!
-		} else {
-			break
-		}
+	for len(s.ops) > 0 && s.err == nil {
+		if s.step(); len(s.syms) > snap { break } // Only break if a NEW symbol was actually produced!
 	}
-}
-
-// exhaust forces the lazy evaluator to complete, fully populating s.syms.
-// For tied pattern streams, it executes the NFA until a valid final state is reached.
-// It returns the high-water mark (furthest byte reached) and the captured stems at that mark.
-func (s *symstr) exhaust() {
-	for s.err == nil {
-		if len(s.ops) > 0 || ((s.class & clsTie) != 0 && s.tie != nil) {
-			s.step()
-			continue
-		}
-
-		if false && s.tie != nil {
-			// === UNIVERSAL TRAILING PASSIVE WILDCARDS ===
-		_ops_subloop_:
-			for len(s.ops) > 0 {
-				switch s.ops[len(s.ops)-1] {
-				case opGlobAsterisk, opGlobAstGreed, opGlobAstCross:
-					s.ops = s.ops[:len(s.ops)-1]
-				default:
-					break _ops_subloop_
-				}
-			}
-		}
-
-		// Prefix Matching vs. Full String Anchoring
-		if false && force_full_match_anchor {
-			if s.tie != nil && !s.tie.exhausted() {
-				// === FORCE FULL MATCH FOR GLOBS ===
-				if (s.class & clsGlobAstCross) != 0 {
-					s.backtracks = nil // Reluctant fails instantly
-				}
-				s.unwind(nil)
-				continue
-			}
-		} else {
-			// === PURE PREFIX MATCHING ===
-		}
-		break // Valid match reached and verified!
-	}
-
-	if s.tie != nil {
-		s.tie.exhaust()
-		s.stopTieBoundary = s.tie.boundary
-		s.stems = s.bestStems
-	}
+	for len(s.ops) > 0 && s.ops[len(s.ops)-1] == opCloseInterval { s.step() }
 }
 
 // exhausted returns true if the engine has successfully completed its
@@ -4758,32 +6877,163 @@ func (s *symstr) push(op evalop, a ...any) {
 	}
 }
 
-// emit caches a symbol for upstream and advances the Write Cursor.
-func (s *symstr) emit(sym Symbol) {
-	s.syms = append(s.syms, sym)
+// pruneIntervals safely evicts structural AST metadata that has fallen behind the sliding window.
+func (s *symstr) pruneIntervals(safeBoundary int) {
+	if len(s.intervals) == 0 {
+		return
+	}
 
-	l := sym.len()
-	if (s.class & clsBackwards) != 0 { s.boundary -= l } else { s.boundary += l }
-	if sym == symSlash { s.class &^= clsGlobChar | clsGlobAst }
+	cutoff := 0
+	// Because intervals are sequentially appended, they are ordered chronologically.
+	// We simply find the first interval that crosses the safe horizon.
+	if s.class&clsBackwards != 0 {
+		// In reverse mode, the boundary goes down. Dead intervals have ends > safeBoundary.
+		for i := 0; i < len(s.intervals); i++ {
+			if s.intervals[i].end <= safeBoundary {
+				cutoff = i
+				break
+			}
+		}
+		if cutoff == 0 && s.intervals[len(s.intervals)-1].end > safeBoundary {
+			s.intervals = s.intervals[:0]
+			return
+		}
+	} else {
+		// Forward mode. Dead intervals have ends < safeBoundary.
+		for i := 0; i < len(s.intervals); i++ {
+			if s.intervals[i].end >= safeBoundary {
+				cutoff = i
+				break
+			}
+		}
+		if cutoff == 0 && s.intervals[len(s.intervals)-1].end < safeBoundary {
+			s.intervals = s.intervals[:0]
+			return
+		}
+	}
+
+	// Reclaim memory instantly by shifting the surviving intervals
+	if cutoff > 0 {
+		copy(s.intervals, s.intervals[cutoff:])
+		s.intervals = s.intervals[:len(s.intervals)-cutoff]
+	}
 }
 
-// pop_tail removes the last emitted symbol and rolls back the Write Cursor.
+// pop_tail removes the last emitted symbol, rolls back the Write Cursor,
+// and truncates any AST intervals that belong to the erased timeline.
 func (s *symstr) pop_tail() Symbol {
 	last := len(s.syms) - 1
 	sym := s.syms[last]
 	s.syms = s.syms[:last]
 
 	l := sym.len()
-	if (s.class & clsBackwards) != 0 { s.boundary += l } else { s.boundary -= l }
+	if s.class&clsBackwards != 0 {
+		s.boundary += l // Rewind: boundary goes UP in reverse mode
+
+		// Truncate invalidated future intervals from the tail
+		for len(s.intervals) > 0 && s.intervals[len(s.intervals)-1].end < s.boundary {
+			s.intervals = s.intervals[:len(s.intervals)-1]
+		}
+	} else {
+		s.boundary -= l // Rewind: boundary goes DOWN in forward mode
+
+		// Truncate invalidated future intervals from the tail
+		for len(s.intervals) > 0 && s.intervals[len(s.intervals)-1].end > s.boundary {
+			s.intervals = s.intervals[:len(s.intervals)-1]
+		}
+	}
+
 	return sym
 }
 
-// pop_head safely consumes the oldest symbol from the window.
-// It deliberately performs NO coordinate math to prevent Read/Write cursor corruption.
+// pop_head safely consumes the oldest symbol from the window and prunes dead AST intervals.
 func (s *symstr) pop_head() Symbol {
 	sym := s.syms[0]
 	s.syms = s.syms[1:]
+
+	// 1. Calculate the absolute stream coordinate of the NEW window head
+	headBoundary := s.boundary
+	if s.class&clsBackwards != 0 {
+		for _, remainingSym := range s.syms {
+			headBoundary += remainingSym.len()
+		}
+	} else {
+		for _, remainingSym := range s.syms {
+			headBoundary -= remainingSym.len()
+		}
+	}
+
+	// 2. Safely evict historical intervals behind this absolute coordinate
+	s.pruneIntervals(headBoundary)
+
 	return sym
+}
+
+// clone securely deep-copies the volatile execution stacks.
+func (st vmstack) clone() vmstack {
+	return vmstack{
+		opsDone:  st.opsDone, // Freeze the IRC!
+		ops:      append([]evalop(nil), st.ops...),
+		operands: append([]any(nil), st.operands...),
+	}
+}
+
+// restore rewinds the mutable execution stacks using existing capacity.
+func (dst *vmstack) restore(src vmstack) {
+	dst.opsDone  = src.opsDone // Rewind the IRC!
+	dst.ops = append(dst.ops[:0], src.ops...)
+	dst.operands = append(dst.operands[:0], src.operands...)
+}
+
+func (p *vmpack) String() string { // For debug!
+	if p == nil {
+		return "<nil-vmpack>"
+	}
+
+	var fields []string
+
+	// 1. State Tracking
+	if p.closer != 0 { // Assuming 0 is symEmpty
+		fields = append(fields, fmt.Sprintf("closer:%v", p.closer))
+	}
+	if p.pairKey != nil {
+		fields = append(fields, fmt.Sprintf("pairLHS:%v", p.pairKey))
+	}
+	if p.arrowObj != nil {
+		fields = append(fields, fmt.Sprintf("arrowLHS:%v", p.arrowObj))
+	}
+	if p.flag != 0 {
+		fields = append(fields, fmt.Sprintf("flag:%v", p.flag))
+	}
+
+	// 2. Element Buffers (Safely skipping empty structural tapes)
+	if len(p.comp.elems) > 0 {
+		fields = append(fields, fmt.Sprintf("comp:%v", p.comp.elems))
+	}
+	if len(p.qual.elems) > 0 {
+		fields = append(fields, fmt.Sprintf("qual:%v", p.qual.elems))
+	}
+	if len(p.path.elems) > 0 {
+		fields = append(fields, fmt.Sprintf("path:%v", p.path.elems))
+	}
+	if len(p.list.elems) > 0 {
+		fields = append(fields, fmt.Sprintf("list:%v", p.list.elems))
+	}
+
+	// 3. Format the current scope layer
+	var layer string
+	if len(fields) == 0 {
+		layer = "{empty}"
+	} else {
+		layer = "{" + strings.Join(fields, " | ") + "}"
+	}
+
+	// 4. Cascade to the parent scope recursively
+	if p.parent != nil {
+		return layer + " ⮌ " + p.parent.String()
+	}
+
+	return layer
 }
 
 // clone safely snapshots the AST state machine against time-traveling backtracks.
@@ -4924,7 +7174,7 @@ func (p *vmpack) reduce(pos Pos, reverse bool) Value {
 		res = p.list.elems[0]
 	} else if p.list.len() > 1 {
 		res = &list{p.list.copy()}
-	} else {
+	} else if pos != NoPos {
 		res = valbase{pos}
 	}
 
@@ -4935,20 +7185,23 @@ func (p *vmpack) reduce(pos Pos, reverse bool) Value {
 
 // reduce finalizes the packer stack at EOF
 func (s *symstr) reduce(pos Pos) Value {
-	reverse := (s.class & clsBackwards) != 0
 	if s.vmpack == nil { return nil }
+
+	reverse := (s.class & clsBackwards) != 0
+
 	// Flush any open flag or bracket states up to the root
 	for s.vmpack != nil && s.vmpack.parent != nil {
 		inner := s.vmpack.reduce(pos, reverse)
 		s.vmpack = s.vmpack.parent
 		s.vmpack.shift(inner, reverse)
 	}
+
 	return s.vmpack.reduce(pos, reverse)
 }
 
 // pack evaluates a single symbol and shapes it into the AST state machine.
-func (s *symstr) pack(pos Pos, sym Symbol, reverse bool) {
-
+func (s *symstr) pack(pos Pos, sym Symbol) {
+	reverse := (s.class & clsBackwards) != 0
 	popFlags := func() {
 		for s.vmpack != nil && s.vmpack.parent != nil && s.vmpack.closer == 0 && s.vmpack.flag != 0 {
 			inner := s.vmpack.reduce(pos, reverse)
@@ -4959,7 +7212,10 @@ func (s *symstr) pack(pos Pos, sym Symbol, reverse bool) {
 
 	switch sym {
 	case symDash:
-		if pos == NoPos { pos = _pos(s); if true { warn(s, "no pos for flag, force @%d", pos, callstack{num:5}) } }
+		if pos == NoPos {
+			pos = _pos(s)
+			if true { warn(s, "no pos for flag, force @%d", pos, callstack{num:5}) }
+		}
 		s.vmpack = &vmpack{parent: s.vmpack, flag: pos}
 		return
 
@@ -5119,7 +7375,10 @@ func (s *symstr) pack(pos Pos, sym Symbol, reverse bool) {
 		case symQues, symAsterisk, symAsteriskAst, symAsteriskQues:
 			s.vmpack.shift(_globmeta(pos, sym), reverse)
 		default:
-			s.vmpack.shift(_word(pos, sym), reverse)
+			// STRUCTURAL ISOLATION: Unhandled punctuation symbols (<, >, +, ,, etc.)
+			// must be shifted distinctly as *punct nodes, preventing the packer from
+			// collapsing them into adjacent *word constituents within compounds.
+			s.vmpack.shift(&punct{valbase{pos}, sym}, reverse)
 		}
 	}
 }
@@ -5147,63 +7406,6 @@ func (s *symstr) posInRange(start, end int) Pos {
 	return NoPos
 }
 
-func (s *symstr) ReadRune() (rune, int, error) {
-	for len(s.str) == 0 {
-		if s.err != nil {
-			if s.err == errMatchFailed { return 0, 0, io.EOF }
-			return 0, 0, s.err
-		}
-
-		if len(s.syms) == 0 { s.pump() }
-
-		if s.err != nil {
-			if s.err == errMatchFailed { return 0, 0, io.EOF }
-			return 0, 0, s.err
-		}
-
-		// Read from the Output Tape!
-		if len(s.syms) == 0 {
-			return 0, 0, io.EOF
-		}
-
-		sym := s.pop_head()
-
-		switch sym.Kind() {
-		case SymPct, SymInl:
-			u := uint32(sym.Idx())
-			ln := (u >> 24) & 0x3
-			buf := make([]byte, ln)
-			if ln > 0 { buf[0] = byte(u) }
-			if ln > 1 { buf[1] = byte(u >> 8) }
-			if ln > 2 { buf[2] = byte(u >> 16) }
-			s.str = string(buf)
-		case SymRaw:
-			vocab.RLock()
-			s.str = vocab.strings[sym.Idx()]
-			vocab.RUnlock()
-		case SymEph:
-			vocab.RLock()
-			s.str = vocab.ephemeral[sym.Idx()]
-			vocab.RUnlock()
-		case SymInt:
-			var buf [24]byte
-			vocab.RLock()
-			s.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
-			vocab.RUnlock()
-		case SymFlt:
-			var buf [64]byte
-			vocab.RLock()
-			s.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
-			vocab.RUnlock()
-		case SymSeq:
-			panic("nested SymSeq for symstr")
-		}
-	}
-
-	r, size := s.decodeRune()
-	return r, size, nil
-}
-
 // symsmem memorize symstr syms while reading runes
 type symsmem struct {
 	*symstr
@@ -5218,13 +7420,23 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 	for len(p.str) == 0 {
 		if p.err != nil && p.err != errMatchFailed { return 0, 0, p.err }
 
-		if len(p.syms) == 0 { p.pump() }
+		if len(p.syms) == 0 { p.ensured_syms() }
 
 		if p.err != nil && p.err != errMatchFailed { return 0, 0, p.err }
 		if len(p.syms) == 0 { return 0, 0, io.EOF }
 
 		sym := p.pop_head()
-		p.mem = append(p.mem, sym) // Collect the symbol securely!
+
+		// CRITICAL FIX: Unpack compound symbols safely!
+		if sym.Kind() == SymSeq {
+			vocab.seqmut.RLock()
+			seq := vocab.sequences[sym.Idx()]
+			vocab.seqmut.RUnlock()
+			p.syms = append(append([]Symbol(nil), seq...), p.syms...)
+			continue
+		}
+
+		p.mem = append(p.mem, sym) // Collect primitive symbol
 
 		switch sym.Kind() {
 		case SymPct, SymInl:
@@ -5236,30 +7448,417 @@ func (p *symsmem) ReadRune() (rune, int, error) {
 			if ln > 2 { buf[2] = byte(u >> 16) }
 			p.str = string(buf)
 		case SymRaw:
-			vocab.RLock()
+			vocab.strmut.Lock()
 			p.str = vocab.strings[sym.Idx()]
-			vocab.RUnlock()
+			vocab.strmut.Unlock()
 		case SymEph:
-			vocab.RLock()
+			vocab.ephmut.Lock()
 			p.str = vocab.ephemeral[sym.Idx()]
-			vocab.RUnlock()
+			vocab.ephmut.Unlock()
 		case SymInt:
 			var buf [24]byte
-			vocab.RLock()
-			p.str = string(strconv.AppendInt(buf[:0], int64(vocab.numbers[sym.Idx()]), 10))
-			vocab.RUnlock()
+			vocab.nummut.Lock()
+			n := vocab.numbers[sym.Idx()]
+			vocab.nummut.Unlock()
+			p.str = string(strconv.AppendInt(buf[:0], int64(n), 10))
 		case SymFlt:
 			var buf [64]byte
-			vocab.RLock()
-			p.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(vocab.numbers[sym.Idx()]), 'g', -1, 64))
-			vocab.RUnlock()
-		case SymSeq:
-			panic("nested SymSeq for symstr")
+			vocab.nummut.Lock()
+			n := vocab.numbers[sym.Idx()]
+			vocab.nummut.Unlock()
+			p.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(n), 'g', -1, 64))
 		}
 	}
 
 	r, size := p.decodeRune()
 	return r, size, nil
+}
+
+func (s *symstr) ReadRune() (rune, int, error) {
+	for len(s.str) == 0 {
+		if s.err != nil {
+			if s.err == errMatchFailed { return 0, 0, io.EOF }
+			return 0, 0, s.err
+		}
+
+		if len(s.syms) == 0 { s.ensured_syms() }
+
+		if s.err != nil {
+			if s.err == errMatchFailed { return 0, 0, io.EOF }
+			return 0, 0, s.err
+		}
+
+		if len(s.syms) == 0 { return 0, 0, io.EOF }
+
+		sym := s.pop_head()
+
+		// CRITICAL FIX: Unpack compound symbols safely!
+		if sym.Kind() == SymSeq {
+			vocab.seqmut.RLock()
+			seq := vocab.sequences[sym.Idx()]
+			vocab.seqmut.RUnlock()
+			s.syms = append(append([]Symbol(nil), seq...), s.syms...)
+			continue
+		}
+
+		switch sym.Kind() {
+		case SymPct, SymInl:
+			u := uint32(sym.Idx())
+			ln := (u >> 24) & 0x3
+			buf := make([]byte, ln)
+			if ln > 0 { buf[0] = byte(u) }
+			if ln > 1 { buf[1] = byte(u >> 8) }
+			if ln > 2 { buf[2] = byte(u >> 16) }
+			s.str = string(buf)
+		case SymRaw:
+			vocab.strmut.Lock()
+			s.str = vocab.strings[sym.Idx()]
+			vocab.strmut.Unlock()
+		case SymEph:
+			vocab.ephmut.Lock()
+			s.str = vocab.ephemeral[sym.Idx()]
+			vocab.ephmut.Unlock()
+		case SymInt:
+			var buf [24]byte
+			vocab.nummut.Lock()
+			n := vocab.numbers[sym.Idx()]
+			vocab.nummut.Unlock()
+			s.str = string(strconv.AppendInt(buf[:0], int64(n), 10))
+		case SymFlt:
+			var buf [64]byte
+			vocab.nummut.Lock()
+			n := vocab.numbers[sym.Idx()]
+			vocab.nummut.Unlock()
+			s.str = string(strconv.AppendFloat(buf[:0], math.Float64frombits(n), 'g', -1, 64))
+		}
+	}
+
+	r, size := s.decodeRune()
+	return r, size, nil
+}
+
+// builtin evaluate builtin with options and arguments (`o` and `a`).
+func (s *symstr) builtin(t *builtin, o, a []Value) Value {
+	if truly(s.Context, evoke_detect_loop{t}) {
+		if truly(s.Context, evoke_loop_panic{}) { panic(trace_evoke_loop_err{s, t}) }
+		return _null(t.pos)
+	}
+
+	c := &evoke_builtin_ctx{evocation{automatic{Context: s.Context, defs: make(def_map)}}, s, t, o, a}
+	s.Context = c
+
+	_v := reflect.New(t.t)
+	defer t.benchmark(c, time_pkg.Now(), _v)
+
+	f := _v.Elem().FieldByIndex(t.index)
+	if t.isBase {
+		b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
+		b.evoke_builtin_ctx = c
+	} else {
+		if f.CanSet() {
+			f.Set(reflect.ValueOf(c))
+		} else if f.CanAddr() && f.Addr().CanSet() {
+			f.Addr().SetPointer(unsafe.Pointer(c))
+		}
+	}
+
+	if o != nil { c.o = _opts(c, _v, o) }
+
+	var res Value
+	if x, y := _v.Interface().(builtin_x); y {
+		res = ease(c, x.x())
+	} else {
+		erro(pc(c, t), "no method: %v", t.t.Name())
+	}
+
+	s.Context = c.Context
+	return res
+}
+
+type named_stem struct{ Value; name Symbol }
+func (p *named_stem) String() string { return p.Value.String() }
+
+func (s *symstr) match(val Value) (matched bool, res, rem Value, stems []Value) {
+	// Safely extract the original pattern for diagnostic warnings
+	var pat Value
+	if len(s.operands) > 0 { pat, _ = s.operands[len(s.operands)-1].(Value) }
+
+	trail := truly(s.Context, propReversal)
+
+	// LAYER 1: The Generator (Unrolls the Target AST)
+	gen := &symstr{Context: s.Context}
+	gen.ops = append(gen.ops, opEnd, opUnroll) // CRITICAL: Bootstrap with opEnd to guarantee io.EOF
+	gen.operands = append(gen.operands, val)
+
+	// LAYER 2: Configure this symstr instance as the Matcher
+	s.tie = gen
+
+	if trail {
+		gen.class |= clsBackwards
+		s.class |= clsBackwards
+	}
+
+	// Execute the Matcher! (It packs its own 'res' AST internally via opRet/opRetPack/opRetMatch)
+	for len(s.ops) > 0 && s.err == nil { s.step() }
+
+	matched = s.err == io.EOF && s.exhausted()
+
+	// 1. Extract `res` directly from the Matcher's internal packer
+	if s.vmpack != nil {
+		if pos := s.posInRange(0, s.boundary); pos != NoPos { res = s.reduce(pos) }
+	}
+
+	// 2. Extract `rem` by natively flushing whatever is left in the Generator!
+	// This brilliant loop safely populates gen.intervals without triggering window-slicing!
+	var remPopped bool
+	gen.vmpack = &vmpack{}
+
+	// ALWAYS drain leftover symbols so gen.pack() can dynamically reshape the AST
+	for gen.ensured_syms() {
+		sym := gen.pop_head()
+		// Sever from target AST positions to force primitive/compound lexing
+		gen.pack(NoPos, sym)
+		remPopped = true
+	}
+
+	if remPopped { rem = gen.reduce(NoPos) }
+
+	// Stream Termination Symmetry Checks
+	if force_full_match_anchor { matched = matched && gen.exhausted() }
+
+	gen.vmpack = nil // Clean up
+
+	// 3. Extract `stems` natively from the Matcher's captures
+	reverseStems := trail || s.class&clsBackwards != 0
+	if numStems := len(s.bestStems); numStems > 0 {
+		// O(N) Array Pre-allocation!
+		stems = make([]Value, numStems)
+		for i, capture := range s.bestStems {
+			var stem Value
+			if capture.start != -1 && len(capture.syms) > 0 {
+				bytePos := capture.start
+				gen.vmpack = &vmpack{} // Borrow the generator to pack the stems!
+
+				for _, sym := range capture.syms {
+					symBytes := sym.len()
+					var start, end int
+					if reverseStems {
+						start, end = bytePos-symBytes, bytePos
+						bytePos -= symBytes
+					} else {
+						start, end = bytePos, bytePos+symBytes
+						bytePos += symBytes
+					}
+					gen.pack(gen.posInRange(start, end), sym)
+				}
+
+				pos := gen.posInRange(capture.start, capture.end)
+				// ALWAYS call reduce to capture fractional/reshaped regex substrings!
+				stem = gen.reduce(pos)
+				if capture.name != symEmpty && stem != nil { stem = &named_stem{stem, capture.name} }
+			}
+
+			if reverseStems {
+				stems[numStems-1-i] = stem
+			} else {
+				stems[i] = stem
+			}
+		}
+	}
+
+	// Sanity Warnings
+	if checkpoints {
+		if matched {
+			if false && s.stopTieBoundary != gen.boundary {
+				warn(pc(s.Context, val), "diverged byte pos: %v %v: matcher.stopTieBoundary=%d matcher.tie.boundary=%d",
+					pat, val, s.stopTieBoundary, gen.boundary)
+			}
+			if !s.exhausted() {
+				warn(pc(s.Context, pat), "pattern stream not exhausted: %v %v; %v %v %v %v", pat, val, s.ops, s.boundary, s.str, s.syms)
+			}
+			if force_full_match_anchor && !gen.exhausted() {
+				warn(pc(s.Context, val), "value stream not exhausted: %v %v; %v %v %v %v", pat, val, gen.ops, gen.boundary, gen.str, gen.syms)
+			}
+			if rem == nil && s.stopTieBoundary > 0 && len(gen.str) > 0 {
+				warn(pc(s.Context, val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, boundary=%d",
+					pat, val, gen.str, s.stopTieBoundary, gen.boundary)
+			}
+		}
+		check_match(s.Context, pat, val, trail)(&matched, &res, &rem, &stems)
+	}
+	return
+}
+
+// match matches pattern `pat` against value `val`.
+func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
+	if val == nil || pat == nil { return false, nil, val, nil }
+
+	matcher := &symstr{Context: ctx}
+	matcher.ops = append(matcher.ops, opEnd, opUnrollMatch) // CRITICAL: Bootstrap with opEnd to guarantee io.EOF
+	matcher.operands = append(matcher.operands, pat)
+
+	return matcher.match(val)
+}
+
+// eval fully leverages the Virtual Machine's single-stream Generator Mode
+// to dynamically unroll and pack AST nodes without recursive heap allocations.
+func (s *symstr) eval(v Value) Value {
+	if res := s.evals(v); len(res) > 0 {
+		if checkpoints {
+			if len(res) > 1 { erro(s.Context, "too many results: %v", res) }
+
+			check(s.Context, res[0], v)
+
+			// Checking eval(eval(AST)) == eval(AST)
+			var res1 = s.evals(res...)
+			var res2 = s.evals(res1...)
+
+			if len(res1) != len(res2) {
+				erro(s.Context, "Idempotency length divergence on %v:\n  eval1 (%d): %v\n  eval2 (%d): %v",
+					v, len(res1), res1, len(res2), res2)
+			} else if len(res1) > 0 {
+				if t := cmp(s.Context, res1[0], res2[0]); t != cmpEqual {
+					str1, str2 := res1[0].String(), res2[0].String()
+					if str1 == str2 {
+						erro(s.Context, "Idempotency structure leak on %v:\n  Types differ but strings match: %T(%s) != %T(%s) (cmp=%v)",
+							v, res1[0], str1, res2[0], str2, t)
+					} else {
+						erro(s.Context, "Idempotency divergence on %v:\n  eval1: %T(%s)\n  eval2: %T(%s)\n  cmp: %v",
+							v, res1[0], str1, res2[0], str2, t)
+					}
+				}
+			}
+		}
+		return res[0]
+	}
+	return _null(v.Pos())
+}
+
+func (s *symstr) evals(nodes ...Value) (res []Value) {
+	if len(nodes) == 0 { return nil }
+
+	bt := s.checkpoint(undoOwn | undoCtx | undoStack | undoHead | undoPack)
+
+	startOps := len(s.ops)
+	startRes := len(s.results)
+
+	// Bootstrap with opExpand!
+	// The matcher frameworks strictly rely on this to stringify literal nodes.
+	s.ops = append(s.ops, opExpand)
+	s.operands = append(s.operands, nodes)
+
+	for len(s.ops) > startOps && s.err == nil { s.step() }
+
+	if s.err != nil { erro(s.Context, "%v", s.err) }
+
+	if len(s.operands) > len(bt.own.operands) {
+		erro(s.Context, "remains operands: %v", s.operands[len(bt.own.operands):])
+		s.operands = s.operands[:len(bt.own.operands)]
+	}
+
+	if rl := len(s.results); rl > startRes {
+		for i := startRes; i < rl; i++ {
+			res = append(res, s.results[i].(Value))
+		}
+		s.results = s.results[:startRes]
+	}
+
+	if len(res) == 0 {
+		var pos Pos
+		if len(nodes) > 0 { pos = nodes[0].Pos() } else { pos = _pos(s.Context) }
+		res = []Value{_null(pos)}
+	}
+
+	s.unwind(&bt)
+	return res
+}
+
+// Global hooks for evaluating AST nodes
+func eval(ctx Context, v Value) Value {
+	s := &symstr{Context: ctx}
+	return s.eval(v)
+}
+
+func evals(ctx Context, vals ...Value) []Value {
+	if len(vals) == 0 { return nil }
+	s := &symstr{Context: ctx}
+	return s.evals(vals...)
+}
+
+func evalp(ctx Context, v ...Value) (res []Value) {
+	for _, v := range evals(ctx, v...) {
+		switch t := v.(type) {
+		case  *loc: for _, v := range evalp(ctx, t.Value) { res = append(res,  &loc{v, t.pos}) }
+		case *path: res = append(res, evalp(ctx, t.elems...)...)
+		default: res = append(res, t)
+		}
+	}
+	return
+}
+
+func (s *symstr) evoke(x Value, o, a []Value) (res Value) {
+	// 1. VM Checkpoint
+	bt := s.checkpoint(undoOwn | undoCtx | undoStack | undoHead | undoPack)
+	startOps := len(s.ops)
+	startRes := len(s.results)
+
+	// 2. Synthesize the Delegate Shell directly from constituents
+	d := &delegate{valbase{x.Pos()}, 0, x, o, a}
+
+	// 3. JIT Instructions (Executed LIFO)
+	s.ops = append(s.ops, opRestoreContext)
+	s.operands = append(s.operands, s.Context)
+
+	s.ops = append(s.ops, opEvoke)
+	s.operands = append(s.operands, d, false) // false = isClosure
+
+	s.ops = append(s.ops, opCons)
+	s.operands = append(s.operands, 4)
+
+	s.ops = append(s.ops, opEase)
+	s.operands = append(s.operands, d.Pos(), len(d.a))
+	s.ops = append(s.ops, opExpandArgs)
+	s.operands = append(s.operands, d.a)
+
+	s.ops = append(s.ops, opEase)
+	s.operands = append(s.operands, d.Pos(), len(d.o))
+	s.ops = append(s.ops, opExpand)
+	s.operands = append(s.operands, d.o)
+
+	// Inject opResolve and feed `x` directly to it!
+	s.ops = append(s.ops, opResolve)
+	s.operands = append(s.operands, false, false, x) // isRuleEnt=false, isClosure=false
+
+	s.Context = &delegate_ctx{collapse_ctx{Context: s.Context, good_to_collapse: true}}
+
+	// 4. Run the VM
+	for len(s.ops) > startOps && s.err == nil { s.step() }
+
+	if s.err != nil { erro(s.Context, "%v", s.err) }
+
+	// 5. Harvest the Output
+	if rl := len(s.results); rl > startRes {
+		res = s.results[startRes].(Value)
+		s.results = s.results[:startRes]
+	} else {
+		res = _null(x.Pos())
+	}
+
+	s.unwind(&bt)
+	return res
+}
+
+// Global hook for legacy testcase.val integrations
+func evoke(ctx Context, x Value, o, a []Value) Value {
+	s := &symstr{Context: ctx}
+	return s.evoke(x, o, a)
+}
+
+func call(ctx Context, name Symbol, o []Value, a ...Value) Value {
+	if v := _universe(ctx).lookup(name); v != nil {
+		return evoke(ctx, v, o, a)
+	}
+	return nil
 }
 
 // mixBytes continuous FNV-1a fold
@@ -6279,164 +8878,6 @@ func __symMakePath(ctx Context, sym Symbol) *path {
 	return makePath(segs...)
 }
 
-// __symPackValue is a blazingly fast, zero-allocation mini-parser for symbols to value.
-func __symPackValue(ctx Context, syms []Symbol) Value {
-	pos := _pos(ctx)
-
-	switch len(syms) {
-	case 0: return nil
-	case 1:
-		if syms[0] == symEmpty { return valbase{pos} }
-		return _word(pos, syms[0])
-	}
-
-	var segs []Value     // segments by "/"
-	var qualVals []Value // dot-separated parts of the current segment
-	var compVals []Value // adjacent symbols in the current dot-part
-
-	// Helper to hierarchically pack the current segment before crossing a path boundary
-	packSegment := func() {
-		if len(compVals) > 0 {
-			qualVals = append(qualVals, packComp(compVals))
-			compVals = nil
-		} else if len(qualVals) > 0 {
-			// If it ended with a trailing dot (e.g., "foo."), cap it with a valbase!
-			qualVals = append(qualVals, valbase{pos})
-		}
-
-		if len(qualVals) == 1 {
-			segs = append(segs, qualVals[0])
-		} else if len(qualVals) > 1 {
-			segs = append(segs, packQual(qualVals))
-		}
-		qualVals = nil
-	}
-
-	for i := 0; i < len(syms); i++ {
-		sym := syms[i]
-
-		// 1. FAST-PATH: Non-raw symbols are NEVER structural punctuation.
-		kind := sym.Kind()
-		if kind == SymInt || kind == SymFlt || kind == SymEph || kind == SymSeq {
-			compVals = append(compVals, _word(pos, sym))
-			continue
-		}
-
-		// 2. ISOLATE GROUPING PUNCTUATION (Quotes, Brackets, Braces)
-		var closing Symbol
-		switch sym {
-		case symQuotation:  closing = symQuotation
-		case symApostrophe: closing = symApostrophe
-		case symBackquote:  closing = symBackquote
-		case symLangle:     closing = symRangle
-		case symLparen:     closing = symRparen
-		case symLbrace:     closing = symRbrace
-		case symLbrack:     closing = symRbrack
-		case symLsingguil:  closing = symRsingguil
-		case symLguillemet: closing = symRguillemet
-		case symCornerTL:   closing = symCornerTR
-		case symCornerBL:   closing = symCornerBR
-		}
-
-		if closing != 0 {
-			closeIdx := -1
-			depth := 1
-
-			for j := i + 1; j < len(syms); j++ {
-				if syms[j].Kind() != SymRaw { continue }
-
-				if syms[j] == closing {
-					depth--
-					if depth == 0 {
-						closeIdx = j
-						break
-					}
-				} else if syms[j] == sym && sym != closing {
-					depth++
-				}
-			}
-
-			if closeIdx != -1 {
-				inner := __symPackValue(ctx, syms[i+1:closeIdx])
-
-				var compElems []Value
-				compElems = append(compElems, _word(pos, sym))
-
-				if inner != nil {
-					var bypass bool
-					switch inner.(type) {
-					case valbase, *null, *none: bypass = true
-					}
-					if !bypass {
-						if c, isComp := inner.(*compound); isComp {
-							compElems = append(compElems, c.elems...)
-						} else {
-							compElems = append(compElems, inner)
-						}
-					}
-				}
-
-				compElems = append(compElems, _word(pos, closing))
-				compVals = append(compVals, packComp(compElems))
-
-				i = closeIdx
-				continue
-			}
-		}
-
-		// 3. STANDARD DELIMITER PROCESSING
-		switch sym {
-		case symDot:
-			if len(compVals) == 0 {
-				qualVals = append(qualVals, valbase{pos})
-			} else {
-				qualVals = append(qualVals, packComp(compVals))
-				compVals = nil
-			}
-		case symSlash:
-			if i == 0 {
-				segs = append(segs, _punct(pos, symEmptyPrefix))
-			} else if packSegment(); i == len(syms)-1 {
-				segs = append(segs, _punct(pos, symEmptySuffix))
-			}
-		case symDash:
-			// Isolate everything after the dash into a Flag
-			var inner Value
-			if i+1 < len(syms) {
-				inner = __symPackValue(ctx, syms[i+1:])
-			} else {
-				inner = valbase{pos} // Trailing dash edge case, use valbase to represent ''.
-			}
-
-			compVals = append(compVals, flag{inner})
-			i = len(syms) // Fast-forward loop to end
-		default:
-			// THE DOD FIX: Assemble shattered '?' sequences natively!
-			if sym == symQues {
-				start := i
-				for i+1 < len(syms) && syms[i+1] == symQues {
-					i++
-				}
-				if i > start {
-					sym = intern_seq(syms[start : i+1])
-				}
-			}
-			compVals = append(compVals, _word(pos, sym))
-		}
-	}
-
-	// 4. HIERARCHICAL RETURN
-	if packSegment(); len(segs) > 1 {
-		return packPath(segs)
-	} else if len(segs) > 0 {
-		return segs[0] // packSegment packed it perfectly
-	} else if false {
-		return _null(pos)
-	} else {
-		return valbase{pos}
-	}
-}
-
 // __symbol efficiently resolves an AST Value to its Symbol ID.
 // It guarantees zero string allocations for static identifiers and
 // only falls back to evaluation/interning for dynamic nodes.
@@ -6459,6 +8900,7 @@ func __symbol(ctx Context, val Value) Symbol {
 	case *rule: return __symbol(&ident_ctx{ctx,0}, v.target)
 	case *stemmed_rule: return __symbol(ctx, v.rule)
 	case matched_rule:  return __symbol(ctx, v.rule)
+	case *regexpat: return intern(v.re.String()) // FIXME: implementation without `v.re`, i.e., native regex
 	case *regexlit: return __symbol(ctx, v.Value)
 	case flag:
 		if isEmpty(v.Value) { return symDash }
@@ -6574,7 +9016,7 @@ func (sc symbolize_ctx) do(ctx Context, op any) any { return nil }
 func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	if checkpoints { defer check_symbolize(v)(&res) }
 	switch t := v.(type) {
-	case valbase, *null, *none, *undef: return
+	case valbase, *null, *undef: return
 	case *loc: return symbolize(t.Value)
 	case fullname: return symbolize(t.Value)
 	case *globmeta: return []Symbol{t.sym}
@@ -6602,7 +9044,9 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 		return []Symbol{s}
 	case *decimal:
 		var s Symbol
-		if 0 <= t.int64 && t.int64 <= 9 {
+		if t.sym != symEmpty {
+			s = t.sym
+		} else if 0 <= t.int64 && t.int64 <= 9 {
 			s = sym_0.add(int(t.int64))
 		} else {
 			s = intern(t.String())
@@ -6610,7 +9054,9 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 		return []Symbol{s}
 	case *float:
 		var s Symbol
-		if t.float64 == float64(int64(t.float64)) && 0 <= t.float64 && t.float64 <= 9 {
+		if t.sym != symEmpty {
+			s = t.sym
+		} else if t.float64 == float64(int64(t.float64)) && 0 <= t.float64 && t.float64 <= 9 {
 			s = sym_0.add(int(t.float64))
 		} else {
 			s = intern(t.String())
@@ -6623,7 +9069,7 @@ func symbolize(v Value) (res []Symbol) { // renamed from `underlay`
 	case flag:
 		res = append([]Symbol{symDash},symbolize(t.Value)...)
 	case *regexpat:
-		res = []Symbol{intern(t.String())}
+		res = []Symbol{intern(t.re.String())}
 	case *percpat:
 		res = append(res, symbolize(t.Prefix)...)
 		res = append(res, symPercent) // %
@@ -6940,6 +9386,33 @@ func _callstack(s string, i, j int, args ...any) (res []byte) {
     return
 }
 
+type tracked_stub struct {
+	trace []byte
+	args  []any // Preserves the raw arguments for opDebug to unpack
+}
+
+// track captures the current runtime callstack location to yield a structural "loc"
+// stub for debugging VM operations. It natively unpacks structs like callstack{num: x}.
+func track(args ...any) tracked_stub {
+	var mapped []any
+	for _, a := range args {
+		switch t := a.(type) {
+		case callstack:
+			// Unpack the struct field into the raw integer _callstack expects for frame counts
+			mapped = append(mapped, t.num)
+		default:
+			mapped = append(mapped, a)
+		}
+	}
+
+	// i=2 skips `_callstack` (handled internally) AND `track` itself to point at the caller.
+	// j=0 allows the mapped args (like t.num) to dictate the frame depth.
+	return tracked_stub{
+		trace: _callstack("trace", 2*2, 0, mapped...),
+		args:  args,
+	}
+}
+
 // =============================================================================
 //  Context (doer) and Type-casts, closure term
 // =============================================================================
@@ -7248,9 +9721,9 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			}
 
 			switch p.t {
-			case diagInfo : cb.writeString("info: ")
-			case diagWarn : cb.writeString("warning: ")
-			case diagError: cb.writeString("error: ")
+			case diagInfo : cb.write("info: ")
+			case diagWarn : cb.write("warning: ")
+			case diagError: cb.write("error: ")
 				errs += 1
 			}
 		}
@@ -7265,14 +9738,14 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 
 		// 3. Render the Deferred Template
 		if p.argCount == 0 {
-			cb.writeString(p.f)
+			cb.write(p.f)
 		} else {
 			cb.writef(p.f, activeArgs...)
 		}
 
 		// Ensure newline formatting for non-prompt diags.
 		if p.t != diagPrompt && (len(p.f) > 0 && p.f[len(p.f)-1] != '\n') {
-			cb.writeString("\n")
+			cb.write("\n")
 		}
 
 		// 4. Attach Stack
@@ -7282,7 +9755,7 @@ func (d *diagnostic) flush(ctx Context) (errs int) {
 			if len(stackBytes) > 0 {
 				cb.last = stackBytes[len(stackBytes)-1] // Sync state machine
 			}
-			cb.writeString("\n")
+			cb.write("\n")
 		}
 
 		// FIXED: Move flushed metric calculation to the very end to capture everything
@@ -7746,10 +10219,10 @@ func (s *scope) string() string {
 	return buf.String()
 }
 
-func (s *scope) builtin(ctx Context, name Symbol, f reflect.Type) (res *builtin, a object) {
+func (s *scope) builtin(ctx Context, name Symbol, m builtinmeta) (res *builtin, a object) {
 	s.Lock() ; defer s.Unlock()
 	if a = s.elems[name] ; a == nil {
-		res = &builtin{knownobject{objbase{scope:s}, name}, f}
+		res = &builtin{knownobject{objbase{scope:s}, name}, m}
 		s.unsafe_replace(ctx, name, res)
 	}
 	return
@@ -7832,7 +10305,7 @@ func (s *scope) _def(ctx Context, o origin, sym Symbol, vals ...Value) (d *def, 
 
 	if o != defInvalid && o != d.o {
 		if d.o == defInvalid { d.o = o } else {
-			erro(pc(ctx, d), "%v: conflicts origin: %v <> %v", sym, d.o, o)
+			erro(pc(ctx, d), "%v: conflicts origin: %v -> %v", sym, d.o, o, callstack{num:10})
 		}
 	}
 
@@ -7872,12 +10345,6 @@ func (c *term) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return c.Context
 	case dynamic_cast: return t.ctx(c, c.Context)
-	case term_unloop:
-		// 1. The Trap is Sprung!
-		if t.term == c { panic(sf("term loop detected on %p",c)) }
-		// 2. Pass the probe along WITHOUT firing new probes!
-		if cc := c.Context; cc != nil { return cc.do(ctx, op) }
-		return nil
 	case get_scope: return c.scope
 	case get_closure_scopes:
 		var res []*scope
@@ -7897,13 +10364,14 @@ func (c *term) do(ctx Context, op any) any {
 
 		if t.n > 0 && len(res) > t.n { return res[:t.n] }
 		return res
+	case term_unloop: // The Trap is Sprung!
+		if t.term == c { panic(sf("term loop detected on %p",c)) }
 	}
-	if cc := c.Context; cc != nil {
-		cc.do(ctx, term_unloop{c}) // Fire the traceroute
-		return cc.do(ctx, op)      // Execute the real operation
-	}
+	if c.Context != nil { return c.Context.do(ctx, op) }
 	return nil
 }
+
+func _term(ctx Context) *term { return cast[*term](ctx) }
 
 func consolidate_scopes(curr *scope, raw ...*scope) (res []*scope) {
 	// PROD FILTER: Deduplicate ancestral scopes. If a fetched closure scope
@@ -8275,7 +10743,7 @@ var tok2sym = [...]Symbol{
 	SPACE:       symSpace,
 	HASH:        symHash,
 	COMMENT:     symHash,
-	
+
 	PROOT:       symEmptyPrefix,
 	PTAIL:       symEmptySuffix,
 
@@ -8287,7 +10755,7 @@ var tok2sym = [...]Symbol{
 	LBOT_CORNER: symCornerBL,
 	LSING_GUIL:  symLsingguil,
 	LGUILLEMET:  symLguillemet,
-	
+
 	RGUILLEMET:  symRguillemet,
 	RSING_GUIL:  symRsingguil,
 	RBOT_CORNER: symCornerBR,
@@ -8328,7 +10796,7 @@ var tok2sym = [...]Symbol{
 
 	BAR:         symBar,
 	COLON:       symColon,
-	
+
 	ASSIGN:      symEqualSign,
 	ASSIGN_USH:  symUnshiSign,
 	ASSIGN_ADD:  symAddeqSign,
@@ -8987,8 +11455,6 @@ func (s *scanstate) bit(bits scanbits) (res bool) {
 // A scanner holds the scanner's internal state while processing
 // a given text.  It can be allocated as part of another data
 // structure but must be initialized via Init before use.
-//
-// (See go.token)
 type scanner struct { // immutable state
 	file *lexfile     // source file handle
 	dir  Symbol       // directory portion of file.Name()
@@ -9911,11 +12377,10 @@ type Kind uint64
 const (
 	KindUnclassified Kind = 0
 	KindUndef Kind = 1<<(iota-1)
+	KindLoc
 	KindDelegate
 	KindClosure
 	KindArgumented
-	KindDBStub
-	KindNone
 	KindNull
 	KindEscaped
 	KindBoolean
@@ -9947,11 +12412,13 @@ const (
     KindConjunction
     KindDisjunction
     KindPair
-    KindPath
     KindPunct
     KindQuote
     KindUrl
     KindCompound
+    KindQualword
+    KindPath
+	KindGlobbrace
     KindRegexPat
     KindRegexCon
 	KindRegexAlt
@@ -9983,6 +12450,102 @@ const (
     kindNumber = KindBoolean|KindInteger|KindFloat
 	kindResolvedObj = KindBuiltin|KindProject|KindClosure|KindDelegate|KindRule
 )
+
+var kindNames = []struct {
+	k    Kind
+	name string
+}{
+	{KindUndef, "Undef"},
+	{KindLoc, "Loc"},
+	{KindDelegate, "Delegate"},
+	{KindClosure, "Closure"},
+	{KindArgumented, "Argumented"},
+	{KindNull, "Null"},
+	{KindEscaped, "Escaped"},
+	{KindBoolean, "Boolean"},
+	{KindFlag, "Flag"},
+	{KindArrow, "Arrow"},
+	{KindAny, "Any"},
+	{KindArray, "Array"},
+	{KindGroup, "Group"},
+	{KindList, "List"},
+	{KindPlainLine, "PlainLine"},
+	{KindPlain, "Plain"},
+	{KindInteger, "Integer"},
+	{KindBinary, "Binary"},
+	{KindOctal, "Octal"},
+	{KindDecimal, "Decimal"},
+	{KindHexadecimal, "Hexadecimal"},
+	{KindFloat, "Float"},
+	{KindRaw, "Raw"},
+	{KindStrLit, "StrLit"},
+	{KindStrVal, "StrVal"},
+	{KindWord, "Word"},
+	{KindStrcomp, "Strcomp"},
+	{KindDateTime, "DateTime"},
+	{KindDate, "Date"},
+	{KindTime, "Time"},
+	{KindConjunction, "Conjunction"},
+	{KindDisjunction, "Disjunction"},
+	{KindPair, "Pair"},
+	{KindPunct, "Punct"},
+	{KindQuote, "Quote"},
+	{KindUrl, "Url"},
+	{KindCompound, "Compound"},
+	{KindQualword, "Qualword"},
+	{KindPath, "Path"},
+	{KindGlobbrace, "Globbrace"},
+	{KindRegexPat, "RegexPat"},
+	{KindRegexCon, "RegexCon"},
+	{KindRegexAlt, "RegexAlt"},
+	{KindRegexRep, "RegexRep"},
+	{KindRegexGroup, "RegexGroup"},
+	{KindRegexClass, "RegexClass"},
+	{KindRegexMeta, "RegexMeta"},
+	{KindRegexLit, "RegexLit"},
+	{KindRecipe, "Recipe"},
+	{KindObject, "Object"},
+	{KindKnownObject, "KnownObject"},
+	{KindUndetermined, "Undetermined"},
+	{KindSkipped, "Skipped"},
+	{KindSelf, "Self"},
+	{KindProject, "Project"},
+	{KindBuiltin, "Builtin"},
+	{KindAuto, "Auto"},
+	{KindDef, "Def"},
+	{KindRule, "Rule"},
+	{KindStemmedRule, "StemmedRule"},
+	{KindModifier, "Modifier"},
+	{KindModification, "Modification"},
+	{KindValues, "Values"},
+	{KindUse, "Use"},
+}
+
+func (k Kind) String() string {
+	if k == KindUnclassified {
+		return "Unclassified"
+	}
+
+	var parts []string
+	rem := k
+
+	// Extract all matching bits
+	for _, kn := range kindNames {
+		if rem&kn.k != 0 {
+			parts = append(parts, kn.name)
+			rem &^= kn.k // Clear the bit we just found
+		}
+	}
+
+	// If there are leftover bits that don't match any known constant, append their hex value
+	if rem != 0 {
+		parts = append(parts, fmt.Sprintf("UNKNOWN_0x%x", uint64(rem)))
+	}
+
+	// If it's a single flag, this returns "Word".
+	// If it's a composite mask, it safely returns "Word|Strcomp|Path"
+	return strings.Join(parts, "|")
+}
 
 // A Mode value is a set of flags (or 0).
 // They control the amount of source code parsed and other optional
@@ -10017,6 +12580,7 @@ type compilestate struct{
 
 	stop Pos // stop position of parsing
 
+	lockinProjectScope bool
     project *project
 
 	templates []*template
@@ -10040,8 +12604,8 @@ type compilestate struct{
 	prevScope *scope
 }
 
-type compiler struct{
-    *term
+type compiler struct {
+    *symstr
 	scanner
 	compilestate
 	nextOpenScopeNilOwner bool
@@ -10052,14 +12616,15 @@ type check_compile_cycle struct{ absPath Symbol }
 
 func (p *compiler) do(ctx Context, op any) any {
 	switch t := op.(type) {
-	case inner_cast: return p.term
-	case dynamic_cast: return t.ctx(p, p.term)
+	case inner_cast: return p.symstr
+	case dynamic_cast: return t.ctx(p, p.symstr)
+	case absolute_path: if false { /* BUGGY: */if p.project != nil { return p.project.absPath } }
 	case get_project: return p.project
 	case get_pos: return p.pos // Return compact Pos!
-	case get_scope: if false { return p.project.scope }
+	case get_scope: if p.lockinProjectScope { return p.project.scope }
 	case get_closure_scopes:
 		// 1. Gather file-internal/term-level local block scopes (e.g., foreach loops, local terms)
-		var s, _ = p.term.do(ctx, t).([]*scope)
+		var s, _ = p.symstr.do(ctx, t).([]*scope)
 		if t.n > 0 && len(s) >= t.n { return s[:t.n] }
 
 		// 2. Append the static compile-time project scope tracker
@@ -10086,7 +12651,33 @@ func (p *compiler) do(ctx Context, op any) any {
 		if p.Context != nil { return p.Context.do(ctx, op) }
 		return false
 	}
-	return p.term.do(ctx, op)
+	return p.symstr.do(ctx, op)
+}
+
+func (c *compiler) eval(node Value) Value {
+	// Safely cache the VM's active context to prevent scope leaks
+	// defer func(snap Context) { c.symstr.Context = snap } (c.symstr.Context)
+
+	// Bridge the explicit parser argument into the stateful VM
+	// c.symstr.Context = ctx
+
+	if res := c.symstr.evals(node); len(res) > 0 {
+		return res[0]
+	}
+	return _null(node.Pos())
+}
+
+func (c *compiler) evals(nodes ...Value) []Value {
+	if len(nodes) == 0 { return nil }
+
+	// Safely cache the VM's active context to prevent scope leaks
+	// defer func(snap Context) { c.symstr.Context = snap } (c.symstr.Context)
+
+	// Bridge the explicit parser argument into the stateful VM
+	// c.symstr.Context = ctx
+
+	// Rely purely on the core symstr implementation to prevent duplicate logic
+	return c.symstr.evals(nodes...)
 }
 
 func (p *compiler) copystate() *compilestate {
@@ -10099,7 +12690,7 @@ func (p *compiler) filename() Symbol { return p.scanner.file.name }
 func (p *compiler) loc(a Pos) Position { return p.scanner.file.Position(a) }
 func (p *compiler) Position() (r Position) { return p.loc(p.pos) }
 
-func (p *compiler) scan(ctx Context) {
+func (p *compiler) scan() {
 	// Because of one-token look-ahead, print the previous token
 	// when tracing as it provides a more readable output. The
 	// very first token (!p.pos.valid()) is not initialized
@@ -10116,24 +12707,24 @@ func (p *compiler) scan(ctx Context) {
 		}
 	}
 
-	switch p.scanner.scan(ctx); p.tok {
+	switch p.scanner.scan(p/*.Context*/); p.tok {
 		// case COMMENT, LINEND: p.multibyte = 0
 	}
 }
 
-func (p *compiler) step(ctx Context) {
+func (p *compiler) step() {
 	p.leadComment = nil
 	p.lineComment = nil
 
 	var prev = p.pos
-	if p.scan(ctx); p.tok == COMMENT {
+	if p.scan(); p.tok == COMMENT {
 		var comment *commentgroup
 		var endline int
 
 		// If the comment is on same line as the previous token;
 		// it cannot be a lead comment but may be a line comment.
 		if p.scanner.file.Line(p.pos) == p.scanner.file.Line(prev) {
-			comment, endline = p.commentgroup(ctx, 0)
+			comment, endline = p.commentgroup(0)
 			if p.scanner.file.Line(p.pos) != endline {
 				// The next token is on a different line, thus
 				// the last comment group is a line comment.
@@ -10144,7 +12735,7 @@ func (p *compiler) step(ctx Context) {
 		// consume successor comments, if any
 		endline = -1
 		for p.tok == COMMENT {
-			comment, endline = p.commentgroup(ctx, 1)
+			comment, endline = p.commentgroup(1)
 		}
 
 		if endline+1 == p.scanner.file.Line(p.pos) {
@@ -10157,23 +12748,21 @@ func (p *compiler) step(ctx Context) {
 	if false && p.tok != LINEND && p.lineComment != nil { p.tok = LINEND }
 }
 
-func (p *compiler) next(ctx Context, ws bool) {
-	if p.step(ctx); ws { p.spaces(ctx) }
-}
+func (p *compiler) next(ws bool) { if p.step(); ws { p.spaces() } }
 
-func (p *compiler) spaces(ctx Context) {
+func (p *compiler) spaces() {
 	for p.lineComment == nil && p.tok != EOF {
-		if p.tok == SPACE || (p.tok == RECIPE && truly(ctx, is_recipe_parser{true})) {
-			p.step(ctx)
+		if p.tok == SPACE || (p.tok == RECIPE && truly(p, is_recipe_parser{true})) {
+			p.step()
 		} else if p.tok == ESCAPE && p.lit == "\n" {
-			if p.step(ctx); p.tok == LINEND || p.lineComment != nil { break }
-			if truly(ctx, is_recipe_parser{true}) {
+			if p.step(); p.tok == LINEND || p.lineComment != nil { break }
+			if truly(p, is_recipe_parser{true}) {
 			tokloop:
 				for p.tok != EOF {
 					switch p.tok {
 					case RECIPE: // TODO: using p.recipe_start()
 						if true { p.scanner.pop(isStrcompLine) }
-						p.step(ctx)
+						p.step()
 					default:
 						break tokloop
 					}
@@ -10185,19 +12774,15 @@ func (p *compiler) spaces(ctx Context) {
 	}
 }
 
-func (p *compiler) forwardLine(ctx Context) {
-	for p.tok != EOF {
-		if p.next(ctx, true) ; p.tok == LINEND {
-			p.next(ctx, true) ; break
-		}
-	}
+func (p *compiler) forwardLine() {
+	for p.tok != EOF { if p.next(true) ; p.tok == LINEND { p.next(true); break } }
 }
 
-func (p *compiler) emptyLines(ctx Context) {
-	for p.spaces(ctx); p.tok == LINEND; p.spaces(ctx) { p.step(ctx) }
+func (p *compiler) emptyLines() {
+	for p.spaces(); p.tok == LINEND; p.spaces() { p.step() }
 }
 
-func (p *compiler) comment(ctx Context) (res *comment, endline int) {
+func (p *compiler) comment() (res *comment, endline int) {
 	// /*-style comments may end on a different line than where they start.
 	// Scan the comment for '\n' chars and adjust endline accordingly.
 	endline = p.scanner.file.Line(p.pos)
@@ -10211,44 +12796,44 @@ func (p *compiler) comment(ctx Context) (res *comment, endline int) {
 	}
 
 	res = &comment{p.pos, p.lit}
-	p.scan(ctx)
+	p.scan()
 
 	return
 }
 
-func (p *compiler) commentgroup(ctx Context, n int) (res *commentgroup, endline int) {
+func (p *compiler) commentgroup(n int) (res *commentgroup, endline int) {
 	res = new(commentgroup)
 	p.comments = append(p.comments, res)
 	endline = p.scanner.file.Line(p.pos)
 	for p.tok == COMMENT && p.scanner.file.Line(p.pos) <= endline+n {
 		var com *comment
-		com, endline = p.comment(ctx)
+		com, endline = p.comment()
 		res.comments = append(res.comments, com)
 	}
 	return
 }
 
-func (p *compiler) expect(ctx Context, tok token) Pos {
+func (p *compiler) expect(tok token) Pos {
 	var pos = p.pos
 	if p.tok == tok {
-		p.step(ctx) // move forward
+		p.step() // move forward
 	} else {
-		erro(pc(ctx,p),
+		erro(p,
 			_f("expect %v, not %v", tok, p.tok),
 			callstack{num:10}, unwind{})
 	}
 	return pos
 }
 
-func (p *compiler) linend(ctx Context) (ok bool) {
+func (p *compiler) linend() (ok bool) {
 	if p.lineComment != nil {
 		p.lineComment, ok = nil, true
 	} else if p.tok == EOF {
 		ok = true
 	} else if p.tok == LINEND {
-		p.step(ctx); ok = true
+		p.step(); ok = true
 	} else {
-		erro(pc(ctx,p),
+		erro(p,
 			_f("expect end of line, but %v", p.tok),
 			callstack{num:10}, unwind{})
 	}
@@ -10264,37 +12849,37 @@ func (p *compiler) recipe_start() (res bool) {
 	return
 }
 
-func (p *compiler) def_end(ctx Context) {
-	p.expect(ctx, DEF)
-	p.spaces(ctx)
+func (p *compiler) def_end() {
+	p.expect(DEF)
+	p.spaces()
 
-	name := p.expr(ctx)
+	name := p.expr()
 
-	p.spaces(ctx)
-	p.linend(ctx)
+	p.spaces()
+	p.linend()
 
 	t := &template{ state:p.scanner.scanstate }
 	if a, y := name.(*argumented); y { name, t.params = a.Value, a.args }
-	t.name = __symbol(ctx, name)
+	t.name = __symbol(p, name)
 
 	var nested = 0
 	for p.tok != EOF {
 		switch pos := p.pos; p.tok {
 		case SPACE, LINEND:
-			p.next(ctx, true)
+			p.next(true)
 
 		case DEF: nested += 1
-			p.forwardLine(ctx) // Fast-forward rest of the line
+			p.forwardLine() // Fast-forward rest of the line
 
 		case END:
 			if nested > 0 { nested -= 1
-				p.forwardLine(ctx) // Fast-forward rest of the line
+				p.forwardLine() // Fast-forward rest of the line
 				continue
 			}
 
 			// We found the true, un-nested end of the block!
-			p.next(ctx, true)
-			p.linend(ctx)
+			p.next(true)
+			p.linend()
 
 			state := p.scanner.scanstate
 			t.end, t.endPos = &state, pos
@@ -10303,19 +12888,25 @@ func (p *compiler) def_end(ctx Context) {
 
 		default:
 			// Not a block keyword.
-			p.forwardLine(ctx) // Fast-forward the rest of the line instantly!
+			p.forwardLine() // Fast-forward the rest of the line instantly!
 		}
 	}
 }
 
-func (p *compiler) foreach_done(ctx Context) {
-	p.expect(ctx, FOREACH)
-	p.spaces(ctx)
+func (p *compiler) foreach_done() {
+	p.expect(FOREACH)
+	p.spaces()
 
-	vals := xmerge(final{ctx}, p.values(ctx)...)
+	// THE DOD FIX: Use standard evaluation instead of final{ctx}!
+	// This prevents the JIT from prematurely stringifying the AST,
+	// keeping the *defcaps metadata perfectly intact for the loop body.
+	var vals []Value
+	for _, expr := range p.values() {
+		vals = append(vals, merge(p.eval(expr))...)
+	}
 
-	p.spaces(ctx)
-	p.linend(ctx)
+	p.spaces()
+	p.linend()
 
 	t := &template{ state:p.scanner.scanstate }
 
@@ -10323,59 +12914,46 @@ func (p *compiler) foreach_done(ctx Context) {
 	for p.tok != EOF {
 		switch pos := p.pos; p.tok {
 		case SPACE, LINEND:
-			p.next(ctx, true)
+			p.next(true)
 
 		case FOREACH, FOR: nested += 1
-			p.forwardLine(ctx)
+			p.forwardLine()
 
 		case DONE:
 			if nested > 0 { nested -= 1
-				p.forwardLine(ctx)
+				p.forwardLine()
 				continue
 			}
 
-			p.next(ctx, true) // done
-			p.linend(ctx)
+			p.next(true) // done
+			p.linend()
 
 			state, savedStop := p.scanner.scanstate, p.stop
 			p.stop, t.endPos, t.end = pos, pos, &state
 
-			var dd bool
-			var ds []*diag
-			if false && checkpoints {
-				dd = strings.HasSuffix(p.project.spec.String(), "testdata/template") ||
-					 strings.HasSuffix(p.project.spec.String(), "testdata/template/foreach")
-				if dd { for _, v := range vals { ds = append(ds, _f("%v", v)) } }
-			}
-
 			for _, val := range vals {
 				if !isTrivial(val) {
-					// THE DOD FIX: Re-instantiate the automatic context PER iteration
+					// Re-instantiate the automatic context PER iteration
 					// so variables from previous loops don't bleed into the next!
-					ac := automatic{Context:ctx, defs:make(def_map)}
+					ac := automatic{Context:p.Context, defs:make(def_map)}
+
+					// Safely unbox in case the value was wrapped in a pair/list
+					if pair, ok := unbox(val).(*pair); ok { val = pair.val }
 
 					if x, y := val.(*defcaps); y {
-						ac.set(&ac, defStatic, symUnderscore, x.Value)
-						if checkpoints {
-							if dd { ds = append(ds, _f("'%v' %v", symUnderscore, x.Value)) }
-						}
+						ac.set(p, defStatic, symUnderscore, x.Value)
 						for _, c := range x.caps {
 							ac.set(&ac, defStatic, c.name, c.Value)
-							if checkpoints {
-								if dd { ds = append(ds, _f("'%v' %v", c.name, c.Value)) }
-							}
 						}
 					} else {
-						ac.set(&ac, defStatic, symUnderscore, val)
-						if checkpoints {
-							if dd { ds = append(ds, _f("'%v' %v", symUnderscore, val)) }
-						}
+						ac.set(p, defStatic, symUnderscore, val)
 					}
 
-					p.codeblock(&ac, t)
+					p.Context = &ac
+					p.codeblock(t)
+					p.Context = ac.Context
 				}
 			}
-			if checkpoints { if len(ds) > 0 { debug(pc(ctx,vals), ds) } }
 
 			// Jump the parser past the 'done' token so the
 			// rest of the file can be parsed safely!
@@ -10384,50 +12962,53 @@ func (p *compiler) foreach_done(ctx Context) {
 			return
 
 		default:
-			p.forwardLine(ctx)
+			p.forwardLine()
 		}
 	}
 }
 
-func (p *compiler) for_done(ctx Context) {
+func (p *compiler) for_done() {
 	var opts struct{
 		skipNil bool `skip-nil,skip-null,skipnil,skipnull,no-nil,no-null`
 	}
-	if  p.expect(ctx, FOR) ; p.tok == LPAREN {
-		p.next(ctx, true) // LPAREN
-		if vals := parseOpts(ctx, &opts, p.values(ctx)...); vals != nil {
-			erro(ctx, "unexpected opts: %v", vals)
+	if  p.expect(FOR) ; p.tok == LPAREN {
+		p.next(true) // LPAREN
+		if vals := parseOpts(p, &opts, p.values()...); vals != nil {
+			erro(p, "unexpected opts: %v", vals)
 		}
-		p.expect(ctx, RPAREN)
+		p.expect(RPAREN)
 	}
 
-	p.spaces(ctx)
+	p.spaces()
 
 	// You correctly upgraded these to Symbol!
 	type  param struct{ name Symbol ; elems []Value }
 	type nparam struct{ p Pos ; a []*param ; n int }
 
 	var params []*nparam
-	var ac = automatic{Context:ctx, defs:make(def_map)}
-	for p.spaces(ctx); p.tok != EOF && !p.is_end_of_line(); p.spaces(ctx) {
+
+	ac := automatic{Context:p.Context, defs:make(def_map)}; defer func() { p.Context = ac.Context } ()
+	p.Context = &ac
+
+	for p.spaces(); p.tok != EOF && !p.is_end_of_line(); p.spaces() {
 		if p.tok == AND && params == nil {
-			erro(pc(ctx,p), "unexpected 'and'")
+			erro(p, "unexpected 'and'")
 		} else if p.tok == AND || params == nil {
 			params = append(params, &nparam{p:p.pos})
-			if p.tok == AND { p.next(ctx, true); continue }
+			if p.tok == AND { p.next(true); continue }
 		}
 
 		var pars = make(map[Symbol]*param)
 		var lp = params[len(params)-1]
-		for i, a := range merge(expand(&ac, p.expr(&ac))) {
+		for i, a := range merge(p.eval(p.expr())) {
 			switch x := unbox(a).(type) {
 			case *null: continue
 			case *pair:
-				var dnc = def_name_ctx{project_ctx{ctx,p.project}}
-				var sym = __symbol(dnc, expand(dnc, x.key))
+				var dnc = def_name_ctx{project_ctx{p, p.project}}
+				var sym = __symbol(dnc, p.eval(x.key))
 
 				if sym == symEmpty {
-					erro(pc(ctx,a), "empty key %v", ts(x.key,ctx))
+					erro(p, "empty key %v", ts(x.key,p))
 				}
 
 				var par *param
@@ -10464,13 +13045,13 @@ func (p *compiler) for_done(ctx Context) {
 				}
 
 			default:
-				erro(pc(ctx,a), "unexpected %v ; %d. %v", ts(a,ctx), i, ac.defs)
+				erro(pc(p,a), "unexpected %v ; %d. %v", ts(a,p), i, ac.defs)
 			}
 		}
 	}
 
-	p.spaces(ctx)
-	p.linend(ctx)
+	p.spaces()
+	p.linend()
 
 	t := &template{ state:p.scanner.scanstate }
 
@@ -10478,35 +13059,22 @@ func (p *compiler) for_done(ctx Context) {
 	for p.tok != EOF {
 		switch pos := p.pos; p.tok {
 		case SPACE, LINEND:
-			p.next(ctx, true)
+			p.next(true)
 
 		case FOR, FOREACH: nested += 1
-			p.forwardLine(ctx)
+			p.forwardLine()
 
 		case DONE:
 			if nested > 0 { nested -= 1
-				p.forwardLine(ctx)
+				p.forwardLine()
 				continue
 			}
 
-			p.next(ctx, true) // done
-			p.linend(ctx)
+			p.next(true) // done
+			p.linend()
 
 			state, savedStop := p.scanner.scanstate, p.stop
 			p.stop, t.endPos, t.end = pos, pos, &state
-
-			var dd bool
-			var ds []*diag
-			if false && checkpoints {
-				dd = strings.HasSuffix(p.project.spec.String(), "testdata/template") ||
-					strings.HasSuffix(p.project.spec.String(), "testdata/template/foreach")
-				if dd { for _, p := range params {
-					ds = append(ds, _f("%v: %v", p.p, p.n))
-					for i, a := range p.a {
-						ds = append(ds, _f(" %d. '%s' %v", i, a.name, a.elems))
-					}
-				} }
-			}
 
 			var num int
 			for _, _p := range params {
@@ -10539,16 +13107,10 @@ func (p *compiler) for_done(ctx Context) {
 						if i < len(a.elems) {
 							// a.name is already a Symbol!
 							ac.set(&ac, defStatic, a.name, a.elems[i])
-							if checkpoints {
-								if dd { ds = append(ds, _f("%d/%d: '%v' %v", n, num, a.name, a.elems[i])) }
-							}
 						} else if opts.skipNil {
 							continue outer
 						} else {
 							ac.set(&ac, defStatic, a.name, &null{valbase{_p.p}})
-							if checkpoints {
-								if dd { ds = append(ds, _f("%d/%d: ''%v' <null>", n, num, a.name)) }
-							}
 						}
 					}
 				}
@@ -10560,10 +13122,9 @@ func (p *compiler) for_done(ctx Context) {
 					}
 				}
 				if !_trivial {
-					p.codeblock(&ac, t)
+					p.codeblock(t)
 				}
 			}
-			if checkpoints { if len(ds) > 0 { debug(pc(ctx,p), ds) } }
 
 			// Jump the parser past the 'done' token so the
 			// rest of the file can be parsed safely!
@@ -10572,47 +13133,48 @@ func (p *compiler) for_done(ctx Context) {
 			return
 
 		default:
-			p.forwardLine(ctx)
+			p.forwardLine()
 		}
 	}
 }
 
 var pprofCounter int
 
-type parse_codeblock_ctx struct{ *automatic }
+type parse_codeblock_ctx struct{ Context }
 func (p parse_codeblock_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
-	case inner_cast: return p.automatic
-	case dynamic_cast: return t.ctx(p, p.automatic)
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
 	}
-	// THE DOD FIX: Delegate to the embedded struct itself!
-	// This allows `automatic.do()` to intercept `$0` lookups in the defs map
-	// before gracefully falling back to the parent context.
-	return p.automatic.do(ctx, op)
+	// Delegate to the embedded struct itself!
+	return p.Context.do(ctx, op)
 }
-func (p *compiler) codeblock(ctx *automatic, t *template) {
+
+func (p *compiler) codeblock(t *template) {
 	if false && checkpoints { pprofCounter += 1
-		defer cpu_profile(ctx, fmt.Sprintf("template-%05d.prof", pprofCounter), true)()
+		defer cpu_profile(p, fmt.Sprintf("template-%05d.prof", pprofCounter), true) ()
 	}
 
 	p.scanner.scanstate = t.state
 
 	if !(p.pos < p.stop) {
-		erro(ctx, "bad range: [%v %v) (%v)", p.pos, p.stop, t.name)
+		erro(p, "bad range: [%v %v) (%v)", p.pos, p.stop, t.name)
 	}
 
-	var c = parse_codeblock_ctx{ctx}
+	// Wrap the execution environment in our shadowing context!
+	cc := parse_codeblock_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	for p.tok != EOF && p.pos < p.stop {
 		if p.tok == SPACE || p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
-			p.next(ctx, true)
+			p.next(true)
 		} else {
-			p.clause(c)
+			p.clause()
 		}
 	}
 }
 
-func (p *compiler) repeat(ctx Context, t *template, params []Value) {
+func (p *compiler) repeat(t *template, params []Value) {
 	if false {
 		pprofCounter += 1
 
@@ -10623,10 +13185,10 @@ func (p *compiler) repeat(ctx Context, t *template, params []Value) {
 			e error
 		)
 		if fCpu, e = os.Create(profCpu); e != nil {
-			erro(ctx, "%v", ts(e))
+			erro(p, "%v", ts(e))
 		} else if e = pprof.StartCPUProfile(fCpu); e != nil {
 			fCpu.Close()
-			erro(ctx, "%v: %v", profCpu, e)
+			erro(p, "%v: %v", profCpu, e)
 		}
 		defer func() {
 			pprof.StopCPUProfile()
@@ -10634,7 +13196,7 @@ func (p *compiler) repeat(ctx Context, t *template, params []Value) {
 
 			var fMem, e = os.Create(profMem)
 			if e != nil {
-				erro(ctx, "%v", e)
+				erro(p, "%v", e)
 			}
 
 			runtime.GC() // update memory statistics
@@ -10642,7 +13204,7 @@ func (p *compiler) repeat(ctx Context, t *template, params []Value) {
 			fMem.Close()
 
 			if e != nil {
-				erro(ctx, "%v: %v", profMem, e)
+				erro(p, "%v: %v", profMem, e)
 			}
 		} ()
 	}
@@ -10653,11 +13215,12 @@ func (p *compiler) repeat(ctx Context, t *template, params []Value) {
 		p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, state
 	} (time_pkg.Now(), p.pos, p.tok, p.lit, p.scanner.scanstate)
 
-	ac := automatic{Context:ctx, defs:make(def_map)}
+	ac := automatic{Context:p.Context, defs:make(def_map)}; defer func() { p.Context = ac.Context } ()
+	p.Context = &ac
 
 	for i, v := range t.params {
 		// CRITICAL FIX: Use the 1-line __symbol wrapper to grab the integer ID instantly!
-		if sym := __symbol(ctx, v); sym != symEmpty {
+		if sym := __symbol(p, v); sym != symEmpty {
 			var arg Value
 			if i < len(params) {
 				arg = params[i]
@@ -10666,51 +13229,50 @@ func (p *compiler) repeat(ctx Context, t *template, params []Value) {
 			}
 
 			// NATIVE INTEGER ROUTING: Bind the argument to the local scope using the Symbol
-			ac.set(&ac, defStatic, sym, arg)
+			ac.set(p, defStatic, sym, arg)
 		} else {
-			erro(ctx, "empty template param name: %v", ts(v))
+			erro(p, "empty template param name: %v", ts(v))
 		}
 	}
 
-	p.codeblock(&ac, t)
+	p.codeblock(t)
 }
 
-func (p *compiler) call(ctx Context, name Symbol, args []Value) (result bool) {
+func (p *compiler) call(name Symbol, args []Value) (result bool) {
 	for _, t := range p.templates {
 		if t.name != symEmpty && t.name == name {
 			stop := p.stop
 			p.stop = t.endPos
-			p.repeat(ctx, t, args)
+			p.repeat(t, args)
 			p.stop = stop
 			return true
 		}
 	}
 
-	erro(ctx, "undefined template: %v", name)
+	erro(p, "undefined template: %v", name)
 	return
 }
 
-func (p *compiler) arrow(ctx Context, lhs Value, isClosure bool) (res Value) {
+func (p *compiler) arrow(lhs Value, isClosure bool) (res Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "arrow")) }
 
 	pos, tok := lhs.Pos(), p.tok // the arrow '->', '=>', etc.
-	ctx = pc(ctx, pos)
-	p.step(ctx) // consume '->'
+	p.step() // consume '->'
 
 	// THE DOD FIX: Pure AST Construction!
 	// Do NOT call p.resolve here. We must wait for runtime to evaluate LHS,
 	// especially for dynamic variables like `$_`!
 
-	rhs := p.composite(ctx)
+	rhs := p.expr()
 
 	// If lhs is already an arrow, this builds a left-associative tree:
 	// A -> B -> C  becomes  arrow(arrow(A, B), C)
 	return _arrow(pos, tok, lhs, rhs)
 }
 
-func (p *compiler) word(ctx Context) *word {
+func (p *compiler) word() *word {
 	w := _word(p.pos, p.sym)
-	p.step(ctx)
+	p.step()
 	return w
 }
 
@@ -10718,39 +13280,35 @@ type is_auto_sym struct{ s Symbol }
 type is_auto_preserved struct{ s Symbol }
 type is_auto_braced struct{} // THE DOD FIX: Safety net for unbound args!
 
-type parse_auto_ctx struct {
-	Context
-	autos map[Symbol]Value
-}
-func (p parse_auto_ctx) do(ctx Context, op any) (_ any) {
+type static_auto_ctx struct { Context; autos map[Symbol]Value }
+func (p static_auto_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case keep_autos: return true
-	case is_auto_braced: return true // Alerts compiler we are currying
+	case is_auto_braced: return true
+
 	case is_auto_sym:
-		// Strict Explicit Shield: Only claim variables in `auto(a=3)`!
+		// Strict Explicit Shield: Only claimed variables in `{auto(a=3) $(a) $(val1)}`!
 		// This prevents greedy macros from stealing `val1`.
 		if p.autos != nil {
 			_, ok := p.autos[t.s]
-			return ok
+			return ok // Non-greedy!
 		}
 		return true // Legacy {auto} (no parens) acts as blanket acceptor
 
-	case get_auto: // bound autos
-		// Parse-time Currying: Answer the expansion engine instantly!
-		// Check whether your engine uses `t.s` or `t.name` in `get_auto`
-		if v, ok := p.autos[t.s]; ok {
-			return &def{knownobject{objbase{}, t.s}, v, defVoid}
+	case get_auto:
+		// THE DOD FIX: Check `v != nil`! If the user declared `auto(a1 a2 a3=3)`,
+		// a1 and a2 are mapped to `nil`. We must let them fall through so they
+		// remain unbound *auto delegates instead of freezing as nil defStatic constants.
+		if v, ok := p.autos[t.s]; ok && v != nil {
+			return &def{knownobject{objbase{}, t.s}, v, defStatic}
 		}
-		// If it's an unbound argument (like a1), let it fall through
-		// so `expand` freezes it as an AST node!
 
 	case set_auto:
 		if p.autos != nil {
 			if _, ok := p.autos[t.s]; ok {
 				p.autos[t.s] = t.v
-				// Return res_auto to satisfy modifier_var interceptor
 				return res_auto{nil, t.v}
 			}
 		}
@@ -10767,44 +13325,45 @@ func (p braced_ctx) do(ctx Context, op any) any {
 	return p.Context.do(ctx, op)
 }
 
-func (p *compiler) braced(ctx Context) (x Value) {
+func (p *compiler) braced() (x Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "braced")) }
 
 	pos := p.pos
 
-	p.expect(ctx, LBRACE)
+	p.expect(LBRACE)
 
-	if truly(ctx, is_rule_parser{}) && p.tok == LINEND { p.emptyLines(ctx) }
+	if truly(p, is_rule_parser{}) && p.tok == LINEND { p.emptyLines() }
 
-	ctx = braced_ctx{ctx}
+	bc := braced_ctx{p.Context}; defer func() { p.Context = bc.Context } ()
+	p.Context = bc
 
 	// === FIRST SWITCH: Handle structural prefixes ===
 	switch p.tok {
 	case LBRACK: // obsolete syntax: {[...]}
-		erro(ctx, "syntax error, use {(modifier)} for modification")
+		erro(p, "syntax error, use {(modifier)} for modification")
 		return
 
 	case LBRACE:
-		erro(ctx, "syntax error, use {join (sep) list} for conjunction")
+		erro(p, "syntax error, use {join (sep) list} for conjunction")
 		return
 
 	case LPAREN:
-		x = p.modification(ctx)
-		p.spaces(ctx)
-		p.expect(ctx, RBRACE)
+		x = p.modification()
+		p.spaces()
+		p.expect(RBRACE)
 		return x
 
 	case RBRACE:
 		x = &null{valbase{p.pos}}
-		p.spaces(ctx)
-		p.step(ctx) // consumes }
+		p.spaces()
+		p.step()
 		return x
 
 	case ASSIGN: // =
 		// Consumes '=', advancing the tokenizer to the EXACT NEXT token.
 		// If the user typed `{=path}`, next token is `PATH`.
 		// If the user typed `{= path}`, next token is `SPACE`.
-		p.step(ctx)
+		p.step()
 	}
 
 	// =================================================================
@@ -10815,76 +13374,76 @@ func (p *compiler) braced(ctx Context) (x Value) {
 
 	// === SECOND SWITCH: Handle the Keywords ===
 	switch p.tok {
-	case AND:     return p.braced_and(ctx)
-	case OR:      return p.braced_or(ctx)
-	case FOR:     return p.braced_for(ctx)
-	case FOREACH: return p.braced_foreach(ctx)
+	case AND:     return p.braced_and()
+	case OR:      return p.braced_or()
+	case FOR:     return p.braced_for()
+	case FOREACH: return p.braced_foreach()
 
 	case DOT: // {.base}, {.self}, {.configure}, {.xxx}
-		return p.braced_dot(ctx)
+		return p.braced_dot()
 
 	case PROJECT: // {project ...}
-		return p.braced_project(ctx)
+		return p.braced_project()
 
 	case RAW: // {raw ...}
-		p.next(ctx, true)
-		x = &raw{valbase{p.pos}, __string(ctx, p.expr(ctx))}
-		p.spaces(ctx)
-		p.expect(ctx, RBRACE)
+		p.next(true)
+		x = &raw{valbase{p.pos}, __string(p, p.expr())}
+		p.spaces()
+		p.expect(RBRACE)
 		return x
 
 	case UNDEF: // {undef ...}
-		p.next(ctx, true)
-		x = undef{p.expr(ctx)}
-		p.spaces(ctx)
-		p.expect(ctx, RBRACE)
+		p.next(true)
+		x = undef{p.expr()}
+		p.spaces()
+		p.expect(RBRACE)
 		return x
 
 	case NULL: // {null}
-		return p.braced_null(ctx)
+		return p.braced_null()
 
 	case NONE: // {none ...}
-		return p.braced_none(ctx)
+		return p.braced_none()
 
 	case ANSWER, BOOL, BOOLEAN, BIN, OCT, INT, HEX, FLOAT:
-		return p.braced_type(ctx, p.tok)
+		return p.braced_type(p.tok)
 
 	case TRUE, FALSE, YES, NO, ON, OFF:
-		return p.braced_const(ctx, p.tok)
+		return p.braced_const(p.tok)
 
 	case FILE: // {file ...}
-		return p.braced_file(ctx)
+		return p.braced_file()
 
 	case PATH: // {path ...}
-		return p.braced_path(ctx)
+		return p.braced_path()
 
 	case GLOB: // {glob ...}
-		p.next(ctx, true)
-		g := p.glob(ctx, nil)
-		p.spaces(ctx)
-		p.expect(ctx, RBRACE)
+		p.next(true)
+		g := p.glob(nil)
+		p.spaces()
+		p.expect(RBRACE)
 		return &globbrace{*g}
 
 	case REGEX: // {regex ...}
-		return p.regex(ctx)
+		return p.regex()
 
 	case WORD:
 		switch p.sym {
 		case symR, symRe: // {r ...}, {re ...}
-			return p.regex(ctx)
+			return p.regex()
 
 		case symAuto: // {auto [(a=1, ...)] [list...]}
-			p.next(ctx, true) // consume 'auto'
-			p.spaces(ctx)
+			p.next(true) // consume 'auto'
+			p.spaces()
 
 			var autos map[Symbol]Value
 
 			if p.tok == LPAREN {
-				p.next(ctx, true)
-				args := p.values(ctx)
-				p.spaces(ctx)
-				p.expect(ctx, RPAREN)
-				p.spaces(ctx)
+				p.next(true)
+				args := p.values()
+				p.spaces()
+				p.expect(RPAREN)
+				p.spaces()
 
 				autos = make(map[Symbol]Value)
 				for _, arg := range args {
@@ -10900,8 +13459,10 @@ func (p *compiler) braced(ctx Context) (x Value) {
 				}
 			}
 
-			actx := parse_auto_ctx{Context: ctx, autos: autos}
-			v := expands(actx, p.values(actx)...)
+			sac := static_auto_ctx{Context: p.Context, autos: autos}; defer func() { p.Context = sac.Context } ()
+			p.Context = sac
+
+			v := p.evals(p.values()...)
 
 			switch len(v) {
 			case 0 : x = _null(pos)
@@ -10909,30 +13470,30 @@ func (p *compiler) braced(ctx Context) (x Value) {
 			default: x = &list{elements{v}}
 			}
 
-			p.expect(ctx, RBRACE)
+			p.expect(RBRACE)
 			return x
 
 		case symJoin: // {join [(sep)] [list...]}
-			p.next(ctx, true) // consume 'join'
-			p.spaces(ctx)
+			p.next(true) // consume 'join'
+			p.spaces()
 
 			var sep Value
 			if p.tok == LPAREN {
-				p.next(ctx, true)
-				s := p.values(ctx)
-				p.spaces(ctx)
-				p.expect(ctx, RPAREN)
-				p.spaces(ctx)
-				sep = ease(ctx, s)
+				p.next(true)
+				s := p.values()
+				p.spaces()
+				p.expect(RPAREN)
+				p.spaces()
+				sep = ease(p, s)
 			}
 
-			x = &conjunction{list{elements{p.values(ctx)}}, sep}
-			p.expect(ctx, RBRACE)
+			x = &conjunction{list{elements{p.values()}}, sep}
+			p.expect(RBRACE)
 			return x
 
 		case symHere:
-			p.next(ctx, true)
-			p.expect(ctx, RBRACE)
+			p.next(true)
+			p.expect(RBRACE)
 			_p := p.Position()
 			return &compound{elements{[]Value{
 				_word(p.pos, _p.Filename), _punct(p.pos, symColon),
@@ -10941,64 +13502,64 @@ func (p *compiler) braced(ctx Context) (x Value) {
 			}}}
 
 		case symPlain:
-			x = &plain{elements{p.braced_plain(ctx)}, p.sym}
-			p.expect(ctx, RBRACE)
+			x = &plain{elements{p.braced_plain()}, p.sym}
+			p.expect(RBRACE)
 			return x
 
 		case symPlainLine:
-			x = &plainline{elements{p.braced_plain(ctx)}}
-			p.expect(ctx, RBRACE)
+			x = &plainline{elements{p.braced_plain()}}
+			p.expect(RBRACE)
 			return x
 
 		case symSelf: // {self ...}
-			return p.braced_self(ctx)
+			return p.braced_self()
 
 		case symStr: // {str ...}, see $(string ...)
-			return p.braced_str(ctx)
+			return p.braced_str()
 
 		case symQuote: // {quote ...}, see $(quote ...)
-			return p.braced_quote(ctx)
+			return p.braced_quote()
 
 		case symWord: // {word ...}
-			return p.braced_word(ctx)
+			return p.braced_word()
 
 		case symWords: // {words ...}
-			return p.braced_words(ctx)
+			return p.braced_words()
 
 		case symDefs: // {defs ...}
-			return p.braced_defs(ctx)
+			return p.braced_defs()
 
 		case symFullname: // {fullname ...}
-			return p.braced_fullname(ctx)
+			return p.braced_fullname()
 
 		case symMatched:
-			erro(ctx, "TODO: %s: ", p.sym, unwind{})
+			erro(p, "TODO: %s: ", p.sym, unwind{})
 		}
 	}
 
 	// === FALLBACK: Standard Disjunction {...} ===
 	// If p.tok was SPACE, it harmlessly falls down to here!
-	switch v := p.values(ctx); len(v) {
+	switch v := p.values(); len(v) {
 	case 0 : x = _null(pos)
 	case 1 : x = &disjunction{valbase{pos},v[0]}
 	default: x = &disjunction{valbase{pos},_list(v...)}
 	}
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.spaces()
+	p.expect(RBRACE)
 	return
 }
 
-func (p *compiler) braced_elems(ctx Context) (elems []Value) {
+func (p *compiler) braced_elems() (elems []Value) {
 	for p.tok != RBRACE && p.tok != EOF {
 		switch p.tok {
 		case SPACE:
-			p.spaces(ctx)
+			p.spaces()
 		case LBRACE:
-			elems = append(elems, p.braced(ctx))
+			elems = append(elems, p.braced())
 		case RAW:
-			elems = append(elems, p.literal(ctx))
+			elems = append(elems, p.literal())
 		default:
-			elems = append(elems, p.expr(ctx))
+			elems = append(elems, p.expr())
 		}
 	}
 	return
@@ -11010,40 +13571,40 @@ func (p *compiler) is_end_of_line() bool {
 	return p.tok == LINEND || p.tok == EOF || p.lineComment != nil
 }
 
-func (p *compiler) is_list_term(ctx Context) bool {
+func (p *compiler) is_list_term() bool {
 	// If there's a comment right after the parsed expression, we break
 	// the expression list to treat the end-of-line comment like a LINEND.
-	if p.lineComment != nil || p.tok.is_list_delim() || (truly(ctx, left_hand_side{}) && p.tok.is_assign()) {
+	if p.lineComment != nil || p.tok.is_list_delim() || (truly(p, left_hand_side{}) && p.tok.is_assign()) {
 		return true
 	}
-	return p.tok == RECIPE && truly(ctx, is_recipe_parser{false})
+	return p.tok == RECIPE && truly(p, is_recipe_parser{false})
 }
 
-func (p *compiler) rule_params(ctx Context, args []Value) (err error) {
+func (p *compiler) rule_params(args []Value) (err error) {
 	// THE DOD FIX: Bypass Context Staleness!
 	// `ctx` captured the root scope before `openscope` was called.
 	// By reading `p.scope` directly, we guarantee the parameters are
 	// bound to the actively pushed local rule scope!
-	var s = p.scope
+	var s = _term(p.Context).scope
 	for _, arg := range args {
 		var a *auto
 		switch t := arg.(type) {
 		case *word:
 			a = &auto{knownobject{objbase{valbase{arg.Pos()}, s}, t.s}}
-			s.alias(ctx, a, t.s) // Map "ARG1" -> auto
+			s.alias(p, a, t.s) // Map "ARG1" -> auto
 
 		case *compound/* , *qualword */:
-			name := intern(__string(ctx, arg))
+			name := intern(__string(p, arg))
 			a = &auto{knownobject{objbase{valbase{arg.Pos()}, s}, name}}
-			s.alias(ctx, a, name) // Map "ARG1" -> auto
+			s.alias(p, a, name) // Map "ARG1" -> auto
 
 		default: //case *ast.GroupExpr, *ast.ListExpr, *ast.BasicLit:
-			erro(ctx, "bad parameter form (%v)", ts(arg))
+			erro(p, "bad parameter form (%v)", ts(arg))
 			return
 		}
 
 		n := strconv.Itoa(len(p.ruparas)+1)
-		s.alias(ctx, a, intern(n)) // Map "1" -> auto
+		s.alias(p, a, intern(n)) // Map "1" -> auto
 		p.ruparas = append(p.ruparas, a)
 	}
 	return
@@ -11073,51 +13634,59 @@ func (p parse_params_ctx) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p *compiler) depends(ctx Context, params bool) (res []Value) {
+func (p *compiler) depends(params bool) (res []Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.depends")) }
 
-	p.spaces(ctx)
+	p.spaces()
 
 	if params && p.tok == LPAREN {
-		if g := p.group(parse_params_ctx{ctx}); 0 < g.len() {
+		ppc := parse_params_ctx{p.Context};
+		p.Context = ppc
+		g := p.group()
+		p.Context = ppc.Context
+
+		if 0 < g.len() {
 			if x, y := g.elems[0].(*group); y && g.len() == 1 { g = x }
-			p.rule_params(ctx, g.elems)
+			p.rule_params(g.elems)
 		}
 	}
 
+	sc := selection_ctx{p.Context,true}; defer func() { p.Context = sc.Context } ()
 	for p.tok != BAR && p.tok != SEMICOLON && !p.is_end_of_line() {
 		if p.tok == COLON {
 			// FIXME: this check is not working!
 			// FIXME: detects unexpected colon ':'
-			erro(ctx, "unexpected colon")
-		} else if p.spaces(ctx) ; !p.is_end_of_line() {
-			var val = p.expr(selection_ctx{ctx, true})
+			erro(p, "unexpected colon")
+		} else if p.spaces() ; !p.is_end_of_line() {
+			p.Context = sc
+			val := p.expr()
+			p.Context = sc.Context
 
 			if x, y := val.(*compound); y && x.len() == 1 {
 				if z, y := x.elems[0].(*globrange); y {
-					debug(ctx, "use {%v} instead", z.Value)
+					debug(p, "use {%v} instead", z.Value)
 				} else if z, y := x.elems[0].(*group); y {
-					debug(ctx, "use {%v} instead", z.elems[0])
+					debug(p, "use {%v} instead", z.elems[0])
 				} else {
-					debug(ctx, "use {%v} instead", x.elems[0])
+					debug(p, "use {%v} instead", x.elems[0])
 				}
 			}
 
 			res = append(res, merge(val)...)
-			if p.tok == SPACE { p.next(ctx, true) }
+			if p.tok == SPACE { p.next(true) }
 		}
 	}
 	return
 }
 
 // If lhs is set, result list elements which are identifiers are not resolved.
-func (p *compiler) values(ctx Context) (values []Value) {
+func (p *compiler) values() (values []Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.values")) }
 
-	for p.spaces(ctx); !p.is_list_term(ctx); p.spaces(ctx) {
+	for p.spaces(); !p.is_list_term(); p.spaces() {
 		var prev = p.pos
-		if values = append(values, p.expr(ctx)); p.pos == prev {
-			erro(ctx, "bad: %v %v; %v", p.tok, p.lit, values)
+		if values = append(values, p.expr()); p.pos == prev {
+			erro(p, "bad: %v %v; %v", p.tok, p.lit, values)
 		}
 
 		// If there's a comment right after the parsed expression, we break
@@ -11127,12 +13696,12 @@ func (p *compiler) values(ctx Context) (values []Value) {
 	return
 }
 
-func (p *compiler) opts(ctx Context, store any) []Value {
+func (p *compiler) opts(store any) []Value {
 	var vals []Value
-	for p.spaces(ctx); p.tok == MINUS; p.spaces(ctx) {
-		vals = append(vals, merge(p.expr(ctx))...)
+	for p.spaces(); p.tok == MINUS; p.spaces() {
+		vals = append(vals, merge(p.expr())...)
 	}
-	return parseOpts(ctx, store, vals...)
+	return parseOpts(p, store, vals...)
 }
 
 type aware_token struct{ token }
@@ -11155,48 +13724,49 @@ func (p group_ctx) do(ctx Context, op any) any {
 	return p.Context.do(ctx, op)
 }
 
-func (p *compiler) group(ctx Context) *group {
+func (p *compiler) group() *group {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.group")) }
 
 	// Query the context to see if we are allowed to parse across lines
-	allowMultiline := truly(ctx, is_directive{})
+	allowMultiline := truly(p, is_directive{})
 
-	ctx = group_ctx{aware_ctx{ctx, COMMA}}
+	defer func(ctx Context) { p.Context = ctx } (p.Context)
+	p.Context = group_ctx{aware_ctx{p.Context, COMMA}}
 
 	pos := p.pos
-	p.expect(ctx, LPAREN)
+	p.expect(LPAREN)
 
 	// Conditionally consume leading newlines
 	if allowMultiline {
-		for p.tok == SPACE || p.tok == LINEND { p.next(ctx, true) }
+		for p.tok == SPACE || p.tok == LINEND { p.next(true) }
 	} else {
-		p.spaces(ctx)
+		p.spaces()
 	}
 
-	var elems, converted = p.values(ctx), false
+	var elems, converted = p.values(), false
 	for p.tok != RPAREN && p.tok != EOF {
 
 		// Conditionally consume newlines between expressions
 		if allowMultiline && p.tok == LINEND {
-			for p.tok == LINEND || p.tok == SPACE { p.next(ctx, true) }
+			for p.tok == LINEND || p.tok == SPACE { p.next(true) }
 			continue
 		}
 
 		switch p.tok {
 		case BAR, COMMA, SEMICOLON, SELECT_PROG1:
-			elems = append(elems, p.punct(ctx))
+			elems = append(elems, p.punct())
 
 			// Conditionally consume newlines after delimiters
 			if allowMultiline {
-				for p.tok == SPACE || p.tok == LINEND { p.next(ctx, true) }
+				for p.tok == SPACE || p.tok == LINEND { p.next(true) }
 			} else {
-				p.spaces(ctx)
+				p.spaces()
 			}
 		}
 
 		pos := p.pos
-		next := _list(p.values(ctx)...)
-		if p.pos == pos { erro(ctx, "syntax error", callstack{num:64}) }
+		next := _list(p.values()...)
+		if p.pos == pos { erro(p, "syntax error", callstack{num:64}) }
 
 		if !converted {
 			elems = []Value{ _list(elems...), next }
@@ -11205,24 +13775,24 @@ func (p *compiler) group(ctx Context) *group {
 			elems = append(elems, next)
 		}
 	}
-	p.expect(ctx, RPAREN)
+	p.expect(RPAREN)
 	return _group(pos, elems...)
 }
 
-func (p *compiler) corner_list(ctx Context) *list { // ⌜a b c⌟
+func (p *compiler) corner_list() *list { // ⌜a b c⌟
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.corner_list")) }
 
 	var elems []Value
 	switch p.tok {
-	case LBOT_CORNER, LTOP_CORNER: p.step(ctx)
-	default: erro(pc(ctx,p), "unexpect %v", p.tok)
+	case LBOT_CORNER, LTOP_CORNER: p.step()
+	default: erro(p, "unexpect %v", p.tok)
 	}
 
 corner_loop:
-	for p.spaces(ctx); p.tok != EOF; p.spaces(ctx) {
+	for p.spaces(); p.tok != EOF; p.spaces() {
 		var saved = p.pos
-		if elems = append(elems, p.expr(ctx)); p.pos == saved {
-			erro(ctx, "bad: %v %v; %v", p.tok, p.lit, elems)
+		if elems = append(elems, p.expr()); p.pos == saved {
+			erro(p, "bad: %v %v; %v", p.tok, p.lit, elems)
 		}
 
 		// If there's a comment right after the parsed expression, we break
@@ -11233,41 +13803,42 @@ corner_loop:
 	}
 
 	switch p.tok {
-	case RBOT_CORNER, RTOP_CORNER: p.step(ctx)
-	default: erro(pc(ctx,p), "unexpect %v", p.tok)
+	case RBOT_CORNER, RTOP_CORNER: p.step()
+	default: erro(p, "unexpect %v", p.tok)
 	}
 
 	return _list(elems...)
 }
 
-func (p *compiler) argumented(ctx Context, x Value) *argumented {
+func (p *compiler) argumented(x Value) *argumented {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.argumented")) }
 
-	ctx = group_ctx{aware_ctx{ctx, COMMA}}
+	defer func(ctx Context) { p.Context = ctx } (p.Context)
+	p.Context = group_ctx{aware_ctx{p.Context, COMMA}}
 
-	p.next(ctx, true) // skip LPAREN
+	p.next(true) // skip LPAREN
 
-	var a = []Value{ _list(p.values(ctx)...) }
+	var a = []Value{ _list(p.values()...) }
 	for p.tok != RPAREN && p.tok != LINEND && p.tok != EOF {
 		switch p.tok {
-		case COMMA: p.next(ctx, true) // skip COMMA
+		case COMMA: p.next(true) // skip COMMA
 		case BAR, SEMICOLON:
 			if false {
-				a = append(a, p.punct(ctx))
-				p.spaces(ctx)
+				a = append(a, p.punct())
+				p.spaces()
 			} else {
-				erro(ctx, "unexpected punctuation: %v", p.tok)
+				erro(p, "unexpected punctuation: %v", p.tok)
 			}
 		}
-		a = append(a, _list(p.values(ctx)...))
+		a = append(a, _list(p.values()...))
 	}
-	p.expect(ctx, RPAREN)
+	p.expect(RPAREN)
 	return &argumented{x, a}
 }
 
-func (p *compiler) globmeta(ctx Context) (x *globmeta) {
+func (p *compiler) globmeta() (x *globmeta) {
 	pos, tok := p.pos, p.tok
-	p.step(ctx)
+	p.step()
 
 	var sym Symbol
 	switch tok {
@@ -11279,10 +13850,10 @@ func (p *compiler) globmeta(ctx Context) (x *globmeta) {
 	return _globmeta(pos, sym)
 }
 
-func (p *compiler) globrange(ctx Context) (x *globrange) {
+func (p *compiler) globrange() (x *globrange) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.globrange")) }
 
-	p.expect(ctx, LBRACK) // skip '['
+	p.expect(LBRACK) // skip '['
 
 	x = &globrange{}
 
@@ -11290,10 +13861,10 @@ func (p *compiler) globrange(ctx Context) (x *globrange) {
 	if p.tok == CARET {
 		x.caret = true
 		x.negated = true
-		p.step(ctx)
+		p.step()
 	} else if p.tok == EXC {
 		x.negated = true
-		p.step(ctx)
+		p.step()
 	}
 
 	var elems elements
@@ -11304,7 +13875,7 @@ func (p *compiler) globrange(ctx Context) (x *globrange) {
 	for p.tok != RBRACK && p.tok != EOF {
 		if p.tok == DASH {
 			pos := p.pos
-			p.step(ctx) // skip '-'
+			p.step() // skip '-'
 
 			// Inject literal dash into the AST so String() perfectly reconstructs it
 			elems.append(_word(pos, intern("-")))
@@ -11312,7 +13883,7 @@ func (p *compiler) globrange(ctx Context) (x *globrange) {
 			continue
 		}
 
-		node := p.expr(ctx)
+		node := p.expr()
 		elems.append(node)
 
 		// Eagerly build the static string if no dynamic variables are detected
@@ -11325,7 +13896,7 @@ func (p *compiler) globrange(ctx Context) (x *globrange) {
 		}
 	}
 
-	p.expect(ctx, RBRACK) // skip ']'
+	p.expect(RBRACK) // skip ']'
 
 	// 3. Construct the Fallback AST Value
 	if elems.len() == 1 {
@@ -11363,10 +13934,11 @@ func (p parse_glob_ctx) do(ctx Context, op any) (_ any) {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) glob(ctx Context, x Value) (g *compound) {
+func (p *compiler) glob(x Value) (g *compound) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.glob")) }
 
-	ctx = parse_glob_ctx{ctx}
+	cc := parse_glob_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	if y := x == nil; y {
 		g = &compound{}
@@ -11382,16 +13954,20 @@ func (p *compiler) glob(ctx Context, x Value) (g *compound) {
 		case PCON,RBRACE,RPAREN,COMMA,SELECT_PROP,SELECT_PROG1,SELECT_PROG2,SPACE,LINEND,EOF:
 			return
 		case SAST, DAST, ASTQ, QUE:
-			v = p.globmeta(ctx) // * ** *? ?
+			v = p.globmeta() // * ** *? ?
 		case LBRACK:
-			v = p.globrange(ctx) // [abc0-9xyz]
+			v = p.globrange() // [abc0-9xyz]
 		case DOT:
-			v = p.punct(ctx)
+			v = p.punct()
 		default:
-			v = p.unary(ctx)
+			v = p.expr()
 		}
 
-		if p.pos == pos { erro(ctx, "syntax error") }
+		if p.pos == pos {
+			erro(p,
+				_f("syntax error: %v, {%v '%s' %v}", v, p.tok, p.lit, p.sym),
+				callstack{num:5}, unwind{})
+		}
 
 		g.elems = append(g.elems, v)
 	}
@@ -11416,92 +13992,94 @@ func (p parse_perc_ctx) do(ctx Context, op any) (_ any) {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) perc(ctx Context, x Value) Value {
+func (p *compiler) perc(x Value) Value {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "perc")) }
 
-	ctx = parse_perc_ctx{ctx}
+	cc := parse_perc_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	var y Value
 	var pos = p.pos
 
-	p.step(ctx)
+	p.step()
 
 	if pos+1 == p.pos && !is_perc_term(p.tok) { // joint, e.g. '%.o', but skip '% .o'
 		switch p.tok {
 		case PERC: // %%
-			p.step(ctx) // consume the second %
+			p.step() // consume the second %
 			perc := makePercpat(p.pos, nil, nil)
 			if pos+2 == p.pos && !is_perc_term(p.tok) {
 				switch p.tok {
 				case PERC: // %%%
-					erro(ctx, "too many %")
+					erro(p, "too many %")
 				default:
-					switch perc.Suffix = p.expr(ctx); perc.Suffix.(type) {
+					switch perc.Suffix = p.expr(); perc.Suffix.(type) {
 					case *argumented, *path:
-						erro(ctx, "incorrect: %v %v", x, ts(perc.Suffix))
+						erro(p, "incorrect: %v %v", x, ts(perc.Suffix))
 					}
 				}
 			}
 			y = perc
 		default:
-			y = p.unary(ctx)//expr(ctx)
+			y = p.expr()
 		}
 	}
 	return makePercpat(pos, x, y)
 }
 
-type regex_parse_ctx struct{ Context }
-func (p regex_parse_ctx) do(ctx Context, op any) (_ any) {
+type parse_regex_ctx struct{ Context }
+func (p parse_regex_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) regex(ctx Context) (_ Value) {
+func (p *compiler) regex() (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "regex")) }
 
-	p.step(ctx)
+	p.step()
 	p.scanner.addBits(isBraceRaw)
-	for p.tok == SPACE || (p.tok == RAW && p.lit == " ") { p.step(ctx) }
+	for p.tok == SPACE || (p.tok == RAW && p.lit == " ") { p.step() }
 
 	pos := p.pos
 
-	ctx = regex_parse_ctx{ctx}
+	cc := parse_regex_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	if !p.scanner.bits.isBrace() {
-		erro(ctx, "wrong scan state: %v", &p.scanner.scanstate)
+		erro(p, "wrong scan state: %v", &p.scanner.scanstate)
 	}
 	if !p.scanner.bits.isBraceRaw() {
-		erro(ctx, "wrong scan state: %v", &p.scanner.scanstate)
+		erro(p, "wrong scan state: %v", &p.scanner.scanstate)
 	}
 
 	var rxb compactbuilds
 rxloop:
-	for ; p.tok != RBRACE && p.tok != EOF; p.scan(ctx) {
+	for ; p.tok != RBRACE && p.tok != EOF; p.scan() {
 		if p.tok == ESCAPE { rxb.writeByte('\\') }
 		switch p.tok {
 		case CLOSURE, DELEGATE:
-			if v := p.calling(ctx); v != nil {
-				__builds(ctx, &rxb, v)
+			if v := p.calling(); v != nil {
+				__builds(p, &rxb, v)
 				if p.tok == RBRACE { break rxloop }
 			} else {
-				debug(pc(ctx,p), "bad closure: %v", p.tok)
+				debug(p, "bad closure: %v", p.tok)
 			}
 		}
 
 		if p.sym != symEmpty {
-			rxb.writeString(p.sym.String())
+			rxb.write(p.sym.String())
 		} else if p.lit != "" {
-			rxb.writeString(p.lit)
+			rxb.write(p.lit)
 		} else {
-			rxb.writeString(p.tok.String())
+			rxb.write(p.tok.String())
 		}
 	}
 
 	rx := rxb.shared()
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
 	var err error
 	var re *regexp.Regexp
@@ -11509,21 +14087,21 @@ rxloop:
 
 	// 1. Parse the pattern string into the syntax AST
 	if reAST, err = regex_syntax.Parse(rx, regex_syntax.Perl); err != nil {
-		erro(pc(ctx,p), "regex: %v", err)
+		erro(p, "regex: %v", err)
 	}
 
 	// 2. Extract capture group symbols directly from reAST
 	// We allocate based on MaxCap() + 1 to maintain 1-to-1 index mapping.
 	subexpSyms := make([]Symbol, reAST.MaxCap()+1)
 	gatherSubexpSymbols(reAST, subexpSyms)
-	do(ctx, regex_subexp_auto{subexpSyms})
+	do(p, regex_subexp_auto{subexpSyms})
 
 	// 3. Build the native Value-based AST tree (now a method call on compiler)
 	base := valbase{pos}
-	val := p.buildRegexValue(ctx, base, reAST)
+	val := p.buildRegexValue(base, reAST)
 
 	if re, err = regexp.Compile(rx); err != nil {
-		erro(pc(ctx,p), "regex: %v", err)
+		erro(p, "regex: %v", err)
 	}
 
 	// 4. Ensure the root is always a `*regexpat` to satisfy upstream type expectations
@@ -11555,7 +14133,7 @@ func gatherSubexpSymbols(re *regex_syntax.Regexp, syms []Symbol) {
 
 // buildRegexValue translates the standard library's regexp syntax tree into your
 // hyper-optimized, zero-allocation Value AST nodes.
-func (p *compiler) buildRegexValue(ctx Context, pos valbase, re *regex_syntax.Regexp) Value {
+func (p *compiler) buildRegexValue(pos valbase, re *regex_syntax.Regexp) Value {
 	if re == nil { return nil }
 
 	switch re.Op {
@@ -11570,7 +14148,7 @@ func (p *compiler) buildRegexValue(ctx Context, pos valbase, re *regex_syntax.Re
 		// (e.g. "configure.types." becomes a word/compound element instead of raw characters)
 		var nativeVal Value
 		if p != nil {
-			nativeVal = p.parseLiteralTokenString(ctx, pos, litStr)
+			nativeVal = p.parseLiteralTokenString(pos, litStr)
 		} else {
 			// Fallback if compilation context is missing
 			nativeVal = &word{valbase: pos, s: intern(litStr)}
@@ -11591,7 +14169,7 @@ func (p *compiler) buildRegexValue(ctx Context, pos valbase, re *regex_syntax.Re
 		return &regexgroup{
 			valbase: pos,
 			cap: re.Cap,
-			val: p.buildRegexValue(ctx, pos, re.Sub[0]),
+			val: p.buildRegexValue(pos, re.Sub[0]),
 		}
 
 	case regex_syntax.OpStar, regex_syntax.OpPlus, regex_syntax.OpQuest, regex_syntax.OpRepeat:
@@ -11609,20 +14187,20 @@ func (p *compiler) buildRegexValue(ctx Context, pos valbase, re *regex_syntax.Re
 			min: min,
 			max: max,
 			greedy: (re.Flags & regex_syntax.NonGreedy) == 0,
-			val: p.buildRegexValue(ctx, pos, re.Sub[0]),
+			val: p.buildRegexValue(pos, re.Sub[0]),
 		}
 
 	case regex_syntax.OpConcat:
 		pat := &regexcon{}
 		for _, sub := range re.Sub {
-			pat.elems = append(pat.elems, p.buildRegexValue(ctx, pos, sub))
+			pat.elems = append(pat.elems, p.buildRegexValue(pos, sub))
 		}
 		return pat
 
 	case regex_syntax.OpAlternate:
 		alt := &regexalt{}
 		for _, sub := range re.Sub {
-			alt.elems = append(alt.elems, p.buildRegexValue(ctx, pos, sub))
+			alt.elems = append(alt.elems, p.buildRegexValue(pos, sub))
 		}
 		return alt
 
@@ -11633,7 +14211,7 @@ func (p *compiler) buildRegexValue(ctx Context, pos valbase, re *regex_syntax.Re
 
 // parseLiteralTokenString converts a raw unescaped regex literal chunk into your language's
 // internal Value format (e.g., matching a sequence of word or punctuation values).
-func (p *compiler) parseLiteralTokenString(ctx Context, pos valbase, str string) Value {
+func (p *compiler) parseLiteralTokenString(pos valbase, str string) Value {
 	// Implementation Option A: If your compiler can spin up a sub-lex scanner over a string segment:
 	// subTokens := p.subLexString(ctx, str)
 	// if len(subTokens) == 1 { return subTokens[0] }
@@ -11643,79 +14221,77 @@ func (p *compiler) parseLiteralTokenString(ctx Context, pos valbase, str string)
 	return &word{valbase: pos, s: intern(str)}
 }
 
-func (p *compiler) flag(ctx Context) flag {
+func (p *compiler) flag() flag {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "flag")) }
 
-	p.step(ctx) // skip dash '-'
+	p.step() // skip dash '-'
 
 	// exclude "-)" "-]" "-}" "-\n", "-=", "-:", etc.
-	if p.is_end_of_line() || p.is_list_term(ctx) || p.tok == SPACE || p.tok == RECIPE {
+	if p.is_end_of_line() || p.is_list_term() || p.tok == SPACE || p.tok == RECIPE {
 		return flag{valbase{p.pos}}
 	}
 
-	var x = p.unary(ctx)
+	var x = p.expr()
 
 composeloop:
 	for p.tok != EOF {
 		pos := p.pos
 		switch p.tok {
 		case DOT:
-			x = p.dot(ctx, x)
+			x = p.dot(x)
 		case CLOSURE, DELEGATE, MINUS:
-			x = prefix(ctx, x, p.unary(ctx))
+			x = prefix(p, x, p.expr())
 		case PCON:
 			break composeloop //x = p.path(ctx, x)
 		default:
 			if p.tok.is_closure() || p.tok.is_delegate() {
-				x = prefix(ctx, x, p.unary(ctx))
+				x = prefix(p, x, p.expr())
 			} else {
 				break composeloop
 			}
 		}
-		if p.pos == pos { erro(ctx, "syntax error") }
+		if p.pos == pos { erro(p, "syntax error") }
 	}
 
-	if x == nil {
-		erro(ctx, "nil flag name")
-	}
+	if x == nil { erro(p, "nil flag name") }
 	return flag{x}
 }
 
-func (p *compiler) negative(ctx Context) negative {
+func (p *compiler) negative() negative {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "negative")) }
-	p.expect(ctx, EXC)
-	return negative{p.expr(ctx)}
+	p.expect(EXC)
+	return negative{p.expr()}
 }
 
-func (p *compiler) punct(ctx Context) *punct {
+func (p *compiler) punct() *punct {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "compiler.punct")) }
 
 	pos, tok := p.pos, p.tok
-	p.step(ctx)
+	p.step()
 
 	sym := tok2sym[tok]
 	if sym == 0 {
-		erro(pc(ctx, pos), "unmapped punctuation token: %v", tok)
+		erro(p, "unmapped punctuation token: %v", tok)
 	}
 
 	// Assuming the `punct` struct is updated to hold `token Symbol` instead of `token token`
 	return &punct{valbase{pos}, sym}
 }
 
-func (p *compiler) escape(ctx Context) *escaped {
+func (p *compiler) escape() *escaped {
 	v := &escaped{valbase{p.pos}, p.lit}
-	p.expect(ctx, ESCAPE)
+	p.expect(ESCAPE)
 	return v
 }
 
-func (p *compiler) literal(ctx Context) (_ Value) {
+func (p *compiler) literal() Value {
 	tok, sym, lit, pos := p.tok, p.sym, p.lit, p.pos
 
-	p.step(ctx)
+	p.step()
 
 	// ESCAPE is handled in value.EscapeChar
 	switch tok {
-	case BAR: erro(ctx, "`|` is deprecated, change the modifiers!")
+	case BAR: erro(p, "`|` is deprecated, change the modifiers!")
 	case BINARY:      return ParseBinary(pos, lit, sym)
 	case OCTAL:       return ParseOctal(pos, lit, sym)
 	case INTEGER:     return ParseDecimal(pos, lit, sym)
@@ -11731,7 +14307,7 @@ func (p *compiler) literal(ctx Context) (_ Value) {
 	}
 
 	unreachable()
-	return
+	return nil
 }
 
 type is_strcomp_parser struct{}
@@ -11744,38 +14320,41 @@ func (p parse_strcomp_ctx) do(ctx Context, op any) (_ any) {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) strcomp(ctx Context) *strcomp {
+func (p *compiler) strcomp() *strcomp {
 	var elems []Value
 
-	p.step(ctx)
+	p.step()
+
+	cc := parse_strcomp_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	for p.tok != EOF && p.tok != COMPOSED && p.tok != LINEND {
 		var pos = p.pos
 		if p.tok == RAW {
-			elems = append(elems, p.literal(ctx))
+			elems = append(elems, p.literal())
 		} else {
-			elems = append(elems, p.expr(parse_strcomp_ctx{ctx}))
+			elems = append(elems, p.expr())
 		}
-		if p.pos == pos { erro(ctx, "syntax error") }
+		if p.pos == pos { erro(p, "syntax error") }
 	}
 
-	p.expect(ctx, COMPOSED)
+	p.expect(COMPOSED)
 
 	return _strcomp(elems...)
 }
 
-func (p *compiler) is_dot_term(ctx Context) bool {
+func (p *compiler) is_dot_term() bool {
 	// Expressions like `FOO.BAR(xxx)` does not count.
 	switch p.tok {
 	case SPACE, LPAREN, COLON, PCON, ASSIGN: fallthrough
 	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
-		if true || truly(ctx, selection{}) { return true }
+		if true || truly(p, selection{}) { return true }
 	}
-	return p.is_end_of_line() || p.is_list_term(ctx)
+	return p.is_end_of_line() || p.is_list_term()
 }
 
 // Parses dot composing expressions (e.g., .foo, foo.bar.baz, 1.10.1)
-func (p *compiler) dot(ctx Context, x Value) (_ Value) {
+func (p *compiler) dot(x Value) (_ Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "dot")) }
 
 	var q *qualword
@@ -11791,16 +14370,17 @@ func (p *compiler) dot(ctx Context, x Value) (_ Value) {
 		}
 	}
 
-	ctx = aware_ctx{ctx, DOT}
-	p.step(ctx) // skips the initial '.'
+	cc := aware_ctx{p.Context,DOT}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
+	p.step() // skips the initial '.'
 
 	var trailingDot = true
 
-	for !p.is_dot_term(ctx) {
+	for !p.is_dot_term() {
 		pos := p.pos
-		y := p.unary(ctx)
+		y := p.expr()
 
-		if p.pos == pos { erro(ctx, "syntax error") }
+		if p.pos == pos { erro(p, "syntax error") }
 
 		// Flatten nested qualwords if they emerge from evaluation
 		if subQ, ok := y.(*qualword); ok {
@@ -11811,7 +14391,7 @@ func (p *compiler) dot(ctx Context, x Value) (_ Value) {
 
 		if p.tok == DOT {
 			trailingDot = true
-			p.step(ctx) // skips '.'
+			p.step() // skips '.'
 		} else {
 			trailingDot = false
 			break
@@ -11827,25 +14407,26 @@ func (p *compiler) dot(ctx Context, x Value) (_ Value) {
 }
 
 type parse_path_ctx struct{ Context }
-func (p *compiler) path(ctx Context, start Value) (res *path) {
+func (p *compiler) path(start Value) (res *path) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "path")) }
-	if start == nil { erro(ctx, "nil path starter") }
+	if start == nil { erro(p, "nil path starter") }
 
-	ctx = parse_path_ctx{ctx}
+	cc := parse_path_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	switch t := start.(type) {
 	case *path: res = t
 	case *strlit:
-		res = makePath(splitPathStr(pc(ctx,t.pos), t.s)...)
+		res = makePath(splitPathStr(pc(p,t.pos), t.s)...)
 	case *strcomp:
-		res = makePath(splitPathStr(pc(ctx,t.Pos()), __string(ctx, t))...) // FIXME: dont final here
+		res = makePath(splitPathStr(pc(p,t.Pos()), __string(p,t))...) // FIXME: dont final here
 	default:
 		res = makePath(start)
 	}
 
 	for p.tok == PCON {
 		var pos = p.pos
-		for p.step(ctx); p.tok == PCON; p.step(ctx) {} // repeated '/'
+		for p.step(); p.tok == PCON; p.step() {} // repeated '/'
 
 		switch p.tok {
 		case LPAREN, LBRACE, RPAREN, RBRACE, COMMA, SPACE, LINEND:
@@ -11855,17 +14436,17 @@ func (p *compiler) path(ctx Context, start Value) (res *path) {
 
 		pos = p.pos
 
-		var elem = p.unary(ctx)
-		if p.pos == pos { erro(ctx, "syntax error", unwind{}) }
+		var elem = p.expr()
+		if p.pos == pos { erro(p, "syntax error", unwind{}) }
 		if false { if x, y := elem.(*list); y && x.len() == 1 { elem = x.elems[0] } }
 
 		switch p.tok {
 		case DOT: // .
-			elem = p.dot(ctx, elem)
+			elem = p.dot(elem)
 		case SAST, DAST, ASTQ, QUE, LBRACK: // * ** ? [
-			elem = p.glob(ctx, elem)
+			elem = p.glob(elem)
 		case PERC: // %
-			elem = p.perc(ctx, elem)
+			elem = p.perc(elem)
 		}
 
 		if x, y := elem.(*path); y {
@@ -11928,7 +14509,7 @@ func (u parse_url_query_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return u.Context
 	case dynamic_cast: return t.ctx(u, u.Context)
-	case is_url_query_parser: return true
+	case is_url_parser,is_url_query_parser: return true
 	}
 	return u.Context.do(ctx, op)
 }
@@ -11938,34 +14519,35 @@ func (u parse_url_fragment_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return u.Context
 	case dynamic_cast: return t.ctx(u, u.Context)
-	case is_url_fragment_parser: return true
+	case is_url_parser,is_url_fragment_parser: return true
 	}
 	return u.Context.do(ctx, op)
 }
 
-func (p *compiler) url(ctx Context, scheme Value) (res Value) {
+func (p *compiler) url(scheme Value) (res Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "url")) }
 
 	var u = &url{Scheme:scheme}
 
-	p.expect(ctx, COLON) // consumes ':'
-	p.expect(ctx, PCON) // the first '/'
-	p.expect(ctx, PCON) // the second '/'
+	p.expect(COLON) // consumes ':'
+	p.expect(PCON) // the first '/'
+	p.expect(PCON) // the second '/'
 
-	ctx = parse_url_ctx{ctx}
+	cc := parse_url_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
-	var x = p.unary(ctx)
+	var x = p.expr()
 
 	switch p.tok {
 	case AT:
 		u.Username = x
-		x = p.unary(ctx)
+		x = p.expr()
 	case COLON:
 		u.Username = x
-		p.step(ctx) // ':'
-		u.Password = p.unary(ctx)
-		p.expect(ctx, AT)
-		x = p.unary(ctx)
+		p.step() // ':'
+		u.Password = p.expr()
+		p.expect(AT)
+		x = p.expr()
 	case LINEND, EOF:
 		u.Host = x
 		return u
@@ -11985,9 +14567,9 @@ hostloop:
 			}
 		}
 
-		p.step(ctx) // '.'
+		p.step() // '.'
 
-		switch x = p.unary(ctx); p.tok {
+		switch x = p.expr(); p.tok {
 		case PCON, QUE, HASH:
 			h.elems = append(h.elems, x)
 			break hostloop
@@ -12010,13 +14592,13 @@ pathloop:
 	for p.tok == PCON {
 		if pp == nil { pp = makePath(&punct{valbase{p.pos}, symEmptyPrefix}) }
 
-		p.step(ctx) // '/'
+		p.step() // '/'
 
 		switch p.tok {
 		case QUE, HASH:
 			break pathloop
 		default:
-			x = p.unary(ctx)
+			x = p.expr()
 			pp.elems = append(pp.elems, x)
 		}
 	}
@@ -12028,7 +14610,10 @@ pathloop:
 	defer p.scanner.setBits(p.scanner.commentsOff())
 
 	if p.tok == QUE {
-		p.step(ctx) // '?'
+		p.step() // '?'
+
+		cc := parse_url_query_ctx{cc.Context}
+		p.Context = cc
 
 	queryloop:
 		for {
@@ -12037,44 +14622,48 @@ pathloop:
 				break queryloop
 			}
 
-			x = p.unary(parse_url_query_ctx{ctx})
+			x = p.expr()
 
 			if p.tok == ASSIGN {
-				p.step(ctx) // '='
-				x = &pair{ x, p.unary(parse_url_query_ctx{ctx}) }
+				p.step() // '='
+				x = &pair{ x, p.expr() }
 			}
 
 			u.Query = append(u.Query, x)
 
 			if p.tok == CLOSURE {
-				p.step(ctx) // '&'
+				p.step() // '&'
 			} else if p.tok == PERC {
-				erro(ctx, "unexpected %v in url", p.tok)
+				erro(p, "unexpected %v in url", p.tok)
 			}
 		}
+		p.Context = cc.Context
 	}
 
 	if p.tok == HASH {
-		p.step(ctx) // '#'
-		u.Fragment = p.unary(parse_url_fragment_ctx{ctx})
+		p.step() // '#'
+
+		cc := parse_url_fragment_ctx{cc.Context}
+		p.Context = cc
+		u.Fragment = p.expr()
+		p.Context = cc.Context
 	}
 
 	return u
 }
 
-func (p *compiler) check(ctx Context, str string) bool { return __true(ctx, p.resolve(ctx, NoPos, intern(str), false)) }
-func (p *compiler) promptCachedConfigs(ctx Context) bool { return p.check(ctx, "prompt-cached-configs") }
-func (p *compiler) promptConfigurationLoads(ctx Context) bool { return p.check(ctx, "prompt-configuration-loads") }
-
-func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (result Value) {
+func (p *compiler) check(str string) bool { return __true(p, p.resolve(NoPos, intern(str), false)) }
+func (p *compiler) promptCachedConfigs() bool { return p.check("prompt-cached-configs") }
+func (p *compiler) promptConfigurationLoads() bool { return p.check("prompt-configuration-loads") }
+func (p *compiler) resolve(pos Pos, sym Symbol, isClosure bool) (result Value) {
 	switch sym {
 	case symEmpty:
-		erro(pc(ctx,pos), "resolving empty name")
+		erro(pc(p,pos), "resolving empty name")
 		return
 	case symDotSelf: //erro(pc(ctx,pos), "disabled $(.self), use {.self}"); break
 		var self *project
 		if isClosure {
-			if t := cast[*term](ctx); t != nil { self = t.project }
+			if t := _term(p.Context); t != nil { self = t.project }
 		} else {
 			self = p.project
 		}
@@ -12082,7 +14671,7 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 	case symDotBase: //erro(pc(ctx,pos), "disabled $(.base), use {.base}"); break
 		var base *project
 		if isClosure {
-			if t := cast[*term](ctx); t != nil && t.project.bases != nil {
+			if t := _term(p.Context); t != nil && t.project.bases != nil {
 				base = t.project.bases[0]
 			}
 		} else if p.project != nil && p.project.bases != nil {
@@ -12092,21 +14681,21 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 	case symDotConfigure: //erro(pc(ctx,pos), "disabled $(.configure), use {.configure}"); break
 		var configure *project
 		if isClosure {
-			if t := cast[*term](ctx); t != nil { configure = t.project.configure }
+			if t := _term(p.Context); t != nil { configure = t.project.configure }
 		} else {
 			configure = p.project.configure
 		}
 		return configure
 	}
 
-	if d := auto_find(ctx, sym); d != nil {
+	if d := auto_find(p.Context, sym); d != nil {
 		return d
 	}
 
-	var s = _scope(ctx)
+	var scope = _term(p.Context).scope
 
 	if isRuleAuto(sym) || sym.Kind() == SymInt {
-		return &auto{knownobject{objbase{valbase{pos}, s}, sym}}
+		return &auto{knownobject{objbase{valbase{pos}, scope}, sym}}
 	}
 
 	defer func() {
@@ -12114,10 +14703,10 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 		case *auto:
 			if checkpoints {
 				if x.name != sym {
-					erro(pc(ctx,pos),
+					erro(pc(p,pos),
 						_f("%v != %v", x.name, sym),
 						_f("%v", p.project.scope),
-						_f("%v", p.scope),
+						_f("%v", scope),
 						callstack{num:20}, trace_ctx{5}, unwind{})
 				}
 			}
@@ -12130,50 +14719,50 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 
 	if isClosure {
 		// Closure Mode `&(xxx)`: Traverse the dynamic closure chain.
-		if o := closure_resolve(ctx, sym); !isNull(o) { return o }
+		if o := closure_resolve(p.Context, sym); !isNull(o) { return o }
 
 		// Fallback for closures inside an auto parser
-		if truly(ctx, is_auto_sym{sym}) {
-			return &auto{knownobject{objbase{valbase{pos}, s}, sym}}
+		if truly(p, is_auto_sym{sym}) {
+			return &auto{knownobject{objbase{valbase{pos},scope}, sym}}
 		}
 	} else {
 		// Delegate Mode `$(xxx)`: Traverse the strict lexical file chain.
 
 		// 1. Local Scopes (Protects `val1` from being stolen)
-		if p.scope != nil {
-			if foundScope, o := p.scope.find(sym); o != nil && !isNull(o) {
+		if scope != nil {
+			if foundScope, o := scope.find(sym); o != nil && !isNull(o) {
 				isProj := (p.project != nil && foundScope == p.project.scope)
 				isGlob := false
-				if u := _universe(ctx); u != nil && u.globe != nil {
+				if u := _universe(p.Context); u != nil && u.globe != nil {
 					isGlob = (foundScope == u.globe.scope)
 				}
 
 				if !isProj && !isGlob { return o } // Strictly Local!
 
 				// Yield to explicit autos (like grep capture groups or `a=3`)
-				if truly(ctx, is_auto_sym{sym}) {
-					return &auto{knownobject{objbase{valbase{pos}, s}, sym}}
+				if truly(p, is_auto_sym{sym}) {
+					return &auto{knownobject{objbase{valbase{pos}, scope}, sym}}
 				}
 				return o
 			}
 		}
 
 		// 2. Explicit Auto Parser Shadowing
-		if truly(ctx, is_auto_sym{sym}) {
-			return &auto{knownobject{objbase{valbase{pos}, s}, sym}}
+		if truly(p, is_auto_sym{sym}) {
+			return &auto{knownobject{objbase{valbase{pos}, scope}, sym}}
 		}
 
 		// 3. Project Hierarchy / Globals
 		if p.project != nil {
-			if o := p.project.resolve(ctx, sym); o != nil && !isNull(o) { return o }
+			if o := p.project.resolve(p, sym); o != nil && !isNull(o) { return o }
 		}
 
 		// NOTE: it's most outer scope of a project.scope MUST always be the
 		// global scope, so it's unnecessary to do this route.
 		if false {
-			if u := _universe(ctx); u != nil && u.globe != nil && u.globe.main != nil {
+			if u := _universe(p.Context); u != nil && u.globe != nil && u.globe.main != nil {
 				if c := u.globe.main.configure; c != nil && u.globe.main != p.project {
-					if o := c.resolve(ctx, sym); o != nil && !isNull(o) { return o }
+					if o := c.resolve(p, sym); o != nil && !isNull(o) { return o }
 				}
 			}
 		}
@@ -12184,13 +14773,13 @@ func (p *compiler) resolve(ctx Context, pos Pos, sym Symbol, isClosure bool) (re
 		// currying inside an `{auto}` block, gracefully make it an auto node
 		// instead of crashing the compiler with an "undefined" error!
 		// =================================================================
-		if truly(ctx, is_auto_braced{}) {
-			return &auto{knownobject{objbase{valbase{pos}, s}, sym}}
+		if truly(p, is_auto_braced{}) {
+			return &auto{knownobject{objbase{valbase{pos}, scope}, sym}}
 		}
 	}
 
-	if truly(ctx, is_config_mode{}) {
-		return s.def(ctx, defVoid, sym)
+	if truly(p, is_config_mode{}) {
+		return scope.def(p, defVoid, sym)
 	}
 	return
 }
@@ -12245,7 +14834,7 @@ func _ident_opt(ctx Context, pre string, x Value, op any) (_ string) {
 		var ic *ident_ctx
 		// Safely initialize the context if it is nil
 		if ic, ctx = identity_ctx(ctx); ic.nil == 0 {
-			if v := expand(ctx, x); v != nil && ic.nil == 0 {
+			if v := eval(ctx, x); v != nil && ic.nil == 0 {
 				// THE DOD FIX: Break the Fixed-Point Recursion!
 				// If `expand` returns the exact same AST node (v == x), it means
 				// the node cannot be reduced further (e.g., an undefined variable).
@@ -12280,7 +14869,7 @@ func ident_opt(ctx Context, pre string, x Value, op any) (_ string) {
 			// yields a perfect structural fixed point to fully resolve dynamic paths!
 			origX := x
 			for {
-				v := expand(ctx, x)
+				v := eval(ctx, x)
 				if v == nil || ic.nil != 0 || eq(ctx, v, x) {
 					break
 				}
@@ -12362,7 +14951,7 @@ func ident(ctx Context, x Value) string {
 		return t.s.String()
 	case *globmeta:
 		return t.sym.String()
-	case valbase, *null, *none, *regexpat, nil: // CRITICAL FIX: Added *regexpat
+	case valbase, *null, *regexpat, nil: // CRITICAL FIX: Added *regexpat
 		return ""
 	case *answer, *boolean, *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *date, *time, *globrange:
 		return t.String()
@@ -12496,17 +15085,19 @@ func ident(ctx Context, x Value) string {
 		return ""
 	}
 }
-func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) (obj Value, sym Symbol, opts []Value) {
-	var ic *ident_ctx
-
+func (p *compiler) identity(tok token, name Value, isClosure bool) (obj Value, sym Symbol, opts []Value) {
 	// Obtains and cast (if needed) ctx into an ident_ctx.
-	if ic, ctx = identity_ctx(ctx); ic.nil > 0 {
+	ic, cc := identity_ctx(p.Context)
+	if ic.nil > 0 {
 		return name, sym, opts
+	} else {
+		defer func() { p.Context = inner(cc) } ()
+		p.Context = cc
 	}
 
 	switch x := name.(type) {
 	case object:
-		return x, __symbol(ctx, x), opts
+		return x, __symbol(p, x), opts
 
 	case *arrow:
 		// THE DOD FIX: Fully Retain Runtime AST Nodes!
@@ -12516,7 +15107,7 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 		return x, symEmpty, opts
 
 	case *argumented:
-		obj, sym, opts = p.identity(ctx, tok, x.Value, isClosure)
+		obj, sym, opts = p.identity(tok, x.Value, isClosure)
 		opts = append(opts, merge(x.args...)...)
 		return
 
@@ -12529,37 +15120,37 @@ func (p *compiler) identity(ctx Context, tok token, name Value, isClosure bool) 
 		// nested closures like `&(&(.test.x))` into `.test.ba`.
 		// By using the native `ctx`, the engine safely yields the raw unexpanded
 		// AST string `"&(.test.x)"`, preserving it for runtime execution!
-		id := ident(ctx, name)
+		id := ident(p, name)
 		sym = intern(id)
 
 		if ic.nil > 0 { // 1:delegate_ident, 2:closure_ident 3:set_opt_ident
-			if checkpoints { p.check_ident(ic, ctx, name, id, sym) }
+			if checkpoints { p.check_ident(ic, p, name, id, sym) }
 		}
 	}
 
 	if sym == symEmpty {
-		if truly(ctx, opt_ident{}) { return name, sym, opts }
-		erro(pc(ctx,name), "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name,ctx))
+		if truly(p.Context, opt_ident{}) { return name, sym, opts }
+		erro(pc(p,name), "empty ident: %v (nil=%d) : %s", name, ic.nil, ts(name,p))
 		return // Ensure we halt execution safely
 	}
 
 	switch tok {
 	case LPAREN:
-		if obj = p.resolve(ctx, name.Pos(), sym, isClosure); obj != nil { return }
-		if truly(ctx, opt_ident{}) { return name, sym, opts }
+		if obj = p.resolve(name.Pos(), sym, isClosure); obj != nil { return }
+		if truly(p.Context, opt_ident{}) { return name, sym, opts }
 
 	case LBRACE:
-		if e := p.project.entry(ctx, name); !e.valid() {
-			erro(pc(ctx,name), "resolved nil: %s", ts(name,ctx))
+		if e := p.project.entry(p, name); !e.valid() {
+			erro(pc(p,name), "resolved nil: %s", ts(name,p))
 		} else {
 			obj = e
 			return
 		}
 	}
 
-	erro(pc(pc(ctx,name),p),
+	erro(pc(pc(p,name),p),
 		_f("undefined %v", sym),
-		_f("→ %v, name=%s tok=%v", obj, ts(name,ctx), tok),
+		_f("→ %v, name=%s tok=%v", obj, ts(name,p), tok),
 		_f("project %v, bases=%v", p.project.name, p.project.bases),
 		_fMapKeys(". %v", p.project.projs),
 		trace_ctx{100}, callstack{num:10})
@@ -12572,9 +15163,9 @@ func (p *parse_foreach_ctx) do(ctx Context, op any) (_ any) {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
-	case is_auto_sym: if t.s == symUnderscore { return true }
-	case is_auto_preserved: if t.s == symUnderscore { return true }
-    case get_auto: if t.s == symUnderscore { return p.a }
+	case is_auto_sym: if t.s == p.a.name { return true }
+	case is_auto_preserved: if t.s == p.a.name { return true }
+    case get_auto: if t.s == p.a.name { return p.a }
 	case set_auto:
 		// Parse-time context does not hold runtime values.
 		// Let it safely fall through to the runtime `automatic` wrapper!
@@ -12596,7 +15187,7 @@ func (p *parse_grep_ctx) do(ctx Context, op any) (_ any) {
 		if p.a != nil {
 			if _, y := p.a[t.s]; y { return true }
 		}
-    case get_auto:
+	case get_auto:
 		if p.a != nil {
 			if x, y := p.a[t.s]; y { return x }
 		}
@@ -12607,477 +15198,431 @@ func (p *parse_grep_ctx) do(ctx Context, op any) (_ any) {
 		p.a = map[Symbol]*auto{sym_0: &auto{knownobject{p.o, sym_0}}}
 		// Start at index 1 as sym_0 is already handled above
 		for i, sym := range t.subexpSyms { // regexp.Regexp.SubexpNames()
-			if i > 0 && sym != symEmpty {
-				p.a[sym] = &auto{knownobject{p.o, sym}}
+			if i > 0 {
+				// THE DOD FIX: Explicitly register unnamed numeric captures ($1, $2)
+				// so they aren't erased and eagerly inlined by the compiler during parse time!
+				numSym := intern(strconv.Itoa(i))
+				p.a[numSym] = &auto{knownobject{p.o, numSym}}
+
+				if sym != symEmpty {
+					p.a[sym] = &auto{knownobject{p.o, sym}}
+				}
 			}
 		}
 	}
 	return p.Context.do(ctx, op)
 }
 
-func (p *compiler) calling(ctx Context) (result Value) {
+func (p *compiler) calling() (result Value) {
 	var tok token
 	var sym Symbol
 	var name, obj Value
 	var args, opts []Value
 	var pos, closure = p.pos, p.tok.is_closure()
 
-	// Suspend string modes so bare variables (like $1, $@) scan normally
+	// 1. Suspend string modes so bare variables (like $1, $@) scan normally
 	suspended := p.scanner.bits & (isStrcompLine | isStrcompString | isBracePlain | isBraceRaw)
 	if suspended != 0 { p.scanner.bits &^= suspended }
 
-	p.step(ctx) // skips sigil $ or &
+	p.step() // skips sigil $ or &
 
 	// Restore string modes after the variable's leading token has been safely consumed
 	if suspended != 0 { p.scanner.bits |= suspended }
 
+	// 2. Parse Target and Arguments based on Syntax Wrapper
 	switch p.tok {
 	case LPAREN, LBRACE: // $(...), ${...}
-		tok = p.tok // use LPAREN, LBRACE
-		p.step(ctx) // skips LPAREN, LBRACE
+		tok = p.tok
+		p.step()
 
-		if p.tok == SPACE { erro(pc(ctx,p.pos), "unexpected spaces") }
+		if p.tok == SPACE { erro(p, "unexpected spaces") }
 
-		name = p.expr(selection_ctx{ctx, closure})
+		sc := selection_ctx{p.Context,closure}
+		p.Context = sc
+		name = p.expr()
+		p.Context = sc.Context
 
+		var is_optional_ident bool
 		if closure || optional(name) {
-			obj, sym, opts = p.identity(optional_ident(ctx), tok, name, closure)
-		} else {
-			obj, sym, opts = p.identity(ctx, tok, name, closure)
+			defer func(c Context) { p.Context = c } (p.Context)
+			p.Context = optional_ident(p.Context)
+			is_optional_ident = true
 		}
 
+		obj, sym, opts = p.identity(tok, name, closure)
+
+		// Extract arguments dynamically based on context symbol
 		if (tok == LPAREN && p.tok != RPAREN) || (tok == LBRACE && p.tok != RBRACE) {
-			var cc Context = aware_ctx{ctx, COMMA}
+			cc := aware_ctx{p.Context,COMMA}; defer func() { p.Context = cc.Context } ()
+			p.Context = cc
 
-			// ZERO-ALLOCATION FIX: This is now a pure O(1) integer switch!
 			switch sym {
-			case symEmpty:
-				p.spaces(cc)
-				args = append(args, _list(p.values(cc)...))
-			case symAnd, symOr: // Or use predefined constants if available
-				cc = optional_ident(cc)
-				args = append(args, _list(p.values(cc)...))
-			case symCase:
-				args = append(args, _list(p.values(cc)...))
-				cc = optional_ident(cc)
-			case symForeach:
-				a := &auto{knownobject{objbase{valbase{p.pos}, p.scope}, symUnderscore}}
-				args = append(args, _list(p.values(cc)...))
-				cc = &parse_foreach_ctx{cc, a}
+			case symEmpty: p.spaces()
+			case symAnd, symOr, symCase:
+				if !is_optional_ident {
+					defer func(c Context) { p.Context = c } (p.Context)
+					p.Context = optional_ident(p.Context)
+				}
 			case symGrep:
-				cc = &parse_grep_ctx{cc, objbase{valbase{p.pos}, p.scope}, nil}
-				args = append(args, _list(p.values(cc)...))
-			default:
-				args = append(args, _list(p.values(cc)...))
+				p.Context = &parse_grep_ctx{p.Context, objbase{valbase{p.pos}, _term(p.Context).scope}, nil}
+			// THE DOD FIX: Removed symForeach from here!
 			}
 
+			// 1. Parse the FIRST argument (The list to iterate over)
+			// This evaluates in the parent context, allowing outer `$_` to safely resolve to `xx`!
+			args = append(args, _list(p.values()...))
+
+			// 2. THE DOD FIX: Push foreach loop-variable shielding ONLY for the body!
+			if sym == symForeach {
+				a := &auto{knownobject{objbase{valbase{p.pos}, _term(p.Context).scope}, symUnderscore}}
+				fc := &parse_foreach_ctx{p.Context, a}; defer func() { p.Context = fc.Context } ()
+				p.Context = fc
+			}
+
+			// 3. Parse subsequent arguments (The loop body)
+			// Now the inner `$_` is safely shielded and bound to the inner loop!
 			for p.tok == COMMA {
-				p.next(cc, true) // consumes comma
-				args = append(args, _list(p.values(cc)...))
+				p.next(true)
+				args = append(args, _list(p.values()...))
 			}
 		}
 
-		switch tok {
-		case LPAREN: p.expect(ctx, RPAREN)
-		case LBRACE: p.expect(ctx, RBRACE)
-		}
+		if tok == LPAREN { p.expect(RPAREN) } else { p.expect(RBRACE) }
 
 	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING:
-		tok = p.tok
-		name = p.literal(ctx) // $0, $1, $(1.2), $(0x1)...
-		sym = __symbol(ctx, name)
-		obj = p.resolve(ctx, name.Pos(), sym, closure)
-		if checkpoints {
-			if sym_0.id() < sym.id() && sym.id() <= sym_9.id() {
-				if sym.Kind() != SymInt {
-					erro(pc(ctx,p),
-						_f("%v %v → obj=%v", sym, ts(name), ts(obj)),
-						_f("is_auto_sym{%v}=%v", sym, do(ctx, is_auto_sym{sym})),
-						_f("%v", ts(ctx)),
-						unwind{})
-				}
-				if obj != nil {
-					if a, ok := obj.(*auto); ok {
-						if a.name != sym || a.name.Kind() != SymInt {
-							erro(pc(ctx,p),
-								_f("name mismatched: %v != %v", a.name, sym),
-								_f("%v → obj=%v", ts(name), ts(obj)),
-								_f("%v", ts(ctx)),
-								callstack{num:10}, unwind{})
-						}
-					}
-				}
+		tok, name = p.tok, p.literal() // $0, $1, $(1.2), $(0x1)...
+		sym = __symbol(p, name)
+		obj = p.resolve(name.Pos(), sym, closure)
+
+		// THE DOD FIX: Included sym_0.id() in the boundary validation!
+		if checkpoints && sym_0.id() <= sym.id() && sym.id() <= sym_9.id() {
+			if sym.Kind() != SymInt {
+				erro(p, _f("%v %v → obj=%v", sym, ts(name), ts(obj)), unwind{})
+			}
+			if a, ok := obj.(*auto); ok && (a.name != sym || a.name.Kind() != SymInt) {
+				erro(p, _f("name mismatched: %v != %v", a.name, sym), callstack{num: 10}, unwind{})
 			}
 		}
 
 	case STRING, STRCOMP:
 		tok = p.tok
-		if tok == STRING { name = p.literal(ctx) } else { name = p.strcomp(ctx) }
-		obj, sym, opts = p.identity(ctx, tok, name, closure)
+		if tok == STRING { name = p.literal() } else { name = p.strcomp() }
+		obj, sym, opts = p.identity(tok, name, closure)
 
 	case WORD:
-		switch p.sym { // CRITICAL FIX: Read the scanner's high-speed integer channel!
-		case symUnderscore: // "_"
-			tok = UNDERLINE
-			name = &punct{valbase{p.pos}, p.sym}
-			obj = p.resolve(ctx, name.Pos(), p.sym, closure)
-			p.step(ctx)
-		default:
-			erro(pc(ctx,p.pos), _f("unexpects %v", p.sym))
+		if p.sym != symUnderscore {
+			erro(p, _f("unexpected {%v '%s' %v}", p.tok, p.lit, p.sym), callstack{num: 10}, unwind{})
 		}
+		tok, name = UNDERLINE, &punct{valbase{p.pos}, p.sym}
+		obj = p.resolve(name.Pos(), p.sym, closure)
+		p.step()
 
-	default: // case AT, BAR, DOT, SAST, QUE, MINUS, PLUS, PCON:
+	default: // AT, BAR, DOT, SAST, QUE, MINUS, PLUS, PCON, RAW
 		tok = p.tok
-
-		// Fallback guard: In the rare case a RAW token still leaks through, intercept it.
 		if tok == RAW {
-			name = _raw(p.pos, p.lit)
-			sym = intern(p.lit)
-			p.step(ctx)
+			name, sym = _raw(p.pos, p.lit), intern(p.lit)
+			p.step()
 		} else {
-			name = p.punct(ctx) // $@, $?, $*, $/...
-			if w, ok := name.(*word); ok {
-				sym = w.s
-			} else {
-				sym = intern(tok.String())
-			}
+			name = p.punct() // $@, $?, $*, $/...
+			if w, ok := name.(*word); ok { sym = w.s } else { sym = intern(tok.String()) }
 		}
 
-		if obj = p.resolve(ctx, name.Pos(), sym, closure); obj == nil {
-			erro(pc(ctx, name.Pos()), //_fMapKeys("%v", p.scope.elems),
-				_f("unexpected: tok=%v sym=%v name=%v", tok, sym, name),
-				// _f("%v", p.scope.elems[symSlash]),
-				trace_ctx{100}, callstack{num:10}, unwind{})
+		if obj = p.resolve(name.Pos(), sym, closure); obj == nil {
+			erro(pc(p,name.Pos()), _f("unexpected: tok=%v sym=%v name=%v", tok, sym, name), trace_ctx{100}, callstack{num: 10}, unwind{})
 		}
 	}
 
-	if obj == nil && sym != symEmpty {
-		if p.project.ext.Plugin != nil {
-			// External plugin interface might still expect a string, so we call .String() safely here.
-			if t, e := p.project.ext.Lookup(sym.String()); e == nil && t != nil {
-				erro(pc(ctx, name.Pos()),
-					_f("unexpected: tok=%v sym=%v name=%v dialect=%v", tok, sym, name, p.dialect),
-					trace_ctx{100}, unwind{})
-			}
+	// 3. Extensibility and Nil Validation
+	if obj == nil && sym != symEmpty && p.project.ext.Plugin != nil {
+		if t, e := p.project.ext.Lookup(sym.String()); e == nil && t != nil {
+			erro(pc(p,name.Pos()), _f("unexpected plugin leak: tok=%v sym=%v name=%v dialect=%v", tok, sym, name, p.dialect), trace_ctx{100}, unwind{})
 		}
 	}
 
 	if obj == nil {
-		erro(pc(ctx, name.Pos()),
-			_f("nil symbol; tok=%v sym=%v name=%v", tok, sym, name),
-			trace_ctx{100}, callstack{num:10}, unwind{})
+		erro(pc(p,name.Pos()), _f("nil symbol; tok=%v sym=%v name=%v", tok, sym, name), trace_ctx{100}, callstack{num: 10}, unwind{})
 	}
 
+	// 4. Delegate/Closure Factory Construction
 	if closure {
 		return makeClosure(pos, tok, obj, opts, args...)
 	}
 
-	if x, y := obj.(*def); y && x.iso(defStatic) {
-		if !truly(ctx, is_auto_preserved{x.name}) {
-			return _loc(x.value, name.Pos())
-		}
+	// THE DOD FIX: defStatic is a compile-time value-return!
+	// It must unconditionally inline directly to the tape, bypassing all runtime
+	// preservation logic (like is_auto_preserved) which is strictly for *auto.
+	if x, y := obj.(*def); y && x.iso(defStatic) && !truly(p, is_auto_preserved{x.name}) {
+		return _loc(x.value, name.Pos())
 	}
 
 	return makeDelegate(pos, tok, obj, opts, args...)
 }
 
-func (p *compiler) unary(ctx Context) (x Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "unary")) }
-
-	// --- DEFENSIVE PRIMER FIX
-	// If the parser hits unary and the token is still 0 (uninitialized),
-	// force the scanner to read the first token.
-	if p.tok == ILLEGAL && p.lit == "" {
-		p.next(ctx, true)
-		if p.tok == EOF {
-			return nil
-		}
-	}
-
-	pos := p.pos
-
-	defer func() {
-		if pos == p.pos && x != nil {
-			if z, y := x.(*punct); !y || z.s != symEmptyPrefix {
-				erro(pc(ctx,x), "syntax error: %v", ts(x,ctx))
-			}
-		}
-	} ()
-
-	switch p.tok {
-	case ASSIGN: // example: '=xxx'
-		if !truly(ctx, left_hand_side{}) {
-			var x = valbase{p.pos}
-			if p.step(ctx); p.is_list_term(ctx) {
-				return &pair{x, valbase{p.pos}}
-			} else {
-				return &pair{x, p.expr(ctx)}
-			}
-		}
-
-	case WORD:
-		if x = p.word(ctx); p.tok == PERC && truly(ctx, is_url_query_parser{}) {
-			var comp = _compound(x)
-			for p.tok == PERC {
-				comp.elems = append(comp.elems, p.punct(ctx))
-
-				// See https://en.wikipedia.org/wiki/Query_string#URL_encoding
-				// It should be decoded as '%HH' here, but we just treat it as a literap.
-			urlpercloop:
-				for p.tok != PERC {
-					switch p.tok {
-					case BINARY, OCTAL, INTEGER, HEXADECIMAL, WORD:
-						comp.elems = append(comp.elems, p.literal(ctx))
-					case HASH:
-						break urlpercloop
-					default:
-						erro(ctx, "bad url token: %v %v", p.tok, p.lit)
-					}
-				}
-			}
-			x = comp
-		}
-		return
-
-	case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URL, STRING/*, RAW*/:
-		return p.literal(ctx)
-
-	case STRCOMP:
-		return p.strcomp(ctx)
-
-	case ESCAPE: // \
-		return p.escape(ctx)
-
-	case LPAREN: // (
-		return p.group(ctx)
-
-	case LBRACE: // {
-		return p.braced(ctx)
-
-	case LBOT_CORNER, LTOP_CORNER: // ⌜a b c⌟  ⌞a b c⌝
-		return p.corner_list(ctx)
-
-	case LANGLE, RANGLE: // < >
-		return p.punct(ctx)
-
-	case CLOSURE, DELEGATE:
-		return p.calling(ctx)
-
- 	case COMMA:
-		if !truly(ctx, aware_token{COMMA}) {
-			return p.punct(ctx)
-		}
-
-	case AT, BAR, PLUS, SEMICOLON:
-		return p.punct(ctx)
-
-	case PERC: // %bar (no prefix)
-		if truly(ctx, is_url_query_parser{}) {
-			return p.punct(ctx)
-		} else {
-			return p.perc(ctx, nil)
-		}
-
-	case SAST, DAST, ASTQ, QUE, LBRACK: // * ** *? ? [    -- NOTE: ? is an exception
-		return p.glob(ctx, nil)
-
-	case MINUS:
-		return p.flag(ctx)
-
-	case EXC:
-		return p.negative(ctx)
-
-	case PCON: // The root of the path
-		return &punct{valbase{p.pos}, symEmptyPrefix}
-
-	case TILDE: // ~
-		return p.punct(ctx)
-
-	case DOT: // .
-		return p.dot(ctx, nil)
-
-	case DOTDOT: // . ..
-		tok, pos := p.tok, p.pos
-		if p.step(ctx) ; p.tok == PCON {
-			return &punct{valbase{p.pos}, symSlash}
-		} else {
-			return &punct{valbase{pos}, tok2sym[tok]}
-		}
-
-	default:
-		if p.tok.is_keyword() { // keywords here are words
-			return p.word(ctx)
-		}
-	}
-
-	if p.tok != EOF {
-		erro(pc(pc(ctx,pos),p),
-			_f("unexpected {tok=%v sym=%s lit=%s}", p.tok, p.sym, p.lit),
-			_f("%v", &p.scanner.scanstate),
-			callstack{num:16}, unwind{})
-	}
-
-	if p.lineComment != nil {
-		for _, c := range p.lineComment.comments {
-			erro(ctx, "# %s", c.string)
-		}
-	}
-	return
-}
-
-func (p *compiler) composite(ctx Context) (x Value) {
-	if l_traverse.enabled { defer un(l_trace(l_traverse, "composite")) }
-
-	x = p.unary(ctx)
-
-	switch p.tok { // check composible expressions
-	case PERC: // foo%bar ; FIXME: %/foo/bar -> {path % foo bar}
-		// Block punctuation from becoming the prefix of a pattern
-		if _, isPunct := x.(*punct); isPunct {
-			return x // Fall back to expr() composeloop!
-		}
-		return p.perc(ctx, x)
-
-	case DOT: // foo.bar.baz.o ; FIXME: push bits when parsing $(...)
-		return p.dot(ctx, x)
-
-	case QUE: // ?
-		return p.glob(ctx, x)
-
-	case COLON:
-		if truly(ctx, is_recipe_parser{false}) || !truly(ctx, left_hand_side{}) {
-			if w, ok := x.(*word); ok && isKnownScheme(w.s) {
-				return p.url(ctx, x)
-			}
-		}
-	}
-	return
-}
-
-func (p *compiler) expr(ctx Context) (x Value) {
+func (c *compiler) expr() (x Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "expr")) }
 
-	x = p.composite(ctx)
+	// 1. Atomic Transaction Start
+	bt := c.checkpoint(undoOwn | undoCtx | undoStack | undoHead | undoPack)
 
-	if truly(ctx, left_hand_side{}) && p.tok.is_assign() { return }
-	if truly(ctx, is_glob_parser{}) { return }
-	if truly(ctx, is_params_parser{}) {
-		if g, y := x.(*group); y && g.len() == 1 {
-			if _, y = g.elems[0].(*group); y { return }
+	c.boundary = 0
+	c.vmpack = &vmpack{} // Native Synchronous Packer
+
+	// Primer: Ensure the scanner is initialized
+	if c.tok == ILLEGAL && c.lit == "" {
+		c.next(true)
+		if c.tok == EOF {
+			c.unwind(&bt)
+			return _null(c.pos)
 		}
 	}
 
-	var n int
+	startOps := len(c.ops)
+	reverse := c.class&clsBackwards != 0
 
-composeloop: // parses right-fixes
-	switch p.tok {
-	case COLON, COMPOSED, RPAREN, RBRACK, RBRACE, RBOT_CORNER, RTOP_CORNER, RCHEVRON, RAW, SPACE, SEMICOLON, LINEND, EOF:
-		return
+	// Safe PDA Lookbehind Helpers
+	peekLHS := func() Value {
+		if c.vmpack == nil { return nil }
+		return c.vmpack.reduce(c.pos, reverse)
+	}
+	restoreLHS := func(v Value) {
+		c.vmpack = &vmpack{}
+		if v != nil && !isEmpty(v) { c.shift(v, reverse) }
+	}
 
-	case COMMA:
-		if truly(ctx, aware_token{COMMA}) { return }
+	isUrlCtx := truly(c.Context, is_url_parser{})
 
-	case ASSIGN: // example: key=value
-		if !truly(ctx, left_hand_side{}) {
-			if p.step(ctx); p.is_list_term(ctx) {
-				return &pair{x, valbase{p.pos}}
+expr_loop:
+	for c.tok != EOF && c.err == nil {
+		// CRITICAL FIX: Declare scope variables before any potential `goto` jump
+		pos := c.pos
+		var val Value
+		var sym Symbol
+
+		// Break only if we are at the root level (not inside a nested PDA delimiter)
+		if c.vmpack.parent == nil {
+			isLHS := truly(c.Context, left_hand_side{})
+			if isLHS && c.tok.is_assign() { break }
+
+			isStop := false
+			switch c.tok {
+			case COLON:
+				// URL Lookbehind Interceptor
+				lhs := peekLHS()
+				if w, ok := lhs.(*word); ok && isKnownScheme(w.s) && (!isLHS || truly(c.Context, is_recipe_parser{false})) {
+					val = c.url(lhs)
+					c.vmpack = &vmpack{}
+					goto push_val
+				}
+				restoreLHS(lhs)
+				isStop = true // COLON terminates expr if not a URL
+
+			case COMPOSED, RPAREN, RBRACK, RBRACE, RBOT_CORNER, RTOP_CORNER, RCHEVRON, RAW, SPACE, SEMICOLON, LINEND, EOF:
+				isStop = true
+			case COMMA:
+				if truly(c.Context, aware_token{COMMA}) { isStop = true }
+
+			// CRITICAL FIX: Strictly enforce URL loop boundaries[cite: 8]
+			case CLOSURE:
+				if truly(c.Context, is_url_query_parser{}) { isStop = true }
+			case HASH:
+				if isUrlCtx { isStop = true }
+			}
+
+			if isStop { break expr_loop }
+			if truly(c.Context, is_strcomp_parser{}) { break expr_loop }
+		}
+
+		// Parse atomic context nodes or map composition operators to the PDA
+		switch c.tok {
+		// PDA NATIVE COMPOSITION OPERATORS (Bypassing recursive dot/path/arrow logic)
+		case QUE:
+			if isUrlCtx { break expr_loop } // Yield to hostloop/pathloop[cite: 8]
+			sym = symQues; c.step()
+
+		case PCON:
+			if isUrlCtx { break expr_loop }
+			sym = symSlash; c.step()
+
+		case DOT:
+			if isUrlCtx { break expr_loop }
+			sym = symDot; c.step()
+
+		case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
+			if truly(c.Context, selection{}) {
+				lhs := peekLHS()
+				val = c.arrow(lhs, truly(c.Context, closure_selection{}))
+				c.vmpack = &vmpack{}
+				goto push_val
+			}
+			sym = symArrow; c.step()
+
+		case ASSIGN:
+			sym = symEqualSign; c.step()
+
+		case LPAREN:
+			if !truly(c.Context, parse_no_argumented{}) {
+				lhs := peekLHS()
+				if lhs != nil && !isEmpty(lhs) {
+					val = c.argumented(lhs)
+					c.vmpack = &vmpack{}
+					goto push_val
+				}
+				restoreLHS(lhs)
+			}
+			val = c.group()
+
+		// ATOMIC VALUES (Parsed via specific functions to preserve Context semantics)
+		case WORD:
+			val = c.word()
+			if c.tok == PERC && truly(c.Context, is_url_query_parser{}) {
+				comp := _compound(val)
+				for c.tok == PERC {
+					comp.elems = append(comp.elems, c.punct())
+				urlpercloop:
+					for c.tok != PERC {
+						switch c.tok {
+						case BINARY, OCTAL, INTEGER, HEXADECIMAL, WORD:
+							comp.elems = append(comp.elems, c.literal())
+						case HASH, CLOSURE, SPACE, EOF:
+							break urlpercloop
+						default:
+							erro(c, "bad url token: %v %v", c.tok, c.lit)
+							break urlpercloop
+						}
+					}
+				}
+				val = comp
+			}
+
+		case BINARY, OCTAL, INTEGER, HEXADECIMAL, FLOATING, DATETIME, DATE, TIME, URL, STRING:
+			val = c.literal()
+		case STRCOMP:     val = c.strcomp()
+		case ESCAPE:      val = c.escape()
+		case LBRACE:      val = c.braced()
+		case LBOT_CORNER, LTOP_CORNER: val = c.corner_list()
+		case LANGLE, RANGLE: val = c.punct()
+		case DELEGATE: val = c.calling()
+		case CLOSURE:
+			if truly(c.Context, is_url_query_parser{}) {
+				val = c.punct()
 			} else {
-				return &pair{x, p.expr(ctx)}
+				val = c.calling()
+			}
+		case MINUS:       val = c.flag()
+		case EXC:         val = c.negative()
+		case TILDE, AT, BAR, PLUS, SEMICOLON, COMMA: val = c.punct()
+		case DOTDOT:      val = &punct{valbase{pos}, tok2sym[c.tok]}; c.step()
+		case PERC:
+			if truly(c.Context, is_url_query_parser{}) { val = c.punct() } else { val = c.perc(nil) }
+		case SAST, DAST, ASTQ, LBRACK:
+			val = c.glob(nil)
+
+		default:
+			if c.tok.is_keyword() {
+				val = c.word()
+			} else {
+				erro(pc(c,pos), _f("unexpected {tok=%v sym=%s lit=%s}", c.tok, c.sym, c.lit), callstack{num: 16}, unwind{})
+				c.step()
+				continue expr_loop
 			}
 		}
 
-	case LPAREN:
-		if !truly(ctx, parse_no_argumented{}) {
-			x = p.argumented(ctx, x)
-			goto composeloop
+	push_val:
+		// 3. Drive the State Machine
+		if val != nil {
+			c.ops = append(c.ops, opRetPack)
+			c.operands = append(c.operands, val)
+		} else if sym != 0 {
+			c.ops = append(c.ops, opRetPack)
+			c.operands = append(c.operands, pos, sym)
 		}
 
-	case PCON: // path, except -I/path/to/include
-		if /* !truly(ctx, parse_no_path{}) */ true {
-			x = p.path(ctx, x)
-			goto composeloop
-		}
-
-	case SELECT_PROP, SELECT_PROG1, SELECT_PROG2:
-		if truly(ctx, selection{}) {
-			x = p.arrow(ctx, x, truly(ctx, closure_selection{}))
-			goto composeloop
-		}
-
-	case QUE: // ?
-		x = p.glob(ctx, x)
-		goto composeloop
+		for len(c.ops) > startOps && c.err == nil { c.symstr.step() }
 	}
 
-	if truly(ctx, is_strcomp_parser{}) { return }
+	if c.err != nil { erro(c, "%v", c.err) }
 
-	var pos = p.pos
-	var y = p.unary(ctx)// NOTE: it's unary, not composite
-	if p.pos == pos {
-		erro(ctx, "syntax error: %v (%v %v %v)", x, ts(x,ctx), ts(y,ctx), p.tok)
+	// 4. Finalize the AST and Commit Transaction
+	for c.vmpack != nil && c.vmpack.parent != nil {
+		inner := c.vmpack.reduce(c.pos, reverse)
+		c.vmpack = c.vmpack.parent
+		c.vmpack.shift(inner, reverse)
 	}
 
-	x = prefix(ctx, x, y) // ⇒ xy
+	if c.vmpack != nil {
+		x = c.vmpack.reduce(c.pos, reverse)
+	}
 
-	switch p.tok { case COMMENT, SPACE, LINEND, EOF: return }
+	if x == nil { x = _null(c.pos) }
 
-	if 9999 < n { erro(ctx, "too many compose: %v (%d)", x, n) }
-
-	n += 1; goto composeloop // compose as many as possible
+	c.unwind(&bt)
+	return x
 }
 
-func (p *compiler) braced_and(ctx Context) (res Value) {
+func (p *compiler) braced_and() (res Value) {
 	var vs []Value
 
-	p.expect(ctx, AND) // consumes `and`
+	p.expect(AND) // consumes `and`
 
 andloop:
 	for {
-		switch p.spaces(ctx); p.tok {
-		case COMMA: p.step(ctx); continue andloop
+		switch p.spaces(); p.tok {
+		case COMMA: p.step(); continue andloop
 		case RBRACE, EOF: break andloop
 		}
 
-		v := p.expr(aware_ctx{ctx, COMMA})
-		vs = append(vs, merge(expand(final{pc(ctx,v)}, v))...)
+		ac := aware_ctx{p.Context, COMMA}
+
+		p.Context = ac
+		v := p.expr()
+
+		p.Context = final{pc(ac.Context,v.Pos())}
+		vs = append(vs, merge(p.eval(v))...)
+
+		p.Context = ac.Context
 	}
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
-	for _, a := range vs { if __true(ctx, a) { res = a } else { return nil } }
+	for _, a := range vs { if __true(p, a) { res = a } else { return nil } }
 	return
 }
 
-func (p *compiler) braced_or(ctx Context) (_ Value) {
-	p.expect(ctx, OR) // consumes `or`
+func (p *compiler) braced_or() (_ Value) {
+	p.expect(OR) // consumes `or`
 
 	var va []Value
 
 orloop:
 	for p.tok != EOF {
-		switch p.spaces(ctx); p.tok {
-		case  COMMA: p.step(ctx); continue orloop
-		case RBRACE:                 break orloop
+		switch p.spaces(); p.tok {
+		case  COMMA: p.step(); continue orloop
+		case RBRACE:           break orloop
 		}
 
-		pos := p.pos
-		v := p.expr(aware_ctx{ctx, COMMA})
-		w := expand(final{pc(ctx,pos)}, v)
-		va = append(va, merge(w)...)
+		ac := aware_ctx{p.Context, COMMA}
+
+		p.Context = ac
+		v := p.expr()
+
+		p.Context = final{pc(ac.Context,v.Pos())}
+		va = append(va, merge(p.eval(v))...)
+
+		p.Context = ac.Context
 	}
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
-	for _, a := range va { if __true(ctx, a) { return a } }
+	for _, a := range va { if __true(pc(p,a.Pos()), a) { return a } }
 	return
 }
 
-func (p *compiler) braced_for(ctx Context) (res Value) {
-	p.expect(ctx, FOR) // consumes `for`
+func (p *compiler) braced_for() (res Value) {
+	p.expect(FOR) // consumes `for`
 
-	erro(ctx, "TODO: {for ...}")
+	erro(p, "TODO: {for(v1=(a b c) v2=(d e f)) ...}")
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 	return
 }
 
@@ -13116,10 +15661,12 @@ func (f braced_foreach_ctx) do(c Context, o any) (_ any) {
 	return f.Context.do(c, o)
 }
 
-func (p *compiler) braced_foreach(ctx Context) Value {
+func (p *compiler) braced_foreach() Value {
 	pos := p.pos
-	p.expect(ctx, FOREACH)
-	p.spaces(ctx)
+	p.expect(FOREACH)
+	p.spaces()
+
+	defer func(c Context) { p.Context = c } (p.Context)
 
 	var vals []Value
 
@@ -13130,56 +15677,69 @@ valsloop:
 			break valsloop
 		}
 
-		ac := aware_ctx{ctx, COMMA}
-		vals = append(vals, p.expr(ac))
-		p.spaces(ac)
+		ac := aware_ctx{p.Context, COMMA}
+		p.Context = ac
+		vals = append(vals, p.expr())
+		p.Context = ac.Context
+
+		p.spaces()
 	}
 
-	cc := automatic{ Context:ctx, defs:make(def_map) }
-	cc.set(ctx, defVoid, symUnderscore, nil)
+	ac := automatic{ Context:p.Context, defs:make(def_map) }
+	ac.set(p, defVoid, symUnderscore, nil)
+	p.Context = &ac
 
 	var temps []Value
-	switch p.spaces(ctx); p.tok {
+	switch p.spaces(); p.tok {
 	case RBRACE:
 		// THE DOD FIX 1: Prevent token leaks!
 		// Do not return `_null(p.pos)` early. Let it fall through
 		// to expect(RBRACE) to cleanly process the bodiless loop.
 	case COMMA:
-		for p.step(ctx); p.tok != RBRACE; {
-			p.spaces(ctx)
-			if v := p.expr(braced_foreach_ctx{&cc}); v != nil {
+		for p.step(); p.tok != RBRACE; {
+			p.spaces()
+
+			bc := braced_foreach_ctx{p.Context}
+			p.Context = bc
+			v := p.expr()
+			p.Context = bc.Context
+
+			if v != nil {
 				temps = append(temps, v)
 			} else {
-				erro(ctx, "nil ; %v", p.tok)
+				erro(p, "nil ; %v", p.tok)
 			}
 		}
 	}
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
 	var va []Value
-	var recipe_start = truly(ctx, is_recipe_start{})
+	var recipe_start = truly(p, is_recipe_start{})
 	for _, val := range vals {
-		for _, elem := range merge(expand(final{ctx},val)) {
+		sc := p.Context
+		p.Context = final{p.Context}
+		for _, elem := range merge(p.eval(val)) {
 			if isEmpty(elem) { continue }
-			if /* indeterminate(ctx, elem) */true { elem = &disjunction{valbase{pos},elem} }
+			if /* indeterminate(p, elem) */true { elem = &disjunction{valbase{pos},elem} }
 
 			// NOTE: don't use defStatic, it's for codeblock auto only
-			cc.set(ctx, defVoid, symUnderscore, elem)
+			ac.set(p, defVoid, symUnderscore, elem)
 
-			var a = xmerge(final{braced_foreach_ctx{&cc}}, temps...)
+			bc := braced_foreach_ctx{p.Context}
+			p.Context = bc
+			a := merge(p.evals(temps...)...)
+			p.Context = bc.Context
+
 			if recipe_start && p.tok == LINEND {
-				do(ctx, add_recipe_line{a})
+				do(p, add_recipe_line{a})
 			} else {
 				// THE DOD FIX 2: Evaporate inner nulls!
 				// Filter out empty/null values generated by conditional loop bodies.
-				for _, item := range a {
-					if !isEmpty(item) {
-						va = append(va, item)
-					}
-				}
+				for _, item := range a { if !isEmpty(item) { va = append(va, item) } }
 			}
 		}
+		p.Context = sc
 	}
 
 	// THE DOD FIX 3: Evaporate empty loops!
@@ -13188,16 +15748,19 @@ valsloop:
 	if len(va) == 0 {
 		return &list{elements{}}
 	}
-	return ease(ctx, va)
+	return ease(p, va)
 }
 
-func (p *compiler) braced_str(ctx Context) (res Value) {
-	p.next(ctx, true) // resumes 'str'
+func (p *compiler) braced_str() (res Value) {
+	p.next(true) // resumes 'str'
+
+	cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	var pos = p.pos
-	var elems = expands(final{ctx}, p.braced_elems(ctx)...)
+	var elems = p.evals(p.braced_elems()...)
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
 	if /* indeterminate(ctx, elems...) */true {
 		return &strval{valbase{pos}, elems}
@@ -13206,34 +15769,40 @@ func (p *compiler) braced_str(ctx Context) (res Value) {
 	var s string
 	for i, v := range elems {
 		if s != "" && 0 < i { s += " " }
-		s += __string(ctx, v)
+		s += __string(p, v)
 	}
 	return &strlit{valbase{pos}, s}
 }
 
-func (p *compiler) braced_word(ctx Context) (res Value) {
-	p.next(ctx, true) // resumes 'word'
+func (p *compiler) braced_word() (res Value) {
+	p.next(true) // resumes 'word'
+
+	cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	var pos = p.pos
-	var elems = expands(final{ctx}, p.braced_elems(ctx)...)
+	var elems = p.evals(p.braced_elems()...)
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
 	var syms []Symbol
-	for _, elem := range elems { syms = append(syms, __symbol(ctx, elem)) }
+	for _, elem := range elems { syms = append(syms, __symbol(p, elem)) }
 	return &word{valbase{pos}, __symJoinBy(symSpace, syms...)}
 }
 
-func (p *compiler) braced_words(ctx Context) (res Value) {
-	p.next(ctx, true) // resumes 'word'
+func (p *compiler) braced_words() (res Value) {
+	p.next(true) // resumes 'word'
+
+	cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 	var pos = p.pos
-	var elems = expands(final{ctx}, p.braced_elems(ctx)...)
+	var elems = p.evals(p.braced_elems()...)
 
-	p.expect(ctx, RBRACE)
+	p.expect(RBRACE)
 
 	for i, v := range elems {
-		elems[i] = &word{valbase{pos}, __symbol(ctx, v)}
+		elems[i] = &word{valbase{pos}, __symbol(p, v)}
 	}
 
 	switch len(elems) {
@@ -13244,23 +15813,15 @@ func (p *compiler) braced_words(ctx Context) (res Value) {
 	return &list{elements{elems}}
 }
 
-func (p *compiler) braced_quote(ctx Context) (res Value) {
-	p.next(ctx, true) // resumes 'quote'
-	v := p.braced_elems(ctx)
-	p.expect(ctx, RBRACE)
-    return &quote{list{elements{v}}}
+func (p *compiler) braced_quote() (res Value) {
+	p.next(true) // resumes 'quote'
+	vals := p.braced_elems()
+	p.expect(RBRACE)
+    return &quote{list{elements{vals}}}
 }
 
-type defcap struct {
-	name Symbol
-	Value
-}
-
-type defcaps struct {
-	Value
-	caps []*defcap
-}
-
+type defcap  struct { Value ; name Symbol }
+type defcaps struct { Value ; caps []*defcap }
 func (dc *defcaps) String() string {
 	// Use strings.Builder to prevent heap-thrashing
 	var b strings.Builder
@@ -13285,14 +15846,14 @@ func (dc *defcaps) String() string {
 	return b.String()
 }
 
-func (p *compiler) braced_defs(ctx Context) (res Value) {
+func (p *compiler) braced_defs() (res Value) {
 	// 1. The capture list to our fast integer channel
 	var capture []Symbol
 
-	p.step(ctx) // resumes 'defs'
+	p.step() // resumes 'defs'
 
 	if p.tok == LPAREN {
-		p.next(ctx, true) // resumes '('
+		p.next(true) // resumes '('
 		for p.tok != RPAREN && p.tok != EOF {
 			switch p.tok {
 			case COMMA:
@@ -13300,25 +15861,26 @@ func (p *compiler) braced_defs(ctx Context) (res Value) {
 				// CRITICAL FIX 1: Safely handle INTEGER tokens!
 				// If the scanner didn't populate sym, intern it from the literap.
 				sym := p.sym
-				if sym == symEmpty {
-					sym = intern(p.lit)
-				}
+				if sym == symEmpty { sym = intern(p.lit) }
 				capture = append(capture, sym)
 			default:
-				erro(pc(ctx,p), "unexpected %v '%s'", p.tok, p.lit)
+				erro(p, "unexpected %v '%s'", p.tok, p.lit)
 			}
-			p.next(ctx, true)
+			p.next(true)
 		}
-		p.expect(ctx, RPAREN)
+		p.expect(RPAREN)
 	}
 
-	p.spaces(ctx)
+	p.spaces()
 
-	var pats = expands(final{ctx}, p.braced_elems(ctx)...)
+	cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
-	p.expect(ctx, RBRACE)
+	pats := p.evals(p.braced_elems()...)
 
-	var ac = _automatic(ctx)
+	p.expect(RBRACE)
+
+	var ac = _automatic(p.Context)
 	var vals []Value
 
 defsloop:
@@ -13329,14 +15891,14 @@ defsloop:
 			var neg bool
 			if x, y := pat.(negative); y { pat, neg = x.Value, y }
 
-			a, res, _, stems := match(pc(ctx, pat), pat, name)
+			a, res, _, stems := match(pc(p,pat), pat, name)
 			if a && neg { continue defsloop }
 			if a || neg {
 				var main Value = res
 				var caps []*defcap
 
 				// Use the exact predefined integer for $0
-				caps = append(caps, &defcap{sym_0, main})
+				caps = append(caps, &defcap{main, sym_0})
 
 				if len(capture) == 0 {
 					// Auto-numbered captures from stems: $1, $2...
@@ -13353,13 +15915,13 @@ defsloop:
 						// Unpack named_stem wrappers injected by the regex engine
 						if ns, isNamed := stem.(*named_stem); isNamed {
 							target = ns.Value
-							caps = append(caps, &defcap{ns.name, target})
+							caps = append(caps, &defcap{target, ns.name})
 						}
 
 						// CRITICAL FIX: Convert nil stems to valbase so they evaporate cleanly as `{}`!
 						if target == nil { target = _null(pos) }
 
-						caps = append(caps, &defcap{sSym, target})
+						caps = append(caps, &defcap{target, sSym})
 					}
 				} else {
 					// Named captures
@@ -13391,14 +15953,14 @@ defsloop:
 						// Convert unmatched nil groups to valbase
 						if val == nil { val = _null(pos) }
 
-						caps = append(caps, &defcap{sym, val})
+						caps = append(caps, &defcap{val, sym})
 					}
 				}
 
 				dc := &defcaps{main, caps}
 				if ac != nil {
 					for _, cap := range caps {
-						ac.set(ctx, defStatic, cap.name, cap.Value)
+						ac.set(p, defStatic, cap.name, cap.Value)
 					}
 				}
 				vals = append(vals, dc)
@@ -13406,12 +15968,12 @@ defsloop:
 			}
 		}
 	}
-	return ease(ctx, vals)
+	return ease(p, vals)
 }
 
 // braced_file evaluates '{=file ...}' natively leveraging the project VFS pipeline.
-func (p *compiler) braced_file(ctx Context) (res Value) {
-	p.next(ctx, false) // `file` verb, no bypassing spaces for subsequence options group!
+func (p *compiler) braced_file() (res Value) {
+	p.next(false) // `file` verb, no bypassing spaces for subsequence options group!
 
 	var g *group // options group
 	var opts struct{
@@ -13420,19 +15982,19 @@ func (p *compiler) braced_file(ctx Context) (res Value) {
 	}
 
 	if p.tok == LPAREN {
-		g = p.group(ctx)
-		rest := parseOpts(ctx, &opts, g.elems...)
+		g = p.group()
+		rest := parseOpts(p, &opts, g.elems...)
 		if rest != nil {
-			erro(pc(ctx,rest), "unknown file options: %v", rest, trace_ctx{3})
+			erro(pc(p,rest), "unknown file options: %v", rest, trace_ctx{3})
 		}
 	}
 
-	p.spaces(ctx)
+	p.spaces()
 
 	var elems []Value
-	for _, elem := range p.braced_elems(ctx) {
+	for _, elem := range p.braced_elems() {
 		var pos = elem.Pos()
-		if f := p.project.file(ctx, elem); f.exists() { // NOTE: (*file).exists checks for `f != nil`
+		if f := p.project.file(p, elem); f.exists() { // NOTE: (*file).exists checks for `f != nil`
 			if f.pos != pos {
 				elems = append(elems, &loc{f, pos})
 			} else {
@@ -13443,15 +16005,15 @@ func (p *compiler) braced_file(ctx Context) (res Value) {
 				// Guard against nil 'g' references if options are checked out-of-band
 				var optsElems []Value
 				if g != nil { optsElems = g.elems }
-				erro(pc(ctx,pos), "%v: ambiguous semantic: %v", elem, optsElems)
+				erro(pc(p,pos), "%v: ambiguous semantic: %v", elem, optsElems)
 			} else if f == nil {
-				erro(pc(ctx,pos), "not a file: %v", ts(elem, ctx))
+				erro(pc(p,pos), "not a file: %v", ts(elem,p))
 			} else {
-				erro(pc(ctx,pos), "absent file: %v", f.name)
+				erro(pc(p,pos), "absent file: %v", f.name)
 			}
 		} else if opts.explicitAbsent && f == nil {
-			if f = _stat(ctx, elem, stat_justcache{}, p.project); f == nil {
-				erro(pc(ctx,pos), "not a file: %v", ts(elem, ctx))
+			if f = _stat(p, elem, stat_justcache{}, p.project); f == nil {
+				erro(pc(p,pos), "not a file: %v", ts(elem,p))
 			} else {
 				elems = append(elems, f) // An absent file! NOTE: No need to fix `f.pos` here!
 			}
@@ -13462,24 +16024,24 @@ func (p *compiler) braced_file(ctx Context) (res Value) {
 				elems = append(elems, f)
 			}
 		} else {
-			erro(pc(ctx,pos), "not a file: %v", ts(elem, ctx))
+			erro(pc(p,pos), "not a file: %v", ts(elem,p))
 		}
 	}
 
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
-	return ease(ctx, elems)
+	p.spaces()
+	p.expect(RBRACE)
+	return ease(p, elems)
 }
 
 // braced_fullname evaluates '{=fullname ...}' wrapping resolved files cleanly.
-func (p *compiler) braced_fullname(ctx Context) (res Value) {
+func (p *compiler) braced_fullname() (res Value) {
 	pos := p.pos
-	p.next(ctx, true)
+	p.next(true)
 
 	var elems []Value
-	for _, elem := range p.braced_elems(ctx) {
+	for _, elem := range p.braced_elems() {
 		var pos = elem.Pos()
-		if f := p.project.file(ctx, elem); f != nil {
+		if f := p.project.file(p, elem); f != nil {
 			if f.pos == pos {
 				elems = append(elems, f)
 			} else {
@@ -13490,45 +16052,45 @@ func (p *compiler) braced_fullname(ctx Context) (res Value) {
 		}
 	}
 
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.spaces()
+	p.expect(RBRACE)
 	if false {
-		return &loc{fullname{ease(ctx, elems)}, pos}
+		return &loc{fullname{ease(p, elems)}, pos}
 	} else {
-		return fullname{ease(ctx, elems)}
+		return fullname{ease(p, elems)}
 	}
 }
 
-func (p *compiler) braced_plain(ctx Context) (elems []Value) {
+func (p *compiler) braced_plain() (elems []Value) {
 	p.scanner.push(isBracePlain)
-	p.next(ctx, true) // aka LBRACE
+	p.next(true) // aka LBRACE
 	if p.tok == RAW { p.lit = trimLeftSpaces(p.lit) }
-	elems = p.braced_elems(ctx)
+	elems = p.braced_elems()
 	p.scanner.pop(isBracePlain)
 	return
 }
 
-func (p *compiler) braced_type(ctx Context, tok token) (x Value) {
-	p.next(ctx, true)
+func (p *compiler) braced_type(tok token) (x Value) {
+	p.next(true)
 
 	var n any
 	var sym Symbol
 	var pos = p.pos
 	if tok == BOOLEAN { tok = BOOL }
-	if p.spaces(ctx); p.tok != RBRACE {
+	if p.spaces(); p.tok != RBRACE {
 		switch tok {
 		case ANSWER, BOOL:
 			switch p.tok {
 			case  TRUE, YES,  ON: n, sym = true, p.sym
 			case FALSE,  NO, OFF: n, sym = false, p.sym
 			default:
-				erro(ctx, "unexpected token: %v", p.tok)
+				erro(p, "unexpected token: %v", p.tok)
 			}
-			p.next(ctx, true)
+			p.next(true)
 		case FLOAT:
-			n = __float(ctx, p.expr(ctx))
+			n = __float(p, p.expr())
 		default:
-			n = __int(ctx, p.expr(ctx))
+			n = __int(p, p.expr())
 		}
 	}
 
@@ -13543,21 +16105,21 @@ func (p *compiler) braced_type(ctx Context, tok token) (x Value) {
 	}
 
 	if x == nil {
-		erro(pc(ctx,p), "nil const, %v, %v %v", tok, p.tok, p.lit)
+		erro(p, "nil const, %v, %v %v", tok, p.tok, p.lit)
 	}
 
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.spaces()
+	p.expect(RBRACE)
 	return
 }
 
-func (p *compiler) braced_const(ctx Context, tok token) (x Value) {
-	p.next(ctx, true)
+func (p *compiler) braced_const(tok token) (x Value) {
+	p.next(true)
 
 	var pos = p.pos
 
-	if p.spaces(ctx); p.tok != RBRACE {
-		erro(pc(ctx,p), "expecting right-brace, %v %v", p.tok, p.lit)
+	if p.spaces(); p.tok != RBRACE {
+		erro(p, "expecting right-brace, %v %v", p.tok, p.lit)
 	}
 
 	switch tok {
@@ -13570,21 +16132,21 @@ func (p *compiler) braced_const(ctx Context, tok token) (x Value) {
 	}
 
 	if x == nil {
-		erro(pc(ctx,p), "nil const, %v, %v %v", tok, p.tok, p.lit)
+		erro(p, "nil const, %v, %v %v", tok, p.tok, p.lit)
 	}
 
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.spaces()
+	p.expect(RBRACE)
 	return
 }
 
-func (p *compiler) braced_none(ctx Context) (x Value) {
-	p.next(ctx, true)
+func (p *compiler) braced_none() (x Value) {
+	p.next(true)
 
 	var v Value
 	var pos = p.pos
-	for ; p.tok != RBRACE && p.tok != EOF; p.spaces(ctx) {
-		if t := p.expr(ctx); v == nil {
+	for ; p.tok != RBRACE && p.tok != EOF; p.spaces() {
+		if t := p.expr(); v == nil {
 			v = t
 		} else if x, y := v.(*list); y {
 			x.elems = append(x.elems, t)
@@ -13593,43 +16155,43 @@ func (p *compiler) braced_none(ctx Context) (x Value) {
 		}
 	}
 
-	x = &none{valbase{pos}/*,v*/}
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	x = &null{valbase{pos}}
+	p.spaces()
+	p.expect(RBRACE)
 	return
 }
 
-func (p *compiler) braced_null(ctx Context) (x Value) {
-	p.next(ctx, true)
+func (p *compiler) braced_null() (x Value) {
+	p.next(true)
 
 	x = &null{valbase{p.pos}}
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.spaces()
+	p.expect(RBRACE)
 	return
 }
 
-func (p *compiler) braced_path(ctx Context) (x Value) {
-	p.next(ctx, true)
-	if v := p.expr(ctx); v != nil {
+func (p *compiler) braced_path() (x Value) {
+	p.next(true)
+	if v := p.expr(); v != nil {
 		if t, y := v.(*path); !y {
-			x = p.path(ctx, v)
+			x = p.path(v)
 		} else {
 			x = t
 		}
 	}
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.spaces()
+	p.expect(RBRACE)
 	return
 }
 
 // resolve_project safely expands the name and searches both local and global universe caches.
-func (p *compiler) resolve_project(ctx Context, pos Pos, name Value) *project {
-	var specVal = expand(final{ctx}, name)
+func (p *compiler) resolve_project(pos Pos, name Value) *project {
+	var specVal = p.eval(name)//final{p.Context}
 	if specVal == nil { specVal = name }
-	targetSym := __symbol(ctx, specVal)
+	targetSym := __symbol(p, specVal)
 
 	if targetSym == symEmpty {
-		erro(pc(ctx, pos), "empty project name")
+		erro(pc(p,pos), "empty project name")
 		return nil
 	}
 
@@ -13656,61 +16218,68 @@ func (p *compiler) resolve_project(ctx Context, pos Pos, name Value) *project {
 	}
 
 	// 3. Global Universe Lookup
-	abs, _ := p.search(ctx, targetSym)
-	if proj, ok := _universe(ctx).globe.loaded[abs]; ok && proj != nil {
+	abs, _ := p.search(targetSym)
+	if proj, ok := _universe(p.Context).globe.loaded[abs]; ok && proj != nil {
 		return proj
 	}
 
-	erro(pc(ctx, pos),
+	erro(pc(p,pos),
 		_f("project '%s' not found or loaded", targetSym),
 		callstack{num:20})
 	return nil
 }
 
 // braced_project implements: {project <name>}
-func (p *compiler) braced_project(ctx Context) Value {
+func (p *compiler) braced_project() Value {
 	pos := p.pos
-	p.next(ctx, true) // consumes "project"
-	p.spaces(ctx)
-	name := p.expr(ctx)
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.next(true) // consumes "project"
+	p.spaces()
 
-	if proj := p.resolve_project(ctx, pos, name); proj != nil {
+	name := p.expr()
+	p.spaces()
+	p.expect(RBRACE)
+
+	if proj := p.resolve_project(pos, name); proj != nil {
 		return &loc{proj, pos}
 	}
 	return &null{valbase{pos}}
 }
 
 // braced_self implements: {self <name>}
-func (p *compiler) braced_self(ctx Context) Value {
+func (p *compiler) braced_self() Value {
 	pos := p.pos
-	p.next(ctx, true) // consumes "self"
-	p.spaces(ctx)
-	name := p.expr(ctx)
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.next(true) // consumes "self"
+	p.spaces()
 
-	if proj := p.resolve_project(ctx, pos, name); proj != nil {
+	name := p.expr()
+	p.spaces()
+	p.expect(RBRACE)
+
+	if proj := p.resolve_project(pos, name); proj != nil {
 		return self{proj, pos}
 	}
 	return &null{valbase{pos}}
 }
 
-func (p *compiler) braced_dot(ctx Context) Value {
+func (p *compiler) braced_dot() Value {
 	pos := p.pos
-	p.next(ctx, true) // consumes "."
-	p.spaces(ctx)
-	name := p.expr(ctx)
-	p.spaces(ctx)
-	p.expect(ctx, RBRACE)
+	p.next(true) // consumes "."
+	p.spaces()
 
-	var specVal = expand(final{ctx}, name)
+	name := p.expr()
+	p.spaces()
+	p.expect(RBRACE)
+
+	cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
+	specVal := p.eval(name)
+	p.Context = cc.Context
+
 	if specVal == nil { specVal = name }
-	targetSym := __symbol(ctx, specVal)
+	targetSym := __symbol(p, specVal)
 
 	if targetSym == symEmpty {
-		erro(pc(ctx, pos), "empty project alias after '.'")
+		erro(pc(p,pos), "empty project alias after '.'")
 		return &null{valbase{pos}}
 	}
 
@@ -13739,64 +16308,64 @@ func (p *compiler) braced_dot(ctx Context) Value {
 		}
 	}
 
-	erro(pc(ctx, pos), "project alias '%s' not found", targetSym,
+	erro(pc(p,pos), "project alias '%s' not found", targetSym,
 		_fMapKeys(". %v", p.project.projs))
 	return &null{valbase{pos}}
 }
 
 // Parsing (var a=xxx,b=yyy) or (var a) definitions
-func (p *compiler) var_modifier(ctx Context, args ...Value) (err error) {
+func (p *compiler) var_modifier(args ...Value) (err error) {
 	for _, elem := range args {
-		sym, pos := __symbol(ctx, elem), elem.Pos()
+		sym, pos := __symbol(p, elem), elem.Pos()
 
 		// Optional but recommended safety check
 		if sym == symEmpty {
-			erro(ctx, "empty var name in modifier: %v", ts(elem,ctx))
+			erro(p, "empty var name in modifier: %v", ts(elem,p))
 			continue
 		}
 
 		// Pass the Symbol directly into auto() and the elems map!
-		if d := _scope(ctx).auto(ctx, sym); d != nil {
+		if d := _scope(p.Context).auto(p, sym); d != nil {
 			d.pos = pos
 			if false {
-				val := _scope(ctx).elems[sym] // NATIVE INTEGER MAP LOOKUP!
-				debug(ctx, "%v ; %v ; %s", d, val, _scope(ctx).mark)
+				val := _scope(p.Context).elems[sym] // NATIVE INTEGER MAP LOOKUP!
+				debug(p, "%v ; %v ; %s", d, val, _scope(p.Context).mark)
 			}
 		}
 	}
 	return
 }
 
-func (p *compiler) modifier(ctx Context) (res *modifier) {
+func (p *compiler) modifier() (res *modifier) {
 	pos := p.pos
-	p.expect(ctx, LPAREN)
-	p.spaces(ctx)
+	p.expect(LPAREN)
+	p.spaces()
 
 	var elems []Value
-	var val = p.expr(ctx)
+	var val = p.expr()
 
-	var sym = __symbol(ctx, val)
+	var sym = __symbol(p, val)
 	if sym == symEmpty {
-		erro(pc(ctx,val), "unsupported modifier: %s", ts(val,ctx))
+		erro(pc(p,val), "unsupported modifier: %s", ts(val,p))
 	} else if _, y := dialects[sym]; y {
 		if p.dialect == symEmpty {
 			p.dialect = sym // Safely bridge back to string if dialect requires it
 		} else {
-			erro(pc(ctx,p), "multi-dialects unsupported, already defined '%s'", p.dialect)
+			erro(p, "multi-dialects unsupported, already defined '%s'", p.dialect)
 		}
 	} else if _, y := modifiers[sym]; !y {
-		erro(pc(ctx,p), "no such dialect or modifier: %s", sym)
+		erro(p, "no such dialect or modifier: %s", sym)
 	}
 
 	for p.tok != RPAREN && p.tok != EOF {
-		p.spaces(ctx)
+		p.spaces()
 		pos := p.pos
 
-		va := p.values(ctx)
+		va := p.values()
 
 		// 1. Parse-time local-define (Forward Declaration)
 		// ZERO-ALLOCATION MATCHING: Pure integer comparison!
-		if sym == symVar { p.var_modifier(ctx, va...) }
+		if sym == symVar { p.var_modifier(va...) }
 
 		// 2. CRITICAL FIX: Removed 'else'. We MUST append to elems
 		// so the AST retains the arguments for runtime!
@@ -13808,16 +16377,16 @@ func (p *compiler) modifier(ctx Context) (res *modifier) {
 			elems = append(elems, &null{valbase{p.pos}})
 		}
 
-		if p.tok == COMMA { p.next(ctx, true) }
+		if p.tok == COMMA { p.next(true) }
 		if p.pos == pos {
-			erro(pc(ctx,p), "unsupported modifier arg: %v '%v'", p.tok, p.lit)
+			erro(p, "unsupported modifier arg: %v '%v'", p.tok, p.lit)
 		}
 	}
 
-	p.expect(ctx, RPAREN)
+	p.expect(RPAREN)
 
 	if val == nil && len(elems) == 0 {
-		erro(pc(ctx,p), "empty modifier")
+		erro(p, "empty modifier")
 	}
 
 	res = new(modifier)
@@ -13826,29 +16395,29 @@ func (p *compiler) modifier(ctx Context) (res *modifier) {
 }
 
 // example: {(modifier ...) ...}
-func (p *compiler) modification(ctx Context) *modification {
+func (p *compiler) modification() *modification {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "modification")) }
 
 	var elems []*modifier
 	var pos = p.pos
 
 	for p.tok != RBRACE && p.tok != EOF {
-		p.spaces(ctx)
+		p.spaces()
 
 		// Use 'continue' to safely consume consecutive newlines and comments.
 		if p.tok == SPACE || p.tok == LINEND || p.tok == COMMENT {
-			p.next(ctx, true)
+			p.next(true)
 			continue
 		}
 
-		if m := p.modifier(ctx); m != nil { elems = append(elems, m) }
+		if m := p.modifier(); m != nil { elems = append(elems, m) }
 	}
 
 	if len(elems) == 0 {
-		erro(ctx, "empty modifier group")
+		erro(p, "empty modifier group")
 	}
 	if p.tok == COLON {
-		erro(ctx, "unexpected colon after modifer")
+		erro(p, "unexpected colon after modifer")
 	}
     return &modification{valbase{pos}, elems}
 }
@@ -13876,7 +16445,7 @@ func (p *parse_recipe_ctx) do(ctx Context, op any) (_ any) {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) recipe(ctx Context) (recipes []Value) {
+func (p *compiler) recipe() (recipes []Value) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "recipe")) }
 
 	// TODO: comment *commentgroup
@@ -13885,38 +16454,41 @@ func (p *compiler) recipe(ctx Context) (recipes []Value) {
 	var elems []Value
 	var isList, isPlainline bool
 
+	c := parse_recipe_ctx{Context:p.Context}; defer func() { p.Context = c.Context } ()
+	p.Context = &c
+
 	switch p.dialect {
 	case symEmpty, symValue:
 		p.scanner.pop(isStrcompLine)
-		p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		if pos, isList = p.pos, true; !p.is_end_of_line() {
-			var c = parse_recipe_ctx{ctx, true, nil, nil} // builtin value recipe
+			c.builtin = true
 			for p.tok != EOF && p.tok != SEMICOLON && p.tok != LINEND && p.lineComment == nil {
-				elems = append(elems, p.expr(&c))
-				if p.spaces(ctx); p.lineComment != nil { break }
+				elems = append(elems, p.expr())
+				if p.spaces(); p.lineComment != nil { break }
 			}
 		}
 
 	case symEval:
 		p.scanner.pop(isStrcompLine)
-		p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in list mode
+		p.next(true) // skip RECIPE or SEMICOLON and parse in list mode
 		if pos, isList = p.pos, true; !p.is_end_of_line() {
-			var x = p.expr(ctx) // parse first expr of recipe
+			var x = p.expr() // parse first expr of recipe
 
 			var a *argumented
 			if a, _ = x.(*argumented); a != nil { x = a.Value }
 			if x == nil {
-				erro(pc(ctx,p), "parsed nil value, dialect=%s", p.dialect)
+				erro(p, "parsed nil value, dialect=%s", p.dialect)
 			}
 
 			if p.dialect == symValue {
 				// no resolving commands
 			} else if t, y := x.(*word); !y {
 				// does nothing
-			} else if s := p.resolve(ctx, t.pos, t.s, false); isTrivial(s) {
-				erro(pc(ctx,p), "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), p.dialect)
+			} else if s := p.resolve(t.pos, t.s, false); isTrivial(s) {
+				erro(p, "no such symbol: %v, %s → %s; dialect=%s", t.s, ts(x), ts(s), p.dialect)
 			} else if _, y := s.(*builtin); !y {
-				erro(pc(ctx,p), "'%s' is not a command (%s)", t.s, typeof(s))
+				erro(p, "'%s' is not a command (%s)", t.s, typeof(s))
 			} else {
 				x = s
 			}
@@ -13928,17 +16500,17 @@ func (p *compiler) recipe(ctx Context) (recipes []Value) {
 			}
 
 			var cmdargs []Value
-			var c = parse_recipe_ctx{ctx, true, nil, nil} // builtin recipe
 
+			c.builtin = true
 			for p.tok != EOF && p.tok != SEMICOLON && p.tok != LINEND && p.lineComment == nil {
-				if p.spaces(ctx); p.lineComment != nil { break }
+				if p.spaces(); p.lineComment != nil { break }
 				if !p.tok.is_rule_delim() {
-					x = p.expr(&c)
+					x = p.expr()
 				} else {
-					erro(ctx, "unsupported token: %s, %v", p.tok, elems)
+					erro(p, "unsupported token: %s, %v", p.tok, elems)
 				}
 				if cmdargs = append(cmdargs, x); p.tok == COMMA {
-					p.next(ctx, true)
+					p.next(true)
 					elems = append(elems, _list(cmdargs...))
 					cmdargs = []Value{}
 				}
@@ -13950,18 +16522,18 @@ func (p *compiler) recipe(ctx Context) (recipes []Value) {
 
 	default:
 		p.scanner.push(isStrcompLine) // NOTE: scanner does not set isStrcompLine correctly, fixit here
-		p.next(ctx, true) // skip RECIPE or SEMICOLON and parse in line-string mode
+		p.next(true) // skip RECIPE or SEMICOLON and parse in line-string mode
 		pos = p.pos
 
 		switch p.dialect { case symPlain, symText: isPlainline = true }
 
-		var c = parse_recipe_ctx{ctx, false, nil, nil} // builtin text
+		c.builtin = false
 		for !p.is_end_of_line() {
 			var x Value
 			if p.tok == RAW {
-				x = p.literal(&c)
+				x = p.literal()
 			} else {
-				x = p.expr(&c)
+				x = p.expr()
 			}
 			if c.lines == nil {
 				c.elems = append(c.elems, x)
@@ -13971,7 +16543,7 @@ func (p *compiler) recipe(ctx Context) (recipes []Value) {
 
 		if c.lines != nil {
 			if c.elems != nil {
-				erro(ctx, "%v %v", c.elems, c.lines)
+				erro(p, "%v %v", c.elems, c.lines)
 			}
 			for _, a := range c.lines {
 				recipes = append(recipes, &plainline{elements{merge(a...)}})
@@ -13982,10 +16554,10 @@ func (p *compiler) recipe(ctx Context) (recipes []Value) {
 		elems = c.elems
 	}
 
-	if p.spaces(ctx) ; p.tok != EOF { p.linend(ctx) }
+	if p.spaces(); p.tok != EOF { p.linend() }
 
     if len(elems) == 0 {
-        return []Value{ _none(pos) }
+        return []Value{ &valbase{pos} }
     } else if isList {
         return []Value{ _list(elems...) }
 	} else if isPlainline {
@@ -14006,27 +16578,36 @@ func (p parse_rule_ctx) do(ctx Context, op any) (_ any) {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
-	if l_traverse.enabled || debugSyntax(ctx, "rule") { defer un(l_trace(l_traverse, "rule")) }
+func (p *compiler) rule(targets []Value) (result Value) {
+	if l_traverse.enabled || debugSyntax(p, "rule") { defer un(l_trace(l_traverse, "rule")) }
 
-	if false { if sp := _scope(ctx).project; sp != p.project {
-		erro(pc(ctx,p),
-			_f("%v, %s", sp, _scope(ctx)),
-			_f("%v, %s", p.project, p.scope),
+	if false { if sp := _scope(p.Context).project; sp != p.project {
+		erro(p,
+			_f("%v, %s", sp, _scope(p.Context)),
+			_f("%v, %s", p.project, _term(p.Context).scope),
 			_f("%v: project conflicts", targets),
-			_f("%s, %s", ts(p), ts(ctx)),
+			_f("%s", ts(p)),
 			callstack{num:16})
 	}}
 
-	ctx = parse_rule_ctx{project_ctx{closure_with(ctx,p.scope), p.project}}
+	defer func(c Context) { p.Context = c } (p.Context)
+	p.Context = parse_rule_ctx{project_ctx{
+		closure_with(p.Context, _term(p.Context).scope),
+		p.project,
+	}}
 
 	// NOTE: expand targets to speed up for later usage, it might spend lots of time in
 	// project.entry while matching for entry looked up if not expanded right now.
-	targets = expands(final{ctx}, targets...)
+	{
+		cc := final{p.Context}
+		p.Context = cc
+		targets = p.evals(targets...)
+		p.Context = cc.Context
+	}
 
 	// TODO: doc = p.leadComment
 	var depends, ordered, recipes []Value
-	defer p.closescope(ctx, p.openscope(ctx, __symbol(ctx, targets[0])))
+	defer p.closescope(p.openscope(__symbol(p, targets[0])))
 	defer func() { p.dialect, p.ruparas = symEmpty, nil } ()
 
 	p.dialect = symEmpty
@@ -14034,27 +16615,27 @@ func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
 
 	defer func(t []Value) { p.targets = t } (p.targets)
 	p.targets = targets // save targets for later refering
-	p.next(ctx, true) // skip rule delimeters and spaces
+	p.next(true) // skip rule delimeters and spaces
 
 	if p.tok != SEMICOLON && p.tok != BAR && !p.is_end_of_line() {
-		depends = p.depends(ctx, true)
+		depends = p.depends(true)
 	}
 	if p.tok == BAR { // '|' starts the ordered prerequisites
-		p.next(ctx, true)
+		p.next(true)
 		if p.tok != SEMICOLON && !p.is_end_of_line() {
-			ordered = p.depends(ctx, false)
+			ordered = p.depends(false)
 		}
 	}
 
 	if p.tok == SEMICOLON { // ;
 		// Parse inline recipe in the program scope.
-		recipes = append(recipes, p.recipe(ctx)...)
+		recipes = append(recipes, p.recipe()...)
 	} else /*if p.tok == LINEND || p.lineComment != nil*/ {
 		// Parse recipes in the program scope.
 		p.scanner.recipes(true) // Turn on recipes before LINEND.
-		if p.linend(ctx) { // Take the new line.
+		if p.linend() { // Take the new line.
 			for p.recipe_start() {
-				recipes = append(recipes, p.recipe(ctx)...)
+				recipes = append(recipes, p.recipe()...)
 			}
 		}
 		p.scanner.recipes(false)
@@ -14072,28 +16653,28 @@ func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
 
 	var entries []entry
 
-	u := _universe(ctx)
+	u := _universe(p.Context)
 	for _, target := range targets {
         if isTrivial(target) { continue }
 
 		// Route pattern rules to the patterns slice, NOT the valcache!
-		if patterned(ctx, target) {
+		if patterned(p, target) {
 			r := &rule{ target: target, program: []*program{prog} }
 			prog.project.patterns = append(prog.project.patterns, r)
 			entries = append(entries, r)
 			continue
 		}
 
-        var entry = map_entry(pc(ctx,target), prog.project, target, prog)
+        var entry = map_entry(pc(p,target), prog.project, target, prog)
         if entry == nil {
-            erro(pc(ctx,p), "creating entry failed for %v", target)
+            erro(p, "creating entry failed for %v", target)
         }
 
 		entries = append(entries, entry)
 
         if x, y := entry.destiny().(flag); y && x.Value != nil {
 			if prog.project.name != symTilde { // "~"
-				u.globe.addFlagEntry(__symbol(ctx, x), entry)
+				u.globe.addFlagEntry(__symbol(p, x), entry)
 			}
         }
     }
@@ -14107,30 +16688,27 @@ func (p *compiler) rule(ctx Context, targets []Value) (result Value) {
 	}
 }
 
-func (p *compiler) stat_file(ctx Context, val Value) *file {
+func (p *compiler) stat_file(val Value) *file {
 	if f, ok := val.(*file); ok {
-		if !f.exists() { f.stat(ctx, true) }
+		if !f.exists() { f.stat(p, true) }
 		return f
 	}
 
-	spec := __symbol(ctx, val)
+	spec := __symbol(p, val)
 
 	if spec == symEmpty {
-		erro(ctx, "empty file spec: %v", ts(val))
+		erro(p, "empty file spec: %v", ts(val))
 		return nil
 	}
 
 	// TODO: change project.file() to accept Symbol `spec`
-	if f := p.project.file(ctx, val); f != nil {
-		if !f.exists() { f.stat(ctx, true) }
+	if f := p.project.file(p, val); f != nil {
+		if !f.exists() { f.stat(p, true) }
 		return f
 	}
 
-	if __symIsAbs(spec) {
-		return _stat(ctx, spec)
-	}
-
-	return _stat(ctx, spec, stat_dir{p.project.absPath})
+	if __symIsAbs(spec) { return _stat(p, spec) }
+	return _stat(p, spec, stat_dir{p.project.absPath})
 }
 
 type origin uint
@@ -14214,36 +16792,39 @@ func (c original) do(ctx Context, op any) any {
     return c.Context.do(ctx, op)
 }
 
-func (p *compiler) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+func (p *compiler) files(doc *commentgroup, g *clause_opts, _ int) {
 	if len(g.spec) == 0 {
-		erro(ctx, "missing file specification properties", unwind{}) // Halt immediately
+		erro(p, "missing file specification properties", unwind{}) // Halt immediately
 	}
 	if len(g.spec) > 1 {
-		erro(ctx, "too many properties: %v", g.spec, unwind{})
+		erro(p, "too many properties: %v", g.spec, unwind{})
 	}
 
 	var val Value
 	var patts, paths []Value
 
 	if p.tok == SELECT_PROG1 { // e.g., '=>' or '⇒'
-		p.next(ctx, true) // step forward with spaces skipped
+		p.next(true) // step forward with spaces skipped
 		if p.tok == LINEND || p.lineComment != nil {
-			erro(ctx, "expecting files path after '⇒'")
+			erro(p, "expecting files path after '⇒'")
 		}
-		val = p.expr(ctx)
+		val = p.expr()
 	}
 
-	p.spaces(ctx)
+	p.spaces()
 
 	if g.skip { return }
 
-	if t := parseOpts(ctx, &g.general_opts, g.remainder...); t != nil {
-		erro(ctx, "unsupported opts: %v", t)
+	if t := parseOpts(p, &g.general_opts, g.remainder...); t != nil {
+		erro(p, "unsupported opts: %v", t)
 	}
 
+	cc := original{p.Context,defExpand1}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
+
 	// Expand the left-hand side (Patterns) eagerly
-	if t := expand(original{ctx,defExpand1}, g.spec[0]); t == nil {
-		erro(ctx, "nil file pattern: %v", g.spec[0], unwind{})
+	if t := p.eval(g.spec[0]); t == nil {
+		erro(p, "nil file pattern: %v", g.spec[0], unwind{})
 	} else if x, y := t.(*group); y {
 		patts = merge(x.elems...)
 	} else {
@@ -14254,19 +16835,19 @@ func (p *compiler) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) 
 		if len(patts) == 1 {
 			if a, ok := patts[0].(*argumented); ok {
 				if f, ok := a.Value.(flag); ok {
-					erro(ctx, "invalid files flag: %v", f.Value)
+					erro(p, "invalid files flag: %v", f.Value)
 				}
 			}
 		}
 	} else {
 		if len(patts) == 1 {
 			if f, ok := patts[0].(flag); ok {
-				erro(ctx, "invalid files flag: %v", f.Value)
+				erro(p, "invalid files flag: %v", f.Value)
 			}
 		}
 
 		// Expand the right-hand side (Paths) eagerly
-		switch x := expand(original{ctx,defExpand1}, val).(type) {
+		switch x := p.eval(val).(type) {
 		case *group:
 			paths = x.elems
 		default:
@@ -14277,34 +16858,28 @@ func (p *compiler) files(ctx Context, doc *commentgroup, g *clause_opts, _ int) 
 	}
 
 	// Route into the Virtual File System
-	map_files(ctx, p.project, patts, paths)
+	map_files(p, p.project, patts, paths)
 }
 
-func (p *compiler) assert(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	if !g.skip { call(closure_with(project_ctx{ctx,p.project},p.scope), symAssert, g.remainder, g.spec...) }
-}
-
-func (p *compiler) append(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	if !g.skip { call(closure_with(project_ctx{ctx,p.project},p.scope), symAppend, g.remainder, g.spec...) }
-}
-
-func (p *compiler) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
-	if g.skip { return } else { ctx = closure_with(project_ctx{ctx,p.project},p.scope) }
+func (p *compiler) assert(doc *commentgroup, g *clause_opts, _ int) { p.cmd(symAssert, g) }
+func (p *compiler) append(doc *commentgroup, g *clause_opts, _ int) { p.cmd(symAppend, g) }
+func (p *compiler) eval_(doc *commentgroup, g *clause_opts, _ int) {
+	if g.skip { return }
 	if g.spec == nil {
-		var opts struct{
-			optimize Value `opt,optimize`
-		}
-		for _, op := range parseOpts(final{ctx}, &opts, g.values...) {
+		var opts struct{ optimize Value `opt,optimize` }
+		cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+		p.Context = cc
+		for _, op := range parseOpts(p, &opts, g.values...) {
 			var val Value
-			if v, y := op.(*pair); y { op, val = v.key, v.val }
-			erro(ctx, "unsupport flag: %v (%v)", ts(op), val)
+			if x, y := op.(*pair); y { op, val = x.key, x.val }
+			erro(p, "unsupport flag: %v (%v)", ts(op,p), val)
 		}
 		return
 	}
 
 	prop0 := g.spec[0]
 	if isTrivial(prop0) {
-		erro(pc(ctx,p), "illegal")
+		erro(p, "illegal")
 	}
 
 	var sym Symbol
@@ -14313,26 +16888,28 @@ func (p *compiler) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 
 	switch t := prop0.(type) {
 	case *delegate:
-		for _, x := range merge(expand(final{ctx},t)) {
+		cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+		p.Context = cc
+		for _, x := range merge(p.eval(t)) {
 			switch t := x.(type) {
 			case *pair:
-				erro(pc(ctx,p), "%v → %v", t.key, t.val)
+				erro(p, "%v → %v", t.key, t.val)
 			case *word:
 				if sym != symEmpty {
-					erro(pc(ctx,p), "%v → %v", prop0, x)
+					erro(p, "%v → %v", prop0, x)
 				} else {
 					sym = t.s // Fast-path integer grab!
 				}
 			default:
-				erro(pc(ctx,p), "%v → %v", prop0, ts(x))
+				erro(p, "%v → %v", prop0, ts(x))
 			}
 		}
 		return
 	case *pair:
-		erro(pc(ctx,p), "%v → %v", t.key, t.val)
+		erro(p, "%v → %v", t.key, t.val)
 	default:
 		// Extract the Symbol directly to avoid string allocations!
-		sym = __symbol(ctx, prop0)
+		sym = __symbol(p, prop0)
 	}
 
 	// ZERO-ALLOCATION MATCHING: We compare integers instead of strings!
@@ -14340,34 +16917,37 @@ func (p *compiler) eval(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
 	// here, but you could also add symConfiguration to your constants!)
 	switch sym {
 	case symEmpty:
-		erro(pc(ctx,p), "empty eval command", unwind{})
+		erro(p, "empty eval command", unwind{})
 	case symConfiguration, symDashConfiguration:
-		erro(pc(ctx,p), "configuration is done at parse time")
+		erro(p, "configuration is done at parse time")
 	}
 
-	switch x := p.resolve(ctx, prop0.Pos(), sym, false).(type) {
+	switch x := p.resolve(prop0.Pos(), sym, false).(type) {
 	case *builtin:
-		cc := project_ctx{ctx, p.project}
-
 		// Assuming builtin.name was upgraded to a Symbol when we updated knownobject
 		switch x.name {
 		case symPlain, symPrint, symPrintf:
-			evoke(&cc, x, opts, g.spec[1:])
+			// defer func(c Context) { p.Context = c } (p.Context)
+			// p.Context = closure_with(project_ctx{p.Context, p.project}, _term(p.Context).scope)
+			p.evoke(x, opts, g.spec[1:])
 		default:
-			erro(pc(ctx,p), "'%s' is not an evaler", x.name)
+			erro(p, "'%s' is not an evaler", x.name)
 		}
 	default:
-		erro(pc(ctx,prop0.Pos()), "resolved '%s' is `%s`, not a builtin", sym, typeof(x))
+		erro(pc(p,prop0.Pos()), "resolved '%s' is `%s`, not a builtin", sym, typeof(x))
 	}
 }
 
-func (p *compiler) local(ctx Context, _ *commentgroup, g *clause_opts, _ int) {
-	var local map[Symbol]*def
-	var vals = xmerge(final{ctx}, append(g.remainder, g.spec...)...)
+func (p *compiler) local(_ *commentgroup, g *clause_opts, _ int) {
+	cc := final{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
+	vals := merge(p.evals(append(g.remainder, g.spec...)...)...)
+	p.Context = cc.Context
 
+	var local map[Symbol]*def
 	for _, a := range vals {
 		if x, y := a.(flag); y {
-			switch s := __string(ctx, x.Value); s {
+			switch s := __string(p, x.Value); s {
 			case "clear":
 				p.clear_locals()
 			case "pop":
@@ -14387,15 +16967,15 @@ func (p *compiler) local(ctx Context, _ *commentgroup, g *clause_opts, _ int) {
 					// p.project.mutex.Unlock()
 				}
 			default:
-				erro(ctx, "unsupported flag: %v", ts(a,ctx))
+				erro(p, "unsupported flag: %v", ts(a,p))
 			}
 			continue
 		}
 
 		// CRITICAL FIX: Extract the Symbol directly to avoid string allocations!
-		var sym = __symbol(ctx, a)
+		var sym = __symbol(p, a)
 		if sym == symEmpty {
-			erro(ctx, "empty local: %v", ts(a,ctx))
+			erro(p, "empty local: %v", ts(a,p))
 		}
 
 		if local == nil { local = make(map[Symbol]*def) }
@@ -14458,57 +17038,58 @@ func (c *use_project_ctx) do(ctx Context, op any) any {
 	return c.Context.do(ctx, op)
 }
 
-func (p *compiler) use(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+func (p *compiler) use(doc *commentgroup, g *clause_opts, _ int) {
 	if p.imports = append(p.imports, &use_spec{g.spec}); g.skip {
 		// TODO: maybe give some information
 		return
 	}
 
 	var opts useopts
-	var args = parseOpts(ctx, &opts, append(g.remainder, g.spec[1:]...)...)
+	var args = parseOpts(p, &opts, append(g.remainder, g.spec[1:]...)...)
 	for _, a := range args {
 		if _, y := a.(flag); y {
-			erro(pc(ctx,a), "unkown use opts: %v", ts(a,ctx))
+			erro(pc(p,a), "unkown use opts: %v", ts(a,p))
 		}
 	}
 
 	var vals []Value
-	switch v := g.spec[0].(type) {
-    case *pair:
-        var s string
-        if f, y := v.key.(flag); !y {
-            erro(ctx, "'%v' invalid use spec", v.key)
-        } else if s = __string(ctx, f.Value); s != "list" {
-            erro(ctx, "'%v' invalid use spec, do you mean -list?", v.key)
-        }
-		vals = xmerge(ctx, v.val)
+	switch t := g.spec[0].(type) {
+	case *pair:
+		var s string
+		if f, y := t.key.(flag); !y {
+			erro(p, "'%v' invalid use spec", t.key)
+		} else if s = __string(p, f.Value); s != "list" {
+			erro(p, "'%v' invalid use spec, do you mean -list?", t.key)
+		}
+		vals = xmerge(p, t.val)
 	case *argumented:
-		vals = xmerge(ctx, v.Value)
-		ctx = v.ctx(ctx)
+		vals = xmerge(p, t.Value)
+		defer func(c Context) { p.Context = c } (p.Context)
+		p.Context = t.ctx(p.Context)
 	default:
-		vals = xmerge(ctx, v)
-    }
+		vals = xmerge(p, t)
+	}
 
 	for _, spec := range vals {
-		if !isTrivial(spec) { p.use1(pc(ctx,spec.Pos()), opts, spec, args...) }
+		if !isTrivial(spec) { p.use1(opts, spec, args...) }
 	}
 	return
 }
 
-func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Value) (loaded *project) {
+func (p *compiler) use1(opts useopts, specVal Value, params ...Value) (loaded *project) {
 	var absPath, spec Symbol
 	var isDir, traveUseLoop bool
 
-	u := _universe(ctx)
+	u := _universe(p.Context)
 
 	if x, y := specVal.(*project); y {
 		loaded = x
 	} else {
-		if spec = __symbol(ctx, specVal); spec == symEmpty {
-			erro(pc(ctx, specVal), "empty spec: %v", ts(specVal,ctx))
+		if spec = __symbol(p, specVal); spec == symEmpty {
+			erro(pc(p,specVal), "empty spec: %v", ts(specVal,p))
 			return nil // Abort
-		} else if absPath, isDir = p.search(ctx, spec); absPath == symEmpty {
-			erro(pc(ctx, specVal), "missing `%s` (in %v)", spec, u.paths)
+		} else if absPath, isDir = p.search(spec); absPath == symEmpty {
+			erro(pc(p,specVal), "missing `%s` (in %v)", spec, u.paths)
 
 			// THE DOD FIX: Stop the cascade!
 			// If search fails, absPath is empty. We CANNOT pass this to p.file!
@@ -14520,10 +17101,8 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			// THE DOD FIX: PURE O(1) TREE-AWARE CYCLE DETECTION!
 			// We ask the Context tree: "Does any compiler in the chain own this absPath?"
 			// This safely pierces *term, *automatic, and *ident_ctx wrappers without panicking!
-			if p.Context != nil {
-				if cycle, _ := p.Context.do(ctx, check_compile_cycle{absPath}).(bool); cycle {
-					erro(pc(ctx, specVal), "%s: loop detected", p.project)
-				}
+			if cycle, _ := p.Context.do(p, check_compile_cycle{absPath}).(bool); cycle {
+				erro(pc(p,specVal), "%s: loop detected", p.project)
 			}
 		}
 	}
@@ -14534,9 +17113,9 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			p.verpre += "│"
 		}
 		if opts.reuse {
-			prompt(ctx, "%s├┬→\"%s\" (reuse, %s)\n", p.verpre, spec, absPath)
+			prompt(p, "%s├┬→\"%s\" (reuse, %s)\n", p.verpre, spec, absPath)
 		} else {
-			prompt(ctx, "%s├┬→\"%s\" (%s)\n", p.verpre, spec, absPath)
+			prompt(p, "%s├┬→\"%s\" (%s)\n", p.verpre, spec, absPath)
 		}
 		defer func(t time_pkg.Time) {
 			var name Symbol
@@ -14544,17 +17123,17 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 			var ds = fmt.Sprintf("(%s)", d)
 			if d >= 1*time_pkg.Second { ds = fmt.Sprintf("▶%s◀", ds) }
 			if loaded != nil { name = loaded.name }
-			prompt(ctx, "%s├┴─\"%s\" ⇢ %s %s\n", p.verpre, spec, name, ds)
+			prompt(p, "%s├┴─\"%s\" ⇢ %s %s\n", p.verpre, spec, name, ds)
 		} (time_pkg.Now())
 	}
 
 	if loaded != nil && !(/*opts.noVars || */opts.reuse) {
-		if proj, res, isb := p.project.has_loaded(ctx, loaded, traveUseLoop) ; isb {
-			erro(ctx,
+		if proj, res, isb := p.project.has_loaded(p, loaded, traveUseLoop) ; isb {
+			erro(p,
 				_f("%v: %v is already a base\n", p.project, spec),
 				_f("`%v` is already a base (proj=%s)", spec, proj))
 		} else if res {
-			erro(ctx,
+			erro(p,
 				_f("%v: %v already imported by %v\n", p.project, spec, proj),
 				_f("'%v' already imported by '%s'", spec, proj))
 		}
@@ -14562,43 +17141,38 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 
 	var host = p.project
 	if host == nil {
-		erro(ctx, _f("use: host is <nil-project>: %v", spec), callstack{num:10})
+		erro(p, _f("use: host is <nil-project>: %v", spec), callstack{num:10})
 	}
 
 	if loaded == nil {
 		// Pass the target absPath so the firewall knows exactly what to capture!
-		cc := &use_project_ctx{
-			Context: ctx,
-			target:  absPath,
-			loaded:  &loaded,
-		}
+		cc := use_project_ctx{Context: p.Context, target: absPath, loaded: &loaded}
+		defer func() { p.Context = cc.Context } ()
+		p.Context = &cc
 
 		if isDir {
-			p.directory(cc, spec, absPath)
+			p.directory(spec, absPath)
 		} else {
-			p.file(cc, spec, absPath)
+			p.file(spec, absPath)
 		}
 
 		// Fallback just in case syntax errors prevented the event from firing
+		if loaded == nil { loaded, _ = u.globe.loaded[absPath] }
 		if loaded == nil {
-			loaded, _ = u.globe.loaded[absPath]
-		}
-
-		if loaded == nil {
-			erro(ctx,
+			erro(p,
 				_f("%s not loaded (%s)", spec, absPath),
 				_fLoadedProjs(u, diagPrompt, "loaded-project: %[3]s → %[1]s"),
 				trace_ctx{100}, callstack{num:10,/* stop:"smart.Main" */})
 			return nil
 		}
 		if loaded == p.project {
-			erro(ctx, "%v : overwrote by %v (dir=%v)", host, loaded, isDir)
+			erro(p, "%v : overwrote by %v (dir=%v)", host, loaded, isDir)
 			return nil
 		}
 	}
 
 	if checkpoints && host != p.project {
-		erro(ctx, "active project changed: %v → %v, use %v", host, p.project, loaded)
+		erro(p, "active project changed: %v → %v, use %v", host, p.project, loaded)
 		return nil
 	}
 
@@ -14607,57 +17181,57 @@ func (p *compiler) use1(ctx Context, opts useopts, specVal Value, params ...Valu
 		var up = use.project
 		if loaded == up {
 			if !opts.noVars && !opts.files {
-				erro(ctx, "%v: using `%s` multiple times: %v", p.project, spec, p.project.use.list)
+				erro(p, "%v: using `%s` multiple times: %v", p.project, spec, p.project.use.list)
 			}
 			return
 		}
 
 		var proj *project
 		var res, isb bool
-		if proj, res, isb = loaded.has_loaded(ctx, up, traveUseLoop); isb {
+		if proj, res, isb = loaded.has_loaded(p, up, traveUseLoop); isb {
 			if !p.project.has_base(up) {
-				erro(ctx, "`%s` is already a base", spec)
+				erro(p, "`%s` is already a base", spec)
 			}
 		} else if res && !use.opts.reuse && !up.opt.multiUseAllowed && !loaded.opt.multiUseAllowed {
-			warn(ctx, "`%s` has already imported `%s` (from %s)", loaded, up, proj)
-			if loaded != up { warn(ctx, "project %s", loaded) }
-			if proj != up { warn(ctx, "project %s", proj) }
-			debug(ctx, "project %s", up)
+			warn(p, "`%s` has already imported `%s` (from %s)", loaded, up, proj)
+			if loaded != up { warn(p, "project %s", loaded) }
+			if proj != up { warn(p, "project %s", proj) }
+			debug(p, "project %s", up)
 		}
 
-		if proj, res, isb = up.has_loaded(ctx, loaded, traveUseLoop); isb {
-			debug(ctx, "`%s` is already base of `%s` (%s)", loaded, up, proj)
+		if proj, res, isb = up.has_loaded(p, loaded, traveUseLoop); isb {
+			debug(p, "`%s` is already base of `%s` (%s)", loaded, up, proj)
 		} else if res && !use.opts.reuse && !loaded.opt.multiUseAllowed {
-			debug(ctx, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
+			debug(p, "`%s` has already been imported by `%s` (from %s)", loaded, up, proj)
 		}
 	}
 
 	if u.verboseImport {
 		defer func(t time_pkg.Time) {
-			prompt(ctx, "%s├┤ %s:import(%s) (%s)\n", p.verpre, p.project, spec, time_pkg.Since(t))
+			prompt(p, "%s├┤ %s:import(%s) (%s)\n", p.verpre, p.project, spec, time_pkg.Since(t))
 		} (time_pkg.Now())
 	}
 
-	p.useProj(ctx, opts, loaded, params...)
+	p.useProj(opts, loaded, params...)
 	return
 }
 
-func (p *compiler) useProj(ctx Context, opts useopts, proj *project, params ...Value) (err error) {
+func (p *compiler) useProj(opts useopts, proj *project, params ...Value) (err error) {
 	// THE DOD FIX: Safety Guard
 	if proj == nil || p.project == nil {
 		return
 	}
 
-	u := _universe(ctx)
+	u := _universe(p.Context)
     if u.verboseUsing {
         defer func(t time_pkg.Time) {
             var d = time_pkg.Now().Sub(t)
-            prompt(ctx, "use(%15s) %s ⇒ %v\n", d, p.project, p.project.use)
+            prompt(p, "use(%15s) %s ⇒ %v\n", d, p.project, p.project.use)
         } (time_pkg.Now())
     }
 
     if proj == p.project {
-        erro(ctx, "%v: cannot use itself", proj)
+        erro(p, "%v: cannot use itself", proj)
     }
 
     if p.project.isUsingDirectly(proj) {
@@ -14665,15 +17239,15 @@ func (p *compiler) useProj(ctx Context, opts useopts, proj *project, params ...V
     }
 
     // Add to the project using list, so that the use path is correct.
-    if p.project.use.append(ctx, proj, params, opts); !opts.noVars {
+    if p.project.use.append(p, proj, params, opts); !opts.noVars {
         // aka.     XXX += $(use.XXX)
         // aka. use.XXX += $(use.XXX)
-        p.usevars(ctx, p.project, proj)
+        p.usevars(p.project, proj)
         if 0 < len(opts.vars) {
             for _, v := range opts.vars {
-                warn(ctx, "var: %T %v", v, v)
+                warn(p, "var: %T %v", v, v)
             }
-            debug(ctx, "TODO: %d vars to import", len(opts.vars))
+            debug(p, "TODO: %d vars to import", len(opts.vars))
         }
     }
     return
@@ -14689,14 +17263,15 @@ func (cc directive_ctx) do(ctx Context, op any) any {
 	}
 	return cc.Context.do(ctx, op)
 }
-func (p *compiler) directive(ctx Context) (props []Value) {
+func (p *compiler) directive() (props []Value) {
 	if l_traverse.enabled { defer un(l_tracef(l_traverse, "compiler.directive(%v)", p.tok)) }
 
-	ctx = directive_ctx{ctx}
+	cc := directive_ctx{p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
 paramsloop:
 	for p.tok != EOF {
-		p.spaces(ctx)
+		p.spaces()
 
 		if p.lineComment != nil {
 			// TODO: comment = p.lineComment
@@ -14709,213 +17284,197 @@ paramsloop:
 			if /* truly(ctx, selection{}) */true { break paramsloop }
 		}
 
-		props = append(props, p.expr(ctx))
+		props = append(props, p.expr())
 	}
 	return
 }
 
-type specParseFunc func(Context, *commentgroup, *clause_opts, int)
-func (p *compiler) spec(ctx Context, keyword token, pos Pos, f specParseFunc) {
+type specParseFunc func(*commentgroup, *clause_opts, int)
+func (p *compiler) spec(keyword token, pos Pos, f specParseFunc) {
 	if l_traverse.enabled { defer un(l_tracef(l_traverse, "compiler.spec(%v)", keyword)) }
 
 	var opts = clause_opts{ keyword: keyword }
 
-	opts.remainder = p.opts(ctx, &opts)
+	opts.remainder = p.opts(&opts)
 
 	for _, cond := range opts.conds {
-		if t := __true(ctx, cond); !t {
+		if t := __true(p, cond); !t {
 			opts.skip = true
 			break
 		}
 	}
 
-	p.spaces(ctx); if false { ctx = pc(ctx, p.pos) }
+	p.spaces()
 
 	switch p.tok {
 	case LINEND:
 		switch keyword {
 		case EVAL, LOCAL:
-			f(ctx, nil, &opts, 0)
+			f(nil, &opts, 0)
 			return
 		}
 
-		erro(ctx, "%v: no specs, remainder: %v", keyword, opts.remainder)
+		erro(p, "%v: no specs, remainder: %v", keyword, opts.remainder)
 
 	case LPAREN:
-		p.next(ctx, true)
+		p.next(true)
 		for iota := 0; p.tok != RPAREN && p.tok != EOF && (p.stop == 0 || p.pos < p.stop); iota++ {
 			// TODO: collect documentation comments
-			for p.tok == SPACE || p.tok == LINEND { p.next(ctx, true) }
+			for p.tok == SPACE || p.tok == LINEND { p.next(true) }
 			if p.tok == RPAREN || p.tok == EOF { break  }
 
-			opts.spec = p.directive(ctx)
+			opts.spec = p.directive()
 
-			f(ctx, p.leadComment, &opts, iota)
+			f(p.leadComment, &opts, iota)
 
-			if p.tok == COMMA || p.tok == LINEND { p.next(ctx, true) }
+			if p.tok == COMMA || p.tok == LINEND { p.next(true) }
 		}
-		p.expect(ctx, RPAREN)
-		p.spaces(ctx)
-		if p.tok != EOF { p.linend(ctx) }
+		p.expect(RPAREN)
+		p.spaces()
+		if p.tok != EOF { p.linend() }
 		return
 	}
 
 	if p.tok != LINEND && p.tok != EOF && (p.stop == 0 || p.pos < p.stop) {
-		opts.spec = p.directive(ctx)
+		opts.spec = p.directive()
 
-		f(ctx, nil, &opts, 0)
+		f(nil, &opts, 0)
 
-		if p.tok == COMMA { p.next(ctx, true) }
+		if p.tok == COMMA { p.next(true) }
 	}
 
 	if p.tok != EOF && (p.stop == 0 || p.pos < p.stop) {
-		if p.spaces(ctx); p.lineComment == nil { p.linend(ctx) }
+		if p.spaces(); p.lineComment == nil { p.linend() }
 	}
 }
 
-func (p *compiler) clause(ctx Context) {
+func (p *compiler) clause() {
 	if l_traverse.enabled { defer un(l_tracef(l_traverse, "compiler.clause(%v)", p.tok)) }
 
-	p.spaces(ctx)
+	p.spaces()
 
 	if p.tok == LINEND || (p.tok == COMMENT && p.lineComment != nil) {
-		p.next(ctx, true)
+		p.next(true)
 		return // noop clause
 	}
 
 	switch t := p.tok ; t {
-	case   INCLUDE: p.spec(ctx, t, p.expect(ctx, t), p.include); return
-	case    ASSERT: p.spec(ctx, t, p.expect(ctx, t), p.assert) ; return
-	case    APPEND: p.spec(ctx, t, p.expect(ctx, t), p.append) ; return
-	case     FILES: p.spec(ctx, t, p.expect(ctx, t), p.files)  ; return
-	case     LOCAL: p.spec(ctx, t, p.expect(ctx, t), p.local)  ; return
-	case      EVAL: p.spec(ctx, t, p.expect(ctx, t), p.eval)   ; return
-	case CONFIGURE: p.configure(ctx)   ; return
-	case       DEF: p.def_end(ctx)     ; return
-	case       FOR: p.for_done(ctx)    ; return
-	case   FOREACH: p.foreach_done(ctx); return
+	case   INCLUDE: p.spec(t, p.expect(t), p.include); return
+	case    ASSERT: p.spec(t, p.expect(t), p.assert) ; return
+	case    APPEND: p.spec(t, p.expect(t), p.append) ; return
+	case     FILES: p.spec(t, p.expect(t), p.files)  ; return
+	case     LOCAL: p.spec(t, p.expect(t), p.local)  ; return
+	case      EVAL: p.spec(t, p.expect(t), p.eval_)  ; return
+	case CONFIGURE: p.configure()   ; return
+	case       DEF: p.def_end()     ; return
+	case       FOR: p.for_done()    ; return
+	case   FOREACH: p.foreach_done(); return
 	case USE, TEMPLATE:
-		erro(pc(ctx,p), "unexpected %v", t, unwind{})
+		erro(p, "unexpected %v", t, unwind{})
 	}
 
 	var vals []Value
 
 	for p.tok != LINEND && p.tok != EOF {
-		var x = p.expr(left_side_ctx{ctx})
+		cc := left_side_ctx{p.Context}
+		p.Context = cc
+		x := p.expr()
+		p.Context = cc.Context
 
-		p.spaces(ctx)
+		p.spaces()
 
 		vals = append(vals, x)
 
 		if p.tok.is_assign() {
-			p.assign(ctx, vals)
+			p.assign(vals)
 			return
 		}
 
 		if p.tok.is_rule_delim() {
-			p.rule(ctx, vals)
+			p.rule(vals)
 			return
 		}
 	}
 
 	for _, v := range vals {
 		if x, y := v.(*argumented); y {
-			p.call(ctx, __symbol(ctx, x.Value), x.args)
+			p.call(__symbol(p, x.Value), x.args)
 		} else {
-			erro(pc(ctx,v), "unexpected %v", ts(v,ctx), unwind{})
+			erro(pc(p,v.Pos()), "unexpected %v", ts(v,p), unwind{})
 		}
 	}
 }
 
-func (p *compiler) pre_project_set(ctx Context, args ...Value) {
+func (p *compiler) pre_project_set(args ...Value) {
 	for _, a := range args {
 		switch t := a.(type) {
 		case *pair:
-			p.scope.def(ctx, defVoid, __symbol(ctx, t.key), t.val)
+			_term(p.Context).scope.def(p, defVoid, __symbol(p, t.key), t.val)
 		default:
-			erro(ctx, "unknown set: %v", ts(a,ctx))
+			erro(p, "unknown set: %v", ts(a,p))
 		}
 	}
 }
 
-func (p *compiler) openscope(ctx Context, marker Symbol) *scope {
+func (p *compiler) openscope(marker Symbol) *scope {
 	var host *project
 	if !p.nextOpenScopeNilOwner { host = p.project } else {
-		p.nextOpenScopeNilOwner = false // THE DOD FIX: Reset the one-shot trigger to prevent lineage starvation in downstream blocks!
+		p.nextOpenScopeNilOwner = false // Reset the one-shot trigger to prevent lineage starvation in downstream blocks!
 	}
 
-	p.term = &term{ Context: p.term, scope: new_scope(ctx, p.scope, host, marker) }
+	scope := new_scope(p, _term(p.Context).scope, host, marker)
 
-	// FIXED: Synchronize the active lexical tree pointer.
-	// This ensures that any subsequent nested blocks opened within this phase
-	// correctly discover this new scope as their authentic 'outer' parent.
-	p.scope = p.term.scope
-
-	return p.scope
+	// CRITICAL FIX: Wrap p.Context directly to preserve intermediate decorators!
+	// We extract 't' ONLY to get the parent scope.
+	p.Context = &term{Context: p.Context, scope: scope}
+	return scope
 }
 
-func (p *compiler) closescope(ctx Context, s *scope) {
-	if p.term == nil {
-		erro(pc(ctx,p), "compiler context stack underflow")
-		return
-	}
+func (p *compiler) closescope(s *scope) {
+	t := _term(p.Context) // Guaranteed precondition
 
-	if p.term.scope != s {
-		erro(pc(ctx,p),
+	if t.scope != s {
+		erro(p,
 			_f("!!! Scope Conflicts !!!"),
-			_f("got: %s", p.term.scope),
+			_f("got: %s", t.scope),
 			_f(" !=: %s", s),
-			_f("%s", ts(ctx)),
 			_f("%s", ts(p)),
 			_f("compiling project: %v", p.project),
-			callstack{num:3}, unwind{})
+			callstack{num: 3}, unwind{})
 		return
 	}
 
-	// Move the head pointer back down the linked list.
-	switch termInner := p.term.Context.(type) {
-	case *term:
-		p.term = termInner
-		// FIXED: Safely restore the parent lexical scope level
-		p.scope = termInner.scope
-	case *universe:
-		p.term = &term{Context: termInner, scope: termInner.globe.scope}
-		// FIXED: Reset to the fallback root universe scope boundary
-		p.scope = termInner.globe.scope
-	case *compiler:
-		if false && p == termInner {
-			panic("compiler context stack corrupted")
-		}
-	default:
-		erro(ctx, "compiler context stack corrupted: %s", typeof(termInner))
-	}
+	// CRITICAL FIX: Perfect LIFO unwrapping.
+	// Because openscope wrapped p.Context directly, t.Context flawlessly
+	// holds the exact context state from immediately before the scope opened.
+	p.Context = t.Context
 }
 
 type declared_project struct{ *project }
 
-func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts *project_opts) {
+func (p *compiler) declare(pos Pos, name, absName Symbol, declOpts *project_opts) {
 	switch name {
 	case symAt:
-		erro(ctx, "illegal project name: %v", name)
+		erro(p, "illegal project name: %v", name)
 		return
 	default:
 		if _, ok := builtins[name]; ok {
-			erro(ctx, "builtin name, can't be a project: %v", name)
+			erro(p, "builtin name, can't be a project: %v", name)
 			return
 		}
 	}
 
 	if p.project != nil {
 		if p.project.name == name {
-			erro(pc(pc(ctx,p.project),p),
+			erro(pc(p,p.project),
 				_f("re-decalre: %v", name),
 				_f("project.absPath: %v", p.project.absPath),
 				_f("new absName: %v", absName),
 				trace_ctx{100}, callstack{num:10}, unwind{})
 			return
 		} else if o := p.project.lookup(name); o != nil {
-			erro(pc(pc(ctx,p.project),p),
-				_f("re-decalre: %v → %v", name, ts(o,ctx)),
+			erro(pc(p,p.project),
+				_f("re-decalre: %v → %v", name, ts(o,p)),
 				_f("new absName: %v", absName),
 				_f("%v %v", p.project, p.project.absPath),
 				trace_ctx{100}, callstack{num:10}, unwind{})
@@ -14925,19 +17484,19 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 
 	// 1. Extract directly into the Symbol Domain
 	var absPath Symbol
-	if _abs, ok := do(ctx, absolute_path{}).(Symbol); ok {
+	if _abs, ok := do(p, absolute_path{}).(Symbol); ok {
 		absPath = _abs
 	} else {
-		absPath = intern(__string(ctx, p.scope.finddef(symSlash))) // $/
+		absPath = intern(__string(p, _term(p.Context).scope.finddef(symSlash))) // $/
 	}
-	relPath := intern(__string(ctx, p.scope.finddef(symDot)))   // $.
-	tmpPath := intern(__string(ctx, p.scope.finddef(symComma))) // $,
+	relPath := intern(__string(p, _term(p.Context).scope.finddef(symDot)))   // $.
+	tmpPath := intern(__string(p, _term(p.Context).scope.finddef(symComma))) // $,
 
 	spec := __symPathRel(symBaseWorkDir, absPath)
 
 	if absPath == symBaseWorkDir {
 		if spec != symDot {
-			erro(ctx,
+			erro(p,
 				_f("the root project spec must be `.`, not: `%v` (name=%s)", spec, name),
 				_f("%s", symBaseWorkDir),
 				_f("%s", absPath),
@@ -14946,7 +17505,7 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 	} else {
 		switch spec {
 		case symEmpty, symDot, symDotDot:
-			erro(ctx,
+			erro(p,
 				_f("incorrect spec: %s (name=%s)", spec, name),
 				_f("%s", symBaseWorkDir),
 				_f("%s", absPath),
@@ -14966,19 +17525,19 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 			use:      new(uselist),
 		},
 		p: p.project,
-		s: p.scope,
+		s: _term(p.Context).scope,
 	}
 
 	// name is safely passed as the scope name
-	dec.scope = new_scope(ctx, p.scope, dec.project, name)
+	dec.scope = new_scope(p, _term(p.Context).scope, dec.project, name)
 	dec.scope.elems[symDotUsee] = dec.use // $(.usee)
 	dec.use.owner_ = dec.project
 	dec.use.scope = dec.scope
 	dec.use.name = symUsee
 
 	if checkpoints {
-		if uc := cast[*use_project_ctx](ctx); uc != nil && p.project == nil && absPath == uc.target {
-			erro(ctx,
+		if uc := cast[*use_project_ctx](p.Context); uc != nil && p.project == nil && absPath == uc.target {
+			erro(p,
 				_f(`host project is nil to "use" %v:
   Declare Spec: %s
   "use" target: %s
@@ -14990,10 +17549,10 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
 
 	// Pure event emission.
 	// `parent.do` will catch this, append the base, and forward it to `universe.do`.
-	do(ctx, declared_project{dec.project})
+	do(p, declared_project{dec.project})
 	if p.project != nil && p.project != dec.project {
 		if prev := p.project.proj(dec.project); prev != nil && prev != dec.project {
-			erro(pc(ctx,p),
+			erro(p,
 				_f(`=== COLLISION DIAGNOSTIC ===
   Existing mapped project: %p (Name: %v)
   Newly minted project: %p (Name: %v)
@@ -15002,33 +17561,33 @@ func (p *compiler) declare(ctx Context, pos Pos, name, absName Symbol, declOpts 
   ---`,
 					prev, prev.name,
 					dec.project, dec.project.name,
-					do(ctx, is_config_mode{}),
+					do(p, is_config_mode{}),
 					name, dec.project.name,
 				),
 				trace_ctx{100}, callstack{num:16}, unwind{})
 		}
 	}
 
-	// Set new project and scope, NOTE: p.scope is p.term.scope!
-	p.project, p.scope = dec.project, dec.scope
+	// Set new project and scope, NOTE: _term(p.Context).scope is p.term.scope!
+	p.project, _term(p.Context).scope = dec.project, dec.scope
 
 	// Set defs based on arguments from syntax `name(k=v k=v,...)`.
-	if args, ok := do(ctx, get_arguments{}).([]Value); ok && len(args) > 0 {
+	if args, ok := do(p, get_arguments{}).([]Value); ok && len(args) > 0 {
 		for _, arg := range merge(args...) {
 			switch t := arg.(type) {
 			case *pair:
 				switch k := t.key.(type) {
 				case *word, *compound, flag:
-					p.scope.def(ctx, defDecl, __symbol(ctx, k), t.val)
+					_term(p.Context).scope.def(p, defDecl, __symbol(p, k), t.val)
 				default:
-					debug(ctx, "%v: unknown target: %v : %v", p.project.name, t, ts(t,ctx),
+					debug(p, "%v: unknown target: %v : %v", p.project.name, t, ts(t,p),
 						trace_ctx{100}, callstack{num:16})
 				}
 			}
 		}
 	}
 
-	if false { p.loadPlugin(ctx) }
+	if false { p.loadPlugin() }
 }
 
 // implicit load, e.g. via foo.bar.Baz (implicitly loads foo/bar for base of Baz)
@@ -15089,7 +17648,7 @@ func _absolute_ctx(ctx Context, abs Symbol) Context {
 	return &absolute_ctx{ctx, abs}
 }
 
-func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
+func (p *compiler) bases(implicitBase Symbol, params ...Value) {
 	var implicitBases []Value
 	var implicitIndex = -1
 
@@ -15119,20 +17678,20 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 	// we drop it BEFORE the resolution loop. This saves massive Disk I/O!
 	// =================================================================
 	if implicitBase != symEmpty {
-		if res := ctx.do(ctx, is_ancestor{implicitBase}); res != nil && res.(bool) {
+		if res := p.Context.do(p, is_ancestor{implicitBase}); res != nil && res.(bool) {
 			implicitBase = symEmpty // Benign structural cycle averted at zero cost!
 		}
 	}
 
 	if implicitBase != symEmpty {
 		implicitIndex = len(implicitBases)
-		implicitBases = append(implicitBases, _word(_pos(ctx), implicitBase))
+		implicitBases = append(implicitBases, _word(p.pos, implicitBase))
 	}
 
 	// =================================================================
 	// 2. LOCAL `.base` FILE
 	// =================================================================
-	if f := _stat(ctx, symDotBase, p.project); f != nil && f._mtime != 0 {
+	if f := _stat(p, symDotBase, p.project); f != nil && f._mtime != 0 {
 		if !f.isDir() && f.fullname() == p.project.absPath {
 			// skip self-loading
 		} else {
@@ -15142,6 +17701,9 @@ func (p *compiler) bases(ctx Context, implicitBase Symbol, params ...Value) {
 
 	var numImplicit = len(implicitBases)
 
+	snap_ctx := p.Context
+	u := _universe(snap_ctx)
+
 	// =================================================================
 	// 3. EXPLICIT BASES & RESOLUTION LOOP
 	// =================================================================
@@ -15149,23 +17711,28 @@ paramsloop:
 	for i, elem := range append(implicitBases, params...) {
 		isImplicit := (i < numImplicit)
 
-		ec := pc(ctx, elem.Pos())
+		p.Context = pc(snap_ctx, elem.Pos())
 
 		if x, y := elem.(*list); y && len(x.elems) == 1 { elem = x.elems[0] }
-		if x, y := elem.(*argumented); y { elem, ec = x.Value, x.ctx(ec) }
-		if x, y := elem.(*pair); y { erro(pc(ec,x), "use -set(%v) instead", x) }
+		if x, y := elem.(*argumented); y { elem, p.Context = x.Value, x.ctx(p.Context) }
+		if x, y := elem.(*pair); y { erro(p, "use -set(%v) instead", x) }
 
 		var spec Symbol
-		if v := expand(final{ec}, elem); v == nil {
-			erro(ec, "nil value: %v", elem, callstack{num:16})
-		} else if spec = __symbol(ec, v); spec == symEmpty {
-			erro(ec, "empty base", callstack{num:16})
-		} else if __symContains(spec, symSlashSlash) {
-			erro(ec, "invalid base", callstack{num:16})
-		} else if i == implicitIndex {
-			ec = implicit_load_ctx{ec}
-		} else if implicitBase != symEmpty && spec == implicitBase {
-			erro(ec, "%v: implicit base '%v' already loaded", p.project, elem)
+		{
+			cc := final{p.Context}
+			p.Context = cc
+			if v := p.eval(elem); v == nil {
+				erro(p, "nil value: %v", elem, callstack{num:16})
+			} else if spec = __symbol(p, v); spec == symEmpty {
+				erro(p, "empty base", callstack{num:16})
+			} else if __symContains(spec, symSlashSlash) {
+				erro(p, "invalid base", callstack{num:16})
+			} else if i == implicitIndex {
+				cc.Context = implicit_load_ctx{cc.Context}
+			} else if implicitBase != symEmpty && spec == implicitBase {
+				erro(p, "%v: implicit base '%v' already loaded", p.project, elem)
+			}
+			p.Context = cc.Context
 		}
 
 		var abs Symbol
@@ -15187,7 +17754,7 @@ paramsloop:
 
 			// 2. Global Priority: Bare specs hit p.search before crawling ancestors!
 			// This perfectly intercepts `app.simple` and prevents local hijacking.
-			if !isRelative { abs, isDir = p.search(ec, spec); finalSearch = false }
+			if !isRelative { abs, isDir = p.search(spec); finalSearch = false }
 
 			// 3. Structural Crawl: Fallback for implicit bases not found globally
 			if isImplicit && abs == symEmpty {
@@ -15197,7 +17764,7 @@ paramsloop:
 				for curr != symEmpty && curr != symDot && curr != symSlash {
 					// A. Direct Ancestor Match: Safely resolves nested parent paths (e.g., foo.bar)
 					if curr == path || curr.has_suffix(__symPathJoin(symEmpty, path)) {
-						if f := _stat(ec, curr); f.exists() {
+						if f := _stat(p, curr); f.exists() {
 							abs, isDir = f.fullname(), f.isDir()
 							break
 						}
@@ -15205,7 +17772,7 @@ paramsloop:
 
 					// B. Sibling Match: Safely resolves structural cousins (e.g., foo.baz)
 					// Safe to restore because Step 2 acts as a global namespace shield!
-					if f := _stat(ec, __symPathJoin(curr, path)); f.exists() {
+					if f := _stat(p, __symPathJoin(curr, path)); f.exists() {
 						abs, isDir = f.fullname(), f.isDir()
 						break
 					}
@@ -15215,25 +17782,25 @@ paramsloop:
 			}
 
 			// 4. Ultimate Fallback: Catch explicit relative paths or final p.search fallback
-			if finalSearch && abs == symEmpty { abs, isDir = p.search(ec, spec) }
+			if finalSearch && abs == symEmpty { abs, isDir = p.search(spec) }
 		}
 
 		if abs == symEmpty {
 			if isImplicit { continue paramsloop }
-			erro(ec, "%v: no such base; %v → %v", p.project, elem, spec)
+			erro(p, "%v: no such base; %v → %v", p.project, elem, spec)
 		}
 
 		// Prevent physical duplicates BEFORE cache injection!
 		for _, base := range p.project.bases {
 			if base.absPath == abs {
-				erro(ec, "duplicated base: %v : %v → %v (in %v)", base, elem, spec)
+				erro(p, "duplicated base: %v : %v → %v (in %v)", base, elem, spec)
 				continue paramsloop
 			}
 		}
 
 		// Cache Bypassing!
-		if prev, ok := _universe(ec).globe.loaded[abs]; ok && prev != nil {
-			ec.do(ec, declared_project{prev})
+		if prev, ok := u.globe.loaded[abs]; ok && prev != nil {
+			p.do(p, declared_project{prev})
 			continue paramsloop
 		}
 
@@ -15244,16 +17811,21 @@ paramsloop:
 		// out of the nested `parse()` and hijacks the host's AST!
 		// =================================================================
 		func (host *project, hostScope *scope) {
-			defer func() { p.project, p.scope = host, hostScope }()
-			p.project = nil // Prevent host bleeding into the nested parse
+			defer func(c Context) {
+				p.Context, p.project, _term(p.Context).scope = c, host, hostScope
+			} (p.Context)
 
-			if cc := _absolute_ctx(ec, abs); isDir {
-				p.directory(cc, spec, abs)
+			p.project = nil // Prevent host bleeding into the nested parse
+			p.Context = _absolute_ctx(p.Context, abs)
+
+			if isDir {
+				p.directory(spec, abs)
 			} else {
-				p.file(cc, spec, abs)
+				p.file(spec, abs)
 			}
-		} (p.project, p.scope)
+		} (p.project, _term(p.Context).scope)
 	}
+	p.Context = snap_ctx
 
 	// =================================================================
 	// 4. DIAMOND INHERITANCE DEDUPLICATION
@@ -15284,7 +17856,7 @@ paramsloop:
 		targetName := targetSym.String()
 		lookupSym := intern("use." + targetName)
 
-		d := p.project.def(ctx, defVoid, lookupSym)
+		d := p.project.def(p, defVoid, lookupSym)
 
 		var op usevar
 		if targetName == "-l" || targetName == "-L" || targetName == "-I" || strings.HasPrefix(targetName, "-no") {
@@ -15294,7 +17866,7 @@ paramsloop:
 			op.reverse = true
 		}
 
-		op.apply(closure_with(ctx, p.project.scope), d, nonTrivialDefsFromBase(ctx, p.project, lookupSym)...)
+		op.apply(closure_with(p, p.project.scope), d, nonTrivialDefsFromBase(p, p.project, lookupSym)...)
 	}
 	return
 }
@@ -15413,14 +17985,9 @@ func (cc *configure_project_ctx) do(ctx Context, op any) (_ any) {
 	return cc.Context.do(ctx, op)
 }
 
-func (p *compiler) parse(ctx Context) bool {
-	if l_traverse.enabled { defer un(l_tracef(l_traverse, "compiler.parse(%s)", p.filename())) }
-
-	var u = _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.parse")) }
-
+func (p *compiler) parse() bool {
 	if p.tok == EOF {
-		erro(pc(ctx, p.pos), "early end of file", callstack{num:64}, unwind{})
+		erro(p, "early end of file", callstack{num:64}, unwind{})
 		return false
 	}
 
@@ -15429,17 +17996,17 @@ func (p *compiler) parse(ctx Context) bool {
 
 	var absName Symbol
 	var isMainFile bool // aka do.smart, build.smart
-	var flatmode = truly(ctx, is_flat_mode{})
+	var flatmode = truly(p, is_flat_mode{})
 
 	if flatmode {
 		if p.project == nil {
-			erro(ctx, "nil project in flat mode", callstack{num:64}, unwind{})
+			erro(p, "nil project in flat mode", callstack{num:64}, unwind{})
 			return false
 		} else {
 			absName = p.project.absPath
 		}
 	} else {
-		f := _stat(ctx, filename)
+		f := _stat(p, filename)
 
 		if f != nil && f.isDir() {
 			// If the compiler was directly handed a directory
@@ -15460,43 +18027,44 @@ func (p *compiler) parse(ctx Context) bool {
 		}
 	}
 
+	u := _universe(p.Context)
 	rel := __symPathRel(u.workdir, absName)
-	tmp := joinTmpPath(ctx, u.workdir, rel)
+	tmp := joinTmpPath(p, u.workdir, rel)
 
 	// 1. FILE SCOPE PUSH
-	defer p.closescope(ctx, p.openscope(ctx, baseName))
+	defer p.closescope(p.openscope(baseName))
 
-	var s = p.scope
+	var s = _term(p.Context).scope
 	if s == nil {
-		erro(ctx, "%v: nil scope", p.project, callstack{num:64}, unwind{})
+		erro(p, "%v: nil scope", p.project, callstack{num:64}, unwind{})
 		return false
 	}
 
 	if flatmode {
 		if p.tok == PROJECT {
-			erro(pc(ctx, p.pos), "project is forbidden in flat file")
+			erro(p, "project is forbidden in flat file")
 		}
 	} else {
-		if d := s.def(ctx, defVoid, symSlash, __symMakePath(ctx, absName)); d != nil { s.alias(ctx, d, symCWD) }
-		if d := s.def(ctx, defVoid, symDot  , __symMakePath(ctx, rel)); d != nil { s.alias(ctx, d, symCRD) }
-		if d := s.def(ctx, defVoid, symComma, __symMakePath(ctx, tmp)); d != nil { s.alias(ctx, d, symCTD) }
+		if d := s.def(p, defVoid, symSlash, __symMakePath(p, absName)); d != nil { s.alias(p, d, symCWD) }
+		if d := s.def(p, defVoid, symDot  , __symMakePath(p, rel)); d != nil { s.alias(p, d, symCRD) }
+		if d := s.def(p, defVoid, symComma, __symMakePath(p, tmp)); d != nil { s.alias(p, d, symCTD) }
 
 		if p.tok == PROJECT {
-			p.next(ctx, true)
+			p.next(true)
 
 			// =================================================================
 			// 2. EXTRACT OPTS
 			// =================================================================
 			var opts project_opts
-			if a := p.opts(ctx, &opts); len(a) > 0 {
-				erro(pc(ctx, absName), "unknown project option %v", ts(a,ctx))
+			if a := p.opts(&opts); len(a) > 0 {
+				erro(pc(p,absName), "unknown project option %v", ts(a,p))
 				return false
 			}
 
 			// =================================================================
 			// 3. IMMEDIATE EVALUATION (-set)
 			// =================================================================
-			p.pre_project_set(ctx, merge(opts.set...)...)
+			p.pre_project_set(merge(opts.set...)...)
 
 			// =================================================================
 			// 4. EVALUATE NAMESYM
@@ -15531,54 +18099,54 @@ func (p *compiler) parse(ctx Context) bool {
 				}
 
 				if nameSym == symEmpty {
-					erro(ctx, "invalid file: %v", absName)
+					erro(p, "invalid file: %v", absName)
 					return false
 				}
 			} else if p.tok == TILDE {
 				if __symExt(baseSym) != symDotSmart {
-					erro(ctx, "`%v` not a smart file", baseSym)
+					erro(p, "`%v` not a smart file", baseSym)
 					return false
 				}
 				nameSym = __symTrimExt(baseSym)
 				if nameSym == symEmpty {
-					erro(ctx, "`%v` not tilde name", baseSym)
+					erro(p, "`%v` not tilde name", baseSym)
 					return false
 				}
-				p.next(ctx, true)
+				p.next(true)
 			} else { // Explicit project name
 				base, qw := &path{}, &qualword{}
 				for p.tok != EOF && p.tok != SPACE && p.tok != LINEND && p.lineComment == nil {
-					w := p.word(ctx)
+					w := p.word()
 					qw.elems = append(qw.elems, w)
 					if p.tok == DOT {
-						p.step(ctx)
+						p.step()
 						base.elems = append(base.elems, w)
 					} else {
 						break
 					}
 				}
-				p.spaces(ctx)
+				p.spaces()
 				switch qw.len() {
 				case 0:
-					erro(pc(ctx,p), "empty project name (tok=%v)", p.tok)
+					erro(p, "empty project name (tok=%v)", p.tok)
 					return false
 				case 1:
-					nameSym = __symbol(ctx, qw.elems[0])
+					nameSym = __symbol(p, qw.elems[0])
 				default:
-					nameSym = __symbol(ctx, qw)
+					nameSym = __symbol(p, qw)
 				}
 
 				// Implicit base, e.g. "llvm.tools.ar" automatically has the base "llvm/tools".
-				if base.len() > 0 { implicitBase = __symbol(ctx, base) }
+				if base.len() > 0 { implicitBase = __symbol(p, base) }
 			}
 
 			if nameSym == symDash || nameSym == symUnderscore {
-				erro(pc(ctx,p), "package name '%s' is preserved", nameSym)
+				erro(p, "package name '%s' is preserved", nameSym)
 				return false
 			}
 
 			if proj := p.project; !isMainFile && proj != nil && proj.name != nameSym && proj.absPath == absName {
-				erro(pc(ctx,p),
+				erro(p,
 					_f("%v: multiple projects in the directory: %v", proj, nameSym),
 					_f("%v: %v %v", proj.project, baseSym, nameSym),
 					_f("%v", absName),
@@ -15593,33 +18161,35 @@ func (p *compiler) parse(ctx Context) bool {
 			var implicitConfigure *project
 
 			if nameSym != symDotConfigure && nameSym != symConfigure {
-				var cc = configure_project_ctx{Context: ctx}
 				var isLocalConfigure bool
+
+				cc := configure_project_ctx{Context: p.Context}; defer func() { p.Context = cc.Context } ()
+				p.Context = &cc
 
 				if v := opts.configure; v != nil {
 					if x, y := v.(*boolean); y {
 						if x.bool { cc.configure = symConfigure }
 					} else {
-						cc.configure = __symbol(ctx, v)
+						cc.configure = __symbol(p, v)
 						if cc.configure == symEmpty {
-							erro(ctx, "empty configure spec: %v", ts(v))
+							erro(p, "empty configure spec: %v", ts(v))
 						} else if cc.configure == symDot {
 							cc.configure, isLocalConfigure = symConfigure, true
 						}
 					}
 				// THE DOD FIX: Clean f.exists() utilizing the nil-safe receiver!
-				} else if f := _stat(ctx, symConfigure, stat_dir{dirSym}); f.exists() {
+				} else if f := _stat(p, symConfigure, stat_dir{dirSym}); f.exists() {
 					cc.configure, isLocalConfigure = symConfigure, true
-				} else if f := _stat(ctx, symDotConfigure, stat_dir{dirSym}); f.exists() {
+				} else if f := _stat(p, symDotConfigure, stat_dir{dirSym}); f.exists() {
 					cc.configure, isLocalConfigure = symDotConfigure, true
 				}
 
 				if cc.configure != symEmpty {
 					var f *file
 					if __symIsAbs(cc.configure) {
-						f = _stat(ctx, cc.configure)
+						f = _stat(p, cc.configure)
 					} else {
-						f = _stat(ctx, cc.configure, stat_dir{dirSym})
+						f = _stat(p, cc.configure, stat_dir{dirSym})
 					}
 
 					if f.exists() {
@@ -15627,47 +18197,51 @@ func (p *compiler) parse(ctx Context) bool {
 					}
 
 					if cc.absPath == symEmpty && opts.configure != nil {
-						if !isLocalConfigure { cc.absPath, cc.isDir = p.search(ctx, cc.configure) }
+						if !isLocalConfigure { cc.absPath, cc.isDir = p.search(cc.configure) }
 						if cc.absPath == symEmpty {
-							erro(ctx, "no such project: %s", cc.configure)
+							erro(p, "no such project: %s", cc.configure)
 						}
 					}
 				}
 
 				if cc.absPath != symEmpty {
-					if prev, ok := _universe(ctx).globe.loaded[cc.absPath]; ok && prev != nil {
-						do(&cc, declared_project{prev})
+					if prev, ok := u.globe.loaded[cc.absPath]; ok && prev != nil {
+						do(p, declared_project{prev})
 					} else {
 						func (host *project, hostScope *scope) {
-							defer func() { p.project, p.scope = host, hostScope } ()
+							defer func() { p.project, _term(p.Context).scope = host, hostScope } ()
 
 							if true { p.project = nil }
 
-							if cc.Context = closure_with(cc.Context, hostScope); cc.isDir {
-								p.directory(&cc, cc.configure, cc.absPath)
+							// p.Context = closure_with(p.Context, hostScope)
+
+							if cc.isDir {
+								p.directory(cc.configure, cc.absPath)
 							} else {
-								p.file(&cc, filespec(symBaseWorkDir, cc.absPath), cc.absPath)
+								p.file(filespec(symBaseWorkDir, cc.absPath), cc.absPath)
 							}
-						} (p.project, p.scope)
+						} (p.project, _term(p.Context).scope)
 					}
 
 					if cc.declared == nil {
-						erro(ctx, _f("%s not loaded", cc.configure), _f("absPath: %v", cc.absPath), callstack{stop:"smart.run"}, unwind{})
+						erro(p, _f("%s not loaded", cc.configure), _f("absPath: %v", cc.absPath), callstack{stop:"smart.run"}, unwind{})
 					}
 					implicitConfigure = cc.declared
 				}
+
+				p.Context = cc.Context
 			}
 
 			// =================================================================
 			// 6. DECLARE THE HOST PROJECT
 			// =================================================================
 			var prevProj = p.project
-			var prevScope = p.scope
+			var prevScope = _term(p.Context).scope
 
 			if p.project != nil && p.project.name == nameSym {
 				// Continuation bypass
 			} else {
-				p.declare(ctx, namePos, nameSym, absName, &opts)
+				p.declare(namePos, nameSym, absName, &opts)
 			}
 
 			// =================================================================
@@ -15676,12 +18250,10 @@ func (p *compiler) parse(ctx Context) bool {
 			if implicitConfigure != nil {
 				if c := p.project.configure; c != implicitConfigure {
 					if c != nil && c != p.project {
-						erro(ctx, "%s already specified", symDotConfigure)
+						erro(p, "%s already specified", symDotConfigure)
 					} else {
 						p.project.configure = implicitConfigure
-						if g := _universe(ctx).globe; g.main == implicitConfigure {
-							g.main = p.project
-						}
+						if u.globe.main == implicitConfigure { u.globe.main = p.project }
 					}
 				}
 			}
@@ -15689,11 +18261,9 @@ func (p *compiler) parse(ctx Context) bool {
 			// 8. ASYMMETRIC TEARDOWN
 			if prevProj != p.project {
 				defer func(proj *project, sc *scope, isMain bool) {
-					if proj != nil && !isMain {
-						p.project = proj
-					}
-					p.scope = sc
-				}(prevProj, prevScope, isMainFile)
+					if proj != nil && !isMain { p.project = proj }
+					_term(p.Context).scope = sc
+				} (prevProj, prevScope, isMainFile)
 			}
 
 			// =================================================================
@@ -15701,37 +18271,43 @@ func (p *compiler) parse(ctx Context) bool {
 			// =================================================================
 			var explicitBases []Value
 
-			cc0 := closure_with(parent_ctx{ctx, p.project}, p.scope)
+			snap_ctx := p.Context; defer func() { p.Context = snap_ctx } ()
+			p.Context = closure_with(parent_ctx{p.Context, p.project}, _term(p.Context).scope)
+
 			if p.tok == LPAREN {
-				cc1 := group_ctx{aware_ctx{cc0, COMMA}}
+				snap_ctx := p.Context
+				p.Context = group_ctx{aware_ctx{p.Context, COMMA}}
 				for p.tok != EOF {
-					for p.next(ctx, true); !p.is_list_term(ctx); p.spaces(ctx) {
-						explicitBases = append(explicitBases, merge(p.expr(cc1))...)
+					for p.next(true); !p.is_list_term(); p.spaces() {
+						val := p.expr()
+						explicitBases = append(explicitBases, merge(val)...)
 					}
 					if p.tok != COMMA { break }
 				}
-				p.expect(ctx, RPAREN)
+				p.expect(RPAREN)
+				p.Context = snap_ctx
 			}
 
 			// THE DOD FIX: ONE single call guarantees the 1-2-3 load sequence
 			// and completely prevents multiple evaluations of implicitBase!
-			p.bases(cc0, implicitBase, explicitBases...)
+			p.bases(implicitBase, explicitBases...)
+			p.Context = snap_ctx
 
-			if p.spaces(ctx) ; p.tok != EOF { p.linend(ctx) }
+			if p.spaces() ; p.tok != EOF { p.linend() }
 
 			if isMainFile {
-				p.configuration(ctx, nameSym)
-				p.container(ctx, nameSym)
+				p.configuration(nameSym)
+				p.container(nameSym)
 			}
 
 		} else {
 			switch __symBase(absName) {
 			case symConfigure, symDotConfigure:
-				erro(pc(pc(ctx, p.pos), absName),
+				erro(pc(p,absName),
 					_f(`expect keyword "project" for metaclass "configure", not %v (lit=%s)`, p.tok, p.lit),
 					callstack{num:16, stop:"smart.run"}, trace_ctx{3}, unwind{})
 			default:
-				erro(pc(ctx, p.pos),
+				erro(p,
 					_f("expect keyword 'project', not %v (lit=%s)", p.tok, p.lit),
 					callstack{num:16, stop:"smart.run"}, unwind{})
 			}
@@ -15739,29 +18315,29 @@ func (p *compiler) parse(ctx Context) bool {
 	}
 
 	var autoload = !flatmode && isMainFile
-	if  autoload { p.autoload(ctx, "declared") }
+	if  autoload { p.autoload("declared") }
 
 	if p.parsemode&ModuleClauseOnly == 0 {
 		if !flatmode {
 		declaration:
 			for p.tok != EOF {
 				switch t := p.tok ; t {
-				case LINEND, SPACE: p.next(ctx, true)
-				case USE: p.spec(ctx, t, p.expect(ctx, t), p.use)
-				case APPEND, ASSERT, EVAL, FILES, INCLUDE: p.clause(ctx)
+				case LINEND, SPACE: p.next(true)
+				case USE: p.spec(t, p.expect(t), p.use)
+				case APPEND, ASSERT, EVAL, FILES, INCLUDE: p.clause()
 				default: break declaration
 				}
 			}
 		}
 
-		if false && autoload { p.autoload(ctx, "amid") }
+		if false && autoload { p.autoload("amid") }
 
 		if p.parsemode&ImportsOnly == 0 {
-			for p.tok != EOF { p.clause(ctx) }
+			for p.tok != EOF { p.clause() }
 		}
 	}
 
-	if autoload { p.autoload(ctx, "appendix") }
+	if autoload { p.autoload("appendix") }
 
 	p.clear_locals()
 
@@ -15835,38 +18411,35 @@ func (p *source_ctx) do(ctx Context, op any) any {
     }
     return p.Context.do(ctx, op)
 }
-func (p *compiler) source(ctx Context, filename Symbol, text []byte) Value {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.source")) }
+func (p *compiler) source(filename Symbol, text []byte) Value {
+	// _scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+	// defer func() { _term(p.Context).scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
 
-	// _scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-	// defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
+	u := _universe(p.Context)
+	p.scanner.init(p, u.fset.add(filename, len(text)), text, 0)
+	p.next(true) // starts scanning
 
-	p.scanner.init(ctx, u.fset.add(filename, len(text)), text, 0)
-	p.next(ctx, true) // starts scanning
-	ctx = pc(ctx, p) // immediately push pos: ../app/do.smart:1:1
-
-	if truly(ctx, is_text_parser{}) {
+	if truly(p, is_text_parser{}) {
 		if p.tok == PROJECT {
-			erro(pc(ctx,p), "unexpected keyword: %v", p.tok)
+			erro(p, "unexpected keyword: %v", p.tok)
 		}
-		return ease(ctx, p.values(ctx))
+		return ease(p, p.values())
 	}
 
 	if false {
 		if pc, file, line, ok := runtime.Caller(0); ok {
-			ctx = &source_ctx{ctx, filename, intern(file), line, runtime.FuncForPC(pc)}
+			p.Context = &source_ctx{p.Context, filename, intern(file), line, runtime.FuncForPC(pc)}
 		}
 	}
 
 	var prevProject = p.project // nil if initial source.
 
-	if !p.parse(ctx) {
-		erro(pc(ctx,p), "parse failed, %s", p.scope, callstack{num:16})
+	if !p.parse() {
+		erro(p, "parse failed, %s", _term(p.Context).scope, callstack{num:16})
 	}
 
 	if false && p.project != prevProject {
-		erro(pc(ctx,p), "project not unwind: %v != %v, %s", p.project, prevProject, p.scope,
+		erro(p, "project not unwind: %v != %v, %s", p.project, prevProject, _term(p.Context).scope,
 			callstack{num:32}, unwind{})
 	}
 	return nil // only text parser has value result
@@ -15882,23 +18455,26 @@ func (p parse_text_ctx) do(ctx Context, op any) any {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) text(ctx Context, filename Symbol, text string) Value {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.text")) }
+func (p *compiler) text(filename Symbol, text string) Value {
+	cc := parse_text_ctx{p.Context}
 
 	// =========================================================
 	// STATE PROTECTION: Instant Backup & Wipe
 	// =========================================================
-	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
+	_scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+	defer func() {
+		_term(p.Context).scope, p.scanner, p.compilestate, p.Context = _scope, _scanner, _state, cc.Context
+	} ()
 
 	// THE DOD FIX: Retain the project!
 	// text() runs dynamically generated code inside the CURRENT module's scope.
 	// It must share the parent's project struct to access and define local variables.
 	p.compilestate = compilestate{
-		project: p.project, prevScope: p.scope, prev: p.copystate(),
+		project: p.project, prevScope: _term(p.Context).scope, prev: p.copystate(),
 	}
-	return p.source(parse_text_ctx{ctx}, filename, []byte(text))
+
+	p.Context = cc
+	return p.source(filename, []byte(text))
 }
 
 type l_filename string
@@ -15933,7 +18509,7 @@ func (a *autoload_ctx) do(ctx Context, op any) (_ any) {
     }
     return a.Context.do(ctx, op)
 }
-func (p *compiler) autoload(ctx Context, tag string) {
+func (p *compiler) autoload(tag string) {
 	if p.project == nil { return }
 
 	switch p.project.name {
@@ -15941,32 +18517,37 @@ func (p *compiler) autoload(ctx Context, tag string) {
 		return
 	}
 
-	d := p.project.resolveDef(ctx, intern(".autoload." + tag))
+	d := p.project.resolveDef(p, intern(".autoload." + tag))
 	if d == nil || d.value == nil || isEmpty(d.value) {
 		return
 	}
 
-	cc := final{closure_with(ctx, p.scope)}
+	snap_ctx := p.Context; defer func() { p.Context = snap_ctx } ()
+
 	for _, _v := range merge(d.value) {
-		v := expand(cc, _v)
+
+		p.Context = final{p.Context}
+		v := p.eval(_v)
+		p.Context = snap_ctx
+
 		if isTrivial(v) {
-			if checkpoints { erro(pc(ctx,_v.Pos()), "%v → %v", _v, v) }
+			if checkpoints { erro(pc(p,_v.Pos()), "%v → %v", _v, v) }
 			continue
 		}
 		if false && checkpoints {
 			if strings.HasPrefix(_v.String(), `&//.`) {
 				if !strings.HasPrefix(v.String(), p.project.absPath.String()) {
-					erro(pc(ctx,d.pos),
+					erro(pc(p,d.pos),
 						_f("%v: %s: %v", p.project, d.name, d.value),
 						_f("%s", v),
-						_f("%s", __string(ctx, v)),
+						_f("%s", __string(p, v)),
 						_f("%s", p.project.absPath),
-						_f("%v", closure_scopes(ctx)))
+						_f("%v", closure_scopes(p)))
 				}
 			}
 		}
 
-		f := p.stat_file(ctx, v)
+		f := p.stat_file(v)
 		if !f.exists() { continue }
 
 		// =================================================================
@@ -15981,19 +18562,22 @@ func (p *compiler) autoload(ctx Context, tag string) {
 			continue // Not our file! Let the leaf template load it later.
 		}
 
-		text := load_source_bytes(ctx, fn.String())
+		text := load_source_bytes(p, fn.String())
 		if len(text) == 0 { continue }
 
 		// State Protection
 		func () {
-			_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-			defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
+			_scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+			defer func() { _term(p.Context).scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
 
 			// p.compilestate is retained so locals flow natively into the appendix.
 			// p.compilestate = compilestate{
 			// 	project: _state.project, prevScope: _scope, prev: p.copystate(),
 			// }
-			p.source(&autoload_ctx{ctx, p.pos, v, nil}, fn, text)
+
+			cc := autoload_ctx{p.Context, p.pos, v, nil}; defer func() { p.Context = cc.Context } ()
+			p.Context = &cc
+			p.source(fn, text)
 		} ()
 	}
 }
@@ -16020,31 +18604,38 @@ func (p *include_ctx) do(ctx Context, op any) any {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) include(ctx Context, doc *commentgroup, g *clause_opts, _ int) {
+func (p *compiler) include(doc *commentgroup, g *clause_opts, _ int) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, "include")) }
 
 	var opts = include_opts{ clause_opts: g }
-	if va := parseOpts(ctx, &opts, g.remainder...); len(va) > 0 {
-		erro(ctx, "unknown opts: %v", va[0], callstack{num: 5})
+	if va := parseOpts(p, &opts, g.remainder...); len(va) > 0 {
+		erro(p, "unknown opts: %v", va[0], callstack{num: 5})
 	}
 	if len(g.spec) < 1 {
-		erro(ctx, "expect include file: %v", g.spec, callstack{num: 5})
+		erro(p, "expect include file: %v", g.spec, callstack{num: 5})
 	}
 
-	var val = expand(final{ctx}, g.spec[0])
+	var val Value
+	{
+		cc := final{p.Context};
+		p.Context = cc
+		val = p.eval(g.spec[0])
+		p.Context = cc.Context
+	}
 
-	if p.spaces(ctx); p.tok == COLON {
+	if p.spaces(); p.tok == COLON {
 		switch val.(type) {
 		case *file, *strlit, *strcomp: // Escape from file searching
 		default:
-			if f := p.project.file(ctx, val); f != nil { val = f }
+			if f := p.project.file(p, val); f != nil { val = f }
 		}
-		val = p.rule(ctx, []Value{val}) // This returns a *rule
+		val = p.rule([]Value{val}) // This returns a *rule
 	}
 
 	if g.skip { return }
 
-	ctx = pc(ctx, g.spec[0])
+	defer func(c Context) { p.Context = c } (p.Context)
+	p.Context = pc(p.Context, g.spec[0].Pos())
 
 	// =====================================================================
 	// COMPILE-TIME ISOLATED RULE EXECUTION GATE
@@ -16053,115 +18644,117 @@ func (p *compiler) include(ctx Context, doc *commentgroup, g *clause_opts, _ int
 	// immediately during the parse phase to output the required source bytes.
 	if x, ok := val.(*rule); ok && x != nil {
 		// Directly execute the rule via our centralized engine traversal loop
-		traverse(ctx, x)
+		traverse(p, x)
 
 		// Promote val to the newly generated physical file target output
 		val = x.target
 	}
 
-	f := p.stat_file(ctx, val)
+	f := p.stat_file(val)
 
 	if f == nil || !f.exists() {
 		if opts.ifExists { return } // Safe exit if explicit "-if-exists" flag is active
 		if f != nil && f.name == symEmpty {
-			erro(ctx, "empty file spec: %v : %s", val, ts(val, ctx))
+			erro(p, "empty file spec: %v : %s", val, ts(val,p))
 		} else {
-			erro(ctx, "no such file: %v : %s", val, ts(val, ctx))
+			erro(p, "no such file: %v : %s", val, ts(val,p))
 		}
 		return
 	}
 
-	s := _universe(ctx).trimFileSpec(ctx, f.name)
+	s := _universe(p.Context).trimFileSpec(p, f.name)
 
 	// Load the physical file bytes from the newly updated VFS location
-	text := load_source_bytes(ctx, f.fullname().String())
+	text := load_source_bytes(p, f.fullname().String())
 	if len(text) == 0 {
 		return
 	}
 
 	// State Protection Barrier: Isolate the parent compiler's scanning registers
 	func() {
-		_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-		defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
+		cc := include_ctx{p.Context, opts, s, val.Pos()}
+		_scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+		defer func() {
+			_term(p.Context).scope, p.scanner, p.compilestate, p.Context = _scope, _scanner, _state, cc.Context
+		} ()
 
 		p.compilestate = compilestate{
 			project: _state.project, prevScope: _scope, prev: p.copystate(),
 		}
-		p.source(&include_ctx{ctx, opts, s, val.Pos()}, f.fullname(), text)
+
+		p.Context = &cc
+		p.source(f.fullname(), text)
 	}()
 	return
 }
 
-func (p *compiler) file(ctx Context, spec, filename Symbol) {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.file")) }
-
+func (p *compiler) file(spec, filename Symbol) {
 	if filename == symEmpty {
-		erro(pc(ctx, p),
+		erro(p,
 			_f("%v: empty filename for `%v`", p.project, spec),
 			callstack{num:10, stop:"smart.Main"})
 		return
 	}
 
 	if !__symIsAbs(filename) {
-		erro(pc(ctx, p),
+		erro(p,
 			_f("%v: not absolute path: %v", p.project.name, filename),
 			callstack{num:5})
 		return
 	}
 
+	u := _universe(p.Context)
 	if prev, ok := u.globe.loaded[filename]; ok {
-		do(ctx, declared_project{prev})
+		do(p, declared_project{prev})
 		return
 	}
 
 	// =========================================================
 	// STATE PROTECTION
 	// =========================================================
-	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state } ()
+	_scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+	defer func() { _term(p.Context).scope, p.scanner, p.compilestate = _scope, _scanner, _state } ()
 
 	// FIXED: Break the chronological loader file chaining sequence!
 	// Ground the baseline scope register to the structural project scope boundary
 	// (or the global scope level if initializing) before creating the directory scope.
 	if p.project != nil {
 		if chain_new_scopes_with_compiling_project {
-			p.scope = p.project.scope // This could be a base.
+			_term(p.Context).scope = p.project.scope // This could be a base.
 		} else {
-			p.scope = u.globe.scope
+			_term(p.Context).scope = u.globe.scope
 		}
 		p.nextOpenScopeNilOwner = true // let new_scope not owned by this project in the next openscope
 	} else {
-		p.scope = u.globe.scope
+		_term(p.Context).scope = u.globe.scope
 	}
 
 	// Reset but retain some fields. Do not blindly wipe the whole state!
 	// Retaining project: _state.project is structurally necessary so projectStart
 	// knows the lineage of the caller before it mints the new project.
 	p.compilestate = compilestate{
-		project: p.project, prevScope: p.scope, prev: p.copystate(),
+		project: p.project, prevScope: _term(p.Context).scope, prev: p.copystate(),
 	}
 
-	if t := load_source_bytes(ctx, filename.String()); len(t) > 0 {
-		p.source(ctx, filename, t)
-		p.saveConfiguration(ctx)
+	if t := load_source_bytes(p, filename.String()); len(t) > 0 {
+		p.source(filename, t)
+		p.saveConfiguration()
 	} else {
-		erro(pc(ctx,filename), "no smart code loaded", callstack{num:32}, unwind{})
+		erro(pc(p,filename), "no smart code loaded", callstack{num:32}, unwind{})
 	}
 	return
 }
 
-func (p *compiler) directory(ctx Context, spec, filename Symbol) {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.directory")) }
-
+func (p *compiler) directory(spec, filename Symbol) {
 	if filename == symEmpty {
-		erro(pc(ctx, p), "%v: empty filename", p.project.name)
+		erro(p, "%v: empty filename", p.project.name)
 		return
 	} else if !__symIsAbs(filename) {
-		erro(pc(ctx, p), "%v: not absolute path: %v", p.project.name, filename)
+		erro(p, "%v: not absolute path: %v", p.project.name, filename)
 		return
 	}
+
+	u := _universe(p.Context)
 
 	var ok bool
 	var loaded *project
@@ -16171,20 +18764,20 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 		if u.globe.main == nil { u.globe.main = loaded }
 		if spec == symDot { spec = filename }
 		if p.project != loader {
-			erro(ctx, "%v: parser project changed: %v", loader, p.project)
+			erro(p, "%v: parser project changed: %v", loader, p.project)
 		}
 	} (time_pkg.Now(), p.project)
 
 	if loaded, ok = u.globe.loaded[filename]; ok {
-		do(ctx, declared_project{loaded})
+		do(p, declared_project{loaded})
 		return
 	}
 
-	sources := p.sources(ctx, filename)
+	sources := p.sources(filename)
 
 	if len(sources) == 0 {
-		if !truly(ctx, is_implicit_load{}) {
-			erro(pc(pc(ctx,p),filename),
+		if !truly(p, is_implicit_load{}) {
+			erro(pc(p,filename),
 				// _ft(diagPrompt, "%s: No Smart source files found!", filename),
 				_f("No Smart source files found! (%s %v)", spec, filename),
 				trace_ctx{100}, callstack{num:32}, unwind{})
@@ -16195,60 +18788,60 @@ func (p *compiler) directory(ctx Context, spec, filename Symbol) {
 	// =========================================================
 	// STATE PROTECTION
 	// =========================================================
-	_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-	defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state } ()
+	_scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+	defer func() { _term(p.Context).scope, p.scanner, p.compilestate = _scope, _scanner, _state } ()
 
 	// FIXED: Break the chronological loader file chaining sequence!
 	// Ground the baseline scope register to the structural project scope boundary
 	// (or the global scope level if initializing) before creating the directory scope.
 	if p.project != nil {
 		if chain_new_scopes_with_compiling_project {
-			p.scope = p.project.scope // This could be a base.
+			_term(p.Context).scope = p.project.scope // This could be a base.
 		} else {
-			p.scope = u.globe.scope
+			_term(p.Context).scope = u.globe.scope
 		}
 		p.nextOpenScopeNilOwner = true // let new_scope not owned by this project in the next openscope
 	} else {
-		p.scope = u.globe.scope
+		_term(p.Context).scope = u.globe.scope
 	}
 
 	// Reset but retain some fields. Do not blindly wipe the whole state!
 	// Retaining project: _state.project is structurally necessary so projectStart
 	// knows the lineage of the caller before it mints the new project.
 	p.compilestate = compilestate{
-		project: p.project, prevScope: p.scope, prev: p.copystate(),
+		project: p.project, prevScope: _term(p.Context).scope, prev: p.copystate(),
 	}
 
 	// Push the scope! This now safely copies p.term to the heap,
 	// points to it, and updates p.term in-place without memory cycles.
-	defer p.closescope(ctx, p.openscope(ctx, spec)) // Executes FIRST
+	defer p.closescope(p.openscope(spec)) // Executes FIRST
 
 	for _, s := range sources {
-		if t := load_source_bytes(ctx, s.String()); t != nil { p.source(ctx, s, t) }
+		if t := load_source_bytes(p, s.String()); t != nil { p.source(s, t) }
 	}
 
-	p.saveConfiguration(ctx)
+	p.saveConfiguration()
 
 	if loaded, ok = u.globe.loaded[filename]; !ok {
 		if __symBase(spec) == symAt {
-			erro(pc(ctx,filename), "%v: dir not loaded", spec, unwind{})
+			erro(pc(p,filename), "%v: dir not loaded", spec, unwind{})
 		}
 	}
 }
 
-func (p *compiler) saveConfiguration(ctx Context) {
+func (p *compiler) saveConfiguration() {
 	if p.project == nil {
 		if p.scanner.file == nil {
-			erro(pc(ctx, p.scope.mark), "parse nil file, in %s", p.scope, callstack{num: 32})
+			erro(pc(p, _term(p.Context).scope.mark), "parse nil file, in %s", _term(p.Context).scope, callstack{num: 32})
 		} else {
-			erro(pc(ctx, p), "nil project, in %s", p.scope, callstack{num: 32})
+			erro(p, "nil project, in %s", _term(p.Context).scope, callstack{num: 32})
 		}
 	}
 
 	var configs = p.project.configs
 	if configs == nil { return }
 
-	var f = p.project.configuration_sm(ctx)
+	var f = p.project.configuration_sm(p)
 	if f == nil || f.filebase == nil { return } // Safety airlock
 
 	var fnSym = f.fullname()
@@ -16256,7 +18849,7 @@ func (p *compiler) saveConfiguration(ctx Context) {
 	// 1. DIVERGENCE HANDLING: Discard the difference gracefully, but advise the user!
 	if c := p.project.configuration; c != nil && c.fullname() != fnSym {
 		// UNCONDITIONAL HINT: Teach the user how to optimize their Walled Garden initialization!
-		debug(pc(pc(ctx, c.fullname()), fnSym),
+		debug(pc(p,fnSym),
 			_f("%s: configuration relocated during evaluation", p.project.name),
 			_f("hint: use '-set(workout=$//out)' to sync the Walled Garden before loading!"),
 			trace_ctx{5}, callstack{num: 5})
@@ -16295,7 +18888,7 @@ func (p *compiler) saveConfiguration(ctx Context) {
 	// 4. ATOMIC WRITE (Only executed if the configuration actually changed)
 	if dirSym := __symDir(fnSym); dirSym != symEmpty && dirSym != symDot && dirSym != symPathSep {
 		if e := os.MkdirAll(dirSym.String(), os.FileMode(0755)); e != nil {
-			erro(pc(ctx, fnSym), "make path %s failed: %v", dirSym.String(), e)
+			erro(pc(p, fnSym), "make path %s failed: %v", dirSym.String(), e)
 			return
 		}
 	}
@@ -16303,11 +18896,11 @@ func (p *compiler) saveConfiguration(ctx Context) {
 	var tmpFn = fnStr + ".tmp"
 	// os.WriteFile is faster and safer than OpenFile + Fprintf for memory buffers
 	if e := os.WriteFile(tmpFn, newPayload, 0600); e != nil {
-		erro(pc(ctx, fnSym), "%s: %v", p.project.name.String(), e)
+		erro(pc(p, fnSym), "%s: %v", p.project.name.String(), e)
 		return
 	}
 
-	if 0 < count_diags(ctx, diagError) {
+	if 0 < count_diags(p, diagError) {
 		os.Remove(tmpFn)
 	} else {
 		// Instantly swap the file. Readers NEVER see a truncated/empty file!
@@ -16326,8 +18919,8 @@ func nonsource(name string) bool {
     return false
 }
 
-func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
-	if checkpoints { defer p.check_sources(ctx, pathSym) (&sources) }
+func (p *compiler) sources(pathSym Symbol) (sources []Symbol) {
+	if checkpoints { defer p.check_sources(p, pathSym) (&sources) }
 
 	// THE AIRLOCK: Extract string exactly once for the OS
 	pathStr := pathSym.String()
@@ -16336,13 +18929,13 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 	// This inherently prevents the nil fd.Close() panic!
 	entries, err := os.ReadDir(pathStr)
 	if err != nil {
-		erro(ctx, "%v", err)
+		erro(p, "%v", err)
 		return
 	}
 
 	if len(entries) == 0 {
 		// FIXED: Natively logs the Symbol ID or string fallback
-		erro(ctx, "no files underneath: %v", pathSym)
+		erro(p, "no files underneath: %v", pathSym)
 		return
 	}
 
@@ -16397,7 +18990,7 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 
 		// 5. parseConfigDir integration
 		if false && (name == "configure.smart" || name == "configure.sm") && (linkedSym != symEmpty || isDirLink) {
-			if p.parseConfigDir(ctx, __symDir(filenameSym), linkedSym) != nil {
+			if p.parseConfigDir(__symDir(filenameSym), linkedSym) != nil {
 				return
 			}
 			continue
@@ -16408,10 +19001,10 @@ func (p *compiler) sources(ctx Context, pathSym Symbol) (sources []Symbol) {
 	return
 }
 
-func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool) {
+func (p *compiler) search(spec Symbol) (absPath Symbol, isDir bool) {
 	// 1. Fast O(1) integer comparison for self-search
 	if spec == symDot {
-		erro(ctx, "self-search is not possible")
+		erro(p, "self-search is not possible")
 		return
 	}
 
@@ -16423,18 +19016,18 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 	// Helper: Checks the target and its optional extensions purely via the VFS Cache!
 	// _stat avoids physical disk I/O if the file was previously seen.
 	checkTarget := func(target Symbol) (Symbol, bool) {
-		if f := _stat(ctx, target); f.exists() {
+		if f := _stat(p, target); f.exists() {
 			return target, f.isDir()
 		}
 
 		// Zero-allocation extension appending using our dumb-concatenator!
 		tSmart := __symJoinBy(symEmpty, target, symDotSmart)
-		if f := _stat(ctx, tSmart); f.exists() {
+		if f := _stat(p, tSmart); f.exists() {
 			return tSmart, f.isDir()
 		}
 
 		tSm := __symJoinBy(symEmpty, target, symDotSm)
-		if f := _stat(ctx, tSm); f.exists() {
+		if f := _stat(p, tSm); f.exists() {
 			return tSm, f.isDir()
 		}
 		return symEmpty, false
@@ -16447,7 +19040,7 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 
 	// 3. Tilde Check (Since '~' is in shredderChars, it's guaranteed to be seq[0])
 	if seq[0] == symTilde {
-		erro(ctx, "%v : wrong spec : %s (tilde not allowed)", p.project, spec.String())
+		erro(p, "%v : wrong spec : %s (tilde not allowed)", p.project, spec.String())
 		return
 	}
 
@@ -16457,14 +19050,14 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 
 		if baseSym != symEmpty {
 			// Hit the VFS instead of os.Stat!
-			if f := _stat(ctx, baseSym); f.exists() {
+			if f := _stat(p, baseSym); f.exists() {
 				if !f.isDir() {
 					// Pop the filename to get the directory (equivalent to filepath.Dir)
 					baseSym = __symPathJoin(baseSym, symDotDot)
 				}
 			} else {
 				// Mimic the old os.Stat error if the project base is somehow broken
-				erro(ctx, "stat %s: file does not exist", baseSym.String())
+				erro(p, "stat %s: file does not exist", baseSym.String())
 			}
 
 			// Pure integer path resolution (equivalent to filepath.Abs(filepath.Join(...)))
@@ -16477,7 +19070,7 @@ func (p *compiler) search(ctx Context, spec Symbol) (absPath Symbol, isDir bool)
 	}
 
 	// 5. Search Paths (Pushed down to the universe!)
-	t := do(ctx, search_path{spec}).(searched_path)
+	t := do(p, search_path{spec}).(searched_path)
 	return t.sym, t.isDir
 }
 
@@ -16488,8 +19081,8 @@ func (p *compiler) parseArgs(ctx Context, a []string) {
 	base := symBaseWorkDir
 
 	if s := strings.Join(a, " "); s != "" {
-		if v := p.text(ctx, base, s); v != nil {
-			args = parseOpts(ctx, &u.commandline, merge(v)...)
+		if v := p.text(base, s); v != nil {
+			args = parseOpts(p, &u.commandline, merge(v)...)
 		}
 	}
 
@@ -16529,17 +19122,6 @@ func (p *compiler) parseArgs(ctx Context, a []string) {
     if mode.s == symEmpty { mode.s = symGoals }
 
     u.globe.mode.value = mode
-}
-
-type left_hand_side struct{}
-type left_side_ctx struct{ Context }
-func (p left_side_ctx) do(ctx Context, op any) (_ any) {
-	switch t := op.(type) {
-	case inner_cast: return p.Context
-	case dynamic_cast: return t.ctx(p, p.Context)
-	case left_hand_side: return true
-	}
-	return p.Context.do(ctx, op)
 }
 
 func forid_elems(ctx Context, elems, stems []Value, f func(elems, stems []Value)) {
@@ -16585,24 +19167,37 @@ func forids(ctx Context, idents Value, f func(Value, []Value)) {
 
 var name_prefix = regexp.MustCompile(`^((android|darwin|linux|bsd|ios|windows|mingw|[^~]+)~)(.+)$`)
 
+type left_hand_side struct{}
+type left_side_ctx  struct{ Context }
+func (p left_side_ctx) do(ctx Context, op any) (_ any) {
+	switch t := op.(type) {
+	case inner_cast: return p.Context
+	case dynamic_cast: return t.ctx(p, p.Context)
+	case left_hand_side: return true
+	}
+	return p.Context.do(ctx, op)
+}
+
 type keep_autos    struct{}
 type origin_def    struct{}
 type is_def_name   struct{}
 type assign_ctx    struct{ Context } // Eager Parser Context
 type def_name_ctx  struct{ Context } // Identifier Parser Context
 type def_value_ctx struct{ Context ; d *def } // Lazy Evaluator Context, see also "original"
+func (p assign_ctx) String() string { return slim_ts(p) } // Debug String!
 func (p assign_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
 	case dynamic_cast: return t.ctx(p, p.Context)
 	case is_auto_sym:
-		// THE DOD FIX: Only Interned Symbol IDs sym_0 to sym_9 are contiguous!
+		// Only Interned Symbol IDs sym_0 to sym_9 are contiguous!
 		if isRuleAuto(t.s) || (t.s.id() >= sym_0.id() && t.s.id() <= sym_9.id()) {
 			return true
 		}
 	}
 	return p.Context.do(ctx, op)
 }
+func (p def_name_ctx) String() string { return slim_ts(p) } // Debug String!
 func (p def_name_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
@@ -16611,6 +19206,7 @@ func (p def_name_ctx) do(ctx Context, op any) any {
 	}
 	return p.Context.do(ctx, op)
 }
+func (p *def_value_ctx) String() string { return slim_ts(p) } // Debug String!
 func (p *def_value_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return p.Context
@@ -16638,25 +19234,29 @@ func (p *def_value_ctx) do(ctx Context, op any) any {
 	}
 	return p.Context.do(ctx, op)
 }
-func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
+func (p *compiler) assign(idents []Value) (res []*def) {
 	if l_traverse.enabled { defer un(l_trace(l_traverse, fmt.Sprintf("assign(%s)", idents))) }
 
-	var ids []Value
+	defer func(c Context) { p.Context = c } (p.Context)
+	cc := closure_with(project_ctx{p.Context, p.project}, _term(p.Context).scope)
+	p.Context = cc
 
-	cc := closure_with(project_ctx{ctx, p.project}, p.scope)
-	for _, v := range idents {
-		// Use def_name_ctx{ctx} to prevent evaluating the variable to its value
-		// when resolving the LHS identifier!
-		forids(ctx, expand(def_name_ctx{cc}, v), func(v Value, _ []Value) { ids = append(ids, v) })
-	}
+	// forids(ctx, p.eval(def_name_ctx{cc}, v), func(v Value, _ []Value) { ids = append(ids, v) })
+	// Natively route the LHS through the VM evaluator!
+	// The `left_side_ctx` prepares symstr to expand the left-hand values natively.
+	lc := left_side_ctx{def_name_ctx{p.Context}}
+	p.Context = lc
+	ids := p.evals(idents...)
+	p.Context = cc
 
 	pos, tok := p.pos, p.tok
 
-	p.next(ctx, true) // the assign token
+	p.next(true) // the assign token
 
-	// Parse the RHS exactly once! This prevents parser stream desynchronization
-	// when multiple variables are assigned, or when `?=` skips assignment for already-defined variables.
-	rhs := p.values(assign_ctx{cc})
+	// Parse the RHS exactly once!
+	p.Context = assign_ctx{p.Context}
+	rhs := p.values()
+	p.Context = cc
 
 	for _, id := range ids {
 		var alt object
@@ -16664,45 +19264,62 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 
 		switch t := id.(type) {
 		case *argumented:
-			erro(ctx, "multiple defs: %v, args=%v", t.Value, t.args)
+			erro(p, "multiple defs: %v, args=%v", t.Value, t.args)
+			continue // CRITICAL FIX: Abort malformed LHS
 
 		case *group:
-			erro(ctx, "multiple defs: %v", t.elems)
+			erro(p, "multiple defs: %v", t.elems)
+			continue // CRITICAL FIX: Abort malformed LHS
 
 		case *arrow:
-			if v := expand(final{ctx}, t); v == nil {
-				erro(ctx, "%v is nil", ts(t,ctx))
+			cc := final{p.Context}
+			p.Context = cc
+
+			v := p.eval(t)
+			p.Context = cc.Context
+
+			if v == nil {
+				erro(p, "%v is nil", ts(t,p))
+				continue // CRITICAL FIX: Abort
 			} else if x, y := v.(*def); !y {
-				erro(ctx, "%v is not a def: %v", ts(t,ctx), ts(v,ctx))
+				erro(p, "%v is not a def: %v", ts(t,p), ts(v,p))
+				continue // CRITICAL FIX: Abort
 			} else {
 				d = x
 			}
 
 		default: // *word, *compound, *qualword, *path, flag:
-			var sym = __symbol(def_name_ctx{cc}, id)
+			var sym = __symbol(lc, id)
 
 			if sym == symEmpty {
-				erro(pc(ctx,t), "empty name: %s: `%v`", typeof(id), id, callstack{num:32})
-			} else if _, y := builtins[sym]; y { // Assuming builtins map is upgraded to map[Symbol]...
-				erro(pc(ctx,t), "`%v` is a builtin name (%v)", ident, sym)
+				erro(pc(p,t), "empty name: %[2]v: %[1]T `%[1]v`", id, idents, callstack{num:32})
+				continue // CRITICAL FIX: Do not process empty symbols!
+			} else if _, y := builtins[sym]; y {
+				erro(pc(p,t), "`%v` is a builtin name (%v)", id, sym)
+				continue // CRITICAL FIX: Do not overwrite builtins!
 			}
 
 			// NATIVE INTEGER ROUTING!
-			prev := p.project.resolve(ctx, sym)
+			prev := p.project.resolve(p, sym)
 
 			var isNew bool
-			// _def must be upgraded to accept sym Symbol instead of a string!
-			d, isNew, _ = p.project._def(ctx, defInvalid, sym)
+			d, isNew, _ = p.project._def(p, defInvalid, sym)
 
-			if checkpoints { defer p.check_assign(ctx, id, sym, tok, rhs, d, isNew, len(res))(&res) }
+			// CRITICAL FIX: Ensure project._def actually yielded a definition!
+			if d == nil {
+				erro(p, "project._def failed to yield a definition for '%s'", sym)
+				continue
+			}
 
-			if isNew { d.pos = pos // ensure def pos is correct
-				// Or add this logic inside project._def?
+			if checkpoints { defer p.check_assign(p, id, sym, tok, rhs, d, isNew, len(res))(&res) }
+
+			if isNew {
+				d.pos = pos // ensure def pos is correct
 				if nameStr := sym.String(); strings.HasPrefix(nameStr, "use.") {
 					// Extract the target flag (e.g. "use.-l" -> "-l")
 					var targetName string
 					if m := name_prefix.FindStringSubmatch(nameStr); m != nil {
-						targetName = m[3] // Handles complex prefixes if applicable
+						targetName = m[3]
 					} else {
 						targetName = strings.TrimPrefix(nameStr, "use.")
 					}
@@ -16712,32 +19329,35 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 				}
 			}
 
-			if prev == nil || d == nil {
+			if prev == nil {
 				// no derived value
 			} else if x, y := prev.(*def); !y {
 				// not a def
 			} else if x == nil {
-				erro(ctx, "prev def '%s' is nil", sym)
+				erro(p, "prev def '%s' is nil", sym)
 			} else if x != d && x.scope != d.scope && alt == nil {
 				switch tok {
 				case ASSIGN_ADD, ASSIGN_USH:
-					if d.iso(defVoid) && d.o != x.o { d.origin(ctx, x.o) }
-					if !isTrivial(x.value) { d.append(ctx, x.value) }
+					if d.iso(defVoid) && d.o != x.o { d.origin(p, x.o) }
+					if !isTrivial(x.value) { d.append(p, x.value) }
 				}
 			}
 		}
 
+		// Because of the 'continue' guards above, we only get here if d was successfully found/created
 		if d == nil {
 			if tok == ASSIGN_QUE { continue }
-			erro(ctx, "def is nil: %v", ts(id,ctx)) // Fixed 'ident' typo to 'id'
+			erro(p, "def is nil: %v", ts(id,p))
+			continue // CRITICAL FIX: Ensure we do not proceed to d.pos access below
 		}
 
-		if !d.pos.valid() { d.pos = p.pos }
+		if !d.pos.valid() { d.pos = p.pos } // Safe to dereference now
 
-		dvc := &def_value_ctx{cc, d}
+		c := def_value_ctx{p.Context, d}
+		p.Context = &c
 
-		if proj := _project(dvc); proj != p.project {
-			erro(pc(ctx,p),
+		if proj := _project(p); proj != p.project {
+			erro(p,
 				_f("Conflicts projects for: %v", rhs),
 				_f("Compiling Project: %v", p.project),
 				_f("Context Project: %v", proj),
@@ -16747,49 +19367,49 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 		switch tok {
 		case ASSIGN_EXC: // !=
 			d.pos = pos
-			d.origin(ctx, defExecute)
-			d.val(dvc, rhs)
+			d.origin(p, defExecute)
+			d.val(p, rhs)
 		case ASSIGN: // =
 			d.pos = pos
-			d.origin(ctx, defExpand0)
-			d.val(dvc, rhs)
+			d.origin(p, defExpand0)
+			d.val(p, rhs)
 		case ASSIGN_CO1: // :=
 			d.pos = pos
-			d.origin(ctx, defExpand1)
-			d.val(dvc, expands(dvc, rhs...))
+			d.origin(p, defExpand1)
+			d.val(p, p.evals(rhs...))
 		case ASSIGN_CO2: // ::=
 			d.pos = pos
-			d.origin(ctx, defExpand2)
-			d.val(dvc, expands(dvc, rhs...))
+			d.origin(p, defExpand2)
+			d.val(p, p.evals(rhs...))
 		case ASSIGN_CO3: // ;:=
 			d.pos = pos
-			d.origin(ctx, defExpand3)
-			d.val(dvc, expands(dvc, rhs...))
+			d.origin(p, defExpand3)
+			d.val(p, p.evals(rhs...))
 		case ASSIGN_QUE: // ?=
 			if d.o == defInvalid {
 				d.pos = pos
-				d.origin(ctx, defExpand0|defAssign0)
-				d.val(dvc, rhs)
+				d.origin(p, defExpand0|defAssign0)
+				d.val(p, rhs)
 			}
 		case ASSIGN_ADD: // +=
 			if d.o == defInvalid { d.o = defExpand0 }
 			switch d.o |= defAssign1; {
 			case d.o&(defVoid|defExpand0) != 0:
-				d.set(dvc, nil, rhs...)
+				d.set(p, nil, rhs...)
 			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
-				d.set(dvc, nil, expands(dvc, rhs...)...)
+				d.set(p, nil, p.evals(rhs...)...)
 			default:
-				erro(ctx, "unknown: %v %v", d.name, d.o)
+				erro(p, "unknown: %v %v", d.name, d.o)
 			}
 		case ASSIGN_USH: // =+
 			if d.o == defInvalid { d.o = defExpand0 }
 			switch d.o |= defAssign2; {
 			case d.o&(defVoid|defExpand0) != 0:
-				d.val(dvc, append(rhs, d.value))
+				d.val(p, append(rhs, d.value))
 			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
-				d.val(dvc, append(expands(dvc, rhs...), d.value))
+				d.val(p, append(p.evals(rhs...), d.value))
 			default:
-				erro(ctx, "unknown: %v %v", d.name, d.o)
+				erro(p, "unknown: %v %v", d.name, d.o)
 			}
 		case ASSIGN_POP: // -=
 			if d.o == defInvalid { d.o = defExpand0 }
@@ -16800,18 +19420,18 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 					case d.o&(defVoid|defExpand0) != 0:
 						vals1 = rhs
 					case d.o&(defExpand1|defExpand2|defExpand3) != 0:
-						vals1 = expands(dvc, rhs...)
+						vals1 = p.evals(rhs...)
 					default:
-						erro(ctx, "unknown: %v %v", d.name, d.o)
+						erro(p, "unknown: %v %v", d.name, d.o)
 					}
 				outer1:
 					for _, v := range dv {
 						for _, s := range vals1 {
-							if cmp(ctx, v, s) == cmpEqual { continue outer1 }
+							if cmp(p, v, s) == cmpEqual { continue outer1 }
 						}
 						vals2 = append(vals2, v)
 					}
-					d.value = ease(ctx, vals2)
+					d.value = ease(p, vals2)
 				}
 			}
 		case ASSIGN_SAD, ASSIGN_SUS: // -+=, -=+
@@ -16826,16 +19446,16 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 			case d.o&(defVoid|defExpand0) != 0:
 				vals1 = rhs
 			case d.o&(defExpand1|defExpand2|defExpand3) != 0:
-				vals1 = expands(dvc, rhs...)
+				vals1 = p.evals(rhs...)
 			default:
-				erro(ctx, "unknown: %v %v", d.name, d.o)
+				erro(p, "unknown: %v %v", d.name, d.o)
 			}
 			if d.value != nil {
 				if dv := merge(d.value); len(dv) > 0 {
 				outer2:
 					for _, v := range dv {
 						for _, sv := range vals1 {
-							if cmp(ctx, v, sv) == cmpEqual { continue outer2 }
+							if cmp(p, v, sv) == cmpEqual { continue outer2 }
 						}
 						vals2 = append(vals2, v)
 					}
@@ -16845,22 +19465,31 @@ func (p *compiler) assign(ctx Context, idents []Value) (res []*def) {
 			case ASSIGN_SAD: vals2 = append(vals2, vals1...) // -+=
 			case ASSIGN_SUS: vals2 = append(vals1, vals2...) // -=+
 			}
-			d.value = ease(ctx, vals2)
-			if false && d.name.String() == "configure.heads" {
-				debug(pc(ctx,rhs),
-					_f("%v %v", vals1, vals2),
-					_f("%v", d.value),
-					trace_ctx{5}, callstack{num:5})
-			}
+			d.value = ease(p, vals2)
 		default:
-			erro(ctx, "unknown: %v %v %v", d.name, d.o, tok)
+			erro(p, "unknown: %v %v %v", d.name, d.o, tok)
 		}
 
+		p.Context = c.Context
 		p.lineComment = nil
 
 		res = append(res, d)
 	}
 	return
+}
+
+func (p *compiler) cmd(name Symbol, g *clause_opts) {
+	if !g.skip {
+		x := _universe(p.Context).lookup(name)
+		if x == nil {
+			erro(p, "undefined %s", name)
+			return
+		}
+
+		// defer func(c Context) { p.Context = c } (p.Context)
+		// p.Context = closure_with(project_ctx{p.Context, p.project}, _term(p.Context).scope)
+		p.evoke(x, g.remainder, g.spec)
+	}
 }
 
 var rxConfigRuleHeaders  = regexp.MustCompile(`^\-headers\-`)
@@ -16937,22 +19566,42 @@ func (c configure_ctx) do(ctx Context, op any) any {
 }
 
 func (p *compiler) configure_def(ctx Context, name Symbol, vals ...Value) (d *def, isNew bool) {
+	if false && checkpoints { debug(ctx, "configure: %v => %v", name, vals) }
 	if d, isNew, _ = p.project._def(ctx, defConfig, name, vals...); d != nil && isNew {
 		p.project.configs = append(p.project.configs, d)
 	}
 	return
 }
 
-func (p *compiler) configure_names(ctx Context) []Value {
-	var names []Value
-	var cc = def_name_ctx{project_ctx{ctx, p.project}}
-	for _, v := range merge(p.expr(ctx)) {
-		// Protect LHS configuration variables from early evaluation
-		forids(ctx, expand(cc, v), func(v Value, _ []Value) {
-			names = append(names, v)
-		})
+func (p *compiler) configure_names() []Value {
+	cc := def_name_ctx{project_ctx{p.Context, p.project}}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
+
+	val := p.expr()
+
+	// forids(ctx, p.eval(val), func(v Value, _ []Value) { names = append(names, v) })
+
+	// Natively route the names extraction through the VM evaluator!
+	names := p.evals(val)
+
+	if checkpoints {
+		if lst, ok := val.(*list); ok {
+			if lst.len() == len(names) {
+				for i, elem := range lst.elems {
+					if name := names[i]; elem.String() != name.String() {
+						erro(p, "configure: %v -> %v", val, name)
+					}
+				}
+			} else {
+				warn(p, "configure: %v -> %v", val, names)
+			}
+		} else if len(names) == 1 {
+			if name := names[0]; val.String() != name.String() {
+				erro(p, "configure: %v -> %v", val, name)
+			}
+		}
 	}
-	p.spaces(ctx)
+	p.spaces()
 	return names
 }
 
@@ -16987,9 +19636,9 @@ func (p configure_handle_ctx) do(ctx Context, op any) (_ any) {
 	return p.Context.do(ctx, op)
 }
 
-func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args []Value, silent bool, pos Pos) (res Value) {
+func (p *compiler) configure_handle(exe *execution, op Symbol, val Value, args []Value, silent bool, pos Pos) (res Value) {
 	if op == symEmpty {
-		erro(pc(ctx, pos), "wrong configure word: %v", ts(val, ctx))
+		erro(p, "wrong configure word: %v", ts(val,p))
 		return val
 	}
 
@@ -16997,13 +19646,13 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 	var infoStr string
 	for _, arg := range args {
 		uArg := unloc(arg)
-		if kv, ok := uArg.(*pair); ok && __symbol(ctx, kv.key) == symINFO {
-			infoStr = __string(ctx, kv.val)
+		if kv, ok := uArg.(*pair); ok && __symbol(p, kv.key) == symINFO {
+			infoStr = __string(p, kv.val)
 			break
 		} else {
 			switch uArg.(type) {
 			case *raw, *strlit, *strval, *strcomp:
-				infoStr = __string(ctx, uArg)
+				infoStr = __string(p, uArg)
 				break
 			}
 		}
@@ -17014,35 +19663,35 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 
 	// 2. Setup the unified Prompt Lifecycle Closure airlift
 	var finalRes Value
-	func() {
+	func () {
 		var a *diagpoint
 		var startDiag int
 
 		if !silent {
-			ctx.promptEntering()
+			exe.promptEntering()
 
 			// STEP 1: Execute Before-Traverse Prompt
-			a = prompt(pc(ctx, pos), "%s …", infoStr)
-			startDiag = count_diags(ctx, diagInfo, diagWarn, diagError)
+			a = prompt(pc(p,pos), "%s …", infoStr)
+			startDiag = count_diags(p, diagInfo, diagWarn, diagError)
 
 			// STEP 3: Deferred After-Traverse Prompt Completion
 			defer func() {
-				if count_diags(ctx, diagInfo, diagWarn, diagError) <= startDiag {
+				if count_diags(p, diagInfo, diagWarn, diagError) <= startDiag {
 					var outStr string
 					if finalRes != nil {
-						outStr = __string(ctx, finalRes)
-					} else if len(ctx.values) > 0 {
-						outStr = __string(ctx, ctx.values[0])
+						outStr = __string(p, finalRes)
+					} else if len(exe.values) > 0 {
+						outStr = __string(p, exe.values[0])
 					}
 					outStr = strings.Replace(outStr, "\n", "\\n", -1)
 
-					b := prompt(ctx, "… %s\n", outStr)
-					flush(ctx)
+					b := prompt(p, "… %s\n", outStr)
+					flush(p)
 
 					if checkpoints {
 						var valsSlice []Value
 						if finalRes != nil { valsSlice = merge(finalRes) }
-						p.check_configure_handle(ctx, op, valsSlice, a, b)
+						p.check_configure_handle(exe, op, valsSlice, a, b)
 					}
 				}
 			}()
@@ -17054,28 +19703,30 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 		switch op {
 		case symAnswer:
 			if val == nil { finalRes = _answer(pos, false); return }
-			finalRes = _answer(val.Pos(), __true(ctx, val))
+			finalRes = _answer(val.Pos(), __true(p, val))
 			return
 		case symBool, symBoolean:
 			if val == nil { finalRes = _boolean(pos, false); return }
-			finalRes = _boolean(val.Pos(), __true(ctx, val))
+			finalRes = _boolean(val.Pos(), __true(p, val))
 			return
 		case symValue:
 			if val == nil { finalRes = _null(pos); return }
-			finalRes = expand(final{ctx}, val)
+			c := final{p.Context}; defer func() { p.Context = c.Context } ()
+			p.Context = c
+			finalRes = p.eval(val)
 			return
 		}
 
 		if p.project.configure == nil {
-			erro(pc(ctx, pos), "wrong configure: %v", ts(val, ctx))
+			erro(pc(p,pos), "wrong configure: %v", ts(val,p))
 			return
 		}
 
 		// Zero-allocation path query construction
 		fullQuerySym := __symJoin(symDash, op)
-		ops := p.project.configure._entries(ctx, fullQuerySym, false)
+		ops := p.project.configure._entries(p, fullQuerySym, false)
 		if ops == nil {
-			erro(pc(ctx, pos), "no configure ops: %v", fullQuerySym)
+			erro(pc(p,pos), "no configure ops: %v", fullQuerySym)
 			return
 		}
 
@@ -17084,13 +19735,13 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 			var params []Value
 			for _, prog := range ent.programs() {
 				for _, param := range prog.params {
-					sym := __symbol(ctx, param)
+					sym := __symbol(p, param)
 					w := _word(param.Pos(), sym)
 
 					var matchedArg Value
 					for _, arg := range args {
 						if kv, ok := unloc(arg).(*pair); ok {
-							if __symbol(ctx, kv.key) == sym {
+							if __symbol(p, kv.key) == sym {
 								matchedArg = kv
 								break
 							}
@@ -17107,13 +19758,13 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 					} else {
 						switch sym {
 						case symTARGET:
-							targetVal := expand(ctx, auto_get(ctx, symAt))
+							targetVal := p.eval(auto_get(p, symAt))
 							params = append(params, &pair{w, targetVal})
 						case symVALUE, symVAL:
 							params = append(params, &pair{w, val})
 						case symLANGUAGE, symLANG:
-							if ctx.language != symEmpty {
-								params = append(params, &pair{w, _word(w.Pos(), ctx.language)})
+							if exe.language != symEmpty {
+								params = append(params, &pair{w, _word(w.Pos(), exe.language)})
 							}
 						}
 					}
@@ -17122,43 +19773,49 @@ func (p *compiler) configure_handle(ctx *execution, op Symbol, val Value, args [
 
 			// STEP 2: Execute Handler Pass
 			func() {
+				c := configure_handle_ctx{p.Context, &vals}
 				defer func() {
+					p.Context = c.Context
 					if e := recover(); e != nil {
 						if _, ok := e.(traverse_state); !ok {
-							erro(ctx, "%v", e, unwind{})
+							erro(p, "%v", e, unwind{})
 						}
 					}
-				}()
-				traverse(configure_handle_ctx{ctx, &vals}, &argumented{Value: ent, args: params})
+				} ()
+				p.Context = c
+				traverse(p, &argumented{Value: ent, args: params})
 			}()
 		}
-		finalRes = ease(ctx, vals)
-	}()
+		finalRes = ease(p, vals)
+	} ()
 
 	return finalRes
 }
 
-func (p *compiler) configure_clause(ctx *execution, ids []Value) {
+func (p *compiler) configure_clause(exe *execution, ids []Value) {
 	var handlers []configure_handler
 	var _no_cond bool
 	var silent bool
 
 minusloop:
 	for p.tok == MINUS {
-		v := p.expr(ctx)
-		p.spaces(ctx)
+		v := p.expr()
+		p.spaces()
 
 		switch t := v.(type) {
 		case *argumented:
 			switch x := t.Value.(type) {
 			case flag:
-				sym := __symbol(ctx, x.Value)
+				sym := __symbol(p, x.Value)
 				if sym == symCond || sym == symIf {
-					if !__all_true(ctx, xmerge(final{ctx}, t.args...)...) { _no_cond = true }
+					c := final{p.Context}
+					p.Context = c
+					if !__all_true(p, merge(p.evals(t.args...)...)...) { _no_cond = true }
+					p.Context = c.Context
 					continue minusloop
 				} else if sym == symSilent {
 					if len(t.args) > 0 {
-						silent = __any_true(ctx, t.args...)
+						silent = __any_true(p, t.args...)
 					} else {
 						silent = true
 					}
@@ -17168,13 +19825,13 @@ minusloop:
 					op: sym, args: merge(t.args...),
 				})
 			default:
-				erro(pc(ctx, x), "unknown configure handler: %s", ts(x, ctx), callstack{num:5})
+				erro(pc(p,x), "unknown configure handler: %s", ts(x,p), callstack{num:5})
 			}
 
 		case flag:
-			sym := __symbol(ctx, t.Value)
+			sym := __symbol(p, t.Value)
 			if sym == symCond || sym == symIf {
-				erro(pc(ctx, t.Pos()), "configure cond without value", callstack{num:5})
+				erro(pc(p,t.Pos()), "configure cond without value", callstack{num:5})
 			} else if sym == symSilent {
 				silent = true
 			} else {
@@ -17182,7 +19839,7 @@ minusloop:
 			}
 
 		default:
-			erro(pc(ctx, v.Pos()), "unknown configure handler: %v", ts(v, ctx), callstack{num:5})
+			erro(pc(p,v.Pos()), "unknown configure handler: %v", ts(v,p), callstack{num:5})
 		}
 	}
 
@@ -17194,29 +19851,30 @@ minusloop:
 	// The semicolon must remain unconsumed so that 'depsloop' inside the unified loop
 	// can see it, terminate the dependency scan, and pass it to 'p.recipe(cc)'.
 	if isDirectAssignment || p.tok == COLON {
-		p.next(ctx, true)
+		p.next(true)
 	} else if p.tok == SEMICOLON || p.tok == LINEND || p.lineComment != nil {
 		// Semicolons signify single-line recipes; newlines signify multi-line recipes.
 	} else {
-		erro(pc(ctx, p), "wrong configure statement syntax (%v)", p.tok)
+		erro(p, "wrong configure statement syntax (%v)", p.tok)
 		return
 	}
 
 	// Capture the baseline state to rewind parser trackers consistently for each identifier
 	pos, tok, lit, sst := p.pos, p.tok, p.lit, p.scanner.scanstate
+	snap_ctx := p.Context; defer func() { p.Context = snap_ctx } ()
 
 	// UNIFIED IDENTIFIER EVALUATION LOOP
 	for _, id := range ids {
-		sym := __symbol(ctx, id)
+		sym := __symbol(p, id)
 
-		ctx.setScopeMark(sym)
-		ctx.values = nil
-		ctx.recipes = nil
+		exe.setScopeMark(sym)
+		exe.values = nil
+		exe.recipes = nil
 
-		d, _ := ctx.set(ctx, defVoid, symAt, id)
+		d, _ := exe.set(p, defVoid, symAt, id)
 		d.pos = id.Pos()
 
-		d, isNew := p.configure_def(ctx, sym)
+		d, isNew := p.configure_def(exe, sym)
 		d.pos = id.Pos()
 
 		isCached := !isNew && d.value != nil
@@ -17226,11 +19884,12 @@ minusloop:
 		}
 
 		if checkpoints {
-			p.check_configure_cache(ctx, d, isNew, isCached, false)
-			defer p.check_configure_cache(ctx, d, isNew, true, true)
+			p.check_configure_cache(exe, d, isNew, isCached, false)
+			defer p.check_configure_cache(exe, d, isNew, true, true)
 		}
 
-		cc := &def_value_ctx{original{closure_with(ctx, p.scope), defConfig|defExpand1}, d}
+		cc := def_value_ctx{original{closure_with(p.Context, _term(p.Context).scope), defConfig|defExpand1}, d}
+
 		p.pos, p.tok, p.lit, p.scanner.scanstate = pos, tok, lit, sst
 		p.dialect = symEmpty
 
@@ -17238,32 +19897,35 @@ minusloop:
 			// =================================================================
 			// TRACK A: Direct Value Assignment Branch
 			// =================================================================
-			newVal := ease(ctx, p.values(cc))
+			p.Context = &cc
+			val := ease(p, p.values())
+			p.Context = snap_ctx
 
-			if isCached && equal(ctx, d.value, newVal) {
-				if p.promptCachedConfigs(ctx) {
-					prompt(ctx, "%v:info: cached %v\n", do(ctx, get_fatpos{d.pos}), d)
-					flush(ctx)
+			if isCached && equal(p, d.value, val) {
+				if p.promptCachedConfigs() {
+					prompt(p, "%v:info: cached %v\n", do(p, get_fatpos{d.pos}), d)
+					flush(p)
 				}
 				p.lineComment = nil
 				continue
 			}
 
-			if _no_cond {
-				d.set(ctx, _null(id.Pos()))
-				continue
+			pos := id.Pos()
+			if _no_cond { d.set(p, _null(pos)); continue }
+
+			if !truly(p, is_cached_configuration{}) {
+				p.Context = &cc
+				val = p.eval(val)
+				p.Context = snap_ctx
 			}
 
-			if !truly(ctx, is_cached_configuration{}) { newVal = expand(cc, newVal) }
-
-			var currentVal = newVal
 			for _, h := range handlers {
-				currentVal = p.configure_handle(ctx, h.op, currentVal, h.args, silent, id.Pos())
+				val = p.configure_handle(exe, h.op, val, h.args, silent, pos)
 			}
 
-			ctx.values = []Value{currentVal}
+			exe.values = []Value{val}
 			d.value = nil
-			d.set(ctx, currentVal)
+			d.set(p, val)
 			p.lineComment = nil
 
 		} else {
@@ -17271,24 +19933,27 @@ minusloop:
 			// TRACK B: Contextual Recipe / Dependency, Colon / Semicolon Branch
 			// =================================================================
 			var deps []Value
+
+			p.Context = &cc
+
 		depsloop:
-			for {
-				switch p.tok { case SEMICOLON, LINEND, EOF: break depsloop }
-				deps = append(deps, p.expr(cc)) ; p.spaces(ctx)
-				ctx.set(ctx, defVoid, symLangle, deps[0])
-				ctx.set(ctx, defVoid, symRangle, deps[len(deps)-1])
-				ctx.set(ctx, defVoid, symCaret, ease(ctx, deps))
+			for { switch p.tok { case SEMICOLON, LINEND, EOF: break depsloop }
+				deps = append(deps, p.expr())
+				p.spaces()
+				exe.set(p, defVoid, symLangle, deps[0])
+				exe.set(p, defVoid, symRangle, deps[len(deps)-1])
+				exe.set(p, defVoid, symCaret, ease(p, deps))
 			}
 
-			ctx.language = p.dialect
+			exe.language = p.dialect
 
 			if p.tok == SEMICOLON {
-				ctx.recipes = append(ctx.recipes, p.recipe(cc)...)
+				exe.recipes = append(exe.recipes, p.recipe()...)
 			} else {
 				p.scanner.recipes(true)
-				if p.linend(ctx) {
+				if p.linend() {
 					for p.recipe_start() {
-						ctx.recipes = append(ctx.recipes, p.recipe(cc)...)
+						exe.recipes = append(exe.recipes, p.recipe()...)
 					}
 				}
 				p.scanner.recipes(false)
@@ -17296,70 +19961,76 @@ minusloop:
 
 			// POSITION RECOVERY: Core prerequisite traversal executes BEFORE the cache
 			// shortcut gate to avoid short-circuiting submodule graph configurations.
-			for _, ctx.prerequisite = range deps { traverse(ctx, ctx.prerequisite) }
+			for _, exe.prerequisite = range deps { traverse(exe, exe.prerequisite) }
 
 			if isCached {
-				if p.promptCachedConfigs(ctx) {
-					prompt(ctx, "%v:info: cached %v\n", do(ctx, get_fatpos{d.pos}), d)
-					flush(ctx)
+				if p.promptCachedConfigs() {
+					prompt(p, "%v:info: cached %v\n", do(p, get_fatpos{d.pos}), d)
+					flush(p)
 				}
 				p.lineComment = nil
 				continue
 			}
 
 			if _no_cond {
-				d.set(cc, _null(id.Pos()))
+				d.set(p, _null(id.Pos()))
+				p.Context = snap_ctx
 				continue
 			}
 
-			var val = auto_get(ctx, symDash)
-			if val == nil && ctx.recipes != nil && len(ctx.interpreted) == 0 {
+			var val = auto_get(p, symDash) // $-
+			if val == nil && exe.recipes != nil && len(exe.interpreted) == 0 {
 				if x, y := dialects[symEmpty]; y && x != nil {
-					val = ctx.interpret(cc, x, nil)
+					val = exe.interpret(p, x, nil)
 				}
 			}
 
 			var currentVal = val
 			for _, h := range handlers {
-				currentVal = p.configure_handle(ctx, h.op, currentVal, h.args, silent, id.Pos())
+				currentVal = p.configure_handle(exe, h.op, currentVal, h.args, silent, id.Pos())
 			}
 
-			for _, a := range ctx.defers {
+			for _, a := range exe.defers {
 				if x, y := a.(*group); y {
-					modify(ctx, x, true)
+					modify(p, x, true)
 				} else {
-					erro(pc(ctx, a), "defer: not a modifier: %s", ts(a, ctx))
+					erro(pc(p,a), "defer: not a modifier: %s", ts(a,p))
 				}
 			}
 
-			ctx.values = []Value{currentVal}
+			exe.values = []Value{currentVal}
 
 			d.value = nil
 			if currentVal != nil {
-				d.set(cc, currentVal)
+				d.set(p, currentVal)
 			} else {
-				d.set(cc, _null(id.Pos()))
+				d.set(p, _null(id.Pos()))
 			}
+
+			p.Context = snap_ctx
 			p.lineComment = nil
 		}
 	}
 }
 
-func (p *compiler) configure(ctx Context) {
-	p.expect(ctx, CONFIGURE)
-	p.spaces(ctx)
+func (p *compiler) configure() {
+	p.expect(CONFIGURE)
+	p.spaces()
 
 	// Ground the configuration context type marker at the root
-	ctx = configure_ctx{ctx, p.project}
+	cc := configure_ctx{p.Context, p.project}; defer func() { p.Context = cc.Context } ()
+	p.Context = cc
 
-	exe := &execution{
-		Context: ctx,
-		scope: new_scope(ctx, p.project.scope, p.project, symConfigure),
+	exe := execution{
+		Context: cc,
+		scope: new_scope(p, p.project.scope, p.project, symConfigure),
 		workdir:    p.project.absPath,
 		session:    newTraverseSession(),
 		start:      time_pkg.Now(),
 		configProj: p.project, // FIXED: Locked down to the current loading project at parse-time!
 	}
+
+	p.Context = &exe
 
 	// if p.prevScope != nil { exe.closure = p.prevScope }
 
@@ -17374,37 +20045,37 @@ func (p *compiler) configure(ctx Context) {
 	exe.promptEntering()
 
 	if p.tok == LPAREN {
-		p.next(ctx, true)
+		p.next(true)
 
 		for p.tok != EOF {
-			p.spaces(ctx)
+			p.spaces()
 
 			for p.tok == LINEND || p.lineComment != nil {
-				p.linend(ctx)
-				p.spaces(ctx)
+				p.linend()
+				p.spaces()
 			}
 
 			if p.tok == RPAREN {
-				p.next(ctx, true)
+				p.next(true)
 				break
 			}
 
-			exe.Context = pc(ctx, p.pos)
-			p.configure_clause(exe, p.configure_names(exe))
+			exe.Context = pc(exe.Context, p.pos)
+			p.configure_clause(&exe, p.configure_names())
 
-			p.spaces(ctx)
+			p.spaces()
 			if p.tok == RPAREN {
-				p.next(ctx, true)
+				p.next(true)
 				break
 			}
 
 			if p.tok == LINEND || p.lineComment != nil {
-				p.linend(ctx)
+				p.linend()
 			}
 		}
 	} else {
-		exe.Context = pc(ctx, p.pos)
-		p.configure_clause(exe, p.configure_names(exe))
+		exe.Context = pc(exe.Context, p.pos)
+		p.configure_clause(&exe, p.configure_names())
 	}
 }
 
@@ -17462,7 +20133,7 @@ func (uo *usevar) apply(ctx Context, d *def, u ...*def) {
 	}
 }
 
-func (p *compiler) usevars(ctx Context, user, usee *project) {
+func (p *compiler) usevars(user, usee *project) {
 	// THE DOD FIX: Absolute Safety Guard against the panic you saw
 	if user == nil || usee == nil {
 		return
@@ -17497,23 +20168,23 @@ func (p *compiler) usevars(ctx Context, user, usee *project) {
 
 		// 3. Export downstream: use.XXX += $(use.XXX)
 		{
-			d, isNewDef, _ := user._def(ctx, defVoid, lookupSym)
+			d, isNewDef, _ := user._def(p, defVoid, lookupSym)
 			if isNewDef || isTrivial(d.value) {
-				dd = append(dd, nonTrivialDefsFromBase(ctx, user, lookupSym)...)
+				dd = append(dd, nonTrivialDefsFromBase(p, user, lookupSym)...)
 			}
-			op.apply(closure_with(ctx, usee.scope), d, append(dd, useDef)...)
+			op.apply(closure_with(p.Context, usee.scope), d, append(dd, useDef)...)
 		}
 
 		// 4. Apply locally: XXX += $(use.XXX)
 		{
-			d, isNewDef, _ := user._def(ctx, defVoid, targetSym)
+			d, isNewDef, _ := user._def(p, defVoid, targetSym)
 			if isNewDef && false {
 				if dd == nil {
-					dd = append(dd, nonTrivialDefsFromBase(ctx, user, lookupSym)...)
+					dd = append(dd, nonTrivialDefsFromBase(p, user, lookupSym)...)
 				}
-				dd = append(dd, nonTrivialDefsFromBase(ctx, user, targetSym)...)
+				dd = append(dd, nonTrivialDefsFromBase(p, user, targetSym)...)
 			}
-			op.apply(closure_with(ctx, user.scope), d, append(dd, useDef)...)
+			op.apply(closure_with(p.Context, user.scope), d, append(dd, useDef)...)
 		}
 	}
 }
@@ -17533,15 +20204,13 @@ var numUpdatedPlugins = 0
 
 const pluginDifferentVersionError = `plugin was built with a different version of package`
 
-func (p *compiler) buildPlugin(ctx Context, outSym, srcSym Symbol) (err error) {
-	if _universe(ctx).traceLaunch { defer un(l_trace(l_launch, "compiler.buildPlugin")) }
-
+func (p *compiler) buildPlugin(outSym, srcSym Symbol) (err error) {
 	// AIRLOCK: Unpack strings exactly once for the OS!
 	out := outSym.String()
 	src := srcSym.String()
 	dir := __symDir(srcSym).String() // Zero-allocation parent directory calculation
 
-	prompt(ctx, "smart: Build %v …", src)
+	prompt(p, "smart: Build %v …", src)
 
 	b := bytes.Buffer{}
 	c := exec.Command("go", "build", "-buildmode=plugin", "-o", out)
@@ -17549,28 +20218,26 @@ func (p *compiler) buildPlugin(ctx Context, outSym, srcSym Symbol) (err error) {
 
 	if err = c.Run(); err == nil {
 		numUpdatedPlugins += 1
-		prompt(ctx,
+		prompt(p,
 			_f("… ok\n"),
 			_f("smart: Plugin updated, please relaunch.\n"))
 		os.Exit(0)
 	} else {
-		prompt(ctx,
+		prompt(p,
 			_f("… error\n"),
 			_f("%s", b.String()))
 	}
 	return
 }
 
-func (p *compiler) loadPlugin(ctx Context) {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.plugin")) }
+func (p *compiler) loadPlugin() {
 	if p.project == nil {
-		erro(ctx, "nil current project, in %s", p.scope, callstack{num:16})
+		erro(p, "nil current project, in %s", _term(p.Context).scope, callstack{num:16})
 		return // Explicitly return to avoid nil panics below
 	}
 
 	// project passes the interned absPath automatically through _stat
-	g := _stat(ctx, intern("smart.go"), p.project)
+	g := _stat(p, intern("smart.go"), p.project)
 	if g == nil { return /* smart.go was not presented */ }
 
 	srcSym := g.fullname()
@@ -17598,16 +20265,17 @@ func (p *compiler) loadPlugin(ctx Context) {
 	}
 
 	// 2. Pure Symbol Path Joining
-	tmpSym := joinTmpPath(ctx, symEmpty, symEmpty)
+	tmpSym := joinTmpPath(p, symEmpty, symEmpty)
 	pluginDirSym := __symPathJoin(__symDir(tmpSym), symPlugins, cleanRelSym)
 
 	// 3. VFS Cache Hit with the new stat_dir Symbol structure
-	so := _stat(ctx, symPlugin, stat_dir{pluginDirSym}, stat_nonexist{true})
+	so := _stat(p, symPlugin, stat_dir{pluginDirSym}, stat_nonexist{true})
 	soFullSym := so.fullname()
 	build := true
 
+	u := _universe(p.Context)
 	if soFullSym == symEmpty {
-		debug(ctx, "file '%v' has empty fullname", so)
+		debug(p, "file '%v' has empty fullname", so)
 	} else if so.exists() && !u.buildPlugins {
 		// PURE INTEGER MATH: Lightning fast plugin staleness check!
 		if so._mtime > g._mtime {
@@ -17616,8 +20284,8 @@ func (p *compiler) loadPlugin(ctx Context) {
 	}
 
 	if build {
-		if err := p.buildPlugin(ctx, soFullSym, srcSym); err != nil {
-			erro(ctx, "%v", err, callstack{num:16}, unwind{})
+		if err := p.buildPlugin(soFullSym, srcSym); err != nil {
+			erro(p, "%v", err, callstack{num:16}, unwind{})
 			return
 		}
 	}
@@ -17630,7 +20298,7 @@ func (p *compiler) loadPlugin(ctx Context) {
 
 		var sym plugin.Symbol
 		if sym, err = p.project.ext.Lookup("Init"); err != nil {
-			erro(ctx, "nil plugin symbol Init")
+			erro(p, "nil plugin symbol Init")
 		}
 		if sym == nil {
 			return // no initialization (optional)
@@ -17638,19 +20306,19 @@ func (p *compiler) loadPlugin(ctx Context) {
 
 		switch init := sym.(type) {
 		case func(Context) error:
-			if err = init(ctx); err == nil {
+			if err = init(p); err == nil {
 				return
 			} else {
-				erro(ctx, "plugin Init: %v", err, callstack{num:16}, unwind{})
+				erro(p, "plugin Init: %v", err, callstack{num:16}, unwind{})
 			}
 		default:
-			erro(ctx, "wrong plugin Init: %T", sym)
+			erro(p, "wrong plugin Init: %T", sym)
 		}
 	} else if strings.Contains(err.Error(), pluginDifferentVersionError) {
 		// Note: Go cannot unload/reload plugins in the same process.
 		// If the build environment changed, we rebuild it now so the NEXT run succeeds.
-		if err := p.buildPlugin(ctx, soFullSym, srcSym); err != nil {
-			erro(ctx, "%v", err, callstack{num:16}, unwind{})
+		if err := p.buildPlugin(soFullSym, srcSym); err != nil {
+			erro(p, "%v", err, callstack{num:16}, unwind{})
 		}
 	}
 	return
@@ -17702,32 +20370,33 @@ func (cc *configuration_ctx) do(ctx Context, op any) (_ any) {
 	return cc.Context.do(ctx, op)
 }
 
-func (p *compiler) configuration(ctx Context, nameSym Symbol) {
+func (p *compiler) configuration(nameSym Symbol) {
 	if false { defer un(l_tracef(l_traverse, "configuration(%v)", nameSym)) }
 	if p.project.name == symDotConfigure { return }
 
-	var cc = configuration_ctx{Context:ctx}
+	cc := configuration_ctx{Context: p.Context}; defer func() { p.Context = cc.Context } ()
+	p.Context = &cc
 
 	// Loading the configuration cache file, aka. "configuration.sm".
 	if c := p.project.configuration; c != nil {
 		cc.configuration = c
-	} else if c := p.project.configuration_sm(ctx); c != nil && c.exists() {
-		if p.promptConfigurationLoads(ctx) {
-			info(pc(ctx, c), "info: cached configuration (%p)", p.project, callstack{num:1})
+	} else if c := p.project.configuration_sm(p); c != nil && c.exists() {
+		if p.promptConfigurationLoads() {
+			info(pc(p,c), "info: cached configuration (%p)", p.project, callstack{num:1})
 		}
 
 		cc.configuration = c
 
-		text := load_source_bytes(ctx, c.fullname().String())
+		text := load_source_bytes(p, c.fullname().String())
 		if len(text) > 0 {
 			func() {
-				_scope, _scanner, _state := p.scope, p.scanner, p.compilestate
-				defer func() { p.scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
+				_scope, _scanner, _state := _term(p.Context).scope, p.scanner, p.compilestate
+				defer func() { _term(p.Context).scope, p.scanner, p.compilestate = _scope, _scanner, _state }()
 
 				p.compilestate = compilestate{
 					project: _state.project, prevScope: _scope, prev: p.copystate(),
 				}
-				p.source(&cc, c.fullname(), text)
+				p.source(c.fullname(), text)
 			}()
 		}
 		p.project.configuration = c
@@ -17736,8 +20405,8 @@ func (p *compiler) configuration(ctx Context, nameSym Symbol) {
 	// Safely evaluate inherited dependencies attached to the sandbox
 	if c := p.project.configure; c != nil {
 		for _, proj := range c.usees(true, false, false, false) {
-			if e := p.useProj(ctx, useopts{}, proj); e != nil {
-				erro(ctx, "failed to use %v : %v", proj, e)
+			if e := p.useProj(useopts{}, proj); e != nil {
+				erro(p, "failed to use %v : %v", proj, e)
 			}
 		}
 	}
@@ -17753,21 +20422,20 @@ func filespec(workdir, filename Symbol) (spec Symbol) {
 	}
 }
 
-func (p *compiler) dot_container(ctx Context, nameSym Symbol, f *file) {
-	u := _universe(ctx)
-	if u.traceLaunch { defer un(l_trace(l_launch, "compiler.dot_container")) }
-
+func (p *compiler) dot_container(nameSym Symbol, f *file) {
 	sym := f.fullname() // Retain the Walled Garden ID
 
 	if f._mtime == 0 {
-		erro(ctx, "%v: file not exists: %v", nameSym, sym)
-	} else if cc := pc(ctx, p.project); f.isDir() {
+		erro(p, "%v: file not exists: %v", nameSym, sym)
+	} else if f.isDir() {
 		// THE DOD FIX: Replaced `ident` with `p.project` to anchor the positional
 		// context safely without needing the artificial AST word node.
-		p.directory(cc, symDotContainer, sym)
+		p.directory(symDotContainer, sym)
 	} else {
-		p.file(cc, filespec(symBaseWorkDir, sym), sym)
+		p.file(filespec(symBaseWorkDir, sym), sym)
 	}
+
+	u := _universe(p.Context)
 
 	// O(1) Integer Map Lookup (u.globe.loaded perfectly uses Symbol keys)
 	if x, y := u.globe.loaded[sym]; y && x != nil {
@@ -17776,41 +20444,38 @@ func (p *compiler) dot_container(ctx Context, nameSym Symbol, f *file) {
 		// Mirroring the robust lookup implementation we used in `configuration`,
 		// resolving the project cleanly from the current scope.
 		if proj, _ := p.project.lookup(x.name).(*project); proj == nil {
-			erro(ctx, "%v: %v: `.container` is not a project", p.project.name, f.name)
+			erro(p, "%v: %v: `.container` is not a project", p.project.name, f.name)
 		}
 
 		var opts useopts
 		// TODO: parse the useopts
 
 		// Added standard error handling for useProj to match `configuration`
-		if e := p.useProj(ctx, opts, x); e != nil {
-			erro(ctx, "failed to use %v : %v", x.name, e)
+		if e := p.useProj(opts, x); e != nil {
+			erro(p, "failed to use %v : %v", x.name, e)
 		}
 	}
 }
 
-func (p *compiler) container(ctx Context, nameSym Symbol) {
+func (p *compiler) container(nameSym Symbol) {
 	if p.project.name != symDotContainer {
 		// 1. Zero-Allocation VFS Check replaces os.Stat
-		if f := _stat(ctx, intern(".dock"), p.project); f.exists() {
-			erro(ctx, "must rename .dock into .container !")
+		if f := _stat(p, intern(".dock"), p.project); f.exists() {
+			erro(p, "must rename .dock into .container !")
 		}
 
 		// Looking for project specific .container module
-		if f := _stat(ctx, symDotContainer, p.project); f.exists() {
-			p.dot_container(ctx, nameSym, f)
+		if f := _stat(p, symDotContainer, p.project); f.exists() {
+			p.dot_container(nameSym, f)
 			return
 		}
 
 		// 2. Pure Symbol Directory Walking
-		walkSmartBaseDirs(ctx, p.project.absPath, func(s Symbol) bool {
+		walkSmartBaseDirs(p, p.project.absPath, func(s Symbol) bool {
 			// Zero-allocation path joining
 			d := stat_dir{__symPathJoin(s, symDotSmart)}
-			f := _stat(ctx, symDotContainer, d)
-
-			if f.exists() {
-				p.dot_container(ctx, nameSym, f)
-			}
+			f := _stat(p, symDotContainer, d)
+			if f.exists() { p.dot_container(nameSym, f) }
 			return false // Original behavior: keep walking
 		})
 	}
@@ -17821,26 +20486,26 @@ func (p *compiler) container(ctx Context, nameSym Symbol) {
 //     * pathname - is the original pathname (symlink or 'configure' smart file)
 //     * linked - is the destination directory pathname to be really iterated
 // parseConfigDir parses a configuration directory purely within the Walled Garden.
-func (p *compiler) parseConfigDir(ctx Context, pathname, linked Symbol) (err error) {
+func (p *compiler) parseConfigDir(pathname, linked Symbol) (err error) {
 	// THE AIRLOCK: Extract string once for directory traversal
 	linkedStr := linked.String()
 
 	// 1. Massive I/O Optimization: os.ReadDir eliminates hidden lstat calls!
 	entries, err := os.ReadDir(linkedStr)
 	if err != nil || len(entries) == 0 {
-		if err != nil { erro(ctx, "%v", err) }
+		if err != nil { erro(p, "%v", err) }
 		return
 	}
 
 	// 2. Zero-Allocation Path Math
 	ident := __symBase(pathname)
 	if ident == symUnderscore { // Assuming symUnderscore == intern("_")
-		erro(ctx, "invalid package name _")
+		erro(p, "invalid package name _")
 	}
 
-	defer p.closescope(ctx, p.openscope(ctx, __symPathRel(symBaseWorkDir, pathname)))
+	defer p.closescope(p.openscope(__symPathRel(symBaseWorkDir, pathname)))
 
-	scope := p.scope
+	scope := _term(p.Context).scope
 
 	for _, d := range entries {
 		name := d.Name()
@@ -17874,31 +20539,31 @@ func (p *compiler) parseConfigDir(ctx Context, pathname, linked Symbol) (err err
 
 		if isDir {
 			// Recursive call using pure Symbols!
-			if err = p.parseConfigDir(ctx, __symPathJoin(pathname, nameSym), fullnameSym); err != nil {
-				erro(ctx, "parse config failed: %v", err)
+			if err = p.parseConfigDir(__symPathJoin(pathname, nameSym), fullnameSym); err != nil {
+				erro(p, "parse config failed: %v", err)
 			}
-			if 0 < flush(ctx) { return } else { continue }
+			if 0 < flush(p) { return } else { continue }
 		}
 
 		// Assume scope.def expects a Symbol now
-		defNode := scope.def(ctx, defConfig, nameSym)
+		defNode := scope.def(p, defConfig, nameSym)
 		if defNode == nil {
-			erro(ctx, "%v", name)
+			erro(p, "%v", name)
 		}
 
 		// 4. Modern Go standard library
 		v, err := os.ReadFile(fullnameStr)
 		if err != nil {
-			erro(ctx, "%v", err)
+			erro(p, "%v", err)
 		}
 
 		// OPTIMIZATION: Check UTF-8 directly on the byte slice to avoid allocating
 		// a string if it fails validation!
 		if !utf8.Valid(v) {
-			debug(ctx, "%s: invalid UTF8 content", fullnameStr)
+			debug(p, "%s: invalid UTF8 content", fullnameStr)
 		}
 
-		defNode.set(ctx, _rw(p.pos, string(v)))
+		defNode.set(p, _rw(p.pos, string(v)))
 	}
 	return
 }
@@ -18047,7 +20712,7 @@ func (p *execution) isRecipesChanged(ctx Context, target Value) (outdated bool, 
 func auto_target_value(ctx Context, erroIfNilVal ...bool) (res Value) {
 	if val := auto_get(ctx, symAt); val == nil {
 		if __t(erroIfNilVal...) { erro(ctx, "target is nil") }
-	} else if v := expand(ctx, val); v == nil {
+	} else if v := eval(ctx, val); v == nil {
 		erro(ctx, "target expanded to nil: %v", val)
 	} else {
 		res = scalarize(v)
@@ -18220,7 +20885,7 @@ func to_file(v Value) (x *file, y bool) {
 }
 
 func as_file(ctx Context, val Value, projs ...*project) *file {
-	v := expand(ctx, val)
+	v := eval(ctx, val)
 
 	// 1. Fast-Path Unboxing (Pre-scalarize)
 	if f, ok := to_file(v); ok {
@@ -18273,11 +20938,11 @@ func as_fullname(ctx Context, val Value, projs ...*project) (res fullname) {
 		// we securely pack the scalarized expression as a valid name, allowing
 		// downstream runtime layers to flatten it via __string() during execution.
 		// =================================================================
-		res.Value = scalarize(expand(ctx, val))
+		res.Value = scalarize(eval(ctx, val))
 
 		warn(pc(ctx,val),
 			_f("nil file: %v → %v", val, ts(val,ctx)),
-			_f("scalarize(expand(%v)) → %v → %s", val, res.Value, ts(res.Value,ctx)),
+			_f("scalarize(eval(%v)) → %v → %s", val, res.Value, ts(res.Value,ctx)),
 			_f("as_file(%v) → %v", res.Value, as_file(ctx, res.Value, projs...)),
 			_f("string(%v) → %s", val, __string(ctx,val)),
 			trace_ctx{5}, trace_val{50,val}, callstack{num:20})
@@ -18879,7 +21544,7 @@ func diff(ctx Context, a, b []Value) bool {
 
 func isTrivial(v any) (_ bool) {
 	switch t := v.(type) {
-	case valbase, *none, *null, *undef, nil: return true
+	case valbase, *null, *undef, nil: return true
 	case *pair: return isTrivial(t.key) && isTrivial(t.val) // CRITICAL FIX
 	case *def: return isTrivial(t.value)
 	case *loc: return isTrivial(t.Value)
@@ -18898,7 +21563,7 @@ func isTrivial(v any) (_ bool) {
 }
 func isEmpty(v any) (_ bool) {
 	switch t := v.(type) {
-	case valbase, *none, *null, *undef, nil: return true
+	case valbase, *null, *undef, nil: return true
 	case *valcache: return len(t.a) == 0 && len(t.o) == 0 && len(t.v) == 0
 	case *pair: return isEmpty(t.key) && isEmpty(t.val) // CRITICAL FIX
 	case *def: return isEmpty(t.value)
@@ -18932,20 +21597,6 @@ func isUndef(v any) (_ bool) {
     }
     return
 }
-func isNone(v any) (_ bool) {
-	switch t := v.(type) {
-	case *none: return true
-	case *loc: return isNone(t.Value)
-	case *list: return isNone(t.elems)
-	case *compound: return isNone(t.elems)
-	case *qualword: return isNone(t.elems)
-	case *pair: return isNone(t.key) && isNone(t.val) // CRITICAL FIX
-	case []Value:
-		for _, v := range t { if !isNone(v) { return } }
-		return true
-	}
-	return
-}
 func isNull(v any) (_ bool) {
 	switch t := v.(type) {
 	case *null, nil: return true
@@ -18971,7 +21622,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		return &loc{prefix(ctx, tx.Value, y), tx.pos}
 	case flag:
 		switch tx.Value.(type) {
-		case valbase, *null, *none, nil: return flag{y}
+		case valbase, *null, nil: return flag{y}
 		}
 		switch ty := y.(type) {
 		case *pair: return &pair{flag{prefix(ctx, tx.Value, ty.key)}, ty.val}
@@ -18979,7 +21630,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		}
 	case *pair:
 		switch tx.val.(type) {
-		case valbase, *null, *none, nil: return &pair{tx.key, y}
+		case valbase, *null, nil: return &pair{tx.key, y}
 		default: return &pair{tx.key, prefix(ctx, tx.val, y)}
 		}
 	case *path:
@@ -19061,12 +21712,12 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 	switch ty := y.(type) {
 	case *pair:
 		switch ty.key.(type) {
-		case valbase, *null, *none, nil: return &pair{x, ty.val}
+		case valbase, *null, nil: return &pair{x, ty.val}
 		default: return &pair{prefix(ctx, x, ty.key), ty.val}
 		}
 	case *percpat:
 		switch x.(type) {
-		case valbase, *null, *none, nil:
+		case valbase, *null, nil:
 			return &percpat{ty.valbase, ty.Prefix, ty.Suffix}
 		default:
 			return &percpat{ty.valbase, prefix(ctx, x, ty.Prefix), ty.Suffix}
@@ -19075,7 +21726,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		if len(ty.elems) == 0 { return x }
 		// CRITICAL FIX: If the qualword starts with a placeholder, x replaces it!
 		switch ty.elems[0].(type) {
-		case valbase, *null, *none, nil:
+		case valbase, *null, nil:
 			res := dup(ty.elems)
 			res[0] = x
 			return &qualword{elements{res}}
@@ -19093,7 +21744,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 			}
 			// CRITICAL FIX: If the path starts with a placeholder, x replaces it!
 			switch ty.elems[0].(type) {
-			case valbase, *null, *none, nil:
+			case valbase, *null, nil:
 				res := dup(ty.elems)
 				res[0] = x
 				return &path{elements{res}}
@@ -19105,7 +21756,7 @@ func prefix(ctx Context, x, y Value) (res Value) { // x+y ⇔ prefix+y
 		switch ty.elems[0].(type) {
 		case *pair: erro(ctx, "%v", ty.elems)
 		// CRITICAL FIX: Avoid completely losing `x` by safely replacing the placeholder
-		case valbase, *null, *none, nil:
+		case valbase, *null, nil:
 			res := dup(ty.elems)
 			res[0] = x
 			return &compound{elements{res}}
@@ -19157,7 +21808,8 @@ func (_ valbase) String() (_ string) { return }
 func (p valbase) Pos() Pos { return p.pos }
 
 type loc struct{ Value ; pos Pos }
-func (p *loc) Pos() Pos { return p.pos }
+func (l *loc) kind() Kind { return KindLoc }
+func (l *loc) Pos() Pos { return l.pos }
 func (l *loc) String() string {
 	if l == nil || l.Value == nil {
 		return ""
@@ -19183,10 +21835,6 @@ type null struct{ valbase }
 func (_ *null) kind() Kind { return KindNull }
 func (_ *null) String() string { return "{}" }
 
-type none struct{ valbase }
-func (_ *none) kind() Kind { return KindNone }
-func (p *none) String() (_ string) { return }
-
 type slsv struct{ Value } // Single-Line String Value
 func (t slsv) String() string { return _sls(t.Value.String()) }
 func _sls(s string) string { return strings.ReplaceAll(s,"\n",`\n`) }
@@ -19207,7 +21855,6 @@ func _bqs(s string, t ...string) string {
 }
 
 type dbstub struct{ valbase ; v []Value }
-func (_ *dbstub) kind() Kind { return KindDBStub }
 func (p *dbstub) String() string {
 	if len(p.v) == 0 { return "{dbs}" }
 	var cb compactbuilds
@@ -19215,9 +21862,9 @@ func (p *dbstub) String() string {
 	return cb.shared()
 }
 func (p *dbstub) build(cb *compactbuilds) {
-	cb.writeString("{dbs ")
+	cb.write("{dbs ")
 	builds(cb, p.v)
-	cb.writeString("}")
+	cb.write("}")
 }
 
 type get_arguments struct{}
@@ -19252,7 +21899,7 @@ func (p *argumented) ctx(ctx Context) *argumented_ctx {
     // NOTE: expand here to avoid args being expanded in the wrong context
     for _, a := range p.args {
         // TODO: deal with pattern args using expandPatterned instead of stenciling:
-        if a = expand(final{ctx}, a); patterned(ctx,a) {
+        if a = eval(final{ctx}, a); patterned(ctx,a) {
             if stems := _stems(ctx); len(stems) > 0 {
                 var stemVals []Value
                 for _, s := range stems {
@@ -19448,7 +22095,7 @@ func (p *word) String() string { return p.s.String() }
 
 // Upgraded qualword: holds a dot-separated sequence of Values
 type qualword struct{ elements }
-func (_ *qualword) kind() Kind { return KindWord } // Behaves like a word/compound
+func (_ *qualword) kind() Kind { return KindQualword } // Behaves like a word/compound
 func (p *qualword) String() string {
 	var b strings.Builder
 	for i, elem := range p.elems {
@@ -19652,7 +22299,7 @@ func com(ctx *com_ctx, a, elems []Value) (res []Value) {
 	for i, elem := range elems {
 		switch tail := elems[i+1:]; t := elem.(type) {
 		case *disjunction:
-			for _, elem := range merge(expand(ctx, t.val)) {
+			for _, elem := range merge(eval(ctx, t.val)) {
 				if isTrivial(elem) { continue }
 				for _, v := range com(ctx, append(dup(a), elem), tail) {
 					res = append(res, redis(v))
@@ -19687,7 +22334,7 @@ func com(ctx *com_ctx, a, elems []Value) (res []Value) {
 		case *compound:
 			return com(ctx, a, append(t.elems, tail...))
 		default:
-			a = append(a, expand(ctx, elem))
+			a = append(a, eval(ctx, elem))
 		}
 	}
 	switch len(a) {
@@ -19701,7 +22348,7 @@ func com_qualword(ctx *com_ctx, a, elems []Value) (res []Value) {
 	for i, elem := range elems {
 		switch tail := elems[i+1:]; t := elem.(type) {
 		case *disjunction:
-			for _, e := range merge(expand(ctx, t.val)) {
+			for _, e := range merge(eval(ctx, t.val)) {
 				if isTrivial(e) { continue }
 				for _, v := range com_qualword(ctx, append(dup(a), e), tail) {
 					res = append(res, redis(v))
@@ -19754,7 +22401,7 @@ func com_qualword(ctx *com_ctx, a, elems []Value) (res []Value) {
 			}
 			return
 		default:
-			val := expand(ctx, elem)
+			val := eval(ctx, elem)
 
 			if val != nil && val != elem {
 				switch val.(type) {
@@ -19880,7 +22527,7 @@ func (p *dialect_plain) evaluate(ctx Context, args ...Value) (_ Value) {
     }
 
     for _, recipe := range exe.recipes {
-        res.elems = append(res.elems, expand(final{ctx}, recipe))
+        res.elems = append(res.elems, eval(final{ctx}, recipe))
     }
 
     if false && len(res.elems) == 1 {
@@ -20020,7 +22667,7 @@ func (p *dialect_xml) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeXML(ctx, source, p.whitespace); v != nil {
         return &xml{ v }
     } else {
-        return &xml{ _none(_pos(ctx)) }
+        return &xml{ _null(_pos(ctx)) }
     }
 }
 
@@ -20199,7 +22846,7 @@ func (_ *dialect_json) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeJSON(ctx, source); v != nil {
         return &json{ result }
     } else {
-        return &json{ _none(recipes[0].Pos()) }
+        return &json{ _null(recipes[0].Pos()) }
     }
 }
 
@@ -20226,7 +22873,7 @@ func (p *dialect_yaml) evaluate(ctx Context, args ...Value) (result Value) {
     if v := DecodeYAML(ctx, source, p.whitespace); v != nil {
         return &yaml{ result }
     } else {
-        return &yaml{ _none(_pos(ctx)) }
+        return &yaml{ _null(_pos(ctx)) }
     }
 }
 
@@ -20507,7 +23154,7 @@ func (p *file) isSysFile() bool {
 	var isSys bool
 	if p.filemap != nil && len(p.filemap.paths) == 1 {
 		if f, ok := p.filemap.paths[0].(flag); ok {
-			isSys = isNone(f.Value) || isNull(f.Value)
+			isSys = isNull(f.Value)
 		}
 	}
 
@@ -20925,77 +23572,109 @@ func (p *delegate) _Pos() (pos Pos) {
 func (p *closure) kind() Kind { return p.valbase.kind()|KindClosure }
 func (p *delegate) kind() Kind { return p.valbase.kind()|KindDelegate }
 
-func (p *closure) String() string { return p.src("&") }
-func (p *delegate) String() string { return p.src("$") }
+func (p *closure) String() string { return p.delegate.format("&") }
+func (p *delegate) String() string { return p.format("$") }
 
-func (p *delegate) wraps(s string) string {
+// Unified wrapper natively omits the sigil (pre) for STRCOMP/STRING,
+// replacing the need for is_closure_delegate() checks.
+func (p *delegate) wrap(body string, pre string) string {
 	switch p.l {
-	case STRCOMP: return `"`+s+`"`
-	case  STRING: return `'`+s+`'`
-	case  LPAREN: return "("+s+")"
-	case  LBRACE: return "{"+s+"}"
-	case ILLEGAL: return "["+s+"]"
-	case INTEGER:
-		if len(s) > 1 || !IsDigits(s) { s = "("+s+")"	}
-		return s // $1, $2, $3, ...
-	default: return p.l.String() // $@, $<, ...
+	case STRCOMP: return `"` + body + `"`
+	case STRING:  return `'` + body + `'`
+	case LPAREN:  return pre + "(" + body + ")"
+	case LBRACE:  return pre + "{" + body + "}"
+	case ILLEGAL: return pre + "[" + body + "]"
+	case INTEGER: // $1, $2, $3, ..., $(10), ...
+		if len(body) > 1 || !IsDigits(body) {
+			return pre + "(" + body + ")"
+		}
+		return pre + body
+	default: // $@, $<, $,, ...
+		// THE DOD FIX: Return `pre + body` instead of `pre + p.l.String()`!
+		// This guarantees that delegates dynamically emit their true resolved
+		// bodies (including options/args) instead of masking them behind punctuation.
+		return pre + body
 	}
+}
+
+func (p *delegate) format(sigil string) string {
+	return p.wrap(p.bodyString(), sigil)
 }
 
 func (p *delegate) id(ctx Context, pre string) string {
-	var s string
+	var b compactbuilds
 
-	// Build the inner body independently
-	s += ident(ctx, p.x)
+	b.write(ident(ctx, p.x))
 
-	if p.o != nil { // options
-		s += "("
+	if len(p.o) > 0 {
+		b.write("(")
 		for i, v := range p.o {
-			if 0 < i { s += " " }
-			s += ident(ctx, v)
+			if i > 0 { b.write(" ") }
+			b.write(ident(ctx, v))
 		}
-		s += ")"
+		b.write(")")
 	}
 
 	for i, a := range p.a {
-		if 0 == i { s += " " } else { s += "," }
-		s += ident(ctx, a)
+		if i == 0 { b.write(" ") } else { b.write(",") }
+		b.write(ident(ctx, a))
 	}
 
-	// THE DOD FIX: Apply the wrapper ONLY to the inner body,
-	// then prepend the raw prefix outside the wrapper!
-	return pre + p.wraps(s)
+	return p.wrap(b.shared(), pre)
 }
 
-func (p *delegate) src(sigil string) (s string) {
-	if s = p._src(); !p.l.is_closure_delegate() { s = sigil + s }
-	return
-}
+func (p *delegate) bodyString() string {
+	var b compactbuilds
 
-func (p *delegate) _src() (s string) { // source representation
-	switch x := p.x.(type) {
-	case     *def: s += x.name.String()
-	case   *arrow: s += x.String()
-	case *project: s += "{."+x.name.String()+"}"
-	case     self: s += "{.self}"
-	default: if x != nil { s += x.String() }
+	b.write(p.targetString())
+
+	if len(p.o) > 0 {
+		b.write("(")
+		for i, v := range p.o {
+			if i > 0 { b.write(" ") }
+			b.write(v.String())
+		}
+		b.write(")")
 	}
 
-    if p.o != nil { // options
-        s += "("
-        for i, v := range p.o {
-            if 0 < i { s += " " }
-            s += v.String()
-        }
-        s += ")"
-    }
+	for i, a := range p.a {
+		if i == 0 { b.write(" ") } else { b.write(",") }
+		b.write(a.String())
+	}
 
-    for i, a := range p.a {
-        if 0 == i { s += " " } else { s += "," }
-        s += a.String()
-    }
+	return b.shared()
+}
 
-    return p.wraps(s)
+func (p *delegate) targetString() string {
+	target := p.x
+_trampoline_src:
+	for {
+		switch x := target.(type) {
+		case *loc:
+			if x != nil && x.Value != nil {
+				target = x.Value
+				continue _trampoline_src
+			}
+		case *def:     return x.name.String()
+		case *auto:    return x.name.String()
+		case *builtin: return x.name.String()
+		case *word:    return x.s.String()
+		case *defcap:  return x.name.String() // Safely extracts name from individual capture groups
+		case *defcaps:
+			// Safely prevents panics if the overall capture interface is nil
+			if x.Value != nil { return x.Value.String() }
+		case *decimal:
+			if x.sym != symEmpty { return x.sym.String() }
+			return intern(x.String()).String()
+		case *arrow:   return x.String()
+		case *project: return "{." + x.name.String() + "}"
+		case self:     return "{.self}"
+		default:
+			if target != nil { return target.String() }
+		}
+		break _trampoline_src
+	}
+	return ""
 }
 
 type arrow struct{
@@ -21058,6 +23737,7 @@ func isMultiWildcard(v Value) bool {
 //		lo '-' hi   matches character c for lo <= c <= hi
 
 type globbrace struct{ compound } // glob embraced in '{' and '}'
+func (p *globbrace) kind() Kind { return KindGlobbrace }
 func (p *globbrace) String() string { return "{glob "+p.compound.String()+"}" }
 
 // glob wildcards: ? * *? **
@@ -21222,11 +23902,11 @@ func (p *regexpat) String() string {
 }
 func (p *regexpat) source(b *compactbuilds) {
 	b.setRaw(true) // CRITICAL: Prevent regex space squashing
-	b.writeString("{regex ")
+	b.write("{regex ")
 	if false {
 		builds(b, strsrc{}, p.elems)
 	} else {
-		b.writeString(p.re.String())
+		b.write(p.re.String())
 	}
 	b.writeByte('}')
 }
@@ -21278,8 +23958,8 @@ func (p *regexmeta) source(b *compactbuilds) {
 	switch p.op {
 	case regex_syntax.OpBeginLine, regex_syntax.OpBeginText: b.writeByte('^')
 	case regex_syntax.OpEndLine, regex_syntax.OpEndText:     b.writeByte('$')
-	case regex_syntax.OpWordBoundary:                        b.writeString(`\b`)
-	case regex_syntax.OpNoWordBoundary:                      b.writeString(`\B`)
+	case regex_syntax.OpWordBoundary:                        b.write(`\b`)
+	case regex_syntax.OpNoWordBoundary:                      b.write(`\B`)
 	case regex_syntax.OpAnyCharNotNL, regex_syntax.OpAnyChar:b.writeByte('.')
 	}
 }
@@ -21288,10 +23968,10 @@ func (p *regexmeta) build(b *compactbuilds) {
 	switch p.op {
 	case regex_syntax.OpBeginLine: b.writeByte('^')
 	case regex_syntax.OpEndLine:   b.writeByte('$')
-	case regex_syntax.OpBeginText: b.writeString(`\A`)
-	case regex_syntax.OpEndText:   b.writeString(`\z`)
-	case regex_syntax.OpWordBoundary:   b.writeString(`\b`)
-	case regex_syntax.OpNoWordBoundary: b.writeString(`\B`)
+	case regex_syntax.OpBeginText: b.write(`\A`)
+	case regex_syntax.OpEndText:   b.write(`\z`)
+	case regex_syntax.OpWordBoundary:   b.write(`\b`)
+	case regex_syntax.OpNoWordBoundary: b.write(`\B`)
 	case regex_syntax.OpAnyCharNotNL, regex_syntax.OpAnyChar: b.writeByte('.')
 	}
 }
@@ -21325,11 +24005,11 @@ func (p *regexrep) formatRepetition(b *compactbuilds) {
 	} else if p.min == 0 && p.max == 1 {
 		b.writeByte('?')
 	} else if p.max == -1 {
-		b.writeString(fmt.Sprintf("{%d,}", p.min))
+		b.write(fmt.Sprintf("{%d,}", p.min))
 	} else if p.min == p.max {
-		b.writeString(fmt.Sprintf("{%d}", p.min))
+		b.write(fmt.Sprintf("{%d}", p.min))
 	} else {
-		b.writeString(fmt.Sprintf("{%d,%d}", p.min, p.max))
+		b.write(fmt.Sprintf("{%d,%d}", p.min, p.max))
 	}
 	if !p.greedy {
 		b.writeByte('?')
@@ -21387,13 +24067,13 @@ func (p *regexgroup) String() string {
 }
 func (p *regexgroup) source(b *compactbuilds) {
 	b.setRaw(true)
-	if p.cap > 0 { b.writeByte('(') } else { b.writeString("(?:") }
+	if p.cap > 0 { b.writeByte('(') } else { b.write("(?:") }
 	builds(b, strsrc{}, p.val)
 	b.writeByte(')')
 }
 func (p *regexgroup) build(b *compactbuilds) {
 	b.setRaw(true)
-	if p.cap > 0 { b.writeByte('(') } else { b.writeString("(?:") }
+	if p.cap > 0 { b.writeByte('(') } else { b.write("(?:") }
 	builds(b, p.val)
 	b.writeByte(')')
 }
@@ -21484,7 +24164,7 @@ func dmerge(disjunction bool, args ...Value) (elems []Value) {
 }
 
 func merge(v ...Value) []Value { return dmerge(false, v...) }
-func xmerge(c Context, v ...Value) []Value { return merge(expands(c,v...)...) }
+func xmerge(c Context, v ...Value) []Value { return merge(evals(c,v...)...) }
 
 func dup(vals []Value) (res []Value) {
     if n := len(vals); 0 < n {
@@ -21541,32 +24221,32 @@ func (c *__string_ctx) do(ctx Context, op any) any {
 // __builds traverses the AST and writes directly to the shared stream buffer.
 func __builds(ctx Context, sb *compactbuilds, v any) {
 	switch t := v.(type) {
-	case string: sb.writeString(t)
+	case string: sb.write(t)
 	case rune: sb.writeRune(t)
-	case token: sb.writeString(t.String())
+	case token: sb.write(t.String())
 	case Symbol: t.build(sb) // Writes directly to our internal raw byte slice
 	case *binary, *octal, *decimal, *hexadecimal, *float, *datetime, *date, *time, *globmeta, *punct:
-		sb.writeString(t.(Value).String())
-	case valbase, *null, *none, nil: return
+		sb.write(t.(Value).String())
+	case valbase, *null, nil: return
 	case *answer:
-		if t.bool { sb.writeString("yes") } else { sb.writeString("no") }
+		if t.bool { sb.write("yes") } else { sb.write("no") }
 	case *option:
-		if t.bool { sb.writeString("on") } else { sb.writeString("off") }
+		if t.bool { sb.write("on") } else { sb.write("off") }
 	case *boolean:
-		if t.bool { sb.writeString("true") } else { sb.writeString("false") }
+		if t.bool { sb.write("true") } else { sb.write("false") }
 	case *strlit:
 		if truly(ctx, symident{}) {
 			sb.writeByte('\'')
-			sb.writeString(t.s)
+			sb.write(t.s)
 			sb.writeByte('\'')
 		} else {
-			sb.writeString(t.s)
+			sb.write(t.s)
 		}
-	case *raw: sb.writeString(t.s)
-	case *word: sb.writeString(t.s.String())
-	case *filestub: sb.writeString(t.name.String())
-	case *project: sb.writeString(t.name.String())
-	case self: sb.writeString(t.name.String())
+	case *raw: sb.write(t.s)
+	case *word: sb.write(t.s.String())
+	case *filestub: sb.write(t.name.String())
+	case *project: sb.write(t.name.String())
+	case self: sb.write(t.name.String())
 	case negative:
 		sb.writeByte('!')
 		__builds(ctx, sb, t.Value)
@@ -21583,7 +24263,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *stemmed_rule: __builds(ctx, sb, t.rule)
 	case matched_rule: __builds(ctx, sb, t.rule)
 	case *quote:
-		sb.writeString(strconv.Quote(__string(ctx, &t.list)))
+		sb.write(strconv.Quote(__string(ctx, &t.list)))
 	case *globrange:
 		sb.writeByte('[')
 		__builds(ctx, sb, t.Value)
@@ -21601,7 +24281,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 			// FIXME: {re [[:xdigit:]]*, [^[:alpha:]], [^xyz] [a-z] \A \B \b \Q**??^:[]{}\E \^ \z}
 			t.regexcon.source(sb) // FIXME: Incomplete implementation!
 		} else if t.re != nil {
-			sb.writeString(t.re.String())
+			sb.write(t.re.String())
 		}
 	case *compound:
 		cc := &com_ctx{ctx, 0}
@@ -21621,18 +24301,18 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *qualword:
 		for i, e := range t.elems {
 			// FIXED: Qualwords strictly require dots unconditionally for sub-property mapping
-			if i > 0 { sb.writeString(".") }
+			if i > 0 { sb.write(".") }
 			__builds(ctx, sb, e)
 		}
 	case *path:
 		for i, elem := range t.elems {
 			// FIXED: Restored exact 1:1 legacy slash mapping. Slashes are never squashed!
-			if i > 0 { sb.writeString(pathSep) }
+			if i > 0 { sb.write(pathSep) }
 			mark := sb.len()
 			__builds(ctx, sb, elem)
 			// Explicit trailing slash retention for root paths
 			if i == 0 && sb.len() == mark && len(t.elems) == 1 {
-				sb.writeString(pathSep)
+				sb.write(pathSep)
 			}
 		}
 	case *strcomp:
@@ -21652,14 +24332,14 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		}
 		sb.discard()
 	case *arrow, *closure, *delegate:
-		if val := expand(ctx, t.(Value)); val != v {
+		if val := eval(ctx, t.(Value)); val != v {
 			if reflect.TypeOf(val) != reflect.TypeOf(v) {
 				__builds(ctx, sb, val)
 			} else if cmp(ctx, val, v.(Value)) != cmpEqual {
 				__builds(ctx, sb, val)
 			}
 		}
-	case fullfile: sb.writeString(t.fullname().String())
+	case fullfile: sb.write(t.fullname().String())
 	case fullname:
 		if v := t.Value; v != nil {
 			items := merge(v)
@@ -21669,7 +24349,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 				if i > 0 { sb.sep(" ") }
 				if x, y := to_file(item); y {
 					if x == nil || x.filestub == nil { erro(ctx, "nil file stub") }
-					sb.writeString(x.fullname().String())
+					sb.write(x.fullname().String())
 				} else {
 					__builds(cc, sb, item)
 				}
@@ -21678,9 +24358,9 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		}
 	case *file:
 		if truly(ctx, wants_fullfile{}) {
-			sb.writeString(t.fullname().String())
+			sb.write(t.fullname().String())
 		} else {
-			sb.writeString(t.name.String())
+			sb.write(t.name.String())
 		}
 	case *conjunction:
 		if isEmpty(t.sep) {
@@ -21709,8 +24389,8 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 			}
 		}
 	case *pair:
-		ks := merge(expand(ctx, t.key))
-		vs := merge(expand(ctx, t.val))
+		ks := merge(eval(ctx, t.key))
+		vs := merge(eval(ctx, t.val))
 		mark := sb.len()
 		for _, k := range ks {
 			if isNull(k) { continue }
@@ -21736,7 +24416,7 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		sb.writeByte('(')
 		for i, arg := range t.args {
 			// FIXED: Commas are syntax boundaries and must not be squashed
-			if i > 0 { sb.writeString(",") }
+			if i > 0 { sb.write(",") }
 			__builds(ctx, sb, arg)
 		}
 		sb.writeByte(')')
@@ -21778,14 +24458,14 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 		}
 		sb.discard()
 	case *use:
-		sb.writeString("use ")
-		sb.writeString(t.project.name.String())
-		sb.writeString(fmt.Sprintf(" %v", t.params))
+		sb.write("use ")
+		sb.write(t.project.name.String())
+		sb.write(fmt.Sprintf(" %v", t.params))
 	case *uselist:
 		sb.writeByte('[')
 		for i, u := range t.list {
 			if i > 0 { sb.sep(" ") }
-			sb.writeString(u.project.name.String())
+			sb.write(u.project.name.String())
 		}
 		sb.discard()
 		sb.writeByte(']')
@@ -21803,9 +24483,9 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 	case *url:
 		__builds(ctx, sb, t.Scheme)
 		sb.writeByte(':')
-		if t.Host != nil && !isNone(t.Host) {
-			sb.writeString("//")
-			if t.Username != nil && !isNone(t.Username) {
+		if t.Host != nil && !isEmpty(t.Host) {
+			sb.write("//")
+			if t.Username != nil && !isEmpty(t.Username) {
 				__builds(ctx, sb, t.Username)
 				if t.Password != nil {
 					sb.writeByte(':')
@@ -21814,44 +24494,44 @@ func __builds(ctx Context, sb *compactbuilds, v any) {
 				sb.writeByte('@')
 			}
 			__builds(ctx, sb, t.Host)
-			if t.Port != nil && !isNone(t.Port) {
+			if t.Port != nil && !isEmpty(t.Port) {
 				sb.writeByte(':')
 				__builds(ctx, sb, t.Port)
 			}
 		}
-		if t.Path != nil && !isNone(t.Path) {
+		if t.Path != nil && !isEmpty(t.Path) {
 			__builds(ctx, sb, t.Path)
 		}
 		if t.Query != nil {
 			sb.writeByte('?')
 			for i, q := range t.Query {
 				// FIXED: Query ampersands are structural boundaries
-				if i > 0 { sb.writeString("&") }
+				if i > 0 { sb.write("&") }
 				__builds(ctx, sb, q)
 			}
 		}
-		if t.Fragment != nil && !isNone(t.Fragment) {
+		if t.Fragment != nil && !isEmpty(t.Fragment) {
 			sb.writeByte('#')
 			__builds(ctx, sb, t.Fragment)
 		}
 	case *exec_result:
 		if t.stdout.Buf != nil {
-			sb.write(t.stdout.Buf.Bytes())
+			sb.writeBytes(t.stdout.Buf.Bytes())
 		} else if t.stderr.Buf != nil {
-			sb.write(t.stderr.Buf.Bytes())
+			sb.writeBytes(t.stderr.Buf.Bytes())
 		} else {
-			sb.writeString(strconv.Itoa(t.status))
+			sb.write(strconv.Itoa(t.status))
 		}
 	case *escaped:
 		switch t.s {
 		case "n": sb.writeByte('\n')
 		case "r": sb.writeByte('\r')
-		default:  sb.writeString(t.s)
+		default:  sb.write(t.s)
 		}
 	case *dbstub: // Discards explictly!
 	default:
 		// Fallback ts form without evaporation: debug unhandled node boundaries!
-		if builds_fallback_ts { sb.writeString(ts(v, ctx, ts_no_evaporation{})) }
+		if builds_fallback_ts { sb.write(ts(v, ctx, ts_no_evaporation{})) }
 	}
 }
 
@@ -21863,7 +24543,7 @@ func __string(ctx Context, v any) (res string) {
 	case rune: return string(t)
 	case token: return t.String()
 	case Symbol: return t.String()
-	case valbase, *null, *none, nil: return ""
+	case valbase, *null, nil: return ""
 	case *strlit: return t.s
 	case *raw: return t.s
 	case *word: return t.s.String()
@@ -21959,7 +24639,7 @@ func __true(ctx Context, v Value) (res bool) {
 		}
 		return t.s != symEmpty && s != ""
 	case *arrow, *closure, *delegate:
-		if v = expand(ctx, t); !equal(ctx, v, t) {
+		if v = eval(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
 					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t))
@@ -22045,7 +24725,7 @@ func __int(ctx Context, v Value) (res int64) {
 			return __int(ctx, t.elems[0])
 		}
 	case *arrow, *closure, *delegate:
-		if v = expand(ctx, t); !equal(ctx, v, t) {
+		if v = eval(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
 					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t))
@@ -22122,7 +24802,7 @@ func __float(ctx Context, v Value) (_ float64) {
 			erro(ctx, "%v", e)
 		}
 	case *arrow, *closure, *delegate:
-		if v = expand(ctx, t); !equal(ctx, v, t) {
+		if v = eval(ctx, t); !equal(ctx, v, t) {
 			if checkpoints {
 				if v.String() == t.String() {
 					erro(pc(ctx,t), "%v %v (%v)", t, v, equal(ctx, v, t))
@@ -22252,13 +24932,13 @@ func selprop(ctx Context, v Value) (res Symbol, okay bool) {
 	}
 }
 
-func sel(ctx Context, v any, s Symbol) (res Value) {
+func sel(ctx Context, v any, s Symbol) Value {
 	var g *compound//globpat
 	switch t := v.(type) {
 	case nil, *auto, *null, valbase: return nil // absorb logical nil
 	case *globbrace: g = &t.compound//globpat
 	case *compound/*globpat*/: g = t
-	case *word: return
+	case *word: return nil
 	case  *loc: return sel(ctx, t.Value, s)
 	case *list: return sel(ctx, t.elems, s)
 	case *project: return t.resolve(ctx, s)
@@ -22266,8 +24946,7 @@ func sel(ctx Context, v any, s Symbol) (res Value) {
 		if o := t.resolve(ctx, s); o != nil { return &loc{o, t.pos} }
 		return nil // Gracefully pass nil back to the safe-navigation logic!
 	case *def:
-		if t.value == nil { return nil }
-		return sel(ctx, t.value, s)
+		if t.value != nil { return sel(ctx, t.value, s) }
 	case *uselist:
 		// =================================================================
 		// PURE SYMBOL DOMAIN: Inject "use" namespace without string allocations!
@@ -22301,10 +24980,10 @@ func sel(ctx Context, v any, s Symbol) (res Value) {
 		for _, t := range t { vals = append(vals, sel(ctx, t, s)) }
 		return ease(ctx, vals)
 	default:
-		erro(pc(ctx,v), "cannot sel: %v %v", ts(t,ctx), s)
+		if t != nil { erro(pc(ctx,v), "cannot sel: %v %v", ts(t,ctx), s) }
 	}
 	if false && g != nil { debug(pc(ctx,v), "%s: %v→%v", typeof(v), v, s) }
-	return
+	return nil
 }
 
 // Bubble: Sent by an unbound *auto to request deferral
@@ -22325,13 +25004,15 @@ func (p *arg_expansion_scope) expansion(i int) bool {
 func (p *arg_expansion_scope) args(ctx Context, vals []Value) (a []Value) {
 	for i, v := range vals {
 		if p.expansion(i) {
-			a = append(a, expand(ctx, v))
+			a = append(a, eval(ctx, v))
 		} else {
 			a = append(a, v)
 		}
 	}
 	return
 }
+
+type arg_expansion struct { i int }
 
 // The intercepting context wrapping the delegate/closure expansion
 type collapse_ctx struct {
@@ -22350,6 +25031,13 @@ func (c *collapse_ctx) do(ctx Context, op any) any {
 	case arg_expansion_scope:
 		if t.force_collapse { c.force_collapse = true }
 		if t.skip_expansion != nil { c.skip_expansion = t.skip_expansion }
+		return true
+	case arg_expansion: // i.e., c.expansion(t.i)
+		// Natively queries the builtin's requested expansion rules
+		if c.skip_expansion != nil {
+			if _, ok := c.skip_expansion[t.i]; ok { return false }
+			if _, ok := c.skip_expansion[-1]; ok { return false }
+		}
 		return true
 	}
 	return c.Context.do(ctx, op)
@@ -22386,396 +25074,6 @@ func (c *evoke_ctx) do(ctx Context, op any) (_ any) {
     case evoke_noop: c.noop = true; return
     }
     return c.Context.do(ctx, op)
-}
-
-// eval fully leverages the Virtual Machine's single-stream Generator Mode
-// to dynamically unroll and pack AST nodes without recursive heap allocations.
-func eval(ctx Context, v Value) (res Value) {
-	if v == nil { return nil }
-
-	// 1. Initialize the VM in pure Generator Mode
-	s := &symstr{Context: ctx}
-
-	// 2. Push the root evaluation instruction
-	s.ops = append(s.ops, opEvalValue)
-	s.operands = append(s.operands, v)
-
-	// THE DOD FIX: Native Synchronous Packer
-	// Because pure Generator Mode lacks the clsTiePackAST Matcher wrapper,
-	// we must manually initialize the AST packer and feed it emitted symbols.
-	s.vmpack = &vmpack{}
-
-	// 3. Execute the JIT Unroller
-	start := 0
-	for len(s.ops) > 0 && s.err == nil {
-		s.step()
-
-		// 4. Synchronously drain emitted symbols into the AST Packer
-		for _, sym := range s.syms {
-			end := start + sym.len()
-			pos := s.posInRange(start, end)
-			if pos == NoPos { pos = v.Pos() }
-			s.pack(pos, sym, false)
-			start = end
-		}
-
-		s.syms = s.syms[:0] // Clear the tape
-	}
-
-	// 5. Seal and flush the AST Packer buffer natively
-	res = s.reduce(v.Pos())
-	if false { debug(pc(ctx,v.Pos()), "eval: %v -> %v", v, res) }
-	if checkpoints { check(ctx, res, v) }
-	return
-}
-
-// expand is the legacy wrapper delegating to the VM's native evaluator.
-func expand(ctx Context, v Value) Value { return eval(ctx, v) }
-func expand_legacy(ctx Context, v Value) (res Value) {
-	switch t := v.(type) {
-	case *auto:
-		if val := t.def(ctx); val == nil || isTrivial(val) {
-			// Unbound! Bubble the deferral state.
-			if truly(ctx, keep_autos{}) { do(ctx, act_defer_macro{}) }
-			return t // Return AST node because it's unbound
-		} else {
-			// THE DOD FIX: Preserve positional tracking for auto expansions!
-			return _loc(val, t.pos)
-		}
-
-	case *builtin:
-		// Polymorphic Configuration Bubbling
-		var scope arg_expansion_scope
-		switch t.name {
-		case symAuto: // TODO: Eliminated!
-			scope.force_collapse = true
-			scope.skip_expansion = map[int]struct{}{-1:struct{}{}} // Skip ALL arguments. Let __auto handle them!
-		case symForeach, symGrep:
-			scope.force_collapse = true
-			scope.skip_expansion = map[int]struct{}{1:struct{}{}} // Skip expanding the locally-bound body argument
-		case symAddprefix, symAddsuffix, symJoin, symConjunct:
-			scope.force_collapse = true // Eagerly evaluate so unbound autos get wrapped by redis()!
-		}
-		do(ctx, scope)
-		return t
-
-	case *delegate:
-		var dx = delegate_ctx{collapse_ctx{ Context: ctx, good_to_collapse: true }}
-		var x = t.resolve(&dx)
-		var o = expands(&dx, t.o...)
-		var a = dx.args(&dx, t.a)
-		var vals []Value
-
-		if dx.force_collapse || dx.good_to_collapse {
-			for _, xv := range x {
-				var cc = evoke_ctx{ctx, false}
-				var rv = evoke(&cc, xv, o, a)
-				if cc.noop {
-					if !isNull(xv) && truly(ctx, keep_autos{}) {
-						dv := &delegate{t.valbase, t.l, xv, o, a}
-						vals = append(vals, dv)
-						do(ctx, dv)
-					} else {
-						vals = append(vals, _null(t.pos))
-					}
-				} else if rv == nil {
-					vals = append(vals, _null(t.pos))
-				} else {
-					vals = append(vals, _loc(rv, t.pos))
-				}
-			}
-		} else {
-			if !dx.good_to_collapse { do(ctx, act_defer_macro{}) }
-			for _, xv := range x {
-				if isNull(xv) {
-					vals = append(vals, _null(t.pos))
-				} else {
-					dv := &delegate{t.valbase, t.l, xv, o, a}
-					vals = append(vals, dv)
-					do(ctx, dv)
-				}
-			}
-		}
-
-		if res = ease(ctx, vals); checkpoints { check(ctx, res, v, x...) }
-		return
-
-	case *closure:
-		var cx = closure_ctx{collapse_ctx{Context: ctx, good_to_collapse: true }}
-		var x = t.resolve(&cx)
-		var o = expands(&cx, t.o...)
-		var a = cx.args(&cx, t.a)
-		var vals []Value
-
-		if cx.force_collapse || (cx.good_to_collapse && truly(ctx, ex_closure{})) {
-			for _, xv := range x {
-				var cc = evoke_ctx{ctx, false}
-				var rv = evoke(&cc, xv, o, a)
-				if cc.noop || rv == nil {
-					if !isNull(xv) && truly(ctx, keep_autos{}) {
-						cv := &closure{delegate{t.valbase, t.l, xv, o, a}}
-						vals = append(vals, cv)
-						do(ctx, cv)
-					} else {
-						vals = append(vals, _null(t.pos))
-					}
-				} else {
-					vals = append(vals, _loc(rv, t.pos))
-				}
-			}
-		} else {
-			if !cx.good_to_collapse { do(ctx, act_defer_macro{}) }
-			for _, xv := range x {
-				if isNull(xv) {
-					vals = append(vals, _null(t.pos))
-				} else {
-					cv := &closure{delegate{t.valbase, t.l, xv, o, a}}
-					vals = append(vals, cv)
-					do(ctx, cv)
-				}
-			}
-		}
-
-		if res = ease(ctx, vals); checkpoints { check(ctx, res, v, x...) }
-		return
-
-	case *arrow:
-		var vals []Value
-		var p0 = t.Pos()
-		var _, lhs_is_opt = selprop(ctx, t.o) // THE DOD FIX: Capture LHS optionality BEFORE expansion overwrites it!
-		var os = selobjs(ctx, t.t, expand(ctx, t.o))
-		var ss = merge(expand(ctx, t.s))
-		for _, o := range os {
-			for _, s := range ss {
-				var p = s.Pos()
-				var prop_sym, is_opt = selprop(ctx, s)
-				var prop = sel(ctx, o, prop_sym)
-				switch res := prop.(type) {
-				case nil:
-					// If the property is missing but marked as optional,
-					// preserve the AST node and safely bubble the deferral!
-					if is_opt || lhs_is_opt || optional(s) || optional(o) {
-						if truly(ctx, keep_autos{}) {
-							do(ctx, act_defer_macro{})
-
-							// Unwrap 'o' ONLY for AST reconstruction to prevent leaking `*def`
-							var actual_o = o
-							for {
-								if l, ok := actual_o.(*loc); ok { actual_o = l.Value; continue }
-								if d, ok := actual_o.(*def); ok {
-									if d.value != nil { actual_o = d.value; continue }
-									// THE DOD FIX: Preserve unbound *def so the next pass can resolve it!
-								}
-								break
-							}
-							// Preserve the perfectly frozen arrow AST
-							vals = append(vals, &arrow{t.valbase, t.t, actual_o, s})
-						} else {
-							// Normal execution: Silently yield null! (No AST leakage)
-							vals = append(vals, _loc(_null(p), p0))
-						}
-					} else {
-						// STRICT MODE: No '?' present. It is a hard error!
-						erro(pc(ctx,p), "%v: no such property '%s'", o, prop_sym,
-							trace_ctx{100}, callstack{num:12})
-
-						vals = append(vals, _loc(_null(p), p0))
-					}
-				default:
-					vals = append(vals, _loc(_loc(res, p), p0)) // NOTE: not def.value
-				}
-			}
-		}
-		if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
-		return
-
-	case *strlit:
-		if truly(ctx, ex_path_str{}) {
-			return _pathStr(ctx, t.s)
-		} else {
-			return v
-		}
-	case *strval:
-		if truly(ctx, ex_path_str{}) {
-			return &strval{t.valbase, _pathStr(ctx, __string(ctx, t)).elems}
-		} else {
-			return &strval{t.valbase, expands(ctx, t.v...)}
-		}
-	case *strcomp:
-		if truly(ctx, ex_path_str{}) {
-			return &strcomp{elements{_pathStr(ctx, __string(ctx, t)).elems}}
-		} else {
-			return &strcomp{elements{expands(ctx, t.elems...)}}
-		}
-	case *compound:
-		var vals = com(&com_ctx{ctx,0}, nil, t.elems)
-		if res = ease(pc(ctx,v), vals); checkpoints && false { check(ctx, res, v) }
-		return
-	case *qualword:
-		// Expand elements, but we do NOT use com() because dots are strict boundaries,
-		// not whitespace-separated compound elements.
-		var vals = com_qualword(&com_ctx{ctx, 0}, nil, t.elems)
-		if res = ease(ctx, vals); checkpoints { check(ctx, res, v) }
-		return
-	case *pair:
-		var vals []Value
-		var ks = merge(expand(ctx, t.key))
-		var vs = merge(expand(ctx, t.val))
-		for _, k := range ks { for _, v := range vs { vals = append(vals, &pair{k, v}) }}
-		if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
-		return
-	case flag:
-		if t.Value == nil {
-			return t
-		} else {
-			var vals []Value
-			for _, v := range merge(expand(ctx, t.Value)) { vals = append(vals, flag{v}) }
-			if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
-			return
-		}
-	case *conjunction:
-		// 1. Expand the children
-		sep, vals := expand(ctx, t.sep), expands(ctx, t.list.elems...)
-
-		// 2. Check if they are fully expanded (no closures remaining)
-		_, dynamicVals := _redis_elems(vals)
-		_, dynamicSep := _redis(sep)
-
-		// 3. If still dynamic, preserve the conjunction
-		if dynamicVals || dynamicSep {
-			return &conjunction{list{elements{vals}}, sep}
-		}
-
-		// 4. FAST PATH: All expanded! Eagerly collapse into a compound.
-		var valid []Value
-		for _, v := range vals {
-			if !isEmpty(v) {
-				valid = append(valid, v)
-			}
-		}
-
-		if len(valid) == 0 {
-			// Using t.list.Pos() to safely return a positional null
-			return _null(t.list.Pos())
-		}
-
-		c := &compound{}
-		c.app(valid[0])
-		if sep != nil {
-			for _, v := range valid[1:] { c.app(sep, v) }
-		} else {
-			for _, v := range valid[1:] { c.app(v) }
-		}
-		return c
-	case *disjunction:
-		var vals []Value
-		for _, v := range merge(expand(ctx, t.val)) { vals = append(vals, redis(v)) }
-		if res = ease(ctx, vals); checkpoints && false { check(ctx, res, v) }
-		return
-	case *file:
-		if t != nil && truly(ctx, wants_fullfile{}) {
-			return fullfile{t}
-		} else {
-			return t
-		}
-	case *rule:
-		if v := expand(ctx, t.target); !equal(ctx, v, t.target) { t = &rule{v, t.arged, t.program} }
-		return t
-	case *stemmed_rule:
-		if r := expand(ctx, t.rule).(*rule); r != t.rule { t = &stemmed_rule{r, t.target, t.stems} }
-		return t
-	case matched_rule:
-		return matched_rule{expand(ctx, t.rule).(*rule), expand(ctx, t.value)}
-	case fullfile:
-		if truly(ctx,is_com_ctx{}) { return t.file  } else { return t }
-	case fullname:
-		if truly(ctx,is_com_ctx{}) { return t.Value } else {
-			// Lazily resolve the file object at execution time!
-			v := expand(ctx, t.Value)
-			if !isTrivial(v) {
-				if f := as_file(ctx, v); f != nil {
-					// NOTE: `{fullname {file foo}}` explicitly indicates `wants_fullfile`!
-					if true || truly(ctx, wants_fullfile{}) {
-						if pos := v.Pos(); f.pos == pos {
-							return fullfile{f}
-						} else {
-							return _loc(fullfile{f}, pos)
-						}
-					} else {
-						if pos := v.Pos(); f.pos == pos {
-							return fullname{f}
-						} else {
-							return _loc(fullname{f}, pos)
-						}
-					}
-				}
-			}
-			if pos := t.Value.Pos(); pos != v.Pos() { v = _loc(v, pos) }
-			return fullname{v}
-		}
-	case negative: return negative{expand(ctx, t.Value)}
-	case *loc: return &loc{expand(ctx, t.Value), t.pos}
-	case *list: return &list{elements{expands(ctx, t.elems...)}}
-	case *path: return &path{elements{expandp(ctx, t.elems...)}}
-	case *quote: return &quote{list{elements{expands(ctx, t.elems...)}}}
-	case *group: return &group{t.valbase,elements{expands(ctx, t.elems...)}}
-	case *recipe: return &recipe{strcomp{elements{expands(ctx, t.elems...)}}}
-	case *percpat:
-		// FIXED: Eradicated the artificial search-mode restriction (inside_pattern_search).
-		// Patterns expand cleanly in both search and build phases as long as stems exist.
-		if true || truly(ctx, inside_pattern_search{}) {
-			if stems := _stems(ctx); stems != nil && len(stems) > 0 {
-				res, rest := stencil(ctx, t, stems)
-				if len(rest) != 0 {
-					erro(pc(ctx,t.pos), "%v %v → %v %v", stems, t, res, rest)
-				}
-				return res
-			}
-		}
-		return &percpat{t.valbase, expand(ctx,t.Prefix), expand(ctx,t.Suffix)}
-	case *globrange:
-		g := &globrange{};   *g = *t
-		g.Value = expand(ctx, t.Value)
-		return g
-	case *argumented: return &argumented{expand(ctx, t.Value), expands(ctx, t.args...)}
-	case *url: return &url{expand(ctx, t.Scheme), expand(ctx, t.Username), expand(ctx, t.Password), expand(ctx, t.Host), expand(ctx, t.Port), expand(ctx, t.Path), expands(ctx, t.Query...), expand(ctx, t.Fragment)}
-	case *plain: return &plain{elements{expands(ctx, t.elems...)}, t.name}
-	case *plainline: return &plainline{elements{expands(ctx, t.elems...)}}
-	case *use: return &use{t.valbase, t.project, expands(ctx, t.params...), t.opts}
-	case *uselist:
-		var us []*use
-		for _, u := range t.list {
-			u = &use{u.valbase, u.project, expands(ctx, u.params...), u.opts}
-			us = append(us, u)
-		}
-		return &uselist{t.owner_, t.name, t.scope, us}
-	case *modifier: return modify(ctx, &t.group, false)
-	case *modification:
-		var va []Value
-		for _, m := range t.list {
-			if v := expand(ctx, m); v != nil { va = append(va, v) }
-		}
-		return ease(ctx, va)
-	case *undetermined:
-		return &undetermined{t.token, expand(ctx, t.identifier), expand(ctx, t.value)}
-	}
-	return v
-}
-
-func expands(ctx Context, v ...Value) (res []Value) {
-    for _, v := range v { res = append(res, expand(ctx, v)) }
-    return
-}
-
-func expandp(ctx Context, v ...Value) (res []Value) {
-	for _, v := range expands(ctx, v...) {
-		switch t := v.(type) {
-		case  *loc: for _, v := range expandp(ctx, t.Value) { res = append(res,  &loc{v, t.pos}) }
-		case *path: res = append(res, expandp(ctx, t.elems...)...)
-		default: res = append(res, t)
-		}
-	}
-	return
 }
 
 type evoking_x struct{ name Symbol }
@@ -22855,7 +25153,7 @@ func (c *evoke_def_ctx) do(ctx Context, op any) any {
 }
 
 type evoking_builtin struct{ name Symbol }
-type evoke_builtin_ctx struct{ evocation ; x *builtin ; o, a []Value }
+type evoke_builtin_ctx struct{ evocation; vm *symstr; x *builtin; o, a []Value }
 func (c *evoke_builtin_ctx) do(ctx Context, op any) any {
 	switch t := op.(type) {
 	case inner_cast: return &c.evocation
@@ -22895,120 +25193,6 @@ func (p *evoke_rule_ctx) do(ctx Context, op any) any {
 		return p.Context.do(ctx, op)
 	}
 	return p.Context.do(ctx, op)
-}
-
-func evoke(ctx Context, x Value, o, a []Value) (res Value) {
-	switch t := x.(type) {
-	case *project, self: return x
-	case *loc: return evoke(ctx, t.Value, o, a)
-	case matched_rule: return evoke(ctx, t.rule, o, a)
-	case *stemmed_rule: return evoke(&stemmed_ctx{ctx, t}, &rule{t.target, t.arged, t.program}, o, a)
-
-	case *auto:
-		if d := auto_find(ctx, t.name); d == nil || d.value == nil {
-			// THE DOD FIX: Signal a NOOP state to seamlessly preserve the
-			// unbound delegate in the AST, preventing `$1` from collapsing into `{}`.
-			do(ctx, evoke_noop{})
-			return _null(x.Pos())
-		} else if false {
-			return _loc(d.value, x.Pos())
-		} else {
-			// THE DOD FIX: Recursive Delegation!
-			// We cannot 'fallthrough' a type switch, but by recursively invoking
-			// 'evoke' on the resolved *def, we seamlessly inherit the entire
-			// def macro-expansion lifecycle while preserving original positional data.
-			return _loc(evoke(ctx, d, o, a), x.Pos())
-		}
-
-	case *def:
-		if truly(ctx, evoke_detect_loop{t}) {
-			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
-			return _null(x.Pos())
-		}
-
-		de := &evoke_def_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}}, t}
-		if a != nil && len(a) > 0 { de.args(de, a) }
-
-		res = expand(de, t.value)
-
-		if t.iso(defExecute) && !isEmpty(res) { res = t.xexe(de, res) }
-		return
-
-	case *rule:
-		if truly(ctx, evoke_detect_loop{t}) {
-			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
-			return _null(x.Pos())
-		}
-
-		var values []Value
-		cc := &evoke_rule_ctx{Context: ctx, x:t, args: a, result: &values}
-
-		traverse(cc, t)
-
-		return ease(ctx, values)
-
-	case *builtin:
-		if truly(ctx, evoke_detect_loop{t}) {
-			if truly(ctx, evoke_loop_panic{}) { panic(trace_evoke_loop_err{ctx, x}) }
-			return _null(x.Pos())
-		}
-
-		ctx := &evoke_builtin_ctx{evocation{automatic{Context:ctx, defs:make(def_map)}}, t, nil, a}
-		_v := reflect.New(t.t)
-
-		defer t.benchmark(ctx, time_pkg.Now(), _v)
-
-		if f := _v.Elem().FieldByName("builtinbase"); !f.IsValid() {
-			erro(ctx, "no such field: %s.builtinbase", _v.Elem().Type())
-		} else if f.CanAddr() {
-			b := (*builtinbase)(unsafe.Pointer(f.Addr().Pointer()))
-			b.evoke_builtin_ctx = ctx
-		} else if f = _v.Elem().FieldByName("evocation"); !f.IsValid() {
-			erro(ctx, "cannot set field: %s.evocation", _v.Elem().Type())
-		} else if f.CanSet() {
-			f.Set(reflect.ValueOf(ctx))
-		} else if f.CanAddr() && f.Addr().CanSet() {
-			f.Addr().SetPointer(unsafe.Pointer(ctx))
-		} else {
-			erro(ctx, "cannot set field: %s.evocation", _v.Elem().Type())
-		}
-
-		if o != nil { ctx.o = _opts(ctx, _v, o) }
-
-		if x, y := _v.Interface().(builtin_x); y {
-			return ease(ctx, x.x())
-		} else {
-			erro(pc(ctx,x), "no method: %v", t.t.Name())
-		}
-
-	case *uselist:
-		if len(t.list) == 0 { return nil }
-
-		var entries []Value
-		var collect func(ul *uselist)
-		var visited = make(map[*project]struct{}, len(t.list))
-
-		collect = func(ul *uselist) {
-			for _, usee := range ul.list {
-				if _, ok := visited[usee.project]; ok { continue }
-				if p := usee.project.main; p != nil { entries = append(entries, p) }
-				visited[usee.project] = struct{}{}
-			}
-		}
-
-		collect(t)
-
-		return ease(ctx, entries)
-
-	case *delegate, *closure, *word, *raw, *strlit, *compound, *qualword, *arrow, flag:
-		do(ctx, evoke_noop{})
-
-	default:
-		if x != nil && !isTrivial(x) {
-			erro(pc(ctx,x), _f("evoke %s", ts(x,ctx)), trace_ctx{3}, callstack{num:10})
-		}
-	}
-	return
 }
 
 func eval_op(val Value) (op Value, oo, args []Value) {
@@ -23182,7 +25366,7 @@ func (p *dialect_eval) evaluate(ctx Context, args ...Value) (_ Value) {
 			val = evoke(ctx, t, oo, args)
         default:
             if p.o != 0 {
-                val = expand(ctx, recipe)
+                val = eval(ctx, recipe)
             } else {
 				val = recipe
 			}
@@ -23623,7 +25807,7 @@ func (p *exec_buffer) Write(b []byte) (n int, err error) {
                 c := p.xc
                 c.line.s = string(line)
                 c.lino.int64 = int64(p.lnum)
-                v := expand(final{c.Context}, p.forLine)
+                v := eval(final{c.Context}, p.forLine)
                 if !isNull(v) && is_notice_line(c.line.s) {
                     note(c, "%v : %d. %s → %v", p.forLine, line, c.line.s, ts(v))
                 }
@@ -24072,7 +26256,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
 		if !pos.valid() { pos = recipe.Pos() }
 
 		var cc Context = pc(ctx, pos)
-		var v = expand(cc, recipe)
+		var v = eval(cc, recipe)
 
 		// THE DOD FIX: Use the positional context `cc` AND the expanded value `v`
 		// to avoid redundant evaluations and guarantee precise error locations!
@@ -24113,7 +26297,7 @@ func (ctx *exec_ctx) sources(recipes []Value) (sources []*raw) {
 			a1.pos, a1.s = pos, source
 			a2.pos, a2.int64 = pos, int64(len(sources)+1)
 			ac.Context = ctx
-			expand(final{ac}, ctx.forRecipe)
+			eval(final{ac}, ctx.forRecipe)
 		}
 
 		pos, source = 0, ""
@@ -24513,68 +26697,6 @@ func packPath(parts []Value) Value {
 	return &path{elements{parts}}
 }
 
-type named_stem struct{ Value; name Symbol }
-func (p *named_stem) String() string { return p.Value.String() }
-
-// match matches pattern `pat` against value `val`.
-func match(ctx Context, pat, val Value) (matched bool, res, rem Value, stems []Value) {
-	if val == nil || pat == nil { return false, nil, val, nil }
-
-	trail := truly(ctx, propReversal)
-
-	// LAYER 1: The Generator (Unrolls the Target AST)
-	gen := &symstr{Context: ctx}
-	if trail { gen.class |= clsBackwards }
-	gen.push(opEvalValue, val)
-
-	// LAYER 2: The Matcher (Executes the NFA)
-	// THE DOD FIX: Properly initialize telemetry state at the struct level!
-	matcher := &symstr{Context: ctx, tie: gen}
-	if trail { matcher.class |= clsBackwards }
-	matcher.push(opEvalValue, pat)
-
-	// LAYER 3: The Packer (Synthesizes the Resulting AST)
-	packer := &symstr{Context: ctx, tie: matcher, class: clsTiePackAST}
-	if trail { packer.class |= clsBackwards }
-
-	// Execute the 3-Layer Pipeline!
-	packer.exhaust()
-
-	// Stream Termination Symmetry Checks
-	// A match is successful if the Packer finished and the Pattern was fully consumed!
-	if force_full_match_anchor {
-		matched = packer.err == io.EOF && matcher.exhausted() && gen.exhausted()
-	} else {
-		matched = packer.err == io.EOF && matcher.exhausted()
-	}
-
-	if checkpoints && matched {
-		if matcher.stopTieBoundary != matcher.tie.boundary {
-			warn(pc(ctx,val), "diverged byte pos: %v %v: matcher.stopTieBoundary=%d matcher.tie.boundary=%d",
-				pat, val, matcher.stopTieBoundary, matcher.tie.boundary)
-		}
-		if !matcher.exhausted() {
-			warn(pc(ctx,pat), "pattern stream not exhausted: %v %v; %v %v %v %v", pat, val, matcher.ops, matcher.boundary, matcher.str, matcher.syms)
-		}
-		if force_full_match_anchor && !gen.exhausted() {
-			warn(pc(ctx,val), "value stream not exhausted: %v %v; %v %v %v %v", pat, val, gen.ops, gen.boundary, gen.str, gen.syms)
-		}
-	}
-
-	switch len(packer.operands) {
-	case 3: stems  = packer.operands[2].([]Value); fallthrough
-	case 2: rem, _ = packer.operands[1].(Value)  ; fallthrough
-	case 1: res, _ = packer.operands[0].(Value)
-	}
-
-	if checkpoints && matched && rem == nil && matcher.stopTieBoundary > 0 && len(gen.str) > 0 {
-		warn(pc(ctx,val), "leaked fractional shattering: %v %v -> %s, stopByte=%d, boundary=%d",
-			pat, val, gen.str, matcher.stopTieBoundary, gen.boundary)
-	}
-	if checkpoints { check_match(ctx, pat, val, trail)(&matched, &res, &rem, &stems) }
-	return
-}
-
 func stencil(ctx Context, pat Value, stems []Value) (res Value, rest []Value) {
 	switch p := pat.(type) {
 	case *loc:
@@ -24812,7 +26934,7 @@ func (x *execution) resolveWorkdir(ctx Context, proj *project) Symbol {
 		}
 	}
 
-	if v := expand(ctx, o); v == nil {
+	if v := eval(ctx, o); v == nil {
 		return proj.absPath
 	} else {
 		return __symbol(ctx, v)
@@ -24881,7 +27003,7 @@ func (x *execution) register_dependency(dep Value) {
 
 func traverse(ctx Context, val Value) {
 	switch p := val.(type) {
-	case *null, *none, *undef: // Ignored!
+	case *null, *undef: // Ignored!
 	case *loc:
 		traverse(pc(ctx, p.pos), p.Value)
 	case *list:
@@ -24917,7 +27039,7 @@ func traverse(ctx Context, val Value) {
 			}
 
 			ctx = &traverse_ctx{ctx, currVal}
-			v := expand(ctx, currVal)
+			v := eval(ctx, currVal)
 			if isTrivial(v) {
 				if _, isArrow := currVal.(*arrow); isArrow {
 					erro(ctx, "traverse trivial arrow: %v: %s", currVal, ts(currVal, ctx), callstack{num: 10})
@@ -25313,7 +27435,7 @@ func ease(ctx Context, a any) (res Value) {
 			i := vocab.numbers[t.Idx()]
 			vocab.nummut.RUnlock()
 			return _float(pos, math.Float64frombits(i), t)
-		} 
+		}
 		return _word(pos, t)
     case    bool : return _boolean(pos,         t )
     case    int  : return _decimal(pos,   int64(t), 0)
@@ -25793,7 +27915,7 @@ func ts(i any, o ...any) (s string) {
 			s += "]"
 			return
 		}
-		if s := "_ctx"; strings.HasSuffix(t,s) { t = strings.TrimSuffix(t,s) }
+		// if s := "_ctx"; strings.HasSuffix(t,s) { t = strings.TrimSuffix(t,s) }
 	}
 
 	var interceptor Context
@@ -25814,7 +27936,6 @@ func ts(i any, o ...any) (s string) {
 		x.build_ts(&cb, _ts)
 		return cb.shared()
 
-	case         *none:
 	case         *null:
 	case       *answer:
 	case       *option:
@@ -25957,7 +28078,7 @@ func slim_ts(i any, o ...any) string { return ts(i,append(o,ts_no_position{},ts_
 
 func _arrow(pos Pos, tok token, lhs, rhs Value) *arrow { return &arrow{valbase{pos}, tok, lhs, rhs} }
 func _null(pos Pos) *null { return &null{valbase{pos}} }
-func _none(pos Pos) *none { return &none{valbase{pos}} }
+func _none(pos Pos) *valbase { return &valbase{pos} }
 func _answer(pos Pos, v bool) *answer { return &answer{boolean{valbase{pos},v}} }
 func _boolean(pos Pos, v bool) *boolean { return &boolean{valbase{pos},v} }
 func _option(pos Pos, v bool) *option { return &option{boolean{valbase{pos},v}} }
@@ -26175,11 +28296,6 @@ func ParseURL(pos Pos, s string) *url {
 
 type opts struct{ vals []Value }
 type opt  struct{ Value }
-
-func call(ctx Context, name Symbol, o []Value, a ...Value) (res Value) {
-	if v := _universe(ctx).lookup(name); v != nil { res = evoke(ctx, v, o, a) }
-	return
-}
 
 type existence int
 const (
@@ -26660,7 +28776,7 @@ func builtinFinalField(ctx Context, bv reflect.Value, bi any, force bool) bool {
 }
 
 // A builtin represents a built-in function. builtins don't have a valid type.
-type builtin struct{ knownobject ; t reflect.Type }
+type builtin struct{ knownobject ; builtinmeta }
 func (p *builtin) kind() Kind { return p.knownobject.kind()|KindBuiltin }
 func (p *builtin) is_x() bool { return reflect.PointerTo(p.t).Implements(builtin_x_t) }
 func (p *builtin) String() string { return p.name.String() }
@@ -26693,7 +28809,7 @@ const (
 type traverse_state struct{ p any ; uint }
 func (t traverse_state) String() (_ string) {
 	switch t.uint {
-	case traverse_noop: return "traverse none"
+	case traverse_noop: return "traverse noop"
 	case traverse_case: return "traverse case"
 	case traverse_done: return "traverse done"
 	case traverse_next: return "traverse next"
@@ -26710,16 +28826,15 @@ type rule struct{
 func (_ *rule) kind() Kind { return KindObject|KindRule }
 func (p *rule) destiny() Value { return p.target }
 func (p *rule) owner() *project { return p.program[0].project }
-func (p *rule) Pos() (_ Pos) {
-	if pos := p.target.Pos(); pos.valid() {
-		return pos
-	}
+func (p *rule) Pos() Pos {
+	if p == nil { return NoPos }
+	if pos := p.target.Pos(); pos.valid() { return pos }
 	for _, prog := range p.program {
 		if prog.pos.valid() {
 			return prog.pos
 		}
 	}
-	return
+	return NoPos
 }
 func (p *rule) programs(a ...*program) []*program {
 	if 0 < len(a) { p.program = a }
@@ -26738,8 +28853,6 @@ func (p *rule) recipes() (res []Value) {
 	}
 	return
 }
-
-// FIXME: p.target maybe not the real target
 
 func _stemmed(ctx Context) *stemmed_ctx { return cast[*stemmed_ctx](ctx) }
 func _stems(ctx Context) []Value {
@@ -26799,7 +28912,7 @@ func (p *filemap) patterns(ctx Context) (pats []Value) {
 
     for _, pattern := range patts {
         // NOTE it may preserve closure patterns after this expand
-        pat := expand(ctx,pattern)
+        pat := eval(ctx,pattern)
         pats = append(pats, merge(pat)...)
     }
     return
@@ -26820,7 +28933,7 @@ func (p *filemap) matchPat(ctx Context, pat, val Value) (matched bool, name stri
 	var res any
 	matched, res, _, _ = match(ctx, pat, val)
 
-	if false && !matched && !(isNone(pat) || isNull(pat)) {
+	if false && !matched && !isNull(pat) {
 		var str string // NOOP
 		if n := strings.Index(str, pathSep); n < 0 { return }
 
@@ -26876,7 +28989,7 @@ func (p *filemap) stat_UNUSED(ctx Context, name string) (res *file) {
 	for _, path := range p.paths {
 		if isNull(path) {
 			erro(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p))
-		} else if isNone(path) {
+		} else if isTrivial(path) {
 			debug(ctx, _f("nil path: name=%s",  name), _f("nil path: %v", p))
 			continue
 		}
@@ -27535,7 +29648,7 @@ func map_files(ctx Context, p *project, patts, paths []Value) (res []filemap) {
 	var base = &_filemap{p, patts, paths}
 	for _, patt := range patts {
 		switch patt.(type) {
-		case valbase, *null, *none:
+		case valbase, *null:
 			continue
 		}
 		if c := hit(cache_t{ctx}, &p.filemap, patt); c != nil {
@@ -27586,7 +29699,7 @@ func map_entry(ctx Context, p *project, target Value, prog *program) (entry entr
 	}
 
 	if c := hit(cache_t{ctx}, &p.entries, target); c == nil {
-		erro(ctx, "uncachable for: %v | %s", target, ts(target,ctx))
+		erro(ctx, "map_entry for: %v | %s", target, ts(target,ctx))
 	} else {
 		switch len(c) {
 		case 1:
@@ -27809,7 +29922,7 @@ func (p *project) shadow(ctx Context, payload any) *valcache {
 	if cacheKey == nil { return nil }
 
 	// 1. Fully evaluate the closure to get the CURRENT files
-	compiledVal := unloc(expand(final{ctx}, cacheKey))
+	compiledVal := unloc(eval(final{ctx}, cacheKey))
 	if compiledVal == nil { return nil }
 
 	// 2. Stringify the result to detect reassignments (Stale Cache Detection)
@@ -27910,7 +30023,7 @@ func (p *project) select_file_1(ctx Context, m matched_filemap) (res *file) {
 	var fs []*file
 
 	for _, v := range m.paths {
-		if t := expand(final{ctx}, v); t != nil {
+		if t := eval(final{ctx}, v); t != nil {
 			if checkpoints {
 				if strings.Contains(t.String(), "//") {
 					debug(pc(ctx, v.Pos()),
@@ -29856,32 +31969,37 @@ func walkSmartBaseDirs(ctx Context, cwd Symbol, vis func(Symbol) bool) Symbol {
 	return symEmpty
 }
 
-var tmpPathOnce sync.Once // Guarantees the walk only happens exactly once!
-
-func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
-	// 1. Thread-safe Lazy Initialization
-	tmpPathOnce.Do(func() {
+var  baseTmpPathOnce sync.Once // Guarantees the walk only happens exactly once!
+func baseTmpPath(ctx Context, base Symbol) Symbol {
+	// Thread-safe Lazy Initialization
+	baseTmpPathOnce.Do(func() {
 		s := walkSmartBaseDirs(ctx, base, func(d Symbol) bool {
 			return false // return the first found
 		})
 
 		if s == symEmpty {
-			// FIXME: optimize for paths like:
+			// FIXME: optimize paths like:
 			//   /var/folders/6l/hhs6f1cj07j82qy6hdph9cs40000gn/T/smart/.smart/tmp/_/_/_/_/_/_/Volumes/workspace/go/src/extbit.io/smart/testdata/value/configuration.sm
 			// Where `hhs6f1cj07j82qy6hdph9cs40000gn` should never be interned!
-			s = intern(os.TempDir())
+			s = intern(os.TempDir()) // FIXME: optimization
 		}
 
 		// Map the dynamically found path into our hardcoded Constant slot!
 		bind_constant_alias(symBaseTmpPath, s)
 	})
+	return symBaseTmpPath
+}
+
+func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
+	// 1. Thread-safe Lazy Initialization
+	baseTmpPath := baseTmpPath(ctx, base)
 
 	if s := __symDir(rel); s != symEmpty && s != symDot {
 		if base.has_suffix(s) {
 			// In case like '/foo/bar/a/b/c/x' + 'a/b/c/x' -> 'x'
 			rel = __symBase(rel)
 		} else {
-			t := __symPathRel(symBaseTmpPath, base)
+			t := __symPathRel(baseTmpPath, base)
 			tSeq := __symSeq(t)
 
 			// strings.HasPrefix(t, ".smart" + pathSep)
@@ -29903,7 +32021,7 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 		}
 	}
 
-	if s := __symPathRel(symBaseTmpPath, __symPathJoin(base, rel)); s != symEmpty {
+	if s := __symPathRel(baseTmpPath, __symPathJoin(base, rel)); s != symEmpty {
 		rel = s
 	}
 
@@ -29948,10 +32066,10 @@ func joinTmpPath(ctx Context, base, rel Symbol) Symbol {
 
 	// --- Final Path Generation ---
 	if len(relSeq) >= 2 && relSeq[0] == symTmp && relSeq[1] == symSlash {
-		return __symPathJoin(symBaseTmpPath, symDotSmart, rel)
+		return __symPathJoin(baseTmpPath, symDotSmart, rel)
 	}
 
-	return __symPathJoin(symBaseTmpPath, symDotSmart, symTmp, rel)
+	return __symPathJoin(baseTmpPath, symDotSmart, symTmp, rel)
 }
 
 func loadSearchPaths(ctx Context, s Symbol) (paths []Symbol) {
@@ -30459,8 +32577,8 @@ func new_universe(ii ...any) (ctx *universe) {
 	ctx.scope.def(ctx, defVoid, symSMART_ARGS, ease(ctx, os.Args[1:]))
 
 	// Pre-register all builtin functions
-	for name, f := range builtins {
-		_, alt := ctx.scope.builtin(ctx, name, f)
+	for name, m := range builtins {
+		_, alt := ctx.scope.builtin(ctx, name, m)
 		if alt != nil {
 			panic(fmt.Sprintf("builtin '%s' already defined", name))
 		}
@@ -30476,7 +32594,7 @@ func new_universe(ii ...any) (ctx *universe) {
 	var pos Pos = 0
 	ctx.globe.os    = ctx.globe.def(ctx, defVoid, symDotOS, _rw(pos, runtime.GOOS))
 	ctx.globe.mode  = ctx.globe.def(ctx, defVoid, symDotMode, _null(pos))
-	ctx.globe.goals = ctx.globe.def(ctx, defVoid, symDotGoals, _none(pos))
+	ctx.globe.goals = ctx.globe.def(ctx, defVoid, symDotGoals, _null(pos))
 
 	// Pre-allocate searchlist to prevent heap thrashing during directory walk
 	var paths = make(searchlist, 0, 4)
@@ -30583,6 +32701,8 @@ func heap_profile(ctx Context, name string) func() {
 func (u *universe) load(ctx Context) {
 	if u.traceLaunch { defer un(l_trace(l_launch, "universe.load")) }
 
+	_ = baseTmpPath(ctx, u.workdir) // Once-bind symBaseTmpPath to the workdir
+
 	if false { loadGrepCache(ctx) }
 
 	// 1. VFS Pre-Warm / Sanity Check (Replaces dead os.Stat code)
@@ -30603,7 +32723,17 @@ func (u *universe) load(ctx Context) {
 		}
 	}
 
-	top := compiler{term: &term{ctx, u.globe.scope}}
+	top := compiler{
+		symstr: &symstr{
+			Context: &term{ctx, u.globe.scope},
+			vmstack: vmstack{
+				// Allocate initial tape capacities to prevent aggressive reallocation during parsing
+				ops:      make([]evalop, 0, 64),
+				operands: make([]any, 0, 64),
+				results:  make([]any, 0, 64),
+			},
+		},
+	}
 	top.parseArgs(ctx, engineArgs)
 
 	if u.profile {
@@ -30655,10 +32785,10 @@ func (u *universe) load(ctx Context) {
 
 	// 6. Zero-Allocation Path Resolution
 	spec := __symPathRel(symBaseWorkDir, u.workdir)
-	top.directory(top.term, spec, u.workdir)
+	top.directory(spec, u.workdir)
 
 	if false && top.project == nil {
-		erro(pc(ctx,u.workdir), "%v: no project loaded, %s", spec, top.scope, callstack{num:16}, unwind{})
+		erro(pc(ctx,u.workdir), "%v: no project loaded, %s", spec, _term(top.Context).scope, callstack{num:16}, unwind{})
 	}
 	if u.globe.main == nil {
 		erro(pc(ctx,u.workdir), "main project is nil", callstack{num:16}, unwind{})
@@ -30724,7 +32854,7 @@ func (u *universe) run(ctx Context) (result []Value) {
 		}
 		for _, goal := range vals {
 			switch t := goal.(type) {
-			case *null, *none: // Just ignore
+			case *null: // Just ignore
 			case *word:
 				if entries := proj._entries(ctx, t.s, true); len(entries) == 0 {
 					erro(ctx, "no such entry `%s`", t.s)
@@ -31356,7 +33486,7 @@ func (ctx *modifier_debug) x(exe *execution, args ...Value) (result any) {
 
 			var v any
 			if ctx.str { v = __string(ctx, a) } else
-			if ctx.exp { v = expand(ctx, a) } else { v = a }
+			if ctx.exp { v = eval(ctx, a) } else { v = a }
 			ds = append(ds, _f("%v: %v: %v\n", pos, target, v))
 		}
 
@@ -31388,7 +33518,7 @@ func (ctx *modifier_print) x(args ...Value) (result any) {
     if val := auto_get(ctx, symDash); val != nil { content = __string(ctx, val) }
     if ctx.stdout { fmt.Fprint(stdout, content) }
     if ctx.stderr { fmt.Fprint(stderr, content) }
-    if ctx.reset  { auto_set(ctx, defVoid, symDash, _none(_pos(ctx))) }
+    if ctx.reset  { auto_set(ctx, defVoid, symDash, _null(_pos(ctx))) }
     return
 }
 
@@ -31411,31 +33541,31 @@ func (ctx *modifier_preserve) v(args ...Value) (result any) {
 
 type modifier_expand struct { modifier_ }
 func (ctx *modifier_expand) v(args ...Value) (result any) {
-    result = expands(ctx, args...)
+    result = evals(ctx, args...)
     return
 }
 
 type modifier_plain struct { modifier_ }
 func (ctx *modifier_plain) v(args ...Value) (result any) {
-    result = expands(final{ctx}, args...)
+    result = evals(final{ctx}, args...)
     return
 }
 
 type modifier_stringify struct { modifier_ }
 func (ctx *modifier_stringify) v(args ...Value) (result any) {
-    result = expands(final{ctx}, args...)
+    result = evals(final{ctx}, args...)
     return
 }
 
 type modifier_reveal struct { modifier_ }
 func (ctx *modifier_reveal) v(args ...Value) (result any) {
-    result = expands(original{ctx,defExpand1}, args...)
+    result = evals(original{ctx,defExpand1}, args...)
     return
 }
 
 type modifier_disclose struct { modifier_ }
 func (ctx *modifier_disclose) v(args ...Value) (result any) {
-    result = expands(original{ctx,defExpand2}, args...)
+    result = evals(original{ctx,defExpand2}, args...)
     return
 }
 
@@ -31518,7 +33648,7 @@ func (ctx *modifier_set) x(args ...Value) (_ any) {
 		switch a := arg.(type) {
 		case *pair:
 			// NOTE: pair.Value is not expanded, need to do it again.
-			value = expand(ctx, a.val) // NOTE: modifier_var don't expand val
+			value = eval(ctx, a.val) // NOTE: modifier_var don't expand val
 			if value == nil {
 				value = a.val
 			}
@@ -31618,7 +33748,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 		} else if isTrivial(val) {
 			erro(ctx, "trivial target: %T %v", val, val)
 		} else if true {
-			t = expand(ctx, val) //, plain
+			t = eval(ctx, val) //, plain
 		} else {
 			t = val
 		}
@@ -31640,7 +33770,7 @@ func (ctx *modifier_closure) x(exe *execution, args ...Value) (result any) {
 
 	var target Value
 	if ctx.target != nil {
-		if target = expand(ctx, ctx.target); target == ctx.target {
+		if target = eval(ctx, ctx.target); target == ctx.target {
 			// CRITICAL FIX: Use the native symAt constant instead of symAt
 			if t := auto_get(cc, symAt); t != nil {
 				target = t
@@ -31959,7 +34089,7 @@ func searchGreppedName(ctx Context, gp Position, gc *grep_ctx, sys bool, name Sy
 
 	if !sys && res != nil && res.filemap != nil && len(res.filemap.paths) == 1 {
 		if f, ok := res.filemap.paths[0].(flag); ok {
-			sys = isNone(f.Value) || isNull(f.Value)
+			sys = isEmpty(f.Value) || isNull(f.Value)
 		}
 	}
 	if !sys && gc.debug > 0 {
@@ -32471,7 +34601,7 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
         grepped = _execution(ctx).grepped
     )
     if len(targets) == 0 {
-        if target == nil || isNull(target) || isNone(target) {
+        if target == nil || isNull(target) || isEmpty(target) {
             erro(ctx, "no grep target")
         } else {
             targets = append(targets, target)
@@ -32505,9 +34635,6 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
         if isNull(target) {
             erro(ctx, "found nil grep target for %v", tar)
         }
-        if isNone(target) {
-            erro(ctx, "grep target '%v' is none for %v", target, tar)
-        }
 
         gc.target, pc.grepped = target, nil
         if err := grep(ctx, &gc); err != nil {
@@ -32524,7 +34651,7 @@ func (ctx *modifier_grep) x(args ...Value) (result any) {
     pc.grepped = grepped
 
     if !gc.noTraverse {
-        auto_set(ctx.Context, defVoid, symTilde, _none(_pos(ctx)))
+        auto_set(ctx.Context, defVoid, symTilde, _null(_pos(ctx)))
         pc.grepped = nil
     } else {
         result = ease(ctx, pc.grepped)
@@ -33902,7 +36029,7 @@ func (ctx *modifier_assert) z(args ...Value) (_ any) {
 
         if _, y := a.(*punct); y { continue }
 
-        v := expand(final{ctx},a)
+        v := eval(final{ctx},a)
         b := v != nil && __true(ctx, v)
         f := u.hooks.assert
 
@@ -34254,198 +36381,200 @@ func (c *builtinbase) do(ctx Context, op any) (_ any) {
     return c.evoke_builtin_ctx.do(ctx, op)
 }
 
+type builtinmeta struct {
+	t      reflect.Type
+	index  []int
+	isBase bool
+	valid  bool
+}
+
+// makeBuiltin natively precomputes field indices to bypass string matching during JIT.
+func makeBuiltin(v any) builtinmeta {
+	t := reflect.TypeOf(v).Elem()
+	if f, found := t.FieldByName("builtinbase"); found {
+		return builtinmeta{t: t, index: f.Index, isBase: true, valid: true}
+	}
+	if f, found := t.FieldByName("evocation"); found {
+		return builtinmeta{t: t, index: f.Index, isBase: false, valid: true}
+	}
+	return builtinmeta{t: t, valid: false}
+}
+
 type builtin_x interface{ x() any }
 var builtin_x_t = reflect.TypeOf((*builtin_x)(nil)).Elem()
-var builtins = map[Symbol]reflect.Type {
-	symTypeof:    reflect.TypeOf((*__typeof)(nil)).Elem(),
-	symOrigin:    reflect.TypeOf((*__origin)(nil)).Elem(),
-	symDefined:   reflect.TypeOf((*__defined)(nil)).Elem(),
 
-	symPosition:  reflect.TypeOf((*__position)(nil)).Elem(),
-	symDate:      reflect.TypeOf((*__date)(nil)).Elem(),
+var builtins = map[Symbol]builtinmeta{
+	symTypeof:    makeBuiltin((*__typeof)(nil)),
+	symOrigin:    makeBuiltin((*__origin)(nil)),
+	symDefined:   makeBuiltin((*__defined)(nil)),
 
-	symDebug:     reflect.TypeOf((*__debug)(nil)).Elem(),
-	symError:     reflect.TypeOf((*__error)(nil)).Elem(),
-	symWarning:   reflect.TypeOf((*__warning)(nil)).Elem(),
-	symAssert:    reflect.TypeOf((*__assert)(nil)).Elem(),
-	symSure:      reflect.TypeOf((*__sure)(nil)).Elem(),
-	symTrace:     reflect.TypeOf((*__trace)(nil)).Elem(),
+	symPosition:  makeBuiltin((*__position)(nil)),
+	symDate:      makeBuiltin((*__date)(nil)),
 
-	symDefor:     reflect.TypeOf((*__defor)(nil)).Elem(),
-	symOr:        reflect.TypeOf((*__or)(nil)).Elem(),
-    symAnd:       reflect.TypeOf((*__and)(nil)).Elem(),
-    symNot:       reflect.TypeOf((*__not)(nil)).Elem(),
-    symXor:       reflect.TypeOf((*__xor)(nil)).Elem(),
+	symDebug:     makeBuiltin((*__debug)(nil)),
+	symError:     makeBuiltin((*__error)(nil)),
+	symWarning:   makeBuiltin((*__warning)(nil)),
+	symAssert:    makeBuiltin((*__assert)(nil)),
+	symSure:      makeBuiltin((*__sure)(nil)),
+	symTrace:     makeBuiltin((*__trace)(nil)),
 
-    symEqual:     reflect.TypeOf((*__equal)(nil)).Elem(),
-    symNe:        reflect.TypeOf((*__unequal)(nil)).Elem(),
-    symNotEqual: reflect.TypeOf((*__unequal)(nil)).Elem(),
-    symMatch:     reflect.TypeOf((*__match)(nil)).Elem(),
+	symDefor:     makeBuiltin((*__defor)(nil)),
+	symOr:        makeBuiltin((*__or)(nil)),
+	symAnd:       makeBuiltin((*__and)(nil)),
+	symNot:       makeBuiltin((*__not)(nil)),
+	symXor:       makeBuiltin((*__xor)(nil)),
 
-    symGreater:   reflect.TypeOf((*__greater)(nil)).Elem(),
-    symLess:      reflect.TypeOf((*__less)(nil)).Elem(),
+	symEqual:     makeBuiltin((*__equal)(nil)),
+	symNe:        makeBuiltin((*__unequal)(nil)),
+	symNotEqual:  makeBuiltin((*__unequal)(nil)),
+	symMatch:     makeBuiltin((*__match)(nil)),
 
-    symCase:      reflect.TypeOf((*__case)(nil)).Elem(),
-    symIf:        reflect.TypeOf((*__if)(nil)).Elem(),
-    symIfeq:      reflect.TypeOf((*__ifeq)(nil)).Elem(),
-    symIfne:      reflect.TypeOf((*__ifne)(nil)).Elem(),
-    symIfarg:     reflect.TypeOf((*__ifarg)(nil)).Elem(),
-    symIfdef:     reflect.TypeOf((*__ifdef)(nil)).Elem(),
+	symGreater:   makeBuiltin((*__greater)(nil)),
+	symLess:      makeBuiltin((*__less)(nil)),
 
-    symFor:       reflect.TypeOf((*__for)(nil)).Elem(),
-    symForeach:   reflect.TypeOf((*__foreach)(nil)).Elem(),
-    symCount:     reflect.TypeOf((*__count)(nil)).Elem(),
+	symCase:      makeBuiltin((*__case)(nil)),
+	symIf:        makeBuiltin((*__if)(nil)),
+	symIfeq:      makeBuiltin((*__ifeq)(nil)),
+	symIfne:      makeBuiltin((*__ifne)(nil)),
+	symIfarg:     makeBuiltin((*__ifarg)(nil)),
+	symIfdef:     makeBuiltin((*__ifdef)(nil)),
 
-    symCall:      reflect.TypeOf((*__call)(nil)).Elem(),
-    symDefs:      reflect.TypeOf((*__defs)(nil)).Elem(),
+	symFor:       makeBuiltin((*__for)(nil)),
+	symForeach:   makeBuiltin((*__foreach)(nil)),
+	symCount:     makeBuiltin((*__count)(nil)),
 
-    symValue:     reflect.TypeOf((*__value)(nil)).Elem(),
-    symList:      reflect.TypeOf((*__list)(nil)).Elem(),
-    symEnv:       reflect.TypeOf((*__env)(nil)).Elem(),
+	symCall:      makeBuiltin((*__call)(nil)),
+	symDefs:      makeBuiltin((*__defs)(nil)),
 
-    symShell:     reflect.TypeOf((*__shell)(nil)).Elem(),
-    symWhich:     reflect.TypeOf((*__which)(nil)).Elem(),
+	symValue:     makeBuiltin((*__value)(nil)),
+	symList:      makeBuiltin((*__list)(nil)),
+	symEnv:       makeBuiltin((*__env)(nil)),
 
-    symPlus:      reflect.TypeOf((*__plus)(nil)).Elem(),
-    symMinus:     reflect.TypeOf((*__minus)(nil)).Elem(),
-    symMultiply:  reflect.TypeOf((*__multiply)(nil)).Elem(),
-    symMul:       reflect.TypeOf((*__multiply)(nil)).Elem(),
-    symDivide:    reflect.TypeOf((*__divide)(nil)).Elem(),
-    symDiv:       reflect.TypeOf((*__divide)(nil)).Elem(),
+	symShell:     makeBuiltin((*__shell)(nil)),
+	symWhich:     makeBuiltin((*__which)(nil)),
 
-    symJoin:       reflect.TypeOf((*__join)(nil)).Elem(),
-    symConjunct:   reflect.TypeOf((*__conjunct)(nil)).Elem(), // concat
-    symQuote:      reflect.TypeOf((*__quote)(nil)).Elem(),
-    symUnique:     reflect.TypeOf((*__unique)(nil)).Elem(),
+	symPlus:      makeBuiltin((*__plus)(nil)),
+	symMinus:     makeBuiltin((*__minus)(nil)),
+	symMultiply:  makeBuiltin((*__multiply)(nil)),
+	symMul:       makeBuiltin((*__multiply)(nil)),
+	symDivide:    makeBuiltin((*__divide)(nil)),
+	symDiv:       makeBuiltin((*__divide)(nil)),
 
-    symSplit:          reflect.TypeOf((*__split)(nil)).Elem(),
-    symSplitQuote:     reflect.TypeOf((*__splitquote)(nil)).Elem(),
-    symSplitQuoteJoin: reflect.TypeOf((*__splitquotejoin)(nil)).Elem(),
-    symSplitJoinQuote: reflect.TypeOf((*__splitjoinquote)(nil)).Elem(),
+	symJoin:       makeBuiltin((*__join)(nil)),
+	symConjunct:   makeBuiltin((*__conjunct)(nil)),
+	symQuote:      makeBuiltin((*__quote)(nil)),
+	symUnique:     makeBuiltin((*__unique)(nil)),
 
-    symElement:      reflect.TypeOf((*__element)(nil)).Elem(),
-    symField:        reflect.TypeOf((*__field)(nil)).Elem(),
-    symFields:       reflect.TypeOf((*__fields)(nil)).Elem(),
+	symSplit:          makeBuiltin((*__split)(nil)),
+	symSplitQuote:     makeBuiltin((*__splitquote)(nil)),
+	symSplitQuoteJoin: makeBuiltin((*__splitquotejoin)(nil)),
+	symSplitJoinQuote: makeBuiltin((*__splitjoinquote)(nil)),
 
-    // symUsee:         reflect.TypeOf((*__usee)(nil)).Elem(),
-    symUses:         reflect.TypeOf((*__uses)(nil)).Elem(),
+	symElement:      makeBuiltin((*__element)(nil)),
+	symField:        makeBuiltin((*__field)(nil)),
+	symFields:       makeBuiltin((*__fields)(nil)),
 
-    symPath:         reflect.TypeOf((*__path)(nil)).Elem(),
-    symWord:         reflect.TypeOf((*__word)(nil)).Elem(),
-    symFinalize:     reflect.TypeOf((*__finalize)(nil)).Elem(),
-    // symResolve:      reflect.TypeOf((*__resolve)(nil)).Elem(),
-    symStrip:        reflect.TypeOf((*__trim)(nil)).Elem(),
-    symTrim:         reflect.TypeOf((*__trim)(nil)).Elem(),
-    symTrimLeft:     reflect.TypeOf((*__trimleft)(nil)).Elem(),
-    symTrimRight:    reflect.TypeOf((*__trimright)(nil)).Elem(),
-    symTrimPrefix:   reflect.TypeOf((*__trimprefix)(nil)).Elem(),
-    symTrimSuffix:   reflect.TypeOf((*__trimsuffix)(nil)).Elem(),
-    symTrimExt:      reflect.TypeOf((*__trimext)(nil)).Elem(),
+	symUses:         makeBuiltin((*__uses)(nil)),
 
-    symGitdir:       reflect.TypeOf((*__gitdir)(nil)).Elem(),
+	symPath:         makeBuiltin((*__path)(nil)),
+	symWord:         makeBuiltin((*__word)(nil)),
+	symFinalize:     makeBuiltin((*__finalize)(nil)),
+	symStrip:        makeBuiltin((*__trim)(nil)),
+	symTrim:         makeBuiltin((*__trim)(nil)),
+	symTrimLeft:     makeBuiltin((*__trimleft)(nil)),
+	symTrimRight:    makeBuiltin((*__trimright)(nil)),
+	symTrimPrefix:   makeBuiltin((*__trimprefix)(nil)),
+	symTrimSuffix:   makeBuiltin((*__trimsuffix)(nil)),
+	symTrimExt:      makeBuiltin((*__trimext)(nil)),
 
-    symAddprefix:    reflect.TypeOf((*__addprefix)(nil)).Elem(),
-    symAddsuffix:    reflect.TypeOf((*__addsuffix)(nil)).Elem(),
+	symGitdir:       makeBuiltin((*__gitdir)(nil)),
 
-    symTitle:        reflect.TypeOf((*__title)(nil)).Elem(),
-    symIndent:       reflect.TypeOf((*__indent)(nil)).Elem(),
-    symSubstring:    reflect.TypeOf((*__substring)(nil)).Elem(),
-    symUppercase:    reflect.TypeOf((*__uppercase)(nil)).Elem(),
-    symLowercase:    reflect.TypeOf((*__lowercase)(nil)).Elem(),
+	symAddprefix:    makeBuiltin((*__addprefix)(nil)),
+	symAddsuffix:    makeBuiltin((*__addsuffix)(nil)),
 
-    // https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
-    symSubst:        reflect.TypeOf((*__subst)(nil)).Elem(), // substitute
-    symSubstitute:   reflect.TypeOf((*__subst)(nil)).Elem(),
-    symPatsubst:     reflect.TypeOf((*__patsubst)(nil)).Elem(),
+	symTitle:        makeBuiltin((*__title)(nil)),
+	symIndent:       makeBuiltin((*__indent)(nil)),
+	symSubstring:    makeBuiltin((*__substring)(nil)),
+	symUppercase:    makeBuiltin((*__uppercase)(nil)),
+	symLowercase:    makeBuiltin((*__lowercase)(nil)),
 
-    symContains:     reflect.TypeOf((*__contains)(nil)).Elem(),
-    symFilter:       reflect.TypeOf((*__filter)(nil)).Elem(),
-    symFilterOut:    reflect.TypeOf((*__filterout)(nil)).Elem(),
+	symSubst:        makeBuiltin((*__subst)(nil)),
+	symSubstitute:   makeBuiltin((*__subst)(nil)),
+	symPatsubst:     makeBuiltin((*__patsubst)(nil)),
 
-    symDecodeBase64: reflect.TypeOf((*__decodebase64)(nil)).Elem(),
-    symEncodeBase64: reflect.TypeOf((*__encodebase64)(nil)).Elem(),
-    /* TODO:
-    `encode-base32`
-    `decode-base32`
-    `encode-json`
-    `decode-json`
-    `encode-xml`
-    `decode-xml`
-    `encode-hex`
-    `decode-hex`
-    `encode-csv`
-    `decode-csv` */
+	symContains:     makeBuiltin((*__contains)(nil)),
+	symFilter:       makeBuiltin((*__filter)(nil)),
+	symFilterOut:    makeBuiltin((*__filterout)(nil)),
 
-    symExt:        reflect.TypeOf((*__ext)(nil)).Elem(),
+	symDecodeBase64: makeBuiltin((*__decodebase64)(nil)),
+	symEncodeBase64: makeBuiltin((*__encodebase64)(nil)),
 
-    symBase:       reflect.TypeOf((*__base1)(nil)).Elem(),
-    symBase2:      reflect.TypeOf((*__base2)(nil)).Elem(),
-    symBase3:      reflect.TypeOf((*__base3)(nil)).Elem(),
-    symBase4:      reflect.TypeOf((*__base4)(nil)).Elem(),
-    symBase5:      reflect.TypeOf((*__base5)(nil)).Elem(),
-    symBase6:      reflect.TypeOf((*__base6)(nil)).Elem(),
-    symBase7:      reflect.TypeOf((*__base7)(nil)).Elem(),
-    symBase8:      reflect.TypeOf((*__base8)(nil)).Elem(),
-    symBase9:      reflect.TypeOf((*__base9)(nil)).Elem(),
-    symBases:      reflect.TypeOf((*__bases)(nil)).Elem(),
+	symExt:        makeBuiltin((*__ext)(nil)),
 
-    symChopdir:    reflect.TypeOf((*__chopdir)(nil)).Elem(),
+	symBase:       makeBuiltin((*__base1)(nil)),
+	symBase2:      makeBuiltin((*__base2)(nil)),
+	symBase3:      makeBuiltin((*__base3)(nil)),
+	symBase4:      makeBuiltin((*__base4)(nil)),
+	symBase5:      makeBuiltin((*__base5)(nil)),
+	symBase6:      makeBuiltin((*__base6)(nil)),
+	symBase7:      makeBuiltin((*__base7)(nil)),
+	symBase8:      makeBuiltin((*__base8)(nil)),
+	symBase9:      makeBuiltin((*__base9)(nil)),
+	symBases:      makeBuiltin((*__bases)(nil)),
 
-    symDir:        reflect.TypeOf((*__dir)(nil)).Elem(),
-    symDir2:       reflect.TypeOf((*__dir2)(nil)).Elem(),
-    symDir3:       reflect.TypeOf((*__dir3)(nil)).Elem(),
-    symDir4:       reflect.TypeOf((*__dir4)(nil)).Elem(),
-    symDir5:       reflect.TypeOf((*__dir5)(nil)).Elem(),
-    symDir6:       reflect.TypeOf((*__dir6)(nil)).Elem(),
-    symDir7:       reflect.TypeOf((*__dir7)(nil)).Elem(),
-    symDir8:       reflect.TypeOf((*__dir8)(nil)).Elem(),
-    symDir9:       reflect.TypeOf((*__dir9)(nil)).Elem(),
-    symDirs:       reflect.TypeOf((*__dirs)(nil)).Elem(),
+	symChopdir:    makeBuiltin((*__chopdir)(nil)),
 
-    symUndir:      reflect.TypeOf((*__undir1)(nil)).Elem(),
-    symUndir2:     reflect.TypeOf((*__undir2)(nil)).Elem(),
-    symUndir3:     reflect.TypeOf((*__undir3)(nil)).Elem(),
-    symUndir4:     reflect.TypeOf((*__undir4)(nil)).Elem(),
-    symUndir5:     reflect.TypeOf((*__undir5)(nil)).Elem(),
-    symUndir6:     reflect.TypeOf((*__undir6)(nil)).Elem(),
-    symUndir7:     reflect.TypeOf((*__undir7)(nil)).Elem(),
-    symUndir8:     reflect.TypeOf((*__undir8)(nil)).Elem(),
-    symUndir9:     reflect.TypeOf((*__undir9)(nil)).Elem(),
-    symUndirs:     reflect.TypeOf((*__undirs)(nil)).Elem(),
+	symDir:        makeBuiltin((*__dir)(nil)),
+	symDir2:       makeBuiltin((*__dir2)(nil)),
+	symDir3:       makeBuiltin((*__dir3)(nil)),
+	symDir4:       makeBuiltin((*__dir4)(nil)),
+	symDir5:       makeBuiltin((*__dir5)(nil)),
+	symDir6:       makeBuiltin((*__dir6)(nil)),
+	symDir7:       makeBuiltin((*__dir7)(nil)),
+	symDir8:       makeBuiltin((*__dir8)(nil)),
+	symDir9:       makeBuiltin((*__dir9)(nil)),
+	symDirs:       makeBuiltin((*__dirs)(nil)),
 
-    symReldir:       reflect.TypeOf((*__reldir)(nil)).Elem(),
-    symRelativeDir:  reflect.TypeOf((*__reldir)(nil)).Elem(),
+	symUndir:      makeBuiltin((*__undir1)(nil)),
+	symUndir2:     makeBuiltin((*__undir2)(nil)),
+	symUndir3:     makeBuiltin((*__undir3)(nil)),
+	symUndir4:     makeBuiltin((*__undir4)(nil)),
+	symUndir5:     makeBuiltin((*__undir5)(nil)),
+	symUndir6:     makeBuiltin((*__undir6)(nil)),
+	symUndir7:     makeBuiltin((*__undir7)(nil)),
+	symUndir8:     makeBuiltin((*__undir8)(nil)),
+	symUndir9:     makeBuiltin((*__undir9)(nil)),
+	symUndirs:     makeBuiltin((*__undirs)(nil)),
 
-    symFile:         reflect.TypeOf((*__file)(nil)).Elem(),
-    symStat:         reflect.TypeOf((*__stat)(nil)).Elem(),// stat (deprecates file-exists)
-    symGlob:         reflect.TypeOf((*__glob)(nil)).Elem(),
-    symWildcard:     reflect.TypeOf((*__wildcard)(nil)).Elem(),
+	symReldir:       makeBuiltin((*__reldir)(nil)),
+	symRelativeDir:  makeBuiltin((*__reldir)(nil)),
 
-    symReadDir:      reflect.TypeOf((*__readdir)(nil)).Elem(),  // io/ioutil/ioutil.go
-    symReadFile:     reflect.TypeOf((*__readfile)(nil)).Elem(), // io/ioutil/ioutil.go
+	symFile:         makeBuiltin((*__file)(nil)),
+	symStat:         makeBuiltin((*__stat)(nil)),
+	symGlob:         makeBuiltin((*__glob)(nil)),
+	symWildcard:     makeBuiltin((*__wildcard)(nil)),
 
-    symGrep:         reflect.TypeOf((*__grep)(nil)).Elem(),
+	symReadDir:      makeBuiltin((*__readdir)(nil)),
+	symReadFile:     makeBuiltin((*__readfile)(nil)),
 
-    // commands ------------------------------------------------------------------
-    symPrint:        reflect.TypeOf((*__print)(nil)).Elem(),
-    symPrintf:       reflect.TypeOf((*__printf)(nil)).Elem(),
+	symGrep:         makeBuiltin((*__grep)(nil)),
 
-    symPlain:        reflect.TypeOf((*__plain)(nil)).Elem(),
+	symPrint:        makeBuiltin((*__print)(nil)),
+	symPrintf:       makeBuiltin((*__printf)(nil)),
+	symPlain:        makeBuiltin((*__plain)(nil)),
+	symAppend:       makeBuiltin((*__append)(nil)),
+	symWriteFile:    makeBuiltin((*__writefile)(nil)),
+	symTouchFile:    makeBuiltin((*__touchfile)(nil)),
 
-    symAppend:       reflect.TypeOf((*__append)(nil)).Elem(),
+	symMkdir:        makeBuiltin((*__mkdir)(nil)),
+	symChdir:        makeBuiltin((*__chdir)(nil)),
+	symRename:       makeBuiltin((*__rename)(nil)),
+	symRemove:       makeBuiltin((*__remove)(nil)),
+	symLink:         makeBuiltin((*__link)(nil)),
+	symSymlink:      makeBuiltin((*__symlink)(nil)),
+	symTruncate:     makeBuiltin((*__truncate)(nil)),
 
-    symWriteFile:    reflect.TypeOf((*__writefile)(nil)).Elem(), // io/ioutil/ioutil.go
-    symTouchFile:    reflect.TypeOf((*__touchfile)(nil)).Elem(), // io/ioutil/ioutil.go
-
-    symMkdir:        reflect.TypeOf((*__mkdir)(nil)).Elem(),     // os/file.go
-    symChdir:        reflect.TypeOf((*__chdir)(nil)).Elem(),     // os/file.go
-    symRename:       reflect.TypeOf((*__rename)(nil)).Elem(),    // os/file.go
-    symRemove:       reflect.TypeOf((*__remove)(nil)).Elem(),    // os/file_*.go
-    symLink:         reflect.TypeOf((*__link)(nil)).Elem(),      // os/file_*.go
-    symSymlink:      reflect.TypeOf((*__symlink)(nil)).Elem(),   // os/file_*.go
-    symTruncate:     reflect.TypeOf((*__truncate)(nil)).Elem(),  // os/file_*.go
-
-    symServeHttp:    reflect.TypeOf((*__servehttp)(nil)).Elem(),
+	symServeHttp:    makeBuiltin((*__servehttp)(nil)),
 }
 
 func escapedString(ctx Context, v Value) (s string) {
@@ -34520,13 +36649,13 @@ func _set(ctx Context, val reflect.Value, v Value) {
                 val.Set(reflect.ValueOf(&t))
             } else {
                 debug(pc(ctx,v), _f("%v → %v", v, as_file(ctx, v)),
-					_f("not a file: %v → %s", ts(v), ts(expand(ctx, v))), unwind{})
+					_f("not a file: %v → %s", ts(v), ts(eval(ctx, v))), unwind{})
             }
         case "smart.file":
             if t := as_file(ctx, v); t != nil {
                 val.Set(reflect.ValueOf(t))
             } else {
-                erro(pc(ctx,v), _f("not a file: %v → %s", ts(v), ts(expand(ctx, v))))
+                erro(pc(ctx,v), _f("not a file: %v → %s", ts(v), ts(eval(ctx, v))))
             }
         case "regexp.Regexp":
             if rx, e := regexp.Compile(__string(ctx, v)); e == nil {
@@ -35012,7 +37141,7 @@ func (ctx *__or) do(c Context, op any) any {
 }
 func (ctx *__or) x() (res any) {
 	for _, a := range merge(ctx.a...) {
-		if a = expand(ctx, a); __true(ctx, a) { return a }
+		if a = eval(ctx, a); __true(ctx, a) { return a }
 	}
 	return
 }
@@ -35027,7 +37156,7 @@ func (ctx *__and) do(c Context, op any) any {
 }
 func (ctx *__and) x() (res any) {
     for _, a := range merge(ctx.a...) {
-        if a = expand(ctx, a); __true(ctx, a) { res = a } else { return nil }
+        if a = eval(ctx, a); __true(ctx, a) { res = a } else { return nil }
     }
     return
 }
@@ -35082,8 +37211,8 @@ func (ctx *__unequal) x() (_ any) {
 			_f("try: $(unequal <value-list>,<value-list>)"), unwind{})
     }
 
-    var a = expand(final{ctx}, ctx.a[0])
-    var b = expand(final{ctx}, ctx.a[1])
+    var a = eval(final{ctx}, ctx.a[0])
+    var b = eval(final{ctx}, ctx.a[1])
     var t = cmp(ctx, a, b) != cmpEqual
 
     if t {
@@ -35122,7 +37251,7 @@ func (ctx *__equal) x() (_ any) {
         note(ctx, "try: $(equal <value-list>,<value-list>)", unwind{})
     }
 
-    args := expands(ctx, ctx.a...)
+    args := evals(ctx, ctx.a...)
 
     if a, b := args[0], args[1]; ctx.str {
         return __string(ctx, a) == __string(ctx, b)
@@ -35145,7 +37274,7 @@ func (ctx *__greater) x() (res any) {
         note(ctx, "try: $(greater <value-list>,<value-list>)", unwind{})
     }
 
-    args := expands(ctx, ctx.a...)
+    args := evals(ctx, ctx.a...)
 
     if a, b := args[0], args[1]; ctx.str {
         if __string(ctx, a) > __string(ctx, b) { return true }
@@ -35169,7 +37298,7 @@ func (ctx *__less) x() (res any) {
         note(ctx, "try: $(greater <value-list>,<value-list>)", unwind{})
     }
 
-    args := expands(ctx, ctx.a...)
+    args := evals(ctx, ctx.a...)
 
     if a, b := args[0], args[1]; ctx.str {
         if __string(ctx, a) < __string(ctx, b) { return true }
@@ -35184,7 +37313,7 @@ type __match struct { builtinbase
 	result bool `result,res`
 	remnant bool `remnant,rem,rest`
 	stems bool `stems,stem`
-	bilit bool `bidirectional-literal,bilit` // TODO: set bidirectional_fallback_emit_literal=true
+	bilit bool `bidirectional-literal,bilit` // TODO: set bidirectional_fallback_ret_literal=true
     negated bool `ne,neg,negated,negative,not`
 	shallow bool `shallow` // TODO: shallow match without expand $(xx) or &(yy)
 	reverse bool `reverse,trail`
@@ -35262,13 +37391,13 @@ func (ctx *__case) x() (res any) {
         return
     }
     if _, y := args[0].(*group); !y {
-        val = expand(ctx, args[0])
+        val = eval(ctx, args[0])
         args = args[1:]
     }
 
     var def []Value
     for _, arg := range args { if g, y := arg.(*group); y && len(g.elems)>0 {
-        if n := len(g.elems); val != nil && isNone(val) && n == 1 {
+        if n := len(g.elems); val != nil && isEmpty(val) && n == 1 {
             return g.elems[0]
         } else if n == 1 {
             def = append(def, g.elems[0])
@@ -35276,7 +37405,7 @@ func (ctx *__case) x() (res any) {
         }
 
         var collect bool
-        var v = expand(ctx, g.elems[0])
+        var v = eval(ctx, g.elems[0])
         if val == nil && v != nil && __true(ctx, v) {
             collect = true
         } else if val != nil && isTrivial(val) {
@@ -35325,10 +37454,10 @@ func (ctx *__if) ts(string) string {
 }
 func (ctx *__if) x() (res any) {
 	if 1 < len(ctx.a) {
-		if __true(ctx, expand(ctx, ctx.a[0])) {
-			return expand(ctx, ctx.a[1])
+		if __true(ctx, eval(ctx, ctx.a[0])) {
+			return eval(ctx, ctx.a[1])
 		} else {
-			return expands(ctx, ctx.a[2:]...)
+			return evals(ctx, ctx.a[2:]...)
 		}
 	}
 	return
@@ -35448,7 +37577,7 @@ func (ctx *__foreach) x() (res any) {
 		um = make(map[uint64][]Value)
 	}
 
-	for _, val := range merge(expand(ctx, ctx.a[0])) {
+	for _, val := range merge(eval(ctx, ctx.a[0])) {
 		if !ctx.empty && isEmpty(val) {
 			continue
 		} else if ctx.unique {
@@ -35475,7 +37604,7 @@ func (ctx *__foreach) x() (res any) {
 		// redis() will now perfectly receive the raw *auto node!
 		ctx.set(ctx, defVoid, symUnderscore, redis(val))
 
-		for _, v := range merge(expands(ctx, ctx.a[1:]...)...) {
+		for _, v := range merge(evals(ctx, ctx.a[1:]...)...) {
 			if !ctx.empty && isEmpty(v) {
 				continue
 			}
@@ -35517,7 +37646,7 @@ func (ctx *__env) do(c Context, op any) any {
 func (ctx *__env) x() (res any) {
     var vals []Value
     for _, a := range ctx.a {
-        if val := expand(ctx, a); isTrivial(val) {
+        if val := eval(ctx, a); isTrivial(val) {
             continue
         } else if s := strings.TrimSpace(__string(ctx, val)); s != "" {
             vals = append(vals, _rw(a.Pos(), os.Getenv(s)))
@@ -35665,7 +37794,7 @@ func (ctx *__plain) x() (res any) {
         } else if d, y := o.(*def); !y {
             erro(pc(ctx,a), "not a def: %s: %v", s, typeof(o))
         } else if d.value != nil {
-            d.value = expand(ctx, d.value)
+            d.value = eval(ctx, d.value)
         }
     }
     return
@@ -36166,7 +38295,7 @@ func (ctx *__quotejoin) x() (res any) {
         }
         res = _strlit(_pos(ctx), strconv.Quote(strings.Join(fields, sep)))
     } else {
-        res = _none(_pos(ctx))
+        res = _null(_pos(ctx))
     }
     return
 }
@@ -36304,7 +38433,7 @@ func (ctx *__element) do(c Context, op any) any {
 func (ctx *__element) x() (res any) {
 	var elems []Value
 	for _, o := range ctx.o {
-		x, ok := unbox(expand(ctx, o)).(Value)
+		x, ok := unbox(eval(ctx, o)).(Value)
 		if ok && x.kind()&KindInteger != 0 {
 			var i = int(__int(ctx, x))
 			for _, v := range ctx.a {
@@ -36328,7 +38457,7 @@ func (ctx *__field) do(c Context, op any) any {
 func (ctx *__field) x() (res any) {
 	var elems []Value
 	for _, o := range ctx.o {
-		x, ok := unbox(expand(ctx, o)).(Value)
+		x, ok := unbox(eval(ctx, o)).(Value)
 		if ok && x.kind()&KindInteger != 0 {
 			var i = int(__int(ctx, x))
 			for _, v := range ctx.a {
@@ -36353,7 +38482,7 @@ func (ctx *__fields) x() any {
 	var elems []Value
 
 	if len(ctx.a) == 2 {
-		x, ok := unbox(expand(ctx, ctx.a[0])).(Value)
+		x, ok := unbox(eval(ctx, ctx.a[0])).(Value)
 		if ok && x.kind()&KindInteger != 0 {
 			var i = int(__int(ctx, x))
 			for _, v := range ctx.a[1:] {
@@ -36523,7 +38652,7 @@ func (ctx *__finalize) do(c Context, op any) any {
 	return ctx.builtinbase.do(c, op)
 }
 func (ctx *__finalize) x() any {
-    return expands(final{ctx}, ctx.a...)
+    return evals(final{ctx}, ctx.a...)
 }
 
 type __filter struct { builtinbase
@@ -36793,7 +38922,7 @@ func (ctx *__filter) _x(pats []Value, values ...Value) (result []Value) {
 func (ctx *__filter) x() (res any) {
 	if len(ctx.a) > 1 {
 		var i int
-		var pats = merge(expand(ctx, ctx.a[0]))
+		var pats = merge(eval(ctx, ctx.a[0]))
 
 		if len(pats) > 0 {
 			i = 1
@@ -36805,7 +38934,7 @@ func (ctx *__filter) x() (res any) {
 		}
 
 		if i <= len(ctx.a) {
-			res = ctx._x(pats, merge(expands(ctx, ctx.a[i:]...)...)...)
+			res = ctx._x(pats, merge(evals(ctx, ctx.a[i:]...)...)...)
 		} else {
 			erro(ctx, "out of index: %d > %d, %v", i, len(ctx.a), ctx.a)
 		}
@@ -37422,8 +39551,8 @@ func (ctx *__addprefix) x() any {
 	}
 
 	var res []Value
-	var prefixes = merge(expand(ctx, ctx.a[0]))
-	for _, w := range merge(expands(ctx, ctx.a[1:]...)...) {
+	var prefixes = merge(eval(ctx, ctx.a[0]))
+	for _, w := range merge(evals(ctx, ctx.a[1:]...)...) {
 		if !isEmpty(w) {
 			for _, p := range prefixes {
 				// CRITICAL: Apply redis to the FINAL combined AST!
@@ -37448,8 +39577,8 @@ func (ctx *__addsuffix) x() any {
 	}
 
 	var res []Value
-	var suffixes = merge(expand(ctx, ctx.a[0]))
-	for _, w := range merge(expands(ctx, ctx.a[1:]...)...) {
+	var suffixes = merge(eval(ctx, ctx.a[0]))
+	for _, w := range merge(evals(ctx, ctx.a[1:]...)...) {
 		if !isEmpty(w) {
 			for _, s := range suffixes {
 				// CRITICAL: Apply redis to the FINAL combined AST!
@@ -37690,8 +39819,8 @@ func (ctx *__wordlist) x() (res any) {
 		return
 	}
 
-	s := int(__int(ctx, expand(ctx, ctx.a[0])))
-	e := int(__int(ctx, expand(ctx, ctx.a[1])))
+	s := int(__int(ctx, eval(ctx, ctx.a[0])))
+	e := int(__int(ctx, eval(ctx, ctx.a[1])))
 	vals := xmerge(ctx, ctx.a[2:]...)
 
 	// Intuitive, safe clamping for out-of-bounds indices
@@ -38635,7 +40764,7 @@ func (ctx *__remove) x() (res any) {
     }
 
     remove = func(ctx Context, v Value) {
-        if _, y := v.(*none); y {
+        if _, y := v.(*valbase); y {
             return
         } else if isTrivial(v) {
             debug(ctx, "triviality: %v (%T)", v, v)
@@ -38657,7 +40786,7 @@ func (ctx *__remove) x() (res any) {
     }
     for _, a := range ctx.a {
         ctx := ctx.Context
-        remove(ctx, expand(ctx, a))
+        remove(ctx, eval(ctx, a))
     }
 
     if opts.debug > 0 { debug(ctx, "%v", ctx.a) }
@@ -39430,7 +41559,7 @@ func (ctx *__wildcard) project(p *project, pats ...Value) {
 				var searchVal = _if_cmp(ctx, cmpSmaller, argPat, matchedPat)
 				var searchSym = __symbol(ctx, searchVal)
 				var isSearchPat = patterned(ctx, searchVal)
-				for _, matchedDir := range merge(expands(final{ctx}, matchedFile.filemap.paths...)...) {
+				for _, matchedDir := range merge(evals(final{ctx}, matchedFile.filemap.paths...)...) {
 					dirSym := __symbol(ctx, matchedDir)
 
 					// If dirSym is relative, e.g. "src", _stat(searchSym, stat_dir{dirSym}) is nil, but
@@ -39814,7 +41943,7 @@ func (ctx *__grep) x() (_ any) {
 	var args = ctx.a
 	var nargs = len(args)
 	if !(nargs == 2 || nargs == 3) {
-		erro(ctx, "wrong args, try $(grep {regex '^example$'},$0,$(file))")
+		erro(ctx, "wrong args %v (%d), try $(grep {regex '^example$'},$0,$(file))", args, len(args), callstack{num:5})
 		return
 	}
 
@@ -39857,29 +41986,25 @@ func (ctx *__grep) x() (_ any) {
 			return
 		}
 
+		setArg := func(idx int, v Value) {
+			var sym Symbol
+			if idx < 10 {
+				sym = sym_0.add(idx)
+			} else {
+				sym = intern(strconv.Itoa(idx))
+			}
+			ctx.set(pc(c, s.pos), defVoid, sym, v)
+		}
+
+		snap_vmc := ctx.vm.Context
+		ctx.vm.Context = c
 		for s.Scan() {
 			text := s.Text()
-			lineVal := _word(s.Pos(), intern(text))
-
-			setGroup := func(idx int, v Value) {
-				var sym Symbol
-				if idx < 10 {
-					sym = sym_0.add(idx)
-				} else {
-					sym = intern(strconv.Itoa(idx))
-				}
-				ctx.set(pc(c, s.Pos()), defVoid, sym, v)
-				if false && checkpoints && v != nil {
-					debug(ctx, "%v\n%v %v\n%v %v %s %v", sym,
-						u.fset.Position(s.Pos()), lineVal,
-						u.fset.Position(v.Pos()), v, ts(v,ctx), isEmpty(v),
-					)
-				}
-			}
+			line := _word(s.pos, intern(text))
 
 			for _, pat := range rvs {
 				// Delegate entirely to your unified AST match engine
-				matched, mRes, _, stems := match(ctx, pat, lineVal)
+				matched, mRes, _, stems := match(ctx, pat, line)
 				if !matched { continue }
 
 				var val Value
@@ -39890,8 +42015,7 @@ func (ctx *__grep) x() (_ any) {
 				// =================================================================
 
 				// 1. ALWAYS bind $0 to the full matched sequence
-				setGroup(0, mRes)
-				if result == nil { val = mRes }
+				if setArg(0, mRes); result == nil { val = mRes }
 
 				// 2. Bind ordered capture groups ($1, $2, ...) and named stems
 				for i, stem := range stems {
@@ -39900,27 +42024,24 @@ func (ctx *__grep) x() (_ any) {
 					// Unpack named_stem wrappers injected by the regex engine
 					if ns, isNamed := stem.(*named_stem); isNamed {
 						target = ns.Value // Extract the raw AST node
-						ctx.set(pc(c, s.Pos()), defVoid, ns.name, target)
+						ctx.set(pc(c, s.pos), defVoid, ns.name, target)
+						if ns.name.Kind() == SymInt {
+							vocab.nummut.RLock()
+							num := int(vocab.numbers[ns.name.Idx()])
+							vocab.nummut.RUnlock()
+							if num == i+1 { continue }
+						}
 					}
 
 					// Bind the unwrapped target to its standard numerical index
-					setGroup(i+1, target)
+					setArg(i+1, target)
 				}
 
-				if result != nil { val = expand(c, result) }
+				if result != nil { val = ctx.vm.eval(result) }
 				res = append(res, val)
-
-				if checkpoints {
-					// =================================================================
-					// THE DOD FIX 2: Signature Mismatch
-					// TODO: Update __grep.check() signature in your checkpoint suite to
-					// accept (pat Value, text string, result Value, val Value).
-					// Bypassed temporarily to clear the compiler error.
-					// =================================================================
-					// ctx.check(pat, text, result, val)
-				}
 			}
 		}
+		ctx.vm.Context = snap_vmc
 
 		s.Close() // Explicit close in loop since defer inside loop leaks descriptors
 	}
@@ -40058,9 +42179,9 @@ func configurestring(ctx Context, out *bytes.Buffer, p *project, str string) {
         case "undef":
             if d == nil {
                 s = fmt.Sprintf("#undef %s", name)
-            } else if isNull(d.value) || isNone(d.value) {
+            } else if isNull(d.value) || isEmpty(d.value) {
                 s = fmt.Sprintf("#undef %s /* %v */", name, d.value)
-            } else if va := expand(ctx, d.value); va != nil {
+            } else if va := eval(ctx, d.value); va != nil {
                 switch v := va.(type) {
                 case *answer, *boolean:
                     if b := __true(ctx, v); b {
