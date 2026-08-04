@@ -1600,6 +1600,38 @@ func (s Symbol) contains(needle Symbol) bool { return views[bool](strings.Contai
 func (s Symbol) last_index(needle Symbol) int { return views[int](strings.LastIndex, s, needle) }
 func (s Symbol) index(needle Symbol) int { return views[int](strings.Index, s, needle) }
 
+// split_at slices the symbol at an exact byte index and returns the two resulting interned Symbols.
+func (s Symbol) split_at(idx int) (Symbol, Symbol) {
+	if idx <= 0 { return symEmpty, s }
+	if idx >= s.len() { return s, symEmpty }
+
+	var buf [64]byte
+	str := s.view(&buf)
+	return intern(str[:idx]), intern(str[idx:])
+}
+
+// split_first splits the symbol at the first occurrence of sep.
+// Returns (left, right, found). If not found, left == s, right == symEmpty.
+func (s Symbol) split_first(sep Symbol) (Symbol, Symbol, bool) {
+	idx := s.index(sep)
+	if idx == -1 { return s, symEmpty, false }
+
+	var buf [64]byte
+	str := s.view(&buf)
+	return intern(str[:idx]), intern(str[idx+sep.len():]), true
+}
+
+// split_last splits the symbol at the last occurrence of sep.
+// Returns (left, right, found). If not found, left == s, right == symEmpty.
+func (s Symbol) split_last(sep Symbol) (Symbol, Symbol, bool) {
+	idx := s.last_index(sep)
+	if idx == -1 { return s, symEmpty, false }
+
+	var buf [64]byte
+	str := s.view(&buf)
+	return intern(str[:idx]), intern(str[idx+sep.len():]), true
+}
+
 // build implements the builds interface, streaming the symbol directly
 // into the compactbuilds accumulator with zero intermediate allocations.
 func (sym Symbol) build(b *compactbuilds) {
@@ -2500,6 +2532,39 @@ func __symSeqLastIndex(haystack []Symbol, limitByte int, needle []Symbol) int {
 	return lastIdx
 }
 
+// __symSeqSplitAt splits a symbol sequence at an absolute byte index.
+// It returns the fully consumed symbols (left), the fractional remainder (right),
+// and the exact index of the token that was fractured (targetIdx).
+func __symSeqSplitAt(seq []Symbol, absIdx int) (left []Symbol, right Symbol, targetIdx int) {
+	currByte := 0
+	for i, sym := range seq {
+		l := sym.len()
+		if absIdx >= currByte && absIdx < currByte+l {
+			localIdx := absIdx - currByte
+			if localIdx == 0 {
+				return seq[:i], sym, i
+			}
+
+			absorbed, leftover := sym.split_at(localIdx)
+
+			// Allocate exactly what we need for the left side, including the fractured token
+			left = make([]Symbol, i, i+1)
+			copy(left, seq[:i])
+			left = append(left, absorbed)
+
+			return left, leftover, i
+		}
+		currByte += l
+	}
+
+	// If absIdx perfectly aligns with the end of the sequence
+	if absIdx == currByte {
+		return seq, symEmpty, len(seq)
+	}
+
+	return nil, symEmpty, -1
+}
+
 // __symFlatSeq recursively flattens a Symbol into a 1D slice of atomic leaf symbols.
 // It optimizes lock contention by acquiring the vocabulary read lock exactly once.
 func __symFlatSeq(sym Symbol) []Symbol {
@@ -3278,6 +3343,7 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 	target := s.tie.syms[0]
 
 	if op == opConseqAsterisk && target == symSlash { return }
+	if false { debug(s, "glob: %v %v", s.syms, s.tie.syms) }
 
 	reverse := s.class&clsBackwards != 0
 
@@ -3327,18 +3393,27 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 		if op == opConseqAsterisk {
 			if __symSeqContains(s.tie.syms, []Symbol{symSlash}) { break }
 		}
-
-		// User Refactor: Safely intern fractional strings directly into the token buffer
-		if len(s.tie.str) > 0 {
-			s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
-			s.tie.str = ""
-			continue
-		}
-
 		s.tie.step()
 	}
 
+	if true { debug(s, "glob: %v %v", s.syms, s.tie.syms) }
+
 	masterBt := s.checkpoint(undoBranch)
+
+	// THE DOD FIX: Deep State Isolation
+	// Because checkpoint() now executes a shallow copy of vmstack, we must manually
+	// clone the volatile execution slices to prevent speculative lookaheads from
+	// permanently corrupting the VM's active instruction arrays!
+	masterBt.own.ops = append([]evalop(nil), masterBt.own.ops...)
+	masterBt.own.operands = append([]any(nil), masterBt.own.operands...)
+	masterBt.own.results = append([]any(nil), masterBt.own.results...)
+	masterBt.own.evoking = append([]Value(nil), masterBt.own.evoking...)
+	if s.tie != nil {
+		masterBt.tie.ops = append([]evalop(nil), masterBt.tie.ops...)
+		masterBt.tie.operands = append([]any(nil), masterBt.tie.operands...)
+		masterBt.tie.results = append([]any(nil), masterBt.tie.results...)
+		masterBt.tie.evoking = append([]Value(nil), masterBt.tie.evoking...)
+	}
 
 	var bestMatchBt backtrack
 	var bestMatchFound bool
@@ -3385,7 +3460,7 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 
 	for absIdx := startAbsIdx; ; {
 		targetIdx := -1
-		var trimStr, leaveStr, targetStr string
+		var trimFrag, leaveFrag, targetSym Symbol
 
 		currByte := 0
 		for i, sym := range s.tie.syms {
@@ -3393,15 +3468,13 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 			if absIdx >= currByte && absIdx < currByte+l {
 				targetIdx = i
 				localIdx := absIdx - currByte
-				targetStr = sym.String()
+				targetSym = sym
 
 				if reverse {
-					split := len(targetStr) - localIdx
-					trimStr = targetStr[split:]
-					leaveStr = targetStr[:split]
+					split := l - localIdx
+					leaveFrag, trimFrag = sym.split_at(split)
 				} else {
-					trimStr = targetStr[:localIdx]
-					leaveStr = targetStr[localIdx:]
+					trimFrag, leaveFrag = sym.split_at(localIdx)
 				}
 				break
 			}
@@ -3430,31 +3503,34 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 			}
 		}
 
+		if targetIdx != -1 && op == opConseqAsterisk {
+			if trimFrag.index(symSlash) != -1 {
+				targetIdx = -1
+			} else {
+				for i := 0; i < targetIdx; i++ {
+					if s.tie.syms[i].index(symSlash) != -1 {
+						targetIdx = -1
+						break
+					}
+				}
+			}
+		}
+
 		if targetIdx != -1 {
 			if nextSym != 0 {
-				nStr := nextSym.String()
-				nLen := len(nStr)
-				if leaveStr != "" {
+				if leaveFrag != symEmpty {
 					if reverse {
-						checkLen := nLen
-						if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
-						if leaveStr[len(leaveStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
+						if !leaveFrag.has_suffix(nextSym) && !nextSym.has_suffix(leaveFrag) { goto next_iter }
 					} else {
-						checkLen := nLen
-						if len(leaveStr) < checkLen { checkLen = len(leaveStr) }
-						if leaveStr[:checkLen] != nStr[:checkLen] { goto next_iter }
+						if !leaveFrag.has_prefix(nextSym) && !nextSym.has_prefix(leaveFrag) { goto next_iter }
 					}
 				} else {
 					if targetIdx < len(s.tie.syms) {
-						peekStr := s.tie.syms[targetIdx].String()
+						peekSym := s.tie.syms[targetIdx]
 						if reverse {
-							checkLen := nLen
-							if len(peekStr) < checkLen { checkLen = len(peekStr) }
-							if peekStr[len(peekStr)-checkLen:] != nStr[len(nStr)-checkLen:] { goto next_iter }
+							if !peekSym.has_suffix(nextSym) && !nextSym.has_suffix(peekSym) { goto next_iter }
 						} else {
-							checkLen := nLen
-							if len(peekStr) < checkLen { checkLen = len(peekStr) }
-							if peekStr[:checkLen] != nStr[:checkLen] { goto next_iter }
+							if !peekSym.has_prefix(nextSym) && !nextSym.has_prefix(peekSym) { goto next_iter }
 						}
 					} else {
 						goto next_iter
@@ -3479,11 +3555,10 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 			fracBoundary := baseBoundary
 			if !reverse { fracBoundary += absIdx } else { fracBoundary -= absIdx }
 
-			if trimStr != "" || leaveStr != targetStr {
+			if trimFrag != symEmpty || leaveFrag != targetSym {
 				if len(s.tie.syms) > 0 { s.tie.pop_head() }
 
-				if trimStr != "" {
-					trimFrag := intern(trimStr)
+				if trimFrag != symEmpty {
 					emitted = append(emitted, trimFrag)
 
 					if len(s.stems) > 0 {
@@ -3492,8 +3567,8 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 						if reverse { s.stems[last].start = fracBoundary } else { s.stems[last].end = fracBoundary }
 					}
 				}
-				if leaveStr != "" {
-					s.tie.syms = append([]Symbol{intern(leaveStr)}, s.tie.syms...)
+				if leaveFrag != symEmpty {
+					s.tie.syms = append([]Symbol{leaveFrag}, s.tie.syms...)
 				}
 			}
 
@@ -3535,13 +3610,13 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 
 				betterMatch := !bestMatchFound
 				if !betterMatch {
-					if op == opConseqAstCross {
+					if op == opConseqAstCross { // Reluctant: prefer smaller absIdx
 						if absIdx < bestAbsIdx {
 							betterMatch = true
 						} else if absIdx == bestAbsIdx {
 							betterMatch = s.opsDone > bestMatchBt.own.vmstack.opsDone
 						}
-					} else {
+					} else { // Greedy: prefer larger absIdx
 						if absIdx > bestAbsIdx {
 							betterMatch = true
 						} else if absIdx == bestAbsIdx {
@@ -3554,6 +3629,12 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 					bestMatchFound = true
 					bestAbsIdx = absIdx
 					bestMatchBt = s.checkpoint(undoBranch)
+
+					// Deep State Isolation for the Best Match
+					bestMatchBt.own.ops = append([]evalop(nil), bestMatchBt.own.ops...)
+					bestMatchBt.own.operands = append([]any(nil), bestMatchBt.own.operands...)
+					bestMatchBt.own.results = append([]any(nil), bestMatchBt.own.results...)
+					bestMatchBt.own.evoking = append([]Value(nil), bestMatchBt.own.evoking...)
 
 					if bestMatchBt.own.syms != nil { bestMatchBt.own.syms = append([]Symbol(nil), bestMatchBt.own.syms...) }
 					if bestMatchBt.own.intervals != nil { bestMatchBt.own.intervals = append([]interval(nil), bestMatchBt.own.intervals...) }
@@ -3570,6 +3651,11 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 					}
 
 					if s.tie != nil {
+						bestMatchBt.tie.ops = append([]evalop(nil), bestMatchBt.tie.ops...)
+						bestMatchBt.tie.operands = append([]any(nil), bestMatchBt.tie.operands...)
+						bestMatchBt.tie.results = append([]any(nil), bestMatchBt.tie.results...)
+						bestMatchBt.tie.evoking = append([]Value(nil), bestMatchBt.tie.evoking...)
+
 						if bestMatchBt.tie.syms != nil { bestMatchBt.tie.syms = append([]Symbol(nil), bestMatchBt.tie.syms...) }
 						if bestMatchBt.tie.intervals != nil { bestMatchBt.tie.intervals = append([]interval(nil), bestMatchBt.tie.intervals...) }
 						if bestMatchBt.tie.stems != nil {
