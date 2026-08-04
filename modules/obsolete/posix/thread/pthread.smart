@@ -1,8 +1,0 @@
-project
-
-CPPFLAGS = -DPT
-
-#
-use:
-	CPPFLAGS = -DPTHREAD
-	LDLIBS = -lpthread

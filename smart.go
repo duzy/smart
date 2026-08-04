@@ -2407,70 +2407,6 @@ func __symSeqContains(haystack []Symbol, needle []Symbol) bool {
 	return false
 }
 
-func __symSeqIndex0(haystack []Symbol, startByteOffset int, needle []Symbol) int {
-	if len(needle) == 0 { return startByteOffset }
-
-	currentByte := startByteOffset
-	nLen := len(needle)
-
-	for i, h := range haystack {
-		if nLen == 1 {
-			if idx := h.index(needle[0]); idx != -1 {
-				return currentByte + idx
-			}
-		} else if i <= len(haystack)-nLen {
-			match := true
-			for j := 0; j < nLen; j++ {
-				if haystack[i+j] != needle[j] {
-					match = false
-					break
-				}
-			}
-			if match { return currentByte }
-		}
-		currentByte += h.len()
-	}
-	return -1
-}
-
-func __symSeqLastIndex0(haystack []Symbol, limitByteOffset int, needle []Symbol) int {
-	if len(needle) == 0 { return limitByteOffset }
-
-	// Pre-calculate absolute byte offsets for stable backwards traversal
-	offsets := make([]int, len(haystack))
-	currentByte := 0
-	for i, h := range haystack {
-		offsets[i] = currentByte
-		currentByte += h.len()
-	}
-
-	nLen := len(needle)
-
-	for i := len(haystack) - 1; i >= 0; i-- {
-		if offsets[i] > limitByteOffset { continue } // Enforce the slice boundary natively
-
-		h := haystack[i]
-		if nLen == 1 {
-			if idx := h.last_index(needle[0]); idx != -1 {
-				absIdx := offsets[i] + idx
-				if absIdx <= limitByteOffset {
-					return absIdx
-				}
-			}
-		} else if i+nLen <= len(haystack) {
-			match := true
-			for j := 0; j < nLen; j++ {
-				if haystack[i+j] != needle[j] {
-					match = false
-					break
-				}
-			}
-			if match { return offsets[i] }
-		}
-	}
-	return -1
-}
-
 // __symCrossMatch checks if the exact sequence of needle symbols matches the haystack at a specific virtual byte offset.
 func __symCrossMatch(haystack []Symbol, hTok int, hOff int, needle []Symbol) bool {
 	var hb, nb [64]byte
@@ -2875,7 +2811,7 @@ func (s *symstr) op_match_literal(l int) {
 
 	ret := func(_sym Symbol) {
 		s.ops = append(s.ops, opRetPack)
-		s.operands = append(s.operands, NoPos, _sym)
+		s.operands = append(s.operands, pos, _sym)
 	}
 
 	if s.tie == nil {
@@ -2914,7 +2850,7 @@ func (s *symstr) op_match_literal(l int) {
 
 	target := s.tie.syms[0]
 
-	if target == sym {
+	if sym == target {
 		ret(s.tie.pop_head())
 		return
 	}
@@ -2940,27 +2876,18 @@ func (s *symstr) op_match_literal(l int) {
 		s.operands = append(s.operands, pos, intern(s.str))
 		s.str = ""
 
-		if bidirectional_fallback_ret_literal {
-			ret(intern(string(r)))
-		} else {
-			ret(target)
-		}
+		if bidirectional_fallback_ret_literal { ret(intern(string(r))) } else { ret(target) }
 		return
 	}
 
-	if target == symAsterisk || (sym == symSlash && (target == symAsteriskAst || target == symAsteriskQues)) {
+	if target == symAsterisk || (/* sym == symSlash && */(target == symAsteriskAst || target == symAsteriskQues)) {
 		if bidirectional_fallback_ret_literal { ret(sym) } else { ret(target) }
 
 		s.tie.pop_head()
 
-		var nextTarget Symbol = symEmpty
+		var nextTarget Symbol //== symEmpty
 		if s.tie.ensured_syms() { nextTarget = s.tie.syms[0] }
-		if false {
-			// CRITICAL FIX: Push the current sym back onto the stack so the lookahead 
-			// subloop can actually evaluate it for nextTarget and symSlash boundaries!
-			s.ops = append(s.ops, opMatchLiteral)
-			s.operands = append(s.operands, pos, sym)
-		}
+		if false { debug(pc(s,pos), "fallback: %v %v %v", sym, target, s.tie.syms) }
 
 	_ops_subloop_:
 		for len(s.ops) > 0 && s.err == nil {
@@ -2995,16 +2922,16 @@ func (s *symstr) op_match_literal(l int) {
 				if bidirectional_fallback_ret_literal { ret(intern(rx.String())) }
 				continue
 			case opMatchLiteral:
+				sym = s.operands[len(s.operands)-1].(Symbol)
 			default:
 				break _ops_subloop_
 			}
 
-			sym = s.operands[len(s.operands)-1].(Symbol)
 			if sym == symEmpty {
 				s.err = errMatchFailedWildback
 				break _ops_subloop_
 			}
-			if target == symAsterisk && sym == symSlash && nextTarget != symSlash {
+			if sym == symSlash && target == symAsterisk && nextTarget != symSlash {
 				s.err = errMatchFailedWildback
 				break _ops_subloop_
 			}
@@ -3075,19 +3002,28 @@ func (s *symstr) op_match_literal(l int) {
 		return
 	}
 
-	symBytes := sym.len()
+	if sym == symSlash || target == symSlash || sym.Kind() != target.Kind() {
+		s.err = errMatchFailed
+
+		if checkpoints {
+			if sym.String() == target.String() {
+				erro(pc(s,pos), "symbol corruption: %v == %v (%d, %d)", sym, target, sym.id(), target.id(), unwind{})
+			}
+		}
+		return
+	}
 
 	if reverse {
 		if target.has_suffix(sym) {
 			str := target.String()
-			s.tie.str = str[:len(str)-symBytes]
+			s.tie.str = str[:len(str)-sym.len()]
 			ret(sym)
 			s.tie.pop_head()
 			return
 		}
 	} else {
 		if target.has_prefix(sym) {
-			s.tie.str = target.String()[symBytes:]
+			s.tie.str = target.String()[sym.len():]
 			ret(sym)
 			s.tie.pop_head()
 			return
@@ -3096,7 +3032,7 @@ func (s *symstr) op_match_literal(l int) {
 
 	if reverse {
 		if sym.has_suffix(target) {
-			leftover := intern(sym.String()[:symBytes-target.len()])
+			leftover := intern(sym.String()[:sym.len()-target.len()])
 			ret(target)
 			s.tie.pop_head()
 			s.ops = append(s.ops, opMatchLiteral)
@@ -3114,17 +3050,18 @@ func (s *symstr) op_match_literal(l int) {
 		}
 	}
 
+	if false { debug(pc(s,pos), "rune: %v %v %v", sym, target, s.tie.syms) }
+
 	str := sym.String()
 
 	for len(str) > 0 {
-		if len(s.tie.str) == 0 {
-			if !s.tie.ensured_syms() {
-				s.err = errMatchFailed
-				return
-			}
-			s.tie.str = s.tie.syms[0].String()
-			s.tie.pop_head()
+		if !s.tie.ensured_syms() {
+			s.err = errMatchFailed
+			return
 		}
+
+		s.tie.str = s.tie.syms[0].String()
+		s.tie.pop_head()
 
 		n := len(str)
 		if len(s.tie.str) < n { n = len(s.tie.str) }
@@ -3336,17 +3273,13 @@ func (s *symstr) op_glob_range(l int) {
 }
 
 func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
-	if len(s.tie.str) > 0 {
-		s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
-		s.tie.str = ""
-	}
-
 	if !s.tie.ensured_syms() { return }
 
-	reverse := (s.class & clsBackwards) != 0
 	target := s.tie.syms[0]
 
 	if op == opConseqAsterisk && target == symSlash { return }
+
+	reverse := s.class&clsBackwards != 0
 
 	if isWildcardMeta(target) {
 		if target == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1] == symPercent {
@@ -3384,70 +3317,106 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 		break
 	}
 
-	for s.tie.err == nil {
+	if checkpoints && len(s.tie.str) > 0 {
+		erro(s, "unexpected s.tie.str: %s", s.tie.str, unwind{})
+	}
+
+	// THE DOD FIX: Forcefully Pump the Target Tape!
+	// We must aggressively step the target VM to discover the true end of the tape!
+	for s.tie.err == nil && len(s.tie.ops) > 0 {
 		if op == opConseqAsterisk {
 			if __symSeqContains(s.tie.syms, []Symbol{symSlash}) { break }
 		}
 
-		snap := len(s.tie.syms)
-		s.tie.ensured_syms()
-		if len(s.tie.syms) == snap { break }
+		// User Refactor: Safely intern fractional strings directly into the token buffer
+		if len(s.tie.str) > 0 {
+			s.tie.syms = append([]Symbol{intern(s.tie.str)}, s.tie.syms...)
+			s.tie.str = ""
+			continue
+		}
+
+		s.tie.step()
 	}
 
 	masterBt := s.checkpoint(undoBranch)
 
 	var bestMatchBt backtrack
 	var bestMatchFound bool
+	var bestAbsIdx int
 	var baseBoundary = s.tie.boundary
 
-	searchLimit := len(s.tie.syms)
+	var totalBytes int
+	for _, sym := range s.tie.syms { totalBytes += sym.len() }
+
+	// THE DOD FIX: Native O(1) Slice Searching
+	// Instead of mapping tokens iteratively, we directly locate the mathematical
+	// boundary of the slice. Capping `totalBytes` guarantees we never absorb slashes!
 	if op == opConseqAsterisk {
-		for i := 0; i < searchLimit; i++ {
-			if s.tie.syms[i] == symSlash { searchLimit = i; break }
+		if slashIdx := __symSeqIndex(s.tie.syms, 0, []Symbol{symSlash}); slashIdx != -1 {
+			totalBytes = slashIdx
 		}
 	}
 
-	var totalBytes int
-	for i := 0; i < searchLimit; i++ { totalBytes += s.tie.syms[i].len() }
-
 	var startAbsIdx, endAbsIdx, step int
+	var needle []Symbol
+	if nextSym != 0 {
+		needle = []Symbol{nextSym}
+	}
+
 	if op == opConseqAstCross {
 		startAbsIdx = 0
 		endAbsIdx = totalBytes
 		step = 1
+		if !reverse && len(needle) > 0 {
+			startAbsIdx = __symSeqIndex(s.tie.syms, 0, needle)
+		}
 	} else {
 		startAbsIdx = totalBytes
 		endAbsIdx = 0
 		step = -1
+		if !reverse && len(needle) > 0 {
+			startAbsIdx = __symSeqLastIndex(s.tie.syms, totalBytes, needle)
+		}
 	}
 
-	for absIdx := startAbsIdx; ; absIdx += step {
+	if !reverse && len(needle) > 0 && (startAbsIdx == -1 || startAbsIdx > totalBytes) {
+		goto match_failed
+	}
+
+	for absIdx := startAbsIdx; ; {
 		targetIdx := -1
 		var trimStr, leaveStr, targetStr string
 
-		if absIdx == totalBytes {
-			targetIdx = searchLimit
-		} else {
-			currByte := 0
-			for i := 0; i < searchLimit; i++ {
-				l := s.tie.syms[i].len()
-				if absIdx >= currByte && absIdx < currByte+l {
-					targetIdx = i
-					localIdx := absIdx - currByte
-					targetStr := s.tie.syms[i].String()
+		currByte := 0
+		for i, sym := range s.tie.syms {
+			l := sym.len()
+			if absIdx >= currByte && absIdx < currByte+l {
+				targetIdx = i
+				localIdx := absIdx - currByte
+				targetStr = sym.String()
 
-					if reverse {
-						split := len(targetStr) - localIdx
-						trimStr = targetStr[split:]
-						leaveStr = targetStr[:split]
-					} else {
-						trimStr = targetStr[:localIdx]
-						leaveStr = targetStr[localIdx:]
-					}
-					break
+				if reverse {
+					split := len(targetStr) - localIdx
+					trimStr = targetStr[split:]
+					leaveStr = targetStr[:split]
+				} else {
+					trimStr = targetStr[:localIdx]
+					leaveStr = targetStr[localIdx:]
 				}
-				currByte += l
+				break
 			}
+			currByte += l
+		}
+
+		// Boundary alignment (i.e. absIdx lands perfectly on a token edge)
+		if targetIdx == -1 && absIdx == currByte {
+			tIdx, cB := 0, 0
+			for _, sym := range s.tie.syms {
+				if cB == absIdx { break }
+				cB += sym.len()
+				tIdx++
+			}
+			targetIdx = tIdx
 		}
 
 		if targetIdx != -1 && targetIdx < len(s.tie.syms) && (op == opConseqAstGreed || op == opConseqAstCross) {
@@ -3458,21 +3427,6 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 			} else {
 				if targetIdx < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx]) { targetIdx = -1 } else
 				if targetIdx+1 < len(s.tie.syms) && isWildcardMeta(s.tie.syms[targetIdx+1]) { targetIdx = -1 }
-			}
-		}
-
-		// CRITICAL FIX: Prevent wildcard from matching across embedded slashes!
-		if targetIdx != -1 && op == opConseqAsterisk {
-			if strings.IndexByte(trimStr, '/') != -1 {
-				targetIdx = -1 // Slash found in the segment to be absorbed
-			} else {
-				// Ensure none of the entirely absorbed prior tokens have a slash
-				for i := 0; i < targetIdx; i++ {
-					if s.tie.syms[i].index(symSlash) != -1 {
-						targetIdx = -1
-						break
-					}
-				}
 			}
 		}
 
@@ -3579,8 +3533,26 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 			if s.err == io.EOF {
 				s.tie.ensured_syms()
 
-				if !bestMatchFound || s.opsDone > bestMatchBt.own.vmstack.opsDone {
+				betterMatch := !bestMatchFound
+				if !betterMatch {
+					if op == opConseqAstCross {
+						if absIdx < bestAbsIdx {
+							betterMatch = true
+						} else if absIdx == bestAbsIdx {
+							betterMatch = s.opsDone > bestMatchBt.own.vmstack.opsDone
+						}
+					} else {
+						if absIdx > bestAbsIdx {
+							betterMatch = true
+						} else if absIdx == bestAbsIdx {
+							betterMatch = s.opsDone > bestMatchBt.own.vmstack.opsDone
+						}
+					}
+				}
+
+				if betterMatch {
 					bestMatchFound = true
+					bestAbsIdx = absIdx
 					bestMatchBt = s.checkpoint(undoBranch)
 
 					if bestMatchBt.own.syms != nil { bestMatchBt.own.syms = append([]Symbol(nil), bestMatchBt.own.syms...) }
@@ -3626,69 +3598,34 @@ func (s *symstr) op_glob_conseq(l int, op evalop, better func(int) bool) {
 
 	next_iter:
 		if absIdx == endAbsIdx { break }
+
+		if !reverse && len(needle) > 0 {
+			if step > 0 {
+				absIdx = __symSeqIndex(s.tie.syms, absIdx+1, needle)
+			} else {
+				absIdx = __symSeqLastIndex(s.tie.syms, absIdx-1, needle)
+			}
+
+			// Protect against unbounded jumps exceeding tape limits!
+			if absIdx == -1 || absIdx > totalBytes || absIdx < 0 { break }
+		} else {
+			absIdx += step
+		}
 	}
 
+match_failed:
 	if bestMatchFound {
 		s.unwind(&bestMatchBt)
 		return
 	}
 
-	if len(s.tie.syms) == 0 { return }
-
-	frag := s.tie.pop_head()
-
-	// CRITICAL FIX: Handle wildcard hitting embedded slashes during the 1-token fallback!
-	// We slice the token exactly at the boundary using the native zero-allocation views.
-	var deadEnd bool
-	if op == opConseqAsterisk {
-		if reverse {
-			if idx := frag.last_index(symSlash); idx != -1 {
-				fragStr := frag.String()
-				absorbed := fragStr[idx+1:]
-				leftover := fragStr[:idx+1]
-				if len(leftover) > 0 {
-					s.tie.syms = append([]Symbol{intern(leftover)}, s.tie.syms...)
-				}
-				frag = intern(absorbed)
-				deadEnd = true // Match is blocked by slash. Die!
-			}
-		} else {
-			if idx := frag.index(symSlash); idx != -1 {
-				fragStr := frag.String()
-				absorbed := fragStr[:idx]
-				leftover := fragStr[idx:]
-				if len(leftover) > 0 {
-					s.tie.syms = append([]Symbol{intern(leftover)}, s.tie.syms...)
-				}
-				frag = intern(absorbed)
-				deadEnd = true // Match is blocked by slash. Die!
-			}
-		}
-	}
-
-	if len(s.stems) > 0 {
-		last := len(s.stems) - 1
-		s.stems[last].syms = append(s.stems[last].syms, frag)
-		if reverse { s.stems[last].start = s.tie.boundary } else { s.stems[last].end = s.tie.boundary }
-	}
-
-	stopTieBoundary := s.tie.boundary
-	if !reverse { stopTieBoundary -= len(s.tie.str) } else { stopTieBoundary += len(s.tie.str) }
-
-	if better(stopTieBoundary) {
-		s.bestOpsDone = s.opsDone
-		s.stopTieBoundary = stopTieBoundary
-		if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-		s.bestStems = append(s.bestStems[:0], s.stems...)
-	}
-
-	if !deadEnd {
+	if len(s.tie.ops) > 0 {
+		s.tie.step()
 		s.ops = append(s.ops, op)
+		return
 	}
-	if frag != symEmpty {
-		s.ops = append(s.ops, opRetPack)
-		s.operands = append(s.operands, NoPos, frag)
-	}
+
+	s.err = errMatchFailed
 	return
 }
 
@@ -3710,7 +3647,7 @@ func (s *symstr) op_regex_match(l int) {
 		return
 	}
 
-	var names = rx.SubexpNames()
+	names := rx.SubexpNames()
 	stemStartIdx := len(s.stems)
 	for i := 2; i < len(locs); i += 2 {
 		if locs[i] != -1 && locs[i+1] != -1 && locs[i] <= locs[i+1] {
@@ -7212,9 +7149,8 @@ func (s *symstr) pack(pos Pos, sym Symbol) {
 
 	switch sym {
 	case symDash:
-		if pos == NoPos {
-			pos = _pos(s)
-			if true { warn(s, "no pos for flag, force @%d", pos, callstack{num:5}) }
+		if pos == NoPos { pos = _pos(s)
+			if true { warn(pc(s,pos), "NoPos `flag`, forced @%d", pos, callstack{num:5}) }
 		}
 		s.vmpack = &vmpack{parent: s.vmpack, flag: pos}
 		return
