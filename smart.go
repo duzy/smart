@@ -3148,11 +3148,104 @@ func (s *symstr) do(ctx Context, op any) any { // Optional!
     return s.Context.do(ctx, op)
 }
 
+// HELPER 1: Handle initial wildcard metadata
+func (s *symstr) nfa_eval_meta(target posym, op evalop) bool {
+	if !isWildcardMeta(target.Symbol) { return false }
+
+	if target.Symbol == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1].Symbol == symPercent {
+		s.ops = append(s.ops, op, opRetPack, opRetPack)
+		s.operands = append(s.operands, posym{target.Pos, symPercent}, posym{target.Pos, symPercent})
+		s.tie.pop_head()
+		s.tie.pop_head()
+	} else {
+		s.ops = append(s.ops, op, opRetPack)
+		s.operands = append(s.operands, posym{target.Pos, target.Symbol})
+		s.tie.pop_head()
+	}
+	if len(s.stems) > 0 {
+		p := &s.stems[len(s.stems)-1]
+		p.syms = append(p.syms, target)
+	}
+	return true
+}
+
+// HELPER 2: Retrieve the literal lookahead safely
+func (s *symstr) nfa_next_lit() posym {
+	for len(s.ops) > 0 {
+		switch s.ops[len(s.ops)-1] {
+		case opUnrollMatch, opRetMatch, opRetPack:
+			s.step()
+			continue
+		case opMatchLiteral:
+			lit := s.operands[len(s.operands)-1].(posym)
+			if lit.Symbol != symEmpty { return lit }
+		}
+		break
+	}
+	return posym{}
+}
+
+// HELPER 3: Pristine Stack Clone for Backtracking Isolation
+func (s *symstr) nfa_isolate() {
+	s.ops = append([]evalop(nil), s.ops...)
+	s.operands = append([]any(nil), s.operands...)
+	s.results = append([]any(nil), s.results...)
+	s.evoking = append([]Value(nil), s.evoking...)
+	if s.tie != nil {
+		s.tie.ops = append([]evalop(nil), s.tie.ops...)
+		s.tie.operands = append([]any(nil), s.tie.operands...)
+		s.tie.results = append([]any(nil), s.tie.results...)
+		s.tie.evoking = append([]Value(nil), s.tie.evoking...)
+	}
+}
+
+// HELPER 4: Branch Emission (Left side of split)
+func (s *symstr) nfa_emit(captured []posym, origCount, origLen int, reverse bool) {
+	s.stems = s.stems[:origCount]
+	if origCount > 0 {
+		p := &s.stems[origCount-1]
+		p.syms = p.syms[:origLen]
+		p.syms = append(p.syms, captured...)
+	}
+	if len(captured) > 0 {
+		if reverse {
+			for _, ps := range captured {
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, ps)
+			}
+		} else {
+			for i := len(captured) - 1; i >= 0; i-- {
+				s.ops = append(s.ops, opRetPack)
+				s.operands = append(s.operands, captured[i])
+			}
+		}
+	}
+}
+
+// HELPER 5: Tape Restoration (Right side of split)
+func (s *symstr) nfa_push_unconsumed(rightValid bool, right posym, targetIdx int, stem, origTieSyms []posym) {
+	if rightValid || (targetIdx != -1 && targetIdx+1 < len(stem)) {
+		var unconsumed []posym
+		if rightValid { unconsumed = append(unconsumed, right) }
+		if targetIdx != -1 && targetIdx+1 < len(stem) {
+			unconsumed = append(unconsumed, stem[targetIdx+1:]...)
+		}
+		if len(unconsumed) > 0 {
+			safeQueue := make([]posym, 0, len(unconsumed)+len(origTieSyms))
+			safeQueue = append(safeQueue, unconsumed...)
+			safeQueue = append(safeQueue, origTieSyms...)
+			s.tie.syms = safeQueue
+		} else {
+			s.tie.syms = origTieSyms
+		}
+	} else {
+		s.tie.syms = origTieSyms
+	}
+}
+
 func (s *symstr) op_match_literal(l int) {
 	lit := s.operands[len(s.operands)-1].(posym)
 	s.operands = s.operands[:len(s.operands)-1]
-
-	reverse := s.class&clsBackwards != 0
 
 	ret := func(sym Symbol) {
 		s.ops = append(s.ops, opRetPack)
@@ -3224,6 +3317,8 @@ func (s *symstr) op_match_literal(l int) {
 		if bidirectional_fallback_ret_literal { ret(intern(string(r))) } else { ret(target.Symbol) }
 		return
 	}
+
+	reverse := s.class&clsBackwards != 0
 
 	if target.Symbol == symAsterisk || target.Symbol == symAsteriskAst || target.Symbol == symAsteriskQues {
 		if bidirectional_fallback_ret_literal { ret(lit.Symbol) } else { ret(target.Symbol) }
@@ -3693,41 +3788,12 @@ func (s *symstr) op_glob_range(l int) {
 func (s *symstr) op_glob_seg(l int) {
 	if !s.tie.ensured_syms() { return }
 
-	target := s.tie.syms[0] // posym
-	if target.Symbol == symSlash { return } // Segments cannot consume slashes
+	target := s.tie.syms[0]
+	if target.Symbol == symSlash { return }
+	if s.nfa_eval_meta(target, opConseqAsterisk) { return }
 
 	reverse := s.class&clsBackwards != 0
-
-	if isWildcardMeta(target.Symbol) {
-		if target.Symbol == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1].Symbol == symPercent {
-			s.ops = append(s.ops, opConseqAsterisk, opRetPack, opRetPack)
-			s.operands = append(s.operands, posym{target.Pos, symPercent}, posym{target.Pos, symPercent})
-			s.tie.pop_head()
-			s.tie.pop_head()
-		} else {
-			s.ops = append(s.ops, opConseqAsterisk, opRetPack)
-			s.operands = append(s.operands, posym{target.Pos, target.Symbol})
-			s.tie.pop_head()
-		}
-		if len(s.stems) > 0 {
-			p := &s.stems[len(s.stems)-1]
-			p.syms = append(p.syms, target)
-		}
-		return
-	}
-
-	var nextLit posym
-	for len(s.ops) > 0 {
-		switch s.ops[len(s.ops)-1] {
-		case opUnrollMatch, opRetMatch, opRetPack:
-			s.step()
-			continue
-		case opMatchLiteral:
-			lit := s.operands[len(s.operands)-1].(posym)
-			if lit.Symbol != symEmpty { nextLit = lit }
-		}
-		break
-	}
+	nextLit := s.nfa_next_lit()
 
 	// PHASE 1: Tape Accumulation
 	var stem []posym
@@ -3736,10 +3802,7 @@ func (s *symstr) op_glob_seg(l int) {
 		if slashIdx != -1 {
 			left, right, idx := __posymSeqSplitAt(s.tie.syms, slashIdx)
 			stem = append(stem, left...)
-
 			rightValid := right.Symbol != symEmpty || right.len() > 0
-
-			// Slash boundary hit. Re-insert the slash and unconsumed tokens!
 			if rightValid {
 				s.tie.syms = append([]posym{right}, s.tie.syms[idx+1:]...)
 			} else if idx+1 < len(s.tie.syms) {
@@ -3749,33 +3812,25 @@ func (s *symstr) op_glob_seg(l int) {
 			}
 			break
 		}
-
 		stem = append(stem, s.tie.syms...)
 		s.tie.syms = nil
 	}
 
 	masterBt := s.checkpoint(undoBranch)
+	s.nfa_isolate()
 
-	// Snapshot states for safe NFA backtracking
 	origStemsCount := len(s.stems)
 	var origStemsLen int
-	if origStemsCount > 0 {
-		origStemsLen = len(s.stems[origStemsCount-1].syms)
-	}
+	if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
 	var origTieSyms []posym
-	if s.tie != nil {
-		origTieSyms = s.tie.syms
-	}
+	if s.tie != nil { origTieSyms = s.tie.syms }
 
 	var totalBytes int
 	for _, ps := range stem { totalBytes += ps.len() }
 
 	// PHASE 2: NFA Branching (Greedy: High -> Low)
-	startAbsIdx := totalBytes
-	endAbsIdx := 0
-	step := -1
-
-	for absIdx := startAbsIdx; ; {
+	for absIdx := totalBytes; ; {
 		left, right, targetIdx := __posymSeqSplitAt(stem, absIdx)
 		rightValid := right.Symbol != symEmpty || right.len() > 0
 
@@ -3802,49 +3857,15 @@ func (s *symstr) op_glob_seg(l int) {
 			}
 		}
 
-		// Emit captured stem
 		if true {
-			s.stems = s.stems[:origStemsCount] // Truncate nested captures from failed branches!
-			if origStemsCount > 0 {
-				p := &s.stems[origStemsCount-1]
-				p.syms = p.syms[:origStemsLen] // Strip garbage from failed iterations
-				p.syms = append(p.syms, left...)
-			}
-
-			if len(left) > 0 {
-				if reverse {
-					for _, ps := range left {
-						s.ops = append(s.ops, opRetPack)
-						s.operands = append(s.operands, ps)
-					}
-				} else {
-					for i := len(left) - 1; i >= 0; i-- {
-						s.ops = append(s.ops, opRetPack)
-						s.operands = append(s.operands, left[i])
-					}
-				}
-			}
-
-			// Push back unconsumed tokens
-			if rightValid || (targetIdx != -1 && targetIdx+1 < len(stem)) {
-				var unconsumed []posym
-				if rightValid { unconsumed = append(unconsumed, right) }
-				if targetIdx != -1 && targetIdx+1 < len(stem) {
-					unconsumed = append(unconsumed, stem[targetIdx+1:]...)
-				}
-				if len(unconsumed) > 0 {
-					safeQueue := make([]posym, 0, len(unconsumed)+len(origTieSyms))
-					safeQueue = append(safeQueue, unconsumed...)
-					safeQueue = append(safeQueue, origTieSyms...)
-					s.tie.syms = safeQueue
-				} else {
-					s.tie.syms = origTieSyms
-				}
-			} else {
-				s.tie.syms = origTieSyms
-			}
+			s.nfa_isolate()
+			s.nfa_emit(left, origStemsCount, origStemsLen, reverse)
+			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
+
+			// THE FIX: Explicitly translate an empty stack into a success signal!
+			if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
 
 			if s.err == io.EOF {
 				s.tie.ensured_syms()
@@ -3855,81 +3876,34 @@ func (s *symstr) op_glob_seg(l int) {
 			s.err = nil
 			if s.tie != nil {
 				s.tie.err = nil
-				s.tie.syms = origTieSyms // Restore the lookahead tape exactly!
+				s.tie.syms = origTieSyms
 			}
 		}
 
 	next_iter:
-		if absIdx == endAbsIdx { break }
-		absIdx += step // Natively step byte-by-byte instead of skipping!
+		if absIdx == 0 { break }
+		absIdx -= 1
 	}
 
-	// Fast-Forward Fallback for Greedy Partial Matches
+	// Fallback
 	if len(stem) > 0 {
-		s.stems = s.stems[:origStemsCount] // Truncate nested captures
-		if origStemsCount > 0 {
-			p := &s.stems[origStemsCount-1]
-			p.syms = p.syms[:origStemsLen] // Strip garbage!
-			p.syms = append(p.syms, stem...)
-		}
-
-		if reverse {
-			for _, ps := range stem {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, ps)
-			}
-		} else {
-			for i := len(stem) - 1; i >= 0; i-- {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, stem[i])
-			}
-		}
-
+		s.nfa_emit(stem, origStemsCount, origStemsLen, reverse)
 		if s.tie != nil { s.tie.syms = origTieSyms }
 		return
 	}
-
 	s.err = errMatchFailed
 }
 
 func (s *symstr) op_glob_greed(l int) {
 	if !s.tie.ensured_syms() { return }
 
-	target := s.tie.syms[0] // posym
+	target := s.tie.syms[0]
+	if s.nfa_eval_meta(target, opConseqAstGreed) { return }
+
 	reverse := s.class&clsBackwards != 0
+	nextLit := s.nfa_next_lit()
 
-	if isWildcardMeta(target.Symbol) {
-		if target.Symbol == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1].Symbol == symPercent {
-			s.ops = append(s.ops, opConseqAstGreed, opRetPack, opRetPack)
-			s.operands = append(s.operands, posym{target.Pos, symPercent}, posym{target.Pos, symPercent})
-			s.tie.pop_head()
-			s.tie.pop_head()
-		} else {
-			s.ops = append(s.ops, opConseqAstGreed, opRetPack)
-			s.operands = append(s.operands, posym{target.Pos, target.Symbol})
-			s.tie.pop_head()
-		}
-		if len(s.stems) > 0 {
-			p := &s.stems[len(s.stems)-1]
-			p.syms = append(p.syms, target)
-		}
-		return
-	}
-
-	var nextLit posym
-	for len(s.ops) > 0 {
-		switch s.ops[len(s.ops)-1] {
-		case opUnrollMatch, opRetMatch, opRetPack:
-			s.step()
-			continue
-		case opMatchLiteral:
-			lit := s.operands[len(s.operands)-1].(posym)
-			if lit.Symbol != symEmpty { nextLit = lit }
-		}
-		break
-	}
-
-	// PHASE 1: Tape Accumulation (Exhaustive)
+	// PHASE 1: Exhaustive Accumulation
 	var stem []posym
 	for s.err == nil && s.tie.ensured_syms() {
 		stem = append(stem, s.tie.syms...)
@@ -3937,31 +3911,23 @@ func (s *symstr) op_glob_greed(l int) {
 	}
 
 	masterBt := s.checkpoint(undoBranch)
+	s.nfa_isolate()
 
-	// Snapshot states for safe NFA backtracking
 	origStemsCount := len(s.stems)
 	var origStemsLen int
-	if origStemsCount > 0 {
-		origStemsLen = len(s.stems[origStemsCount-1].syms)
-	}
+	if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
 	var origTieSyms []posym
-	if s.tie != nil {
-		origTieSyms = s.tie.syms
-	}
+	if s.tie != nil { origTieSyms = s.tie.syms }
 
 	var totalBytes int
 	for _, ps := range stem { totalBytes += ps.len() }
 
 	// PHASE 2: NFA Branching (Greedy: High -> Low)
-	startAbsIdx := totalBytes
-	endAbsIdx := 0
-	step := -1
-
-	for absIdx := startAbsIdx; ; {
+	for absIdx := totalBytes; ; {
 		left, right, targetIdx := __posymSeqSplitAt(stem, absIdx)
 		rightValid := right.Symbol != symEmpty || right.len() > 0
 
-		// Greedy Meta-Guard: Prevent swallowing consecutive matching wildcards
 		if targetIdx != -1 && targetIdx < len(stem) {
 			if reverse {
 				checkIdx := len(stem) - 1 - targetIdx
@@ -3996,49 +3962,15 @@ func (s *symstr) op_glob_greed(l int) {
 			}
 		}
 
-		// Emit captured stem
 		if true {
-			s.stems = s.stems[:origStemsCount] // Truncate nested captures from failed branches!
-			if origStemsCount > 0 {
-				p := &s.stems[origStemsCount-1]
-				p.syms = p.syms[:origStemsLen] // Strip garbage
-				p.syms = append(p.syms, left...)
-			}
-
-			if len(left) > 0 {
-				if reverse {
-					for _, ps := range left {
-						s.ops = append(s.ops, opRetPack)
-						s.operands = append(s.operands, ps)
-					}
-				} else {
-					for i := len(left) - 1; i >= 0; i-- {
-						s.ops = append(s.ops, opRetPack)
-						s.operands = append(s.operands, left[i])
-					}
-				}
-			}
-
-			// Push back unconsumed tokens
-			if rightValid || (targetIdx != -1 && targetIdx+1 < len(stem)) {
-				var unconsumed []posym
-				if rightValid { unconsumed = append(unconsumed, right) }
-				if targetIdx != -1 && targetIdx+1 < len(stem) {
-					unconsumed = append(unconsumed, stem[targetIdx+1:]...)
-				}
-				if len(unconsumed) > 0 {
-					safeQueue := make([]posym, 0, len(unconsumed)+len(origTieSyms))
-					safeQueue = append(safeQueue, unconsumed...)
-					safeQueue = append(safeQueue, origTieSyms...)
-					s.tie.syms = safeQueue
-				} else {
-					s.tie.syms = origTieSyms
-				}
-			} else {
-				s.tie.syms = origTieSyms
-			}
+			s.nfa_isolate()
+			s.nfa_emit(left, origStemsCount, origStemsLen, reverse)
+			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
+
+			// THE FIX: Explicitly translate an empty stack into a success signal!
+			if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
 
 			if s.err == io.EOF {
 				s.tie.ensured_syms()
@@ -4049,81 +3981,34 @@ func (s *symstr) op_glob_greed(l int) {
 			s.err = nil
 			if s.tie != nil {
 				s.tie.err = nil
-				s.tie.syms = origTieSyms // Restore the lookahead tape exactly!
+				s.tie.syms = origTieSyms
 			}
 		}
 
 	next_iter:
-		if absIdx == endAbsIdx { break }
-		absIdx += step // Natively step byte-by-byte instead of skipping!
+		if absIdx == 0 { break }
+		absIdx -= 1
 	}
 
-	// Fast-Forward Fallback for Greedy Partial Matches
+	// Fallback
 	if len(stem) > 0 {
-		s.stems = s.stems[:origStemsCount] // Truncate nested captures
-		if origStemsCount > 0 {
-			p := &s.stems[origStemsCount-1]
-			p.syms = p.syms[:origStemsLen] // Strip garbage!
-			p.syms = append(p.syms, stem...)
-		}
-
-		if reverse {
-			for _, ps := range stem {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, ps)
-			}
-		} else {
-			for i := len(stem) - 1; i >= 0; i-- {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, stem[i])
-			}
-		}
-
+		s.nfa_emit(stem, origStemsCount, origStemsLen, reverse)
 		if s.tie != nil { s.tie.syms = origTieSyms }
 		return
 	}
-
 	s.err = errMatchFailed
 }
 
 func (s *symstr) op_glob_cross(l int) {
 	if !s.tie.ensured_syms() { return }
 
-	target := s.tie.syms[0] // posym
+	target := s.tie.syms[0]
+	if s.nfa_eval_meta(target, opConseqAstCross) { return }
+
 	reverse := s.class&clsBackwards != 0
+	nextLit := s.nfa_next_lit()
 
-	if isWildcardMeta(target.Symbol) {
-		if target.Symbol == symPercent && len(s.tie.syms) > 1 && s.tie.syms[1].Symbol == symPercent {
-			s.ops = append(s.ops, opConseqAstCross, opRetPack, opRetPack)
-			s.operands = append(s.operands, posym{target.Pos, symPercent}, posym{target.Pos, symPercent})
-			s.tie.pop_head()
-			s.tie.pop_head()
-		} else {
-			s.ops = append(s.ops, opConseqAstCross, opRetPack)
-			s.operands = append(s.operands, posym{target.Pos, target.Symbol})
-			s.tie.pop_head()
-		}
-		if len(s.stems) > 0 {
-			p := &s.stems[len(s.stems)-1]
-			p.syms = append(p.syms, target)
-		}
-		return
-	}
-
-	var nextLit posym
-	for len(s.ops) > 0 {
-		switch s.ops[len(s.ops)-1] {
-		case opUnrollMatch, opRetMatch, opRetPack:
-			s.step()
-			continue
-		case opMatchLiteral:
-			lit := s.operands[len(s.operands)-1].(posym)
-			if lit.Symbol != symEmpty { nextLit = lit }
-		}
-		break
-	}
-
-	// PHASE 1: Tape Accumulation (Exhaustive)
+	// PHASE 1: Exhaustive Accumulation
 	var stem []posym
 	for s.err == nil && s.tie.ensured_syms() {
 		stem = append(stem, s.tie.syms...)
@@ -4131,31 +4016,23 @@ func (s *symstr) op_glob_cross(l int) {
 	}
 
 	masterBt := s.checkpoint(undoBranch)
+	s.nfa_isolate()
 
-	// Snapshot states for safe NFA backtracking
 	origStemsCount := len(s.stems)
 	var origStemsLen int
-	if origStemsCount > 0 {
-		origStemsLen = len(s.stems[origStemsCount-1].syms)
-	}
+	if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
 	var origTieSyms []posym
-	if s.tie != nil {
-		origTieSyms = s.tie.syms
-	}
+	if s.tie != nil { origTieSyms = s.tie.syms }
 
 	var totalBytes int
 	for _, ps := range stem { totalBytes += ps.len() }
 
 	// PHASE 2: NFA Branching (Reluctant: Low -> High)
-	startAbsIdx := 0
-	endAbsIdx := totalBytes
-	step := 1
-
-	for absIdx := startAbsIdx; ; {
+	for absIdx := 0; ; {
 		left, right, targetIdx := __posymSeqSplitAt(stem, absIdx)
 		rightValid := right.Symbol != symEmpty || right.len() > 0
 
-		// Cross Meta-Guard: Prevent swallowing consecutive matching wildcards
 		if targetIdx != -1 && targetIdx < len(stem) {
 			if reverse {
 				checkIdx := len(stem) - 1 - targetIdx
@@ -4190,49 +4067,15 @@ func (s *symstr) op_glob_cross(l int) {
 			}
 		}
 
-		// Emit captured stem
 		if true {
-			s.stems = s.stems[:origStemsCount] // Truncate nested captures from failed branches!
-			if origStemsCount > 0 {
-				p := &s.stems[origStemsCount-1]
-				p.syms = p.syms[:origStemsLen] // Strip garbage
-				p.syms = append(p.syms, left...)
-			}
-
-			if len(left) > 0 {
-				if reverse {
-					for _, ps := range left {
-						s.ops = append(s.ops, opRetPack)
-						s.operands = append(s.operands, ps)
-					}
-				} else {
-					for i := len(left) - 1; i >= 0; i-- {
-						s.ops = append(s.ops, opRetPack)
-						s.operands = append(s.operands, left[i])
-					}
-				}
-			}
-
-			// Push back unconsumed tokens
-			if rightValid || (targetIdx != -1 && targetIdx+1 < len(stem)) {
-				var unconsumed []posym
-				if rightValid { unconsumed = append(unconsumed, right) }
-				if targetIdx != -1 && targetIdx+1 < len(stem) {
-					unconsumed = append(unconsumed, stem[targetIdx+1:]...)
-				}
-				if len(unconsumed) > 0 {
-					safeQueue := make([]posym, 0, len(unconsumed)+len(origTieSyms))
-					safeQueue = append(safeQueue, unconsumed...)
-					safeQueue = append(safeQueue, origTieSyms...)
-					s.tie.syms = safeQueue
-				} else {
-					s.tie.syms = origTieSyms
-				}
-			} else {
-				s.tie.syms = origTieSyms
-			}
+			s.nfa_isolate()
+			s.nfa_emit(left, origStemsCount, origStemsLen, reverse)
+			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
+
+			// THE FIX: Explicitly translate an empty stack into a success signal!
+			if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
 
 			if s.err == io.EOF {
 				s.tie.ensured_syms()
@@ -4243,40 +4086,16 @@ func (s *symstr) op_glob_cross(l int) {
 			s.err = nil
 			if s.tie != nil {
 				s.tie.err = nil
-				s.tie.syms = origTieSyms // Restore the lookahead tape exactly!
+				s.tie.syms = origTieSyms
 			}
 		}
 
 	next_iter:
-		if absIdx == endAbsIdx { break }
-		absIdx += step // Natively step byte-by-byte instead of skipping!
+		if absIdx == totalBytes { break }
+		absIdx += 1
 	}
 
-	// Fast-Forward Fallback for Reluctant Partial Matches
-	if len(stem) > 0 {
-		s.stems = s.stems[:origStemsCount] // Truncate nested captures
-		if origStemsCount > 0 {
-			p := &s.stems[origStemsCount-1]
-			p.syms = p.syms[:origStemsLen] // Strip garbage!
-			p.syms = append(p.syms, stem...)
-		}
-
-		if reverse {
-			for _, ps := range stem {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, ps)
-			}
-		} else {
-			for i := len(stem) - 1; i >= 0; i-- {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, stem[i])
-			}
-		}
-
-		if s.tie != nil { s.tie.syms = origTieSyms }
-		return
-	}
-
+	// Reluctant matchers DO NOT fallback.
 	s.err = errMatchFailed
 }
 
@@ -6087,7 +5906,6 @@ func (s *symstr) op_ret_match(l int, t Value) {
 }
 
 func (s *symstr) step() {
-	reverse := s.class&clsBackwards != 0
 	op := s.ops[len(s.ops)-1]
 	s.ops = s.ops[:len(s.ops)-1]
 	s.opsDone++
@@ -6396,6 +6214,7 @@ _op_switch_:
 		var args []Value
 		var idx int
 
+		reverse := s.class&clsBackwards != 0
 		if val, isInt := s.operands[l-1].(int); isInt {
 			idx = val
 			args = s.operands[l-2].([]Value)
@@ -6455,7 +6274,7 @@ _op_switch_:
 			s.results = append(s.results, nil)
 		case []Value:
 			if len(v) == 0 { break _op_switch_ }
-			if reverse {
+			if s.class&clsBackwards != 0 {
 				if len(v) > 1 {
 					s.ops = append(s.ops, opExpand)
 					s.operands = append(s.operands, v[:len(v)-1])
@@ -6685,7 +6504,7 @@ _op_switch_:
 		s.operands = s.operands[:l-1]
 		if s.vmpack != nil {
 			if elems := s.vmpack.comp.elems; len(elems) > 0 {
-				if reverse {
+				if s.class&clsBackwards != 0 {
 					if _, isLoc := elems[0].(*loc); !isLoc { elems[0] = _loc(elems[0], pos) }
 				} else {
 					last := len(elems) - 1
@@ -6758,7 +6577,7 @@ _op_switch_:
 				seq := vocab.sequences[t.Idx()]
 				vocab.seqmut.RUnlock()
 
-				if reverse {
+				if s.class&clsBackwards != 0 {
 					for _, sym := range seq {
 						s.ops = append(s.ops, opRet)
 						s.operands = append(s.operands, posym{t.Pos, sym})
@@ -6813,7 +6632,7 @@ _op_switch_:
 				seq := vocab.sequences[t.Idx()]
 				vocab.seqmut.RUnlock()
 
-				if reverse {
+				if s.class&clsBackwards != 0 {
 					for _, sym := range seq {
 						s.ops = append(s.ops, opRetPack)
 						s.operands = append(s.operands, posym{t.Pos, sym})
@@ -6834,7 +6653,7 @@ _op_switch_:
 		case Value:
 			s.operands = s.operands[:l-1]
 			if s.vmpack == nil { s.vmpack = &vmpack{} }
-			s.shift(t, reverse)
+			s.shift(t, s.class&clsBackwards != 0)
 
 		case []any:
 			s.operands = s.operands[:l-1]
@@ -6870,7 +6689,7 @@ _op_switch_:
 				seq := vocab.sequences[t.Idx()]
 				vocab.seqmut.RUnlock()
 
-				if reverse {
+				if s.class&clsBackwards != 0 {
 					for _, sym := range seq {
 						s.ops = append(s.ops, opRetMatch)
 						s.operands = append(s.operands, posym{t.Pos, sym})
@@ -6922,11 +6741,15 @@ _op_switch_:
 		s.err = io.EOF
 	}
 
-	if s.err == nil && s.tie != nil && len(s.ops) == 0 {
+	// FIX: Update bestStems even if the NFA branch bubbled up io.EOF directly.
+	// If the stack is perfectly exhausted, we MUST persist the success telemetry!
+	if (s.err == nil || s.err == io.EOF) && s.tie != nil && len(s.ops) == 0 {
 		s.bestOpsDone = s.opsDone
 		s.bestStems = append(s.bestStems[:0], s.stems...)
 		if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
-		if !s.tie.ensured_syms() { s.tie.err = io.EOF }
+		if !s.tie.ensured_syms() {
+			s.err = io.EOF // Propagate the EOF to the parent VM
+		}
 	}
 }
 
