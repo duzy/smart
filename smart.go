@@ -3216,7 +3216,7 @@ func (s *symstr) nfa_isolate() {
 }
 
 // HELPER 4: Branch Emission (Left side of split)
-func (s *symstr) nfa_emit(captured []posym, origCount, origLen int, reverse bool) {
+func (s *symstr) nfa_emit(captured []posym, origCount, origLen int) {
 	s.stems = s.stems[:origCount]
 	if origCount > 0 {
 		p := &s.stems[origCount-1]
@@ -3224,16 +3224,23 @@ func (s *symstr) nfa_emit(captured []posym, origCount, origLen int, reverse bool
 		p.syms = append(p.syms, captured...)
 	}
 	if len(captured) > 0 {
-		if reverse {
-			for _, ps := range captured {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, ps)
-			}
-		} else {
-			for i := len(captured) - 1; i >= 0; i-- {
-				s.ops = append(s.ops, opRetPack)
-				s.operands = append(s.operands, captured[i])
-			}
+		for i := len(captured) - 1; i >= 0; i-- {
+			s.ops = append(s.ops, opRetPack)
+			s.operands = append(s.operands, captured[i])
+		}
+	}
+}
+func (s *symstr) nfa_emit_rev(captured []posym, origCount, origLen int) {
+	s.stems = s.stems[:origCount]
+	if origCount > 0 {
+		p := &s.stems[origCount-1]
+		p.syms = p.syms[:origLen]
+		p.syms = append(p.syms, captured...)
+	}
+	if len(captured) > 0 {
+		for _, ps := range captured {
+			s.ops = append(s.ops, opRetPack)
+			s.operands = append(s.operands, ps)
 		}
 	}
 }
@@ -4120,7 +4127,7 @@ func (s *symstr) op_glob_seg(l int) {
 
 		if true {
 			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen, false)
+			s.nfa_emit(left, origStemsCount, origStemsLen)
 			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
@@ -4147,7 +4154,7 @@ func (s *symstr) op_glob_seg(l int) {
 
 	// Fallback
 	if len(stem) > 0 {
-		s.nfa_emit(stem, origStemsCount, origStemsLen, false)
+		s.nfa_emit(stem, origStemsCount, origStemsLen)
 		if s.tie != nil { s.tie.syms = origTieSyms }
 		return
 	}
@@ -4224,7 +4231,7 @@ func (s *symstr) op_glob_seg_rev(l int) {
 
 		if true {
 			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen, true)
+			s.nfa_emit_rev(left, origStemsCount, origStemsLen)
 			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
@@ -4251,7 +4258,7 @@ func (s *symstr) op_glob_seg_rev(l int) {
 
 	// Fallback
 	if len(stem) > 0 {
-		s.nfa_emit(stem, origStemsCount, origStemsLen, true)
+		s.nfa_emit_rev(stem, origStemsCount, origStemsLen)
 		if s.tie != nil { s.tie.syms = origTieSyms }
 		return
 	}
@@ -4317,7 +4324,7 @@ func (s *symstr) op_glob_greed(l int) {
 
 		if true {
 			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen, false)
+			s.nfa_emit(left, origStemsCount, origStemsLen)
 			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
@@ -4344,7 +4351,7 @@ func (s *symstr) op_glob_greed(l int) {
 
 	// Fallback
 	if len(stem) > 0 {
-		s.nfa_emit(stem, origStemsCount, origStemsLen, false)
+		s.nfa_emit(stem, origStemsCount, origStemsLen)
 		if s.tie != nil { s.tie.syms = origTieSyms }
 		return
 	}
@@ -4412,7 +4419,7 @@ func (s *symstr) op_glob_greed_rev(l int) {
 
 		if true {
 			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen, true)
+			s.nfa_emit_rev(left, origStemsCount, origStemsLen)
 			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
@@ -4439,7 +4446,7 @@ func (s *symstr) op_glob_greed_rev(l int) {
 
 	// Fallback
 	if len(stem) > 0 {
-		s.nfa_emit(stem, origStemsCount, origStemsLen, true)
+		s.nfa_emit_rev(stem, origStemsCount, origStemsLen)
 		if s.tie != nil { s.tie.syms = origTieSyms }
 		return
 	}
@@ -4505,7 +4512,7 @@ func (s *symstr) op_glob_cross(l int) {
 
 		if true {
 			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen, false)
+			s.nfa_emit(left, origStemsCount, origStemsLen)
 			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
@@ -4594,7 +4601,7 @@ func (s *symstr) op_glob_cross_rev(l int) {
 
 		if true {
 			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen, true)
+			s.nfa_emit_rev(left, origStemsCount, origStemsLen)
 			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
 
 			for s.err == nil && len(s.ops) > 0 { s.step() }
