@@ -1,7 +1,37 @@
 //
-//  Copyright (C) 2012-2026, Duzy Chan <code@extbit.io>, all rights reserverd.
-//  Use of this source code is governed by a BSD-style license that can be
-//  found in the LICENSE file.
+// Copyright (c) 2012-2026 Duzy Chan <smart@extbit.io> and ExtBit LLC.
+// All rights reserverd.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//    * Redistributions of source code must retain the above copyright
+//      notice, this list of conditions and the following disclaimer.
+//    * Redistributions in binary form must reproduce the above
+//      copyright notice, this list of conditions and the following disclaimer
+//      in the documentation and/or other materials provided with the
+//      distribution.
+//    * Neither the name of ExtBit LLC, Duzy Chan, nor the names of
+//      contributors may be used to endorse or promote products derived
+//      from this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+// THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+// PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS
+// BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+// THE POSSIBILITY OF SUCH DAMAGE.
+//
+// --------------------------------------------------------------------------------
+// Use of this source code is governed by a BSD-style license as above and a copy
+// of it can be found in the LICENSE file. Duzy Chan and ExtBit LLC hold all rights
+// for explanations.
 //
 
 package smart
@@ -2935,87 +2965,89 @@ type evalop uint8
 // The VM switch block statically knows how many operands to pop for each instruction.
 const (
 	// --- System & Control Bytecodes ---
-	opEnd               evalop = iota // Halts VM execution
-	opUnwind                          // Restores a previously saved backtracking checkpoint
-	opDebug                           // Prints debugging telemetry
-	opRestoreContext                  // Restores the previous context environment
+	opEnd                evalop = iota // Halts VM execution
+	opUnwind                           // Restores a previously saved backtracking checkpoint
+	opDebug                            // Prints debugging telemetry
+	opRestoreContext                   // Restores the previous context environment
 
 	// --- Stack & Data Manipulation Bytecodes ---
-	opSwap                            // Swap N results to operands
-	opCons                            // Consolidate N results to 1 operand (Variadic Swap)
-	opCompact                         // Consolidate N operands to 1 operand
-	opValidate                        // Validate N results and swap to operands if valid
-	opCompactValid                    // Validate N operands and consolidate valid items back
+	opSwap                             // Swap N results to operands
+	opCons                             // Consolidate N results to 1 operand (Variadic Swap)
+	opCompact                          // Consolidate N operands to 1 operand
+	opValidate                         // Validate N results and swap to operands if valid
+	opCompactValid                     // Validate N operands and consolidate valid items back
 
 	// --- Return & Yield Bytecodes ---
-	opRet                             // Yields a normal return value
-	opRetRev                          // Yields a normal return value (reversed direction)
-	opRetPack                         // Yields and packs a value
-	opRetPackRev                      // Yields and packs a value (reversed direction)
-	opRetMatch                        // Yields a match value
-	opRetMatchRev                     // Yields a match value (reversed direction)
-	opEvokeRet                        // Finalizes an evoke call and yields the result
+	opRet                              // Yields a normal return value
+	opRetRev                           // Yields a normal return value (reversed direction)
+	opRetPack                          // Yields and packs a value
+	opRetPackRev                       // Yields and packs a value (reversed direction)
+	opRetMatch                         // Yields a match value
+	opRetMatchRev                      // Yields a match value (reversed direction)
+	opEvokeRet                         // Finalizes an evoke call and yields the result
 
 	// --- Match Mode Bytecodes ---
-	opRegexMatch                      // Executes a regex match
-	opRegexMatchRev                   // Executes a regex match (reversed direction)
-	opRegexCon                        // Consumes matching regex literals
-	opMatchLiteral                    // Matches a string literal
-	opMatchLiteralRev                 // Matches a string literal (reversed direction)
-	opGlobQues                        // Matches a single '?' wildcard
-	opGlobQuesRev                     // Matches a single '?' wildcard (reversed direction)
-	opGlobAsterisk                    // Matches a segment '*' wildcard
-	opGlobAsteriskRev                 // Matches a segment '*' wildcard (reversed direction)
-	opGlobAstGreed                    // Matches a greedy '**' wildcard
-	opGlobAstGreedRev                 // Matches a greedy '**' wildcard (reversed direction)
-	opGlobAstCross                    // Matches a reluctant cross '**?' wildcard
-	opGlobAstCrossRev                 // Matches a reluctant cross '**?' wildcard (reversed direction)
-	opGlobRange                       // Matches a character range
-	opGlobRangeRev                    // Matches a character range (reversed direction)
-	opConseqAsterisk                  // Resolves consecutive segment asterisks
-	opConseqAsteriskRev               // Resolves consecutive segment asterisks (reversed direction)
-	opConseqAstGreed                  // Resolves consecutive greedy asterisks
-	opConseqAstGreedRev               // Resolves consecutive greedy asterisks (reversed direction)
-	opConseqAstCross                  // Resolves consecutive reluctant asterisks
-	opConseqAstCrossRev               // Resolves consecutive reluctant asterisks (reversed direction)
+	opRegexMatch                       // Executes a regex match
+	opRegexMatchRev                    // Executes a regex match (reversed direction)
+	opRegexCon                         // Consumes matching regex literals
+	opMatchLiteral                     // Matches a string literal
+	opMatchLiteralRev                  // Matches a string literal (reversed direction)
+	opGlobQues                         // Matches a single '?' wildcard
+	opGlobQuesRev                      // Matches a single '?' wildcard (reversed direction)
+	opGlobAsterisk                     // Matches a segment '*' wildcard
+	opGlobAsteriskRev                  // Matches a segment '*' wildcard (reversed direction)
+	opGlobAstGreed                     // Matches a greedy '**' wildcard
+	opGlobAstGreedRev                  // Matches a greedy '**' wildcard (reversed direction)
+	opTryGlobGreed                     // Implements try-catch fallback for greedy wildcards
+	opTryGlobGreedRev                  // Implements try-catch fallback for greedy wildcards (reversed direction)
+	opGlobAstCross                     // Matches a reluctant cross '**?' wildcard
+	opGlobAstCrossRev                  // Matches a reluctant cross '**?' wildcard (reversed direction)
+	opGlobRange                        // Matches a character range
+	opGlobRangeRev                     // Matches a character range (reversed direction)
+	opConseqAsterisk                   // Resolves consecutive segment asterisks
+	opConseqAsteriskRev                // Resolves consecutive segment asterisks (reversed direction)
+	opConseqAstGreed                   // Resolves consecutive greedy asterisks
+	opConseqAstGreedRev                // Resolves consecutive greedy asterisks (reversed direction)
+	opConseqAstCross                   // Resolves consecutive reluctant asterisks
+	opConseqAstCrossRev                // Resolves consecutive reluctant asterisks (reversed direction)
 
 	// --- Evaluate Mode Bytecodes ---
-	opEval                            // Evaluates an AST node
-	opUnroll                          // Unrolls a value onto the stack for normal return
-	opUnrollRev                       // Unrolls a value onto the stack for normal return (reversed direction)
-	opUnrollPack                      // Unrolls a value onto the stack for packed return
-	opUnrollPackRev                   // Unrolls a value onto the stack for packed return (reversed direction)
-	opUnrollMatch                     // Unrolls a value onto the stack for matched return
-	opUnrollMatchRev                  // Unrolls a value onto the stack for matched return (reversed direction)
-	opMerge                           // Recursively merges one result into elements of []Value
-	opCompound                        // Combines N results into a compound node
-	opQualword                        // Combines N results into a qualword node
-	opGlobbrace                       // Combines N results into a globbrace node
-	opPath                            // Combines N results into a path node
-	opPathStr                         // Converts path components to string equivalents
-	opEase                            // Eases N results into a single list or scalar result
-	opEvoke                           // Evokes a callable/function
-	opTraverse                        // Traverses an AST node
-	opResolve                         // Resolves a symbol/variable
-	opExpandArgs                      // Expands variadic arguments
-	opExpandArgsRev                   // Expands variadic arguments (reversed direction)
-	opExpand                          // Expands a list or collection
-	opExpandRev                       // Expands a list or collection (reversed direction)
-	opReduce                          // Reduces a scoped expansion
-	opReduceRev                       // Reduces a scoped expansion (reversed direction)
-	opUnloc                           // Strips location metadata from N results
-	opLoc                             // Annotates the top result with location metadata
-	opLocPack                         // Annotates packed elements with location metadata
-	opNegate                          // Applies logical negation wrapping
-	opFlag                            // Applies flag wrapping
-	opPair                            // Combines results into key-value pairs
-	opCompose                         // Composes complex element constructs
-	opConjunct                        // Merges results into a logical AND
-	opDisjunct                        // Merges results into a logical OR
-	opFullname                        // Resolves absolute path values
-	opRule                            // Instantiates a rule AST
-	opModify                          // Applies AST modification/mutation
-	opSelect                          // Executes a select/match branch evaluation
+	opEval                             // Evaluates an AST node
+	opUnroll                           // Unrolls a value onto the stack for normal return
+	opUnrollRev                        // Unrolls a value onto the stack for normal return (reversed direction)
+	opUnrollPack                       // Unrolls a value onto the stack for packed return
+	opUnrollPackRev                    // Unrolls a value onto the stack for packed return (reversed direction)
+	opUnrollMatch                      // Unrolls a value onto the stack for matched return
+	opUnrollMatchRev                   // Unrolls a value onto the stack for matched return (reversed direction)
+	opMerge                            // Recursively merges one result into elements of []Value
+	opCompound                         // Combines N results into a compound node
+	opQualword                         // Combines N results into a qualword node
+	opGlobbrace                        // Combines N results into a globbrace node
+	opPath                             // Combines N results into a path node
+	opPathStr                          // Converts path components to string equivalents
+	opEase                             // Eases N results into a single list or scalar result
+	opEvoke                            // Evokes a callable/function
+	opTraverse                         // Traverses an AST node
+	opResolve                          // Resolves a symbol/variable
+	opExpandArgs                       // Expands variadic arguments
+	opExpandArgsRev                    // Expands variadic arguments (reversed direction)
+	opExpand                           // Expands a list or collection
+	opExpandRev                        // Expands a list or collection (reversed direction)
+	opReduce                           // Reduces a scoped expansion
+	opReduceRev                        // Reduces a scoped expansion (reversed direction)
+	opUnloc                            // Strips location metadata from N results
+	opLoc                              // Annotates the top result with location metadata
+	opLocPack                          // Annotates packed elements with location metadata
+	opNegate                           // Applies logical negation wrapping
+	opFlag                             // Applies flag wrapping
+	opPair                             // Combines results into key-value pairs
+	opCompose                          // Composes complex element constructs
+	opConjunct                         // Merges results into a logical AND
+	opDisjunct                         // Merges results into a logical OR
+	opFullname                         // Resolves absolute path values
+	opRule                             // Instantiates a rule AST
+	opModify                           // Applies AST modification/mutation
+	opSelect                           // Executes a select/match branch evaluation
 )
 
 const (
@@ -3572,7 +3604,7 @@ func (s *symstr) op_match_literal_rev(l int) {
 		s.tie.pop_head()
 		s.vpos = lit.Pos
 		s.str = lit.Symbol.String()
-		
+
 		// FIX: Decode rune from the right end for reverse matching!
 		r, size := s.decodeRuneRev()
 		if size == 0 || r == 0 {
@@ -4167,7 +4199,7 @@ func (s *symstr) op_glob_seg_rev(l int) {
 	target := s.tie.syms[0]
 	if target.Symbol == symSlash { return }
 	// Assumes you created opConseqAsteriskRev
-	if s.nfa_eval_meta(target, opConseqAsterisk) { return } 
+	if s.nfa_eval_meta(target, opConseqAsterisk) { return }
 
 	nextLit := s.nfa_next_lit()
 
@@ -4265,192 +4297,427 @@ func (s *symstr) op_glob_seg_rev(l int) {
 	s.err = errMatchFailed
 }
 
+type matchcount struct {
+	lit posym
+	k   int
+}
+
+/*
+ * Algorithm: VM-Driven Incremental Greedy Wildcard Matching
+ * Applies to: op_glob_greed (Forward) and op_glob_greed_rev (Reverse)
+ *
+ * This algorithm achieves mathematically correct "longest-match" (High -> Low)
+ * greedy evaluation without prematurely exhausting the generator tape. By utilizing
+ * the VM's operational stack for continuation-passing, it avoids tape starvation
+ * and strictly prevents token duplication bugs.
+ *
+ * Execution Flow:
+ *
+ * 1. State Parsing (LIFO tracking):
+ *    - Pops the previous backtrack checkpoint (`bt`) and the lookahead literal (`nextLit`)
+ *      from the VM's operand stack. On the initial call, `bt` is nil and `nextLit` is
+ *      fetched by inspecting the downstream NFA operations (operands).
+ *
+ * 2. Incremental Accumulation & Rightmost Search:
+ *    - The algorithm pulls tokens from the generator (`s.tie`) chunk by chunk.
+ *    - It searches for the absolute rightmost occurrence of `nextLit` within the chunk:
+ *      - Forward (`op_glob_greed`): Uses `__posymSeqLastIndex` (right-to-left scan).
+ *      - Reverse (`op_glob_greed_rev`): Uses `__posymSeqIndex` (left-to-right scan on a
+ *        reversed tape inherently yields the rightmost boundary).
+ *    - If the token is not found, the chunk is pushed to the `stem` buffer and the
+ *      generator is polled again.
+ *
+ * 3. Match Continuation (When `nextLit` is found):
+ *    - The tape is split accurately at the matched boundary. The consumed `left` tokens
+ *      are emitted to the NFA, and the unconsumed `right` remainder is restored safely.
+ *    - A *new* backtrack checkpoint (`bt`) is created to overwrite the previous one.
+ *      This locks in the current state as the "latest successful longest match".
+ *    - `opConseqAstGreed` (along with `nextLit` and the new `bt`) is pushed back onto
+ *      the VM stack.
+ *    - The function returns immediately, commanding the VM to recursively search deeper
+ *      into the generator stream for subsequent `nextLit` instances.
+ *
+ * 4. Exhaustion & Unwind (When stream ends / Match misses):
+ *    - Once the generator stream reaches EOF without finding another `nextLit`, the
+ *      loop breaks. The unconsumed `stem` is restored to the tape.
+ *    - If `bt != nil`, it means an earlier sub-match succeeded. The VM unwinds the state
+ *      back to that last successful checkpoint, clears the error, and natively yields
+ *      execution to the downstream AST nodes to finalize the pattern.
+ *    - If `bt == nil`, the required token was never found, triggering `errMatchFailed`.
+ */
+
 func (s *symstr) op_glob_greed(l int) {
-	if !s.tie.ensured_syms() { return }
-
-	target := s.tie.syms[0]
-	if s.nfa_eval_meta(target, opConseqAstGreed) { return }
-
-	nextLit := s.nfa_next_lit()
-
-	// PHASE 1: Exhaustive Accumulation
+	var nextLit posym
 	var stem []posym
-	for s.err == nil && s.tie.ensured_syms() {
-		stem = append(stem, s.tie.syms...)
-		s.tie.syms = nil
+
+	if l >= 2 {
+		if st, ok := s.operands[l-1].([]posym); ok {
+			if lit, ok := s.operands[l-2].(posym); ok {
+				stem = st
+				nextLit = lit
+				s.operands = s.operands[:l-2]
+			}
+		}
+	}
+	if stem == nil && l >= 1 {
+		if lit, ok := s.operands[l-1].(posym); ok {
+			nextLit = lit
+			s.operands = s.operands[:l-1]
+		}
 	}
 
-	masterBt := s.checkpoint(undoBranch)
-	s.nfa_isolate()
-
-	origStemsCount := len(s.stems)
-	var origStemsLen int
-	if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
-
-	var origTieSyms []posym
-	if s.tie != nil { origTieSyms = s.tie.syms }
-
-	var totalBytes int
-	for _, ps := range stem { totalBytes += ps.len() }
-
-	// PHASE 2: NFA Branching (Greedy: High -> Low)
-	for absIdx := totalBytes; ; {
-		left, right, targetIdx := __posymSeqSplitAt(stem, absIdx)
-		rightValid := right.Symbol != symEmpty || right.len() > 0
-
-		if targetIdx != -1 && targetIdx < len(stem) {
-			if targetIdx < len(stem) && isWildcardMeta(stem[targetIdx].Symbol) { goto next_iter } else
-			if targetIdx+1 < len(stem) && isWildcardMeta(stem[targetIdx+1].Symbol) { goto next_iter }
-		}
-
-		if targetIdx != -1 && nextLit.Symbol != symEmpty {
-			peekSym := right.Symbol
-			if peekSym == symEmpty && rightValid {
-				peekSym = intern(right.String())
-			} else if peekSym == symEmpty {
-				if targetIdx+1 < len(stem) {
-					peekSym = stem[targetIdx+1].Symbol
-				} else if len(s.tie.syms) > 0 {
-					peekSym = s.tie.syms[0].Symbol
-				}
-			}
-
-			if peekSym != symEmpty {
-				if !peekSym.has_prefix(nextLit.Symbol) && !nextLit.Symbol.has_prefix(peekSym) { goto next_iter }
-			} else {
-				goto next_iter
-			}
-		}
-
-		if true {
-			s.nfa_isolate()
-			s.nfa_emit(left, origStemsCount, origStemsLen)
-			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
-
-			for s.err == nil && len(s.ops) > 0 { s.step() }
-
-			if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
-
-			if s.err == io.EOF {
-				s.tie.ensured_syms()
-				return
-			}
-
-			s.unwind(&masterBt)
-			s.err = nil
-			if s.tie != nil {
-				s.tie.err = nil
-				s.tie.syms = origTieSyms
-			}
-		}
-
-	next_iter:
-		if absIdx == 0 { break }
-		absIdx -= 1
+	if nextLit.Symbol == symEmpty {
+		nextLit = s.nfa_next_lit()
 	}
 
-	// Fallback
-	if len(stem) > 0 {
-		s.nfa_emit(stem, origStemsCount, origStemsLen)
-		if s.tie != nil { s.tie.syms = origTieSyms }
+	if len(s.tie.syms) > 0 {
+		if s.nfa_eval_meta(s.tie.syms[0], opConseqAstGreed) { return }
+	}
+
+	if s.err != nil {
 		return
 	}
+
+	if s.tie.ensured_syms() {
+		stem = append(stem, s.tie.syms...)
+		s.tie.syms = nil
+
+		if nextLit.Symbol == symEmpty {
+			s.ops = append(s.ops, opConseqAstGreed)
+			s.operands = append(s.operands, nextLit, stem)
+			return
+		}
+
+		var totalBytes int
+		for _, ps := range stem { totalBytes += ps.len() }
+
+		idx := __posymSeqLastIndex(stem, totalBytes-1, nextLit.Symbol)
+
+		if idx == -1 {
+			s.ops = append(s.ops, opConseqAstGreed)
+			s.operands = append(s.operands, nextLit, stem)
+			return
+		}
+
+		s.ops = append(s.ops, opTryGlobGreed)
+		s.operands = append(s.operands, nextLit, idx, stem)
+
+		s.checkpoint(undoBranch)
+
+		s.ops = s.ops[:len(s.ops)-1]
+		s.operands = s.operands[:len(s.operands)-3]
+
+		left, right, targetIdx := __posymSeqSplitAt(stem, idx)
+		rightValid := right.Symbol != symEmpty || right.len() > 0
+
+		origStemsCount := len(s.stems)
+		var origStemsLen int
+		if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
+		s.nfa_emit(left, origStemsCount, origStemsLen)
+
+		var restore []posym
+		if rightValid { restore = append(restore, right) }
+		if targetIdx != -1 && targetIdx+1 < len(stem) {
+			restore = append(restore, stem[targetIdx+1:]...)
+		}
+		s.tie.syms = restore
+		return
+	}
+
+	if nextLit.Symbol == symEmpty {
+		origStemsCount := len(s.stems)
+		var origStemsLen int
+		if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+		s.nfa_emit(stem, origStemsCount, origStemsLen)
+		return
+	}
+
+	if len(stem) > 0 {
+		var totalBytes int
+		for _, ps := range stem { totalBytes += ps.len() }
+		idx := totalBytes
+
+		s.ops = append(s.ops, opTryGlobGreed)
+		s.operands = append(s.operands, nextLit, idx, stem)
+
+		s.checkpoint(undoBranch)
+
+		s.ops = s.ops[:len(s.ops)-1]
+		s.operands = s.operands[:len(s.operands)-3]
+
+		left, right, targetIdx := __posymSeqSplitAt(stem, idx)
+		rightValid := right.Symbol != symEmpty || right.len() > 0
+
+		origStemsCount := len(s.stems)
+		var origStemsLen int
+		if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
+		s.nfa_emit(left, origStemsCount, origStemsLen)
+
+		var restore []posym
+		if rightValid { restore = append(restore, right) }
+		if targetIdx != -1 && targetIdx+1 < len(stem) {
+			restore = append(restore, stem[targetIdx+1:]...)
+		}
+		s.tie.syms = restore
+		return
+	}
+
+	if s.tie != nil { s.tie.syms = stem }
 	s.err = errMatchFailed
 }
 
-func (s *symstr) op_glob_greed_rev(l int) {
-	if !s.tie.ensured_syms() { return }
-
-	target := s.tie.syms[0]
-	// Assumes you created opConseqAstGreedRev
-	if s.nfa_eval_meta(target, opConseqAstGreed) { return }
-
-	nextLit := s.nfa_next_lit()
-
-	// PHASE 1: Exhaustive Accumulation
+func (s *symstr) op_try_glob_greed(l int) {
+	var nextLit posym
+	var lastIdx int
 	var stem []posym
-	for s.err == nil && s.tie.ensured_syms() {
-		stem = append(stem, s.tie.syms...)
-		s.tie.syms = nil
+
+	if l >= 3 {
+		if st, ok := s.operands[l-1].([]posym); ok {
+			if idx, ok := s.operands[l-2].(int); ok {
+				if lit, ok := s.operands[l-3].(posym); ok {
+					stem = st
+					lastIdx = idx
+					nextLit = lit
+					s.operands = s.operands[:l-3]
+				}
+			}
+		}
 	}
 
-	masterBt := s.checkpoint(undoBranch)
-	s.nfa_isolate()
+	idx := -1
+	searchStart := lastIdx - 1
+
+	if searchStart >= 0 {
+		if nextLit.Symbol != symEmpty {
+			idx = __posymSeqLastIndex(stem, searchStart, nextLit.Symbol)
+		}
+		if idx == -1 {
+			idx = searchStart
+		}
+	}
+
+	if idx < 0 {
+		if s.tie != nil && s.tie.ensured_syms() {
+			s.ops = append(s.ops, opConseqAstGreed)
+			s.operands = append(s.operands, nextLit, stem)
+			return
+		}
+		if s.tie != nil { s.tie.syms = stem }
+		s.err = errMatchFailed
+		return
+	}
+
+	s.ops = append(s.ops, opTryGlobGreed)
+	s.operands = append(s.operands, nextLit, idx, stem)
+
+	s.checkpoint(undoBranch)
+
+	s.ops = s.ops[:len(s.ops)-1]
+	s.operands = s.operands[:len(s.operands)-3]
+
+	left, right, targetIdx := __posymSeqSplitAt(stem, idx)
+	rightValid := right.Symbol != symEmpty || right.len() > 0
 
 	origStemsCount := len(s.stems)
 	var origStemsLen int
 	if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
 
-	var origTieSyms []posym
-	if s.tie != nil { origTieSyms = s.tie.syms }
+	s.nfa_emit(left, origStemsCount, origStemsLen)
+
+	var restore []posym
+	if rightValid { restore = append(restore, right) }
+	if targetIdx != -1 && targetIdx+1 < len(stem) {
+		restore = append(restore, stem[targetIdx+1:]...)
+	}
+	s.tie.syms = restore
+}
+
+func (s *symstr) op_glob_greed_rev(l int) {
+	var nextLit posym
+	var stem []posym
+
+	if l >= 2 {
+		if st, ok := s.operands[l-1].([]posym); ok {
+			if lit, ok := s.operands[l-2].(posym); ok {
+				stem = st
+				nextLit = lit
+				s.operands = s.operands[:l-2]
+			}
+		}
+	}
+	if stem == nil && l >= 1 {
+		if lit, ok := s.operands[l-1].(posym); ok {
+			nextLit = lit
+			s.operands = s.operands[:l-1]
+		}
+	}
+
+	if nextLit.Symbol == symEmpty {
+		nextLit = s.nfa_next_lit()
+	}
+
+	if len(s.tie.syms) > 0 {
+		if s.nfa_eval_meta(s.tie.syms[0], opConseqAstGreedRev) { return }
+	}
+
+	if s.err != nil {
+		return
+	}
+
+	if s.tie.ensured_syms() {
+		stem = append(stem, s.tie.syms...)
+		s.tie.syms = nil
+
+		if nextLit.Symbol == symEmpty {
+			s.ops = append(s.ops, opConseqAstGreedRev)
+			s.operands = append(s.operands, nextLit, stem)
+			return
+		}
+
+		idx := __posymSeqIndex(stem, 0, nextLit.Symbol)
+
+		if idx == -1 {
+			s.ops = append(s.ops, opConseqAstGreedRev)
+			s.operands = append(s.operands, nextLit, stem)
+			return
+		}
+
+		s.ops = append(s.ops, opTryGlobGreedRev)
+		s.operands = append(s.operands, nextLit, idx, stem)
+
+		s.checkpoint(undoBranch)
+
+		s.ops = s.ops[:len(s.ops)-1]
+		s.operands = s.operands[:len(s.operands)-3]
+
+		left, right, targetIdx := __posymSeqSplitAt(stem, idx)
+		rightValid := right.Symbol != symEmpty || right.len() > 0
+
+		origStemsCount := len(s.stems)
+		var origStemsLen int
+		if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
+		s.nfa_emit_rev(left, origStemsCount, origStemsLen)
+
+		var restore []posym
+		if rightValid { restore = append(restore, right) }
+		if targetIdx != -1 && targetIdx+1 < len(stem) {
+			restore = append(restore, stem[targetIdx+1:]...)
+		}
+		s.tie.syms = restore
+		return
+	}
+
+	if nextLit.Symbol == symEmpty {
+		origStemsCount := len(s.stems)
+		var origStemsLen int
+		if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+		s.nfa_emit_rev(stem, origStemsCount, origStemsLen)
+		return
+	}
+
+	if len(stem) > 0 {
+		idx := 0
+
+		s.ops = append(s.ops, opTryGlobGreedRev)
+		s.operands = append(s.operands, nextLit, idx, stem)
+
+		s.checkpoint(undoBranch)
+
+		s.ops = s.ops[:len(s.ops)-1]
+		s.operands = s.operands[:len(s.operands)-3]
+
+		left, right, targetIdx := __posymSeqSplitAt(stem, idx)
+		rightValid := right.Symbol != symEmpty || right.len() > 0
+
+		origStemsCount := len(s.stems)
+		var origStemsLen int
+		if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
+		s.nfa_emit_rev(left, origStemsCount, origStemsLen)
+
+		var restore []posym
+		if rightValid { restore = append(restore, right) }
+		if targetIdx != -1 && targetIdx+1 < len(stem) {
+			restore = append(restore, stem[targetIdx+1:]...)
+		}
+		s.tie.syms = restore
+		return
+	}
+
+	if s.tie != nil { s.tie.syms = stem }
+	s.err = errMatchFailed
+}
+
+func (s *symstr) op_try_glob_greed_rev(l int) {
+	var nextLit posym
+	var lastIdx int
+	var stem []posym
+
+	if l >= 3 {
+		if st, ok := s.operands[l-1].([]posym); ok {
+			if idx, ok := s.operands[l-2].(int); ok {
+				if lit, ok := s.operands[l-3].(posym); ok {
+					stem = st
+					lastIdx = idx
+					nextLit = lit
+					s.operands = s.operands[:l-3]
+				}
+			}
+		}
+	}
 
 	var totalBytes int
 	for _, ps := range stem { totalBytes += ps.len() }
 
-	// PHASE 2: NFA Branching (Greedy: High -> Low)
-	for absIdx := totalBytes; ; {
-		left, right, targetIdx := __posymSeqSplitAt(stem, absIdx)
-		rightValid := right.Symbol != symEmpty || right.len() > 0
+	idx := -1
+	searchStart := lastIdx + 1
 
-		if targetIdx != -1 && targetIdx < len(stem) {
-			checkIdx := len(stem) - 1 - targetIdx
-			if checkIdx >= 0 && isWildcardMeta(stem[checkIdx].Symbol) { goto next_iter } else
-			if checkIdx-1 >= 0 && isWildcardMeta(stem[checkIdx-1].Symbol) { goto next_iter }
+	if searchStart <= totalBytes {
+		if nextLit.Symbol != symEmpty {
+			idx = __posymSeqIndex(stem, searchStart, nextLit.Symbol)
 		}
-
-		if targetIdx != -1 && nextLit.Symbol != symEmpty {
-			peekSym := right.Symbol
-			if peekSym == symEmpty && rightValid {
-				peekSym = intern(right.String())
-			} else if peekSym == symEmpty {
-				if targetIdx+1 < len(stem) {
-					peekSym = stem[targetIdx+1].Symbol
-				} else if len(s.tie.syms) > 0 {
-					peekSym = s.tie.syms[0].Symbol
-				}
-			}
-
-			if peekSym != symEmpty {
-				if !peekSym.has_suffix(nextLit.Symbol) && !nextLit.Symbol.has_suffix(peekSym) { goto next_iter }
-			} else {
-				goto next_iter
-			}
+		if idx == -1 {
+			idx = searchStart
 		}
-
-		if true {
-			s.nfa_isolate()
-			s.nfa_emit_rev(left, origStemsCount, origStemsLen)
-			s.nfa_push_unconsumed(rightValid, right, targetIdx, stem, origTieSyms)
-
-			for s.err == nil && len(s.ops) > 0 { s.step() }
-
-			if s.err == nil && len(s.ops) == 0 { s.err = io.EOF }
-
-			if s.err == io.EOF {
-				s.tie.ensured_syms()
-				return
-			}
-
-			s.unwind(&masterBt)
-			s.err = nil
-			if s.tie != nil {
-				s.tie.err = nil
-				s.tie.syms = origTieSyms
-			}
-		}
-
-	next_iter:
-		if absIdx == 0 { break }
-		absIdx -= 1
 	}
 
-	// Fallback
-	if len(stem) > 0 {
-		s.nfa_emit_rev(stem, origStemsCount, origStemsLen)
-		if s.tie != nil { s.tie.syms = origTieSyms }
+	if idx > totalBytes || idx == -1 {
+		if s.tie != nil && s.tie.ensured_syms() {
+			s.ops = append(s.ops, opConseqAstGreedRev)
+			s.operands = append(s.operands, nextLit, stem)
+			return
+		}
+		if s.tie != nil { s.tie.syms = stem }
+		s.err = errMatchFailed
 		return
 	}
-	s.err = errMatchFailed
+
+	s.ops = append(s.ops, opTryGlobGreedRev)
+	s.operands = append(s.operands, nextLit, idx, stem)
+
+	s.checkpoint(undoBranch)
+
+	s.ops = s.ops[:len(s.ops)-1]
+	s.operands = s.operands[:len(s.operands)-3]
+
+	left, right, targetIdx := __posymSeqSplitAt(stem, idx)
+	rightValid := right.Symbol != symEmpty || right.len() > 0
+
+	origStemsCount := len(s.stems)
+	var origStemsLen int
+	if origStemsCount > 0 { origStemsLen = len(s.stems[origStemsCount-1].syms) }
+
+	s.nfa_emit_rev(left, origStemsCount, origStemsLen)
+
+	var restore []posym
+	if rightValid { restore = append(restore, right) }
+	if targetIdx != -1 && targetIdx+1 < len(stem) {
+		restore = append(restore, stem[targetIdx+1:]...)
+	}
+	s.tie.syms = restore
 }
 
 func (s *symstr) op_glob_cross(l int) {
@@ -6245,7 +6512,7 @@ func (s *symstr) op_unroll_match(l int) {
 		if s.vmpack != nil {
 			retVal(v)
 		} else {
-			s.ops = append(s.ops, opRetMatch, opUnrollMatch)
+			s.ops = append(s.ops, opUnrollMatch, opUnrollMatch)
 			s.operands = append(s.operands, v.identifier, v.value)
 		}
 
@@ -6274,7 +6541,7 @@ func (s *symstr) op_unroll_match(l int) {
 			s.ops = append(s.ops, opMatchLiteral)
 			s.operands = append(s.operands, posym{v.Pos(), symQuotation})
 			for i := len(v.elems) - 1; i >= 0; i-- {
-				s.ops = append(s.ops, opRetMatch)
+				s.ops = append(s.ops, opUnrollMatch)
 				s.operands = append(s.operands, v.elems[i])
 			}
 			s.ops = append(s.ops, opMatchLiteral)
@@ -6603,7 +6870,7 @@ func (s *symstr) op_unroll_match_rev(l int) {
 		if s.vmpack != nil {
 			retVal(v)
 		} else {
-			s.ops = append(s.ops, opUnrollMatchRev, opRetMatchRev)
+			s.ops = append(s.ops, opUnrollMatchRev, opUnrollMatchRev)
 			s.operands = append(s.operands, v.value, v.identifier)
 		}
 
@@ -6632,7 +6899,7 @@ func (s *symstr) op_unroll_match_rev(l int) {
 			s.ops = append(s.ops, opMatchLiteralRev)
 			s.operands = append(s.operands, posym{v.Pos(), symQuotation})
 			for i := 0; i < len(v.elems); i++ {
-				s.ops = append(s.ops, opRetMatchRev)
+				s.ops = append(s.ops, opUnrollMatchRev)
 				s.operands = append(s.operands, v.elems[i])
 			}
 			s.ops = append(s.ops, opMatchLiteralRev)
@@ -7307,12 +7574,15 @@ _op_switch_:
 
 	case opConseqAsterisk: s.op_glob_seg(l)
 	case opConseqAsteriskRev: s.op_glob_seg_rev(l)
-	
+
 	case opConseqAstGreed: s.op_glob_greed(l)
 	case opConseqAstGreedRev: s.op_glob_greed_rev(l)
-	
+
 	case opConseqAstCross: s.op_glob_cross(l)
 	case opConseqAstCrossRev: s.op_glob_cross_rev(l)
+
+	case opTryGlobGreed: s.op_try_glob_greed(l)
+	case opTryGlobGreedRev: s.op_try_glob_greed_rev(l)
 
 	case opModify:
 		g := s.operands[l-1].(*group)
@@ -8050,7 +8320,7 @@ _op_switch_:
 		s.bestStems = append(s.bestStems[:0], s.stems...)
 		if s.vmpack != nil { s.bestPack = s.vmpack.clone() }
 		if !s.tie.ensured_syms() {
-			s.err = io.EOF 
+			s.err = io.EOF
 		}
 	}
 }
